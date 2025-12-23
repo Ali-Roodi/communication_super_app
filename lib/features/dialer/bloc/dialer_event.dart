@@ -37,3 +37,5 @@ class DialerFilterContacts extends DialerEvent {
   List<Object?> get props => [query];
 }
 
+
+
