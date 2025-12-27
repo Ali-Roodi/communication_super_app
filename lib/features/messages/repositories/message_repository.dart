@@ -16,20 +16,24 @@ class MessageRepository {
     return message.id;
   }
 
-  Future<List<MessageModel>> getMessagesByThread(String threadId) async {
+  Future<List<MessageModel>> getMessagesByThread(String threadId, {int? limit, int? offset}) async {
     final db = await _dbHelper.database;
     final maps = await db.query(
       AppConstants.messagesTable,
       where: 'thread_id = ?',
       whereArgs: [threadId],
       orderBy: 'timestamp ASC',
+      limit: limit,
+      offset: offset,
     );
     return maps.map((map) => MessageModel.fromMap(map)).toList();
   }
 
-  Future<List<MessageThread>> getAllThreads() async {
+  Future<List<MessageThread>> getAllThreads({int? limit, int? offset}) async {
     final db = await _dbHelper.database;
-    final maps = await db.rawQuery('''
+    
+    // Build the query with optional pagination
+    String query = '''
       SELECT 
         m.thread_id,
         m.phone_number,
@@ -49,7 +53,16 @@ class MessageRepository {
       ) latest ON latest.thread_id = m.thread_id AND latest.max_ts = m.timestamp
       LEFT JOIN ${AppConstants.contactsTable} c ON c.id = m.contact_id
       ORDER BY m.timestamp DESC
-    ''');
+    ''';
+    
+    if (limit != null) {
+      query += ' LIMIT $limit';
+      if (offset != null) {
+        query += ' OFFSET $offset';
+      }
+    }
+    
+    final maps = await db.rawQuery(query);
 
     final threads = <MessageThread>[];
     for (var map in maps) {

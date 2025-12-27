@@ -7,6 +7,7 @@ import '../services/sms_service.dart';
 class MessageBloc extends Bloc<MessageEvent, MessageState> {
   final MessageRepository _repository = MessageRepository();
   final SmsService _smsService = SmsService();
+  static bool _hasImported = false;
 
   MessageBloc() : super(const MessageInitial()) {
     on<LoadThreads>(_onLoadThreads);
@@ -37,8 +38,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   ) async {
     emit(const MessageLoading());
     try {
-      // Import device messages once to hydrate the local store
-      await _smsService.importDeviceMessages();
+      // Import device messages only once per app session (or on explicit force)
+      if (!_hasImported || event.forceRefresh) {
+        await _smsService.importDeviceMessages(forceRefresh: event.forceRefresh);
+        _hasImported = true;
+      }
 
       final threads = await _repository.getAllThreads();
       emit(ThreadsLoaded(threads));

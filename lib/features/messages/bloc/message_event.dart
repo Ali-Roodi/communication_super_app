@@ -9,7 +9,12 @@ abstract class MessageEvent extends Equatable {
 }
 
 class LoadThreads extends MessageEvent {
-  const LoadThreads();
+  final bool forceRefresh;
+  
+  const LoadThreads({this.forceRefresh = false});
+  
+  @override
+  List<Object?> get props => [forceRefresh];
 }
 
 class LoadMessages extends MessageEvent {
@@ -60,6 +65,7 @@ class DeleteThread extends MessageEvent {
   @override
   List<Object?> get props => [threadId];
 }
+
 
 
 

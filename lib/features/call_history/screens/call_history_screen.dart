@@ -10,13 +10,23 @@ import 'package:communication_super_app/core/widgets/lock_button.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 
-class CallHistoryScreen extends StatelessWidget {
+class CallHistoryScreen extends StatefulWidget {
   const CallHistoryScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    context.read<CallLogBloc>().add(const LoadCallLogs());
+  State<CallHistoryScreen> createState() => _CallHistoryScreenState();
+}
 
+class _CallHistoryScreenState extends State<CallHistoryScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Load call logs once when screen initializes
+    context.read<CallLogBloc>().add(const LoadCallLogs());
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: RtlAppBar(
         title: 'تاریخچه تماس ها',

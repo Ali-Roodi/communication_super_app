@@ -15,22 +15,26 @@ class CallLogRepository {
     );
   }
 
-  Future<List<CallLogModel>> getAllCallLogs() async {
+  Future<List<CallLogModel>> getAllCallLogs({int? limit, int? offset}) async {
     final db = await _dbHelper.database;
     final maps = await db.query(
       AppConstants.callLogsTable,
       orderBy: 'timestamp DESC',
+      limit: limit,
+      offset: offset,
     );
     return maps.map((map) => CallLogModel.fromMap(map)).toList();
   }
 
-  Future<List<CallLogModel>> getCallLogsByContact(String contactId) async {
+  Future<List<CallLogModel>> getCallLogsByContact(String contactId, {int? limit, int? offset}) async {
     final db = await _dbHelper.database;
     final maps = await db.query(
       AppConstants.callLogsTable,
       where: 'contact_id = ?',
       whereArgs: [contactId],
       orderBy: 'timestamp DESC',
+      limit: limit,
+      offset: offset,
     );
     return maps.map((map) => CallLogModel.fromMap(map)).toList();
   }

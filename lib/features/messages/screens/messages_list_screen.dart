@@ -9,13 +9,23 @@ import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'conversation_screen.dart';
 
-class MessagesListScreen extends StatelessWidget {
+class MessagesListScreen extends StatefulWidget {
   const MessagesListScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    context.read<MessageBloc>().add(const LoadThreads());
+  State<MessagesListScreen> createState() => _MessagesListScreenState();
+}
 
+class _MessagesListScreenState extends State<MessagesListScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Load threads once when screen initializes
+    context.read<MessageBloc>().add(const LoadThreads());
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: RtlAppBar(
         title: 'پیام نگار قاسم',
