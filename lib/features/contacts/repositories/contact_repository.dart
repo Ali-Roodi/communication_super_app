@@ -10,6 +10,11 @@ class ContactRepository {
   static List<ContactModel>? _cache;
   static bool _isLoading = false;
 
+  /// Invalidate the cache to force a reload on next request
+  void invalidateCache() {
+    _cache = null;
+  }
+
   Future<bool> _ensurePermission() async {
     return device_contacts.FlutterContacts.requestPermission();
   }
@@ -97,6 +102,7 @@ class ContactRepository {
       contact.toMap(),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+    invalidateCache(); // Invalidate cache after creating
     return contact.id;
   }
 
@@ -108,6 +114,7 @@ class ContactRepository {
       where: 'id = ?',
       whereArgs: [contact.id],
     );
+    invalidateCache(); // Invalidate cache after updating
   }
 
   Future<void> deleteContact(String id) async {
@@ -117,6 +124,7 @@ class ContactRepository {
       where: 'id = ?',
       whereArgs: [id],
     );
+    invalidateCache(); // Invalidate cache after deleting
   }
 
   Future<List<ContactModel>> searchContacts(String query) async {

@@ -60,7 +60,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     final isValid = await _repository.validatePin(event.pin);
     if (isValid) {
       await _repository.setAuthenticated(true);
-      emit(const AuthValidationSuccess());
       emit(const AuthAuthenticated());
     } else {
       emit(const AuthValidationFailure('Invalid PIN'));
@@ -88,7 +87,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     final isValid = await _repository.validatePattern(event.pattern);
     if (isValid) {
       await _repository.setAuthenticated(true);
-      emit(const AuthValidationSuccess());
       emit(const AuthAuthenticated());
     } else {
       emit(const AuthValidationFailure('Invalid pattern'));

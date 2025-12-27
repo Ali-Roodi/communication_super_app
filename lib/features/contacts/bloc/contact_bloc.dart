@@ -51,8 +51,12 @@ class ContactBloc extends Bloc<ContactEvent, ContactState> {
   ) async {
     try {
       await _repository.createContact(event.contact);
+      // Invalidate cache to force reload on next request
+      _repository.invalidateCache();
       emit(const ContactOperationSuccess());
-      add(const LoadContacts());
+      // Reload contacts to show the new one
+      final contacts = await _repository.getAllContacts();
+      emit(ContactsLoaded(contacts));
     } catch (e) {
       emit(ContactError(e.toString()));
     }
@@ -64,8 +68,12 @@ class ContactBloc extends Bloc<ContactEvent, ContactState> {
   ) async {
     try {
       await _repository.updateContact(event.contact);
+      // Invalidate cache to force reload on next request
+      _repository.invalidateCache();
       emit(const ContactOperationSuccess());
-      add(const LoadContacts());
+      // Reload contacts to show the updated one
+      final contacts = await _repository.getAllContacts();
+      emit(ContactsLoaded(contacts));
     } catch (e) {
       emit(ContactError(e.toString()));
     }
@@ -77,8 +85,12 @@ class ContactBloc extends Bloc<ContactEvent, ContactState> {
   ) async {
     try {
       await _repository.deleteContact(event.id);
+      // Invalidate cache to force reload on next request
+      _repository.invalidateCache();
       emit(const ContactOperationSuccess());
-      add(const LoadContacts());
+      // Reload contacts to show the changes
+      final contacts = await _repository.getAllContacts();
+      emit(ContactsLoaded(contacts));
     } catch (e) {
       emit(ContactError(e.toString()));
     }
@@ -101,6 +113,7 @@ class ContactBloc extends Bloc<ContactEvent, ContactState> {
     }
   }
 }
+
 
 
 

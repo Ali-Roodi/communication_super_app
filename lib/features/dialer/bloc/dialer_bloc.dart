@@ -40,26 +40,28 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     Emitter<DialerState> emit,
   ) {
     final currentState = state;
-    String newPhoneNumber = '';
+    String currentPhoneNumber = '';
     
     if (currentState is DialerInitial) {
-      newPhoneNumber = currentState.phoneNumber + event.number;
+      currentPhoneNumber = currentState.phoneNumber;
     } else if (currentState is DialerFiltered) {
-      newPhoneNumber = currentState.phoneNumber + event.number;
+      currentPhoneNumber = currentState.phoneNumber;
     } else if (currentState is DialerLoading) {
-      newPhoneNumber = currentState.phoneNumber + event.number;
+      currentPhoneNumber = currentState.phoneNumber;
     }
+    
+    final newPhoneNumber = currentPhoneNumber + event.number;
 
     // Cancel previous debounce timer
     _debounceTimer?.cancel();
 
-    // Debounce the filtering
+    // Emit loading state with new phone number immediately
+    emit(DialerLoading(newPhoneNumber));
+
+    // Debounce the filtering to avoid excessive work
     _debounceTimer = Timer(const Duration(milliseconds: 300), () {
       add(DialerFilterContacts(newPhoneNumber));
     });
-
-    // Immediately update the phone number
-    emit(DialerLoading(newPhoneNumber));
   }
 
   void _onNumberCleared(
@@ -75,19 +77,21 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     Emitter<DialerState> emit,
   ) {
     final currentState = state;
-    String newPhoneNumber = '';
+    String currentPhoneNumber = '';
     
     if (currentState is DialerInitial) {
-      newPhoneNumber = currentState.phoneNumber;
+      currentPhoneNumber = currentState.phoneNumber;
     } else if (currentState is DialerFiltered) {
-      newPhoneNumber = currentState.phoneNumber;
+      currentPhoneNumber = currentState.phoneNumber;
     } else if (currentState is DialerLoading) {
-      newPhoneNumber = currentState.phoneNumber;
+      currentPhoneNumber = currentState.phoneNumber;
     }
 
-    if (newPhoneNumber.isNotEmpty) {
-      newPhoneNumber = newPhoneNumber.substring(0, newPhoneNumber.length - 1);
+    if (currentPhoneNumber.isEmpty) {
+      return; // Nothing to delete
     }
+
+    final newPhoneNumber = currentPhoneNumber.substring(0, currentPhoneNumber.length - 1);
 
     // Cancel previous debounce timer
     _debounceTimer?.cancel();
@@ -95,11 +99,13 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     if (newPhoneNumber.isEmpty) {
       emit(const DialerInitial());
     } else {
+      // Emit loading state immediately
+      emit(DialerLoading(newPhoneNumber));
+      
       // Debounce the filtering
       _debounceTimer = Timer(const Duration(milliseconds: 300), () {
         add(DialerFilterContacts(newPhoneNumber));
       });
-      emit(DialerLoading(newPhoneNumber));
     }
   }
 
@@ -147,6 +153,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     return super.close();
   }
 }
+
 
 
 

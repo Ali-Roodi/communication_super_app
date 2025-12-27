@@ -48,9 +48,11 @@ class CallLogService {
 
       // Preload contacts once to map numbers -> names/ids
       final contacts = await _contactRepository.getAllContacts();
-      final contactMap = {
-        for (var c in contacts) _normalizePhoneNumber(c.phoneNumber): c,
-      };
+      final contactMap = <String, Map<String, String>>{};
+      for (var c in contacts) {
+        final normalized = _normalizePhoneNumber(c.phoneNumber);
+        contactMap[normalized] = {'id': c.id, 'name': c.name};
+      }
 
       final Iterable<call_log.CallLogEntry> entries = await call_log.CallLog.get();
 
@@ -67,10 +69,10 @@ class CallLogService {
       }).toList();
 
       // Map on a background isolate to avoid UI jank
-      final mapped = await Isolate.run<List<CallLogModel>>(() {
+      final mapped = await Isolate.run<List<Map<String, dynamic>>>(() {
         return serialized.map((data) {
           final phoneNumber = data['number'] as String;
-          final normalized = _normalizePhoneNumber(phoneNumber);
+          final normalized = phoneNumber.replaceAll(RegExp(r'[^\d]'), '');
 
           CallType callType;
           final ct = data['callType'] as String;
@@ -82,30 +84,44 @@ class CallLogService {
             callType = CallType.missed;
           }
 
-          final contact = contactMap[normalized];
-
-          return CallLogModel(
-            id: data['id'] as String? ?? const Uuid().v4(),
-            contactId: contact?.id,
-            contactName: contact?.name,
-            phoneNumber: phoneNumber,
-            callType: callType,
-            duration: data['duration'] as int?,
-            timestamp: DateTime.fromMillisecondsSinceEpoch(
-              (data['timestamp'] as int?) ?? DateTime.now().millisecondsSinceEpoch,
-            ),
-            simSlot: data['simDisplayName'] != null ? 1 : null,
-          );
+          return {
+            'id': data['id'] as String? ?? '',
+            'phoneNumber': phoneNumber,
+            'normalized': normalized,
+            'callType': callType.index,
+            'duration': data['duration'] as int?,
+            'timestamp': (data['timestamp'] as int?) ?? DateTime.now().millisecondsSinceEpoch,
+            'simDisplayName': data['simDisplayName'],
+          };
         }).toList()
-          ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+          ..sort((a, b) => (b['timestamp'] as int).compareTo(a['timestamp'] as int));
       });
 
+      // Enrich with contact info on main isolate
+      final enriched = mapped.map((data) {
+        final normalized = data['normalized'] as String;
+        final contact = contactMap[normalized];
+        final callTypeIndex = data['callType'] as int;
+        final callType = CallType.values[callTypeIndex];
+        
+        return CallLogModel(
+          id: (data['id'] as String).isEmpty ? const Uuid().v4() : data['id'] as String,
+          contactId: contact?['id'],
+          contactName: contact?['name'],
+          phoneNumber: data['phoneNumber'] as String,
+          callType: callType,
+          duration: data['duration'] as int?,
+          timestamp: DateTime.fromMillisecondsSinceEpoch(data['timestamp'] as int),
+          simSlot: data['simDisplayName'] != null ? 1 : null,
+        );
+      }).toList();
+
       // Persist to DB (not on isolate)
-      for (final log in mapped) {
+      for (final log in enriched) {
         await _repository.saveCallLog(log);
       }
 
-      _cache = mapped;
+      _cache = enriched;
       return _cache!;
     } catch (e) {
       _cache = [];
@@ -116,7 +132,7 @@ class CallLogService {
   }
 
   static String _normalizePhoneNumber(String phone) {
-    return phone.replaceAll(RegExp(r'[^\\d]'), '');
+    return phone.replaceAll(RegExp(r'[^\d]'), '');
   }
 }
 

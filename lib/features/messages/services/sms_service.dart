@@ -204,7 +204,7 @@ class SmsService {
   }
 
   static String _normalizePhoneNumber(String phone) {
-    return phone.replaceAll(RegExp(r'[^\\d]'), '');
+    return phone.replaceAll(RegExp(r'[^\d]'), '');
   }
 }
 
