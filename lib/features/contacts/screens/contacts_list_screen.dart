@@ -4,8 +4,6 @@ import '../bloc/contact_bloc.dart';
 import '../bloc/contact_event.dart';
 import '../bloc/contact_state.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
-import 'package:communication_super_app/core/widgets/lock_button.dart';
-import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
 import 'add_edit_contact_screen.dart';
 import '../models/contact_model.dart';
@@ -34,24 +32,10 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
     return Scaffold(
-      appBar: RtlAppBar(
-        title: 'مخاطبین قاسم',
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () {
-              showSearch(
-                context: context,
-                delegate: ContactSearchDelegate(
-                  contactBloc: context.read<ContactBloc>(),
-                ),
-              );
-            },
-          ),
-          const LockButton(),
-        ],
-      ),
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: BlocBuilder<ContactBloc, ContactState>(
         builder: (context, state) {
           if (state is ContactLoading) {
@@ -69,49 +53,133 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
               );
             }
 
-            return ListView.separated(
-              itemCount: state.contacts.length,
-              separatorBuilder: (context, index) => const Divider(height: 1),
-              itemBuilder: (context, index) {
-                final contact = state.contacts[index];
-                return ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  leading: _buildAvatar(contact),
-                  title: Text(
-                    contact.name,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            final groupedContacts = _groupContactsAlphabetically(state.contacts);
+
+            return Directionality(
+              textDirection: TextDirection.rtl,
+              child: Column(
+                children: [
+                  Expanded(
+                    child: ListView.builder(
+                      padding: const EdgeInsets.only(bottom: 80),
+                      itemCount: groupedContacts.length,
+                      itemBuilder: (context, index) {
+                        final group = groupedContacts[index];
+                        final letter = group['letter'] as String;
+                        final contacts = group['contacts'] as List<ContactModel>;
+                        
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            // Section header
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 8,
+                              ),
+                              color: theme.brightness == Brightness.dark
+                                  ? const Color(0xFF1A1A1A)
+                                  : const Color(0xFFF5F5F5),
+                              child: Text(
+                                letter,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  color: theme.textTheme.bodyMedium?.color,
+                                ),
+                                textAlign: TextAlign.right,
+                              ),
+                            ),
+                            // Contacts in this section
+                            ...contacts.map((contact) => _buildContactItem(context, contact, theme)),
+                          ],
+                        );
+                      },
+                    ),
                   ),
-                  subtitle: Text(
-                    contact.primaryPhone,
-                    style: const TextStyle(fontSize: 14, color: Colors.grey),
-                  ),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => DeviceContactDetailScreen(contact: contact),
+                  // Add contact button at bottom
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const AddEditContactScreen(),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.add),
+                      label: const Text('افزودن مخاطب'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFB3E5FC),
+                        foregroundColor: const Color(0xFF01579B),
+                        minimumSize: const Size(double.infinity, 48),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(24),
+                        ),
                       ),
-                    );
-                  },
-                );
-              },
+                    ),
+                  ),
+                ],
+              ),
             );
           }
 
           return const SizedBox.shrink();
         },
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const AddEditContactScreen(),
+    );
+  }
+
+  List<Map<String, dynamic>> _groupContactsAlphabetically(List<ContactModel> contacts) {
+    final Map<String, List<ContactModel>> grouped = {};
+    
+    for (var contact in contacts) {
+      final firstChar = contact.name.isNotEmpty ? contact.name[0] : '#';
+      grouped.putIfAbsent(firstChar, () => []).add(contact);
+    }
+    
+    final sortedKeys = grouped.keys.toList()..sort();
+    
+    return sortedKeys.map((key) => {
+      'letter': key,
+      'contacts': grouped[key]!,
+    }).toList();
+  }
+
+  Widget _buildContactItem(BuildContext context, ContactModel contact, ThemeData theme) {
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => DeviceContactDetailScreen(contact: contact),
+          ),
+        );
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            // Avatar on the right (RTL)
+            _buildAvatar(contact),
+            const SizedBox(width: 16),
+            // Name
+            Expanded(
+              child: Text(
+                contact.name,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: theme.textTheme.bodyLarge?.color,
+                ),
+                textAlign: TextAlign.right,
+              ),
             ),
-          );
-        },
-        icon: const Icon(Icons.add),
-        label: const Text('افزودن مخاطب'),
+          ],
+        ),
       ),
     );
   }
