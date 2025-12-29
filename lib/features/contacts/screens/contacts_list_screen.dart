@@ -57,72 +57,42 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
 
             return Directionality(
               textDirection: TextDirection.rtl,
-              child: Column(
-                children: [
-                  Expanded(
-                    child: ListView.builder(
-                      padding: const EdgeInsets.only(bottom: 80),
-                      itemCount: groupedContacts.length,
-                      itemBuilder: (context, index) {
-                        final group = groupedContacts[index];
-                        final letter = group['letter'] as String;
-                        final contacts = group['contacts'] as List<ContactModel>;
-                        
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            // Section header
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 20,
-                                vertical: 8,
-                              ),
-                              color: theme.brightness == Brightness.dark
-                                  ? const Color(0xFF1A1A1A)
-                                  : const Color(0xFFF5F5F5),
-                              child: Text(
-                                letter,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                  color: theme.textTheme.bodyMedium?.color,
-                                ),
-                                textAlign: TextAlign.right,
-                              ),
-                            ),
-                            // Contacts in this section
-                            ...contacts.map((contact) => _buildContactItem(context, contact, theme)),
-                          ],
-                        );
-                      },
-                    ),
-                  ),
-                  // Add contact button at bottom
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const AddEditContactScreen(),
+              child: ListView.builder(
+                padding: const EdgeInsets.only(bottom: 80),
+                itemCount: groupedContacts.length,
+                itemBuilder: (context, index) {
+                  final group = groupedContacts[index];
+                  final letter = group['letter'] as String;
+                  final contacts = group['contacts'] as List<ContactModel>;
+                  
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      // Section header
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 8,
+                        ),
+                        color: theme.brightness == Brightness.dark
+                            ? const Color(0xFF1A1A1A)
+                            : const Color(0xFFF5F5F5),
+                        child: Text(
+                          letter,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: theme.textTheme.bodyMedium?.color,
                           ),
-                        );
-                      },
-                      icon: const Icon(Icons.add),
-                      label: const Text('افزودن مخاطب'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFB3E5FC),
-                        foregroundColor: const Color(0xFF01579B),
-                        minimumSize: const Size(double.infinity, 48),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(24),
+                          textAlign: TextAlign.right,
                         ),
                       ),
-                    ),
-                  ),
-                ],
+                      // Contacts in this section
+                      ...contacts.map((contact) => _buildContactItem(context, contact, theme)),
+                    ],
+                  );
+                },
               ),
             );
           }
@@ -130,6 +100,30 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
           return const SizedBox.shrink();
         },
       ),
+      floatingActionButton: Directionality(
+        textDirection: TextDirection.rtl,
+        child: FloatingActionButton.extended(
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const AddEditContactScreen(),
+              ),
+            );
+          },
+          icon: const Icon(Icons.add),
+          label: const Text('افزودن مخاطب'),
+          backgroundColor: const Color(0xFFC3E7FF),
+          foregroundColor: theme.brightness == Brightness.dark
+              ? const Color(0xFF01579B)
+              : const Color(0xFF01579B),
+          elevation: 6,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+        ),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
     );
   }
 
