@@ -191,27 +191,15 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> with WidgetsBindi
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
-        children: [
-            // Phone callback button on the left (RTL)
-            IconButton(
-              icon: const Icon(Icons.phone_outlined),
-              iconSize: 24,
-              color: theme.textTheme.bodyMedium?.color,
-              onPressed: () async {
-                await FlutterPhoneDirectCaller.callNumber(log.phoneNumber);
-              },
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(
-                minWidth: 40,
-                minHeight: 40,
-              ),
-      ),
+          children: [
+            // Avatar on the right (RTL)
+            AvatarWidget(name: displayName, size: 48),
             const SizedBox(width: 12),
             // Call details
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
+                children: [
                   Text(
                     displayName,
                     style: TextStyle(
@@ -224,7 +212,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> with WidgetsBindi
                   const SizedBox(height: 4),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
-            children: [
+                    children: [
                       Text(
                         timeString,
                         style: TextStyle(
@@ -238,10 +226,10 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> with WidgetsBindi
                         size: 16,
                         color: iconColor,
                       ),
-            ],
-          ),
+                    ],
+                  ),
                   const SizedBox(height: 4),
-          Text(
+                  Text(
                     log.simSlot != null ? 'SIM${log.simSlot}' : 'SIM1',
                     style: const TextStyle(
                       fontSize: 13,
@@ -254,8 +242,20 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> with WidgetsBindi
               ),
             ),
             const SizedBox(width: 12),
-            // Avatar on the right (RTL)
-            AvatarWidget(name: displayName, size: 48),
+            // Phone callback button on the left (RTL)
+            IconButton(
+              icon: const Icon(Icons.phone_outlined),
+              iconSize: 24,
+              color: theme.textTheme.bodyMedium?.color,
+              onPressed: () async {
+                await FlutterPhoneDirectCaller.callNumber(log.phoneNumber);
+              },
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(
+                minWidth: 40,
+                minHeight: 40,
+              ),
+            ),
           ],
         ),
       ),
