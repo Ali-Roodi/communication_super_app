@@ -16,17 +16,41 @@ class MessagesListScreen extends StatefulWidget {
   State<MessagesListScreen> createState() => _MessagesListScreenState();
 }
 
-class _MessagesListScreenState extends State<MessagesListScreen> {
+class _MessagesListScreenState extends State<MessagesListScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
     // Load threads once when screen initializes
     context.read<MessageBloc>().add(const LoadThreads());
+    // Add lifecycle observer to detect when app resumes
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // Refresh messages when app resumes (e.g., after receiving SMS while away)
+    if (state == AppLifecycleState.resumed) {
+      context.read<MessageBloc>().add(const LoadThreads(forceRefresh: true));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return BlocListener<MessageBloc, MessageState>(
+      listener: (context, state) {
+        // Auto-refresh threads when a message is sent or received
+        if (state is MessageSent) {
+          context.read<MessageBloc>().add(const LoadThreads());
+        }
+      },
+      child: Scaffold(
       appBar: RtlAppBar(
         title: 'پیام نگار قاسم',
         actions: [
@@ -119,11 +143,6 @@ class _MessagesListScreenState extends State<MessagesListScreen> {
           return const SizedBox.shrink();
         },
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          // Navigate to new message screen
-        },
-        child: const Icon(Icons.add),
       ),
     );
   }
