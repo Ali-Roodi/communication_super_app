@@ -17,12 +17,29 @@ class CallHistoryScreen extends StatefulWidget {
   State<CallHistoryScreen> createState() => _CallHistoryScreenState();
 }
 
-class _CallHistoryScreenState extends State<CallHistoryScreen> {
+class _CallHistoryScreenState extends State<CallHistoryScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
     // Load call logs once when screen initializes
     context.read<CallLogBloc>().add(const LoadCallLogs());
+    // Add lifecycle observer to detect when app resumes from background
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // Refresh call logs when app resumes (e.g., after a phone call)
+    if (state == AppLifecycleState.resumed) {
+      context.read<CallLogBloc>().add(const RefreshCallLogs());
+    }
   }
 
   @override

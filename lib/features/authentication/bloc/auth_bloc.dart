@@ -46,7 +46,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(const AuthLoading());
     try {
       await _repository.setPin(event.pin);
-      emit(const AuthValidationSuccess());
+      // After setting PIN, automatically authenticate the user
+      await _repository.setAuthenticated(true);
+      emit(const AuthAuthenticated());
     } catch (e) {
       emit(AuthValidationFailure(e.toString()));
     }
@@ -73,7 +75,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(const AuthLoading());
     try {
       await _repository.setPattern(event.pattern);
-      emit(const AuthValidationSuccess());
+      // After setting pattern, automatically authenticate the user
+      await _repository.setAuthenticated(true);
+      emit(const AuthAuthenticated());
     } catch (e) {
       emit(AuthValidationFailure(e.toString()));
     }

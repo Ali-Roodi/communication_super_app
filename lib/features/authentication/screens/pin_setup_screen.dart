@@ -86,8 +86,9 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
   Widget build(BuildContext context) {
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
-        if (state is AuthValidationSuccess) {
-          Navigator.of(context).pop(true);
+        if (state is AuthAuthenticated) {
+          // PIN setup successful, user is now authenticated
+          // No need to pop, AuthWrapperScreen will handle navigation
         } else if (state is AuthValidationFailure) {
           _showError(state.error);
           _reset();
