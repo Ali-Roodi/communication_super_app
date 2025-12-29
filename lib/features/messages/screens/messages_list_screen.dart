@@ -4,8 +4,6 @@ import '../bloc/message_bloc.dart';
 import '../bloc/message_event.dart';
 import '../bloc/message_state.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
-import 'package:communication_super_app/core/widgets/lock_button.dart';
-import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'conversation_screen.dart';
 
@@ -43,6 +41,8 @@ class _MessagesListScreenState extends State<MessagesListScreen> with WidgetsBin
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
     return BlocListener<MessageBloc, MessageState>(
       listener: (context, state) {
         // Auto-refresh threads when a message is sent or received
@@ -50,34 +50,19 @@ class _MessagesListScreenState extends State<MessagesListScreen> with WidgetsBin
           context.read<MessageBloc>().add(const LoadThreads());
         }
       },
-      child: Scaffold(
-      appBar: RtlAppBar(
-        title: 'پیام نگار قاسم',
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () {
-              // Handle search
-            },
-          ),
-          const LockButton(),
-        ],
-      ),
-      body: BlocBuilder<MessageBloc, MessageState>(
+      child: BlocBuilder<MessageBloc, MessageState>(
         builder: (context, state) {
           if (state is MessageLoading) {
             return const Center(child: CircularProgressIndicator());
           }
 
           if (state is MessageError) {
-            return Center(child: Text('Error: ${state.message}'));
+            return _buildErrorState(context, state.message, theme);
           }
 
           if (state is ThreadsLoaded) {
             if (state.threads.isEmpty) {
-              return const Center(
-                child: Text('No messages'),
-              );
+              return _buildEmptyState(theme);
             }
 
             return ListView.builder(
@@ -142,6 +127,92 @@ class _MessagesListScreenState extends State<MessagesListScreen> with WidgetsBin
 
           return const SizedBox.shrink();
         },
+      ),
+    );
+  }
+
+  Widget _buildErrorState(BuildContext context, String errorMessage, ThemeData theme) {
+    return Container(
+      color: theme.scaffoldBackgroundColor,
+      padding: const EdgeInsets.all(24),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.error_outline,
+              size: 64,
+              color: theme.colorScheme.error,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'خطا در بارگذاری پیام‌ها',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: theme.textTheme.bodyLarge?.color,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              errorMessage,
+              style: TextStyle(
+                fontSize: 14,
+                color: theme.textTheme.bodyMedium?.color,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: () {
+                context.read<MessageBloc>().add(const LoadThreads(forceRefresh: true));
+              },
+              icon: const Icon(Icons.refresh),
+              label: const Text('تلاش مجدد'),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(ThemeData theme) {
+    return Container(
+      color: theme.scaffoldBackgroundColor,
+      padding: const EdgeInsets.all(24),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.chat_bubble_outline,
+              size: 64,
+              color: theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.5),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'هیچ پیامکی موجود نیست',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w500,
+                color: theme.textTheme.bodyLarge?.color,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'پیام‌های شما در اینجا نمایش داده خواهند شد',
+              style: TextStyle(
+                fontSize: 14,
+                color: theme.textTheme.bodyMedium?.color,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
       ),
       ),
     );
