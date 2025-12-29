@@ -81,6 +81,12 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 );
               }
             });
+          } else if (state is MessageSent) {
+            // Reload messages after sending
+            context.read<MessageBloc>().add(LoadMessages(widget.threadId));
+          } else if (state is ThreadsLoaded) {
+            // New message received, reload this conversation
+            context.read<MessageBloc>().add(LoadMessages(widget.threadId));
           }
         },
         child: Column(
