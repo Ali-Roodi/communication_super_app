@@ -1,5 +1,3 @@
-import 'dart:isolate';
-
 import 'package:telephony/telephony.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../models/message_model.dart';
@@ -96,111 +94,97 @@ class SmsService {
   Future<void> importDeviceMessages({bool forceRefresh = false}) async {
     if (_imported && !forceRefresh) return;
 
-    final hasPermission = await requestPermissions();
-    if (!hasPermission) return;
+    try {
+      final hasPermission = await requestPermissions();
+      if (!hasPermission) {
+        throw Exception('SMS permissions not granted');
+      }
 
-    // Preload contacts to map phone numbers quickly
-    final contacts = await _contactRepository.getAllContacts();
-    final contactMap = <String, dynamic>{};
-    for (var c in contacts) {
-      for (final phone in c.phoneNumbers) {
-        final normalized = _normalizePhoneNumber(phone);
-        if (normalized.isNotEmpty) {
-          contactMap[normalized] = c;
+      // Preload contacts to map phone numbers quickly
+      final contacts = await _contactRepository.getAllContacts();
+      final contactMap = <String, dynamic>{};
+      for (var c in contacts) {
+        for (final phone in c.phoneNumbers) {
+          final normalized = _normalizePhoneNumber(phone);
+          if (normalized.isNotEmpty) {
+            contactMap[normalized] = c;
+          }
+        }
+        final primaryNormalized = _normalizePhoneNumber(c.phoneNumber);
+        if (primaryNormalized.isNotEmpty) {
+          contactMap[primaryNormalized] = c;
         }
       }
-      final primaryNormalized = _normalizePhoneNumber(c.phoneNumber);
-      if (primaryNormalized.isNotEmpty) {
-        contactMap[primaryNormalized] = c;
-      }
-    }
 
-    // Fetch inbox and sent messages
-    final inbox = await _telephony.getInboxSms(
-      columns: [
-        SmsColumn.ID,
-        SmsColumn.ADDRESS,
-        SmsColumn.BODY,
-        SmsColumn.DATE,
-      ],
-      sortOrder: [OrderBy(SmsColumn.DATE, sort: Sort.DESC)],
-    );
-
-    final sent = await _telephony.getSentSms(
-      columns: [
-        SmsColumn.ID,
-        SmsColumn.ADDRESS,
-        SmsColumn.BODY,
-        SmsColumn.DATE,
-      ],
-      sortOrder: [OrderBy(SmsColumn.DATE, sort: Sort.DESC)],
-    );
-
-    // Serialize to isolate-friendly maps
-    final serialized = [
-      ...inbox.map((m) => _serializeSms(m, MessageType.received)),
-      ...sent.map((m) => _serializeSms(m, MessageType.sent)),
-    ];
-
-    // Map on isolate to avoid UI jank
-    final models = await Isolate.run<List<MessageModel>>(() {
-      return serialized.map((data) {
-        final phone = data['address'] as String? ?? '';
-        final normalized = _normalizePhoneNumber(phone);
-        final threadId = normalized.isNotEmpty ? normalized : phone;
-        final type = data['type'] as MessageType;
-
-        final status =
-            type == MessageType.sent ? MessageStatus.sent : MessageStatus.delivered;
-
-        return MessageModel(
-          id: data['id'] as String,
-          threadId: threadId,
-          contactId: null,
-          phoneNumber: phone,
-          body: data['body'] as String? ?? '',
-          type: type,
-          status: status,
-          timestamp: DateTime.fromMillisecondsSinceEpoch(
-            data['timestamp'] as int? ?? DateTime.now().millisecondsSinceEpoch,
-          ),
-        );
-      }).toList();
-    });
-
-    // Attach contactId using the contact map (main isolate)
-    final enriched = models.map((m) {
-      final normalized = _normalizePhoneNumber(m.phoneNumber);
-      final contact = contactMap[normalized];
-      if (contact == null) return m;
-      return MessageModel(
-        id: m.id,
-        threadId: m.threadId,
-        contactId: contact.id,
-        phoneNumber: m.phoneNumber,
-        body: m.body,
-        type: m.type,
-        status: m.status,
-        timestamp: m.timestamp,
+      // Fetch inbox and sent messages
+      final inbox = await _telephony.getInboxSms(
+        columns: [
+          SmsColumn.ID,
+          SmsColumn.ADDRESS,
+          SmsColumn.BODY,
+          SmsColumn.DATE,
+        ],
+        sortOrder: [OrderBy(SmsColumn.DATE, sort: Sort.DESC)],
       );
-    }).toList();
 
-    // Persist (replace duplicates by ID)
-    for (final message in enriched) {
-      await _messageRepository.createMessage(message);
+      final sent = await _telephony.getSentSms(
+        columns: [
+          SmsColumn.ID,
+          SmsColumn.ADDRESS,
+          SmsColumn.BODY,
+          SmsColumn.DATE,
+        ],
+        sortOrder: [OrderBy(SmsColumn.DATE, sort: Sort.DESC)],
+      );
+
+      // Process messages (removed isolate to fix serialization error)
+      final allMessages = <MessageModel>[];
+      
+      for (final message in inbox) {
+        final model = _createMessageModel(message, MessageType.received, contactMap);
+        allMessages.add(model);
+      }
+      
+      for (final message in sent) {
+        final model = _createMessageModel(message, MessageType.sent, contactMap);
+        allMessages.add(model);
+      }
+
+      // Persist messages
+      for (final message in allMessages) {
+        await _messageRepository.createMessage(message);
+      }
+
+      _imported = true;
+    } catch (e) {
+      _imported = false;
+      rethrow;
     }
-
-    _imported = true;
   }
 
-  Map<String, dynamic> _serializeSms(SmsMessage message, MessageType type) {
-    return {
-      'id': (message.id ?? const Uuid().v4()).toString(),
-      'address': message.address,
-      'body': message.body,
-      'timestamp': message.date,
-      'type': type,
-    };
+  MessageModel _createMessageModel(
+    SmsMessage smsMessage,
+    MessageType type,
+    Map<String, dynamic> contactMap,
+  ) {
+    final phone = smsMessage.address ?? '';
+    final normalized = _normalizePhoneNumber(phone);
+    final threadId = normalized.isNotEmpty ? normalized : phone;
+    final contact = contactMap[normalized];
+    final status = type == MessageType.sent ? MessageStatus.sent : MessageStatus.delivered;
+
+    return MessageModel(
+      id: (smsMessage.id ?? const Uuid().v4()).toString(),
+      threadId: threadId,
+      contactId: contact?.id,
+      phoneNumber: phone,
+      body: smsMessage.body ?? '',
+      type: type,
+      status: status,
+      timestamp: DateTime.fromMillisecondsSinceEpoch(
+        smsMessage.date ?? DateTime.now().millisecondsSinceEpoch,
+      ),
+    );
   }
 
   static String _normalizePhoneNumber(String phone) {

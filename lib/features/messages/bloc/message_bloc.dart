@@ -17,14 +17,14 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     on<DeleteMessage>(_onDeleteMessage);
     on<DeleteThread>(_onDeleteThread);
 
-    // Set up SMS listener callback
+    // Set up SMS listener callback (avoid potential isolate issues)
+    try {
     _smsService.onMessageReceived = (message) {
       add(ReceiveMessage(message));
     };
     
     // Initialize SMS listening (non-blocking, won't throw)
     // This will only work when SMS permissions are granted
-    try {
       _smsService.listenToIncomingSms();
     } catch (e) {
       // Ignore initialization errors - SMS listening can be retried later
@@ -40,14 +40,27 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     try {
       // Import device messages only once per app session (or on explicit force)
       if (!_hasImported || event.forceRefresh) {
+        try {
         await _smsService.importDeviceMessages(forceRefresh: event.forceRefresh);
         _hasImported = true;
+        } catch (importError) {
+          // If import fails (e.g., permissions denied), continue to show local messages
+          // but emit error if there are no local messages
+          final threads = await _repository.getAllThreads();
+          if (threads.isEmpty) {
+            emit(MessageError('دسترسی به پیام‌ها رد شد. لطفاً مجوزهای لازم را بررسی کنید.'));
+            return;
+          }
+        }
       }
 
       final threads = await _repository.getAllThreads();
       emit(ThreadsLoaded(threads));
     } catch (e) {
-      emit(MessageError(e.toString()));
+      final errorMessage = e.toString().contains('Permission') 
+          ? 'دسترسی به پیام‌ها رد شد. لطفاً مجوزهای لازم را بررسی کنید.'
+          : 'خطا در بارگذاری پیام‌ها: ${e.toString()}';
+      emit(MessageError(errorMessage));
     }
   }
 
