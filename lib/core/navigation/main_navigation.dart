@@ -3,7 +3,7 @@ import 'package:communication_super_app/features/dialer/screens/dialer_screen.da
 import 'package:communication_super_app/features/contacts/screens/contacts_list_screen.dart';
 import 'package:communication_super_app/features/messages/screens/messages_list_screen.dart';
 import 'package:communication_super_app/features/call_history/screens/call_history_screen.dart';
-import 'package:communication_super_app/core/widgets/shared_app_bar.dart';
+import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 
 class MainNavigation extends StatefulWidget {
   final int initialIndex;
@@ -45,7 +45,7 @@ class _MainNavigationState extends State<MainNavigation> {
     final theme = Theme.of(context);
     
     return Scaffold(
-      appBar: SharedAppBar(
+      appBar: RtlAppBar(
         title: _titles[_currentIndex],
       ),
       body: IndexedStack(
