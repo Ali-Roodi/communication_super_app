@@ -180,18 +180,22 @@ class DialerScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    'موبایل  ${PersianUtils.toPersianNumber(primaryPhone)}',
-                    textAlign: TextAlign.right,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: theme.textTheme.bodyMedium?.color,
+                  Directionality(
+                    textDirection: TextDirection.ltr,
+                    child: Text(
+                      '${PersianUtils.toPersianNumber(primaryPhone)}  موبایل',
+                      textAlign: TextAlign.right,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: theme.textTheme.bodyMedium?.color,
+                      ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
               ),
             ),
-            const Spacer(),
+            const SizedBox(width: 8),
             // Call button
             Container(
               width: 40,
@@ -240,13 +244,17 @@ class DialerScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  PersianUtils.toPersianNumber(phoneNumber),
-                  textAlign: TextAlign.right,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                    color: theme.textTheme.bodyLarge?.color,
+                Directionality(
+                  textDirection: TextDirection.ltr,
+                  child: Text(
+                    PersianUtils.toPersianNumber(phoneNumber),
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      color: theme.textTheme.bodyLarge?.color,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -261,7 +269,7 @@ class DialerScreen extends StatelessWidget {
               ],
             ),
           ),
-          const Spacer(),
+          const SizedBox(width: 8),
           // Call button
           Container(
             width: 40,
@@ -456,19 +464,28 @@ class DialerScreen extends StatelessWidget {
       ['*', '۰', '#'],
     ];
 
-    return Column(
-      children: persianNumbers.asMap().entries.map((entry) {
-        final isLastRow = entry.key == persianNumbers.length - 1;
-        return Padding(
-          padding: EdgeInsets.only(bottom: isLastRow ? 0 : 10),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: entry.value.map((number) {
-              return _buildKeyButton(context, number, theme, isDark);
-            }).toList(),
-          ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Calculate button width to fit screen with proper spacing
+        final availableWidth = constraints.maxWidth;
+        final spacing = 10.0;
+        final buttonWidth = (availableWidth - (spacing * 4)) / 3;
+        
+        return Column(
+          children: persianNumbers.asMap().entries.map((entry) {
+            final isLastRow = entry.key == persianNumbers.length - 1;
+            return Padding(
+              padding: EdgeInsets.only(bottom: isLastRow ? 0 : 10),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: entry.value.map((number) {
+                  return _buildKeyButton(context, number, theme, isDark, buttonWidth);
+                }).toList(),
+              ),
+            );
+          }).toList(),
         );
-      }).toList(),
+      },
     );
   }
 
@@ -477,6 +494,7 @@ class DialerScreen extends StatelessWidget {
     String number,
     ThemeData theme,
     bool isDark,
+    double buttonWidth,
   ) {
     final englishNumber = PersianUtils.toEnglishNumber(number);
     final isSpecial = number == '*' || number == '#';
@@ -492,7 +510,7 @@ class DialerScreen extends StatelessWidget {
         },
         borderRadius: BorderRadius.circular(20),
         child: Container(
-          width: 110,
+          width: buttonWidth,
           height: 65,
           decoration: BoxDecoration(
             color: buttonColor,
@@ -561,8 +579,8 @@ class DialerScreen extends StatelessWidget {
             borderRadius: BorderRadius.circular(26),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
-              children: const [
-                Text(
+              children: [
+                const Text(
                   'تماس',
                   style: TextStyle(
                     color: Colors.white,
@@ -571,8 +589,8 @@ class DialerScreen extends StatelessWidget {
                     height: 1.0,
                   ),
                 ),
-                SizedBox(width: 8),
-                Icon(
+                const SizedBox(width: 8),
+                const Icon(
                   Icons.phone,
                   color: Colors.white,
                   size: 20,

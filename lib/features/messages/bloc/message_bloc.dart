@@ -36,7 +36,12 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     LoadThreads event,
     Emitter<MessageState> emit,
   ) async {
-    emit(const MessageLoading());
+    // Only emit loading if we're not already in ThreadsLoaded state
+    // This prevents the loading spinner from showing when returning from conversation
+    if (state is! ThreadsLoaded) {
+      emit(const MessageLoading());
+    }
+    
     try {
       // Import device messages only once per app session (or on explicit force)
       if (!_hasImported || event.forceRefresh) {
@@ -88,9 +93,9 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       );
       if (success) {
         emit(const MessageSent());
+        // Only reload threads for the list, not individual messages
+        // The conversation screen will reload via its listener
         add(const LoadThreads());
-        final threadId = event.phoneNumber;
-        add(LoadMessages(threadId));
       } else {
         emit(const MessageError('Failed to send message'));
       }

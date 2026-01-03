@@ -154,28 +154,6 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> with WidgetsBindi
   Widget _buildCallLogItem(BuildContext context, CallLogModel log, ThemeData theme) {
     final displayName = log.contactName ?? log.phoneNumber;
 
-    IconData callIcon;
-    Color iconColor;
-
-    switch (log.callType) {
-      case CallType.incoming:
-        callIcon = Icons.call_received;
-        iconColor = theme.brightness == Brightness.dark 
-            ? Colors.white70 
-            : Colors.black87;
-        break;
-      case CallType.outgoing:
-        callIcon = Icons.call_made;
-        iconColor = theme.brightness == Brightness.dark 
-            ? Colors.white70 
-            : Colors.black87;
-        break;
-      case CallType.missed:
-        callIcon = Icons.call_missed;
-        iconColor = const Color(0xFFE53935);
-        break;
-    }
-
     // Format time as "شبانه ۱۵:۱۷"
     final hour = log.timestamp.hour;
     final minute = log.timestamp.minute;
@@ -184,80 +162,65 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> with WidgetsBindi
     final persianMinute = _toPersianNumber(minute.toString().padLeft(2, '0'));
     final timeString = '$timeOfDay $persianHour:$persianMinute';
 
-    return InkWell(
-      onTap: () async {
-        await FlutterPhoneDirectCaller.callNumber(log.phoneNumber);
-      },
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          children: [
-            // Avatar on the right (RTL)
-            AvatarWidget(name: displayName, size: 48),
-            const SizedBox(width: 12),
-            // Call details
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    displayName,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                      color: theme.textTheme.bodyLarge?.color,
-                    ),
-                    textAlign: TextAlign.right,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: [
+          AvatarWidget(name: displayName, size: 48),
+          const SizedBox(width: 12),
+          // Call details (vertical column)
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  displayName,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                    color: theme.textTheme.bodyLarge?.color,
                   ),
-                  const SizedBox(height: 4),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      Text(
-                        timeString,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: iconColor,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Icon(
-                        callIcon,
-                        size: 16,
-                        color: iconColor,
-                      ),
-                    ],
+                  textAlign: TextAlign.left,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  timeString,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: theme.textTheme.bodyMedium?.color,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    log.simSlot != null ? 'SIM${log.simSlot}' : 'SIM1',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Color(0xFF2196F3),
-                      fontWeight: FontWeight.w500,
-                    ),
-                    textAlign: TextAlign.right,
+                  textAlign: TextAlign.left,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  log.simSlot != null ? 'SIM${log.simSlot}' : 'SIM1',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFF2196F3),
+                    fontWeight: FontWeight.w500,
                   ),
-                ],
-              ),
+                  textAlign: TextAlign.left,
+                ),
+              ],
             ),
-            const SizedBox(width: 12),
-            // Phone callback button on the left (RTL)
-            IconButton(
-              icon: const Icon(Icons.phone_outlined),
-              iconSize: 24,
-              color: theme.textTheme.bodyMedium?.color,
-              onPressed: () async {
-                await FlutterPhoneDirectCaller.callNumber(log.phoneNumber);
-              },
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(
-                minWidth: 40,
-                minHeight: 40,
-              ),
+          ),
+          const SizedBox(width: 12),
+          // Avatar on the right (RTL)
+          // Phone callback button on the left (RTL)
+          IconButton(
+            icon: const Icon(Icons.phone_outlined),
+            iconSize: 24,
+            color: theme.textTheme.bodyMedium?.color,
+            onPressed: () async {
+              await FlutterPhoneDirectCaller.callNumber(log.phoneNumber);
+            },
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(
+              minWidth: 40,
+              minHeight: 40,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

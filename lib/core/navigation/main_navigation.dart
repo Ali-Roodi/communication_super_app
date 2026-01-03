@@ -47,7 +47,23 @@ class _MainNavigationState extends State<MainNavigation> {
     return Scaffold(
       appBar: RtlAppBar(
         title: _titles[_currentIndex],
+        showDrawer: true,
+        showSearch: true,
+        showLock: true,
+        onSearchPressed: () {
+          // TODO: Implement search functionality
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('جستجو')),
+          );
+        },
+        onLockPressed: () {
+          // TODO: Navigate to app lock screen
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('قفل برنامه')),
+          );
+        },
       ),
+      drawer: null,
       body: IndexedStack(
         index: _currentIndex,
         children: _screens,

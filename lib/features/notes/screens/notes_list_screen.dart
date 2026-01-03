@@ -96,6 +96,7 @@ class NotesListScreen extends StatelessWidget {
         },
       ),
       floatingActionButton: FloatingActionButton(
+        heroTag: 'notes_fab', // Unique hero tag to avoid conflicts
         onPressed: () {
           Navigator.push(
             context,

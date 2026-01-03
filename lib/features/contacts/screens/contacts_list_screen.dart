@@ -103,6 +103,7 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
       floatingActionButton: Directionality(
         textDirection: TextDirection.rtl,
         child: FloatingActionButton.extended(
+          heroTag: 'contacts_fab', // Unique hero tag to avoid conflicts
           onPressed: () {
             Navigator.push(
               context,
