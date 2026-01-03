@@ -49,10 +49,8 @@ class _MessagesListScreenState extends State<MessagesListScreen> with WidgetsBin
     return Scaffold(
       body: BlocConsumer<MessageBloc, MessageState>(
         listener: (context, state) {
-          // Auto-refresh threads when a message is sent or received
-          if (state is MessageSent) {
-            context.read<MessageBloc>().add(const LoadThreads());
-          }
+          // No automatic reloading here - let explicit user actions trigger reloads
+          // This prevents unwanted state changes while viewing the list
         },
         builder: (context, state) {
           // Handle loading state
@@ -117,8 +115,10 @@ class _MessagesListScreenState extends State<MessagesListScreen> with WidgetsBin
                         ),
                     ],
                   ),
-                  onTap: () {
-                    Navigator.push(
+                  onTap: () async {
+                    // Store the bloc reference before async gap
+                    final messageBloc = context.read<MessageBloc>();
+                    await Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (context) => ConversationScreen(
@@ -128,6 +128,11 @@ class _MessagesListScreenState extends State<MessagesListScreen> with WidgetsBin
                         ),
                       ),
                     );
+                    // Reload threads after returning from conversation
+                    // to update last message and timestamps
+                    if (mounted) {
+                      messageBloc.add(const LoadThreads());
+                    }
                   },
                 );
               },
@@ -135,16 +140,10 @@ class _MessagesListScreenState extends State<MessagesListScreen> with WidgetsBin
           }
 
           // For any other state (MessagesLoaded, MessageInitial, etc.)
-          // Show the last known threads if available, otherwise show loading
-          // This ensures smooth transitions without getting stuck
+          // Show loading and let the initial load handle it
           if (state is MessagesLoaded) {
-            // We're in conversation view state, but shouldn't be here
-            // Trigger reload and show loading temporarily
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) {
-                context.read<MessageBloc>().add(const LoadThreads());
-              }
-            });
+            // We're in conversation view state, but shouldn't be here on list screen
+            // This is expected after sending a message - just show loading
             return const Center(child: CircularProgressIndicator());
           }
 
