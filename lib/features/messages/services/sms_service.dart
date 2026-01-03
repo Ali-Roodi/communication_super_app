@@ -4,11 +4,13 @@ import '../models/message_model.dart';
 import '../repositories/message_repository.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:uuid/uuid.dart';
+import 'notification_service.dart';
 
 class SmsService {
   final Telephony _telephony = Telephony.instance;
   final MessageRepository _messageRepository = MessageRepository();
   final ContactRepository _contactRepository = ContactRepository();
+  final NotificationService _notificationService = NotificationService();
   Function(MessageModel)? onMessageReceived;
   static bool _imported = false;
 
@@ -58,6 +60,9 @@ class SmsService {
 
   void listenToIncomingSms() {
     try {
+      // Initialize notifications
+      _notificationService.initialize();
+      
       _telephony.listenIncomingSms(
         onNewMessage: (SmsMessage message) async {
           final phoneNumber = message.address ?? '';
@@ -81,9 +86,18 @@ class SmsService {
           );
 
           await _messageRepository.createMessage(messageModel);
+          
+          // Show notification
+          await _notificationService.showSmsNotification(
+            contactName: contact?.name ?? '',
+            phoneNumber: phoneNumber,
+            message: body,
+            threadId: threadId,
+          );
+          
           onMessageReceived?.call(messageModel);
         },
-        listenInBackground: false,
+        listenInBackground: true, // Changed to true for background notifications
       );
     } catch (e) {
       // Silently handle errors (e.g., permission denied)
