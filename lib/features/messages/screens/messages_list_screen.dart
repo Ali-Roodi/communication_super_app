@@ -6,6 +6,7 @@ import '../bloc/message_state.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'conversation_screen.dart';
+import 'contact_selector_screen.dart';
 
 class MessagesListScreen extends StatefulWidget {
   const MessagesListScreen({super.key});
@@ -18,8 +19,10 @@ class _MessagesListScreenState extends State<MessagesListScreen> with WidgetsBin
   @override
   void initState() {
     super.initState();
-    // Load threads once when screen initializes
-    context.read<MessageBloc>().add(const LoadThreads());
+    // Load threads when screen initializes
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<MessageBloc>().add(const LoadThreads());
+    });
     // Add lifecycle observer to detect when app resumes
     WidgetsBinding.instance.addObserver(this);
   }
@@ -34,7 +37,7 @@ class _MessagesListScreenState extends State<MessagesListScreen> with WidgetsBin
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     // Refresh messages when app resumes (e.g., after receiving SMS while away)
-    if (state == AppLifecycleState.resumed) {
+    if (state == AppLifecycleState.resumed && mounted) {
       context.read<MessageBloc>().add(const LoadThreads(forceRefresh: true));
     }
   }
@@ -43,33 +46,39 @@ class _MessagesListScreenState extends State<MessagesListScreen> with WidgetsBin
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     
-    return BlocListener<MessageBloc, MessageState>(
-      listener: (context, state) {
-        // Auto-refresh threads when a message is sent or received
-        if (state is MessageSent) {
-          context.read<MessageBloc>().add(const LoadThreads());
-        }
-      },
-      child: BlocBuilder<MessageBloc, MessageState>(
+    return Scaffold(
+      body: BlocConsumer<MessageBloc, MessageState>(
+        listener: (context, state) {
+          // Auto-refresh threads when a message is sent or received
+          if (state is MessageSent) {
+            context.read<MessageBloc>().add(const LoadThreads());
+          }
+        },
         builder: (context, state) {
+          // Handle loading state
           if (state is MessageLoading) {
             return const Center(child: CircularProgressIndicator());
           }
 
+          // Handle error state
           if (state is MessageError) {
             return _buildErrorState(context, state.message, theme);
           }
 
+          // Handle threads loaded state
           if (state is ThreadsLoaded) {
             if (state.threads.isEmpty) {
               return _buildEmptyState(theme);
             }
 
-            return ListView.builder(
-              itemCount: state.threads.length,
-              itemBuilder: (context, index) {
-                final thread = state.threads[index];
-                final displayName = thread.contactName ?? thread.phoneNumber;
+            return Directionality(
+              textDirection: TextDirection.rtl,
+              child: ListView.builder(
+                padding: const EdgeInsets.only(bottom: 80),
+                itemCount: state.threads.length,
+                itemBuilder: (context, index) {
+                  final thread = state.threads[index];
+                  final displayName = thread.contactName ?? thread.phoneNumber;
 
                 return ListTile(
                   leading: AvatarWidget(name: displayName),
@@ -122,12 +131,51 @@ class _MessagesListScreenState extends State<MessagesListScreen> with WidgetsBin
                   },
                 );
               },
-            );
+            ));
           }
 
-          return const SizedBox.shrink();
+          // For any other state (MessagesLoaded, MessageInitial, etc.)
+          // Show the last known threads if available, otherwise show loading
+          // This ensures smooth transitions without getting stuck
+          if (state is MessagesLoaded) {
+            // We're in conversation view state, but shouldn't be here
+            // Trigger reload and show loading temporarily
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                context.read<MessageBloc>().add(const LoadThreads());
+              }
+            });
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          // Initial state - load threads
+          if (state is MessageInitial) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          // Unexpected state - show loading
+          return const Center(child: CircularProgressIndicator());
         },
       ),
+      floatingActionButton: Directionality(
+        textDirection: TextDirection.rtl,
+        child: FloatingActionButton(
+          heroTag: 'messages_fab', // Unique hero tag to avoid conflicts
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const ContactSelectorScreen(),
+              ),
+            );
+          },
+          backgroundColor: const Color(0xFFC3E7FF),
+          foregroundColor: const Color(0xFF01579B),
+          elevation: 6,
+          child: const Icon(Icons.add, size: 28),
+        ),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
     );
   }
 

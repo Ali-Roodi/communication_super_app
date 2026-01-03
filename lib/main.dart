@@ -4,9 +4,13 @@ import 'core/theme/app_theme.dart';
 import 'core/bloc_providers/app_bloc_providers.dart';
 import 'core/widgets/app_lock_wrapper.dart';
 import 'features/authentication/screens/auth_wrapper_screen.dart';
+import 'features/messages/services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize notification service
+  await NotificationService().initialize();
   
   // Set preferred orientations
   await SystemChrome.setPreferredOrientations([
