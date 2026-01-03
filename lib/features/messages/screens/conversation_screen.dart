@@ -72,6 +72,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       body: BlocListener<MessageBloc, MessageState>(
         listener: (context, state) {
           if (state is MessagesLoaded) {
+            // Auto-scroll to bottom when new messages are loaded
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (_scrollController.hasClients) {
                 _scrollController.animateTo(
@@ -82,10 +83,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
               }
             });
           } else if (state is MessageSent) {
-            // Reload messages after sending
-            context.read<MessageBloc>().add(LoadMessages(widget.threadId));
-          } else if (state is ThreadsLoaded) {
-            // New message received, reload this conversation
+            // Reload messages after sending to display the new message
             context.read<MessageBloc>().add(LoadMessages(widget.threadId));
           }
         },
