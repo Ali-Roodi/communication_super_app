@@ -1,0 +1,300 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:communication_super_app/features/contacts/bloc/contact_bloc.dart';
+import 'package:communication_super_app/features/contacts/bloc/contact_state.dart';
+import 'package:communication_super_app/features/contacts/bloc/contact_event.dart';
+import 'package:communication_super_app/features/contacts/models/contact_model.dart';
+import 'package:communication_super_app/core/widgets/avatar_widget.dart';
+import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
+import 'conversation_screen.dart';
+
+class ContactSelectorScreen extends StatefulWidget {
+  const ContactSelectorScreen({super.key});
+
+  @override
+  State<ContactSelectorScreen> createState() => _ContactSelectorScreenState();
+}
+
+class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    context.read<ContactBloc>().add(const LoadContacts());
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  List<ContactModel> _filterContacts(List<ContactModel> contacts) {
+    if (_searchQuery.isEmpty) {
+      return contacts;
+    }
+    return contacts.where((contact) {
+      final nameLower = contact.name.toLowerCase();
+      final phoneLower = contact.phoneNumber.toLowerCase();
+      final queryLower = _searchQuery.toLowerCase();
+      return nameLower.contains(queryLower) || phoneLower.contains(queryLower);
+    }).toList();
+  }
+
+  List<Map<String, dynamic>> _groupContactsAlphabetically(List<ContactModel> contacts) {
+    final Map<String, List<ContactModel>> grouped = {};
+    
+    for (var contact in contacts) {
+      final firstChar = contact.name.isNotEmpty ? contact.name[0] : '#';
+      grouped.putIfAbsent(firstChar, () => []).add(contact);
+    }
+    
+    final sortedKeys = grouped.keys.toList()..sort();
+    
+    return sortedKeys.map((key) => {
+      'letter': key,
+      'contacts': grouped[key]!,
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
+    return Scaffold(
+      appBar: const RtlAppBar(
+        title: 'انتخاب مخاطب',
+      ),
+      body: Directionality(
+        textDirection: TextDirection.rtl,
+        child: Column(
+          children: [
+            // Search bar
+            Container(
+              padding: const EdgeInsets.all(16),
+              child: TextField(
+                controller: _searchController,
+                textAlign: TextAlign.right,
+                decoration: InputDecoration(
+                  hintText: 'نام، شماره تلفن یا ایمیل را انتخاب کنید',
+                  hintStyle: TextStyle(
+                    fontSize: 14,
+                    color: theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.6),
+                  ),
+                  prefixIcon: const Icon(Icons.search),
+                  filled: true,
+                  fillColor: theme.brightness == Brightness.dark
+                      ? const Color(0xFF2A2A2A)
+                      : const Color(0xFFF5F5F5),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                ),
+                onChanged: (value) {
+                  setState(() {
+                    _searchQuery = value;
+                  });
+                },
+              ),
+            ),
+            
+            // Create group button
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: InkWell(
+                onTap: () {
+                  // TODO: Implement group creation
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE3F2FD),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF2196F3),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.group_add,
+                          color: Colors.white,
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      const Expanded(
+                        child: Text(
+                          'ایجاد گروه',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF01579B),
+                          ),
+                          textAlign: TextAlign.right,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // Contacts list
+            Expanded(
+              child: BlocBuilder<ContactBloc, ContactState>(
+                builder: (context, state) {
+                  if (state is ContactLoading) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  if (state is ContactError) {
+                    return Center(
+                      child: Text(
+                        'خطا در بارگذاری مخاطبین: ${state.message}',
+                        textAlign: TextAlign.center,
+                      ),
+                    );
+                  }
+
+                  if (state is ContactsLoaded) {
+                    final filteredContacts = _filterContacts(state.contacts);
+                    
+                    if (filteredContacts.isEmpty) {
+                      return const Center(
+                        child: Text(
+                          'هیچ مخاطبی یافت نشد',
+                          style: TextStyle(fontSize: 16),
+                        ),
+                      );
+                    }
+
+                    final groupedContacts = _groupContactsAlphabetically(filteredContacts);
+
+                    return ListView.builder(
+                      itemCount: groupedContacts.length,
+                      itemBuilder: (context, index) {
+                        final group = groupedContacts[index];
+                        final letter = group['letter'] as String;
+                        final contacts = group['contacts'] as List<ContactModel>;
+                        
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            // Section header
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 8,
+                              ),
+                              color: theme.brightness == Brightness.dark
+                                  ? const Color(0xFF1A1A1A)
+                                  : const Color(0xFFF5F5F5),
+                              child: Text(
+                                letter,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  color: theme.textTheme.bodyMedium?.color,
+                                ),
+                                textAlign: TextAlign.right,
+                              ),
+                            ),
+                            // Contacts in this section
+                            ...contacts.map((contact) => _buildContactItem(context, contact, theme)),
+                          ],
+                        );
+                      },
+                    );
+                  }
+
+                  return const SizedBox.shrink();
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContactItem(BuildContext context, ContactModel contact, ThemeData theme) {
+    return InkWell(
+      onTap: () {
+        // Navigate to conversation screen with the selected contact
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ConversationScreen(
+              threadId: contact.phoneNumber,
+              phoneNumber: contact.phoneNumber,
+              contactName: contact.name,
+            ),
+          ),
+        );
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            // Avatar on the right (RTL)
+            _buildAvatar(contact),
+            const SizedBox(width: 16),
+            // Contact info
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    contact.name,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      color: theme.textTheme.bodyLarge?.color,
+                    ),
+                    textAlign: TextAlign.right,
+                  ),
+                  if (contact.phoneNumber.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      contact.phoneNumber,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: theme.textTheme.bodyMedium?.color,
+                      ),
+                      textAlign: TextAlign.right,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAvatar(ContactModel contact) {
+    if (contact.avatar != null) {
+      return CircleAvatar(
+        radius: 24,
+        backgroundImage: MemoryImage(contact.avatar!),
+      );
+    }
+    return AvatarWidget(name: contact.name, size: 48);
+  }
+}
+
+
