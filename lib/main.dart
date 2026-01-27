@@ -9,8 +9,13 @@ import 'features/messages/services/notification_service.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Initialize notification service
-  await NotificationService().initialize();
+  // Initialize notification service (with error handling)
+  try {
+    await NotificationService().initialize();
+  } catch (e) {
+    // Log error but don't crash - notifications can be initialized later
+    debugPrint('Failed to initialize notifications: $e');
+  }
   
   // Set preferred orientations
   await SystemChrome.setPreferredOrientations([

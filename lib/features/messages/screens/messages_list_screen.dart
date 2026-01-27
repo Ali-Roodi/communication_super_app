@@ -16,12 +16,17 @@ class MessagesListScreen extends StatefulWidget {
 }
 
 class _MessagesListScreenState extends State<MessagesListScreen> with WidgetsBindingObserver {
+  bool _hasLoadedInitially = false;
+
   @override
   void initState() {
     super.initState();
-    // Load threads when screen initializes
+    // Load threads when screen initializes - use postFrameCallback for safety
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<MessageBloc>().add(const LoadThreads());
+      if (mounted && !_hasLoadedInitially) {
+        _hasLoadedInitially = true;
+        context.read<MessageBloc>().add(const LoadThreads());
+      }
     });
     // Add lifecycle observer to detect when app resumes
     WidgetsBinding.instance.addObserver(this);
@@ -37,7 +42,8 @@ class _MessagesListScreenState extends State<MessagesListScreen> with WidgetsBin
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     // Refresh messages when app resumes (e.g., after receiving SMS while away)
-    if (state == AppLifecycleState.resumed && mounted) {
+    // Only refresh if we've already loaded initially to avoid double-loading
+    if (state == AppLifecycleState.resumed && mounted && _hasLoadedInitially) {
       context.read<MessageBloc>().add(const LoadThreads(forceRefresh: true));
     }
   }

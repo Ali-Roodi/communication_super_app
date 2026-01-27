@@ -196,7 +196,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                   borderSide: BorderSide.none,
                 ),
                 filled: true,
-                fillColor: Colors.grey[200],
+                fillColor: (Theme.of(context).brightness == Brightness.dark) ? Colors.grey[800] : Colors.grey[200],
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 16,
                   vertical: 10,
