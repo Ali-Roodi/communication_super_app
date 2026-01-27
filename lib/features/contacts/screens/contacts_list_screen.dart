@@ -17,11 +17,19 @@ class ContactsListScreen extends StatefulWidget {
 
 class _ContactsListScreenState extends State<ContactsListScreen> {
   final TextEditingController _searchController = TextEditingController();
+  bool _hasLoaded = false;
 
   @override
   void initState() {
     super.initState();
-    context.read<ContactBloc>().add(const LoadContacts());
+    // Defer permission request until after the widget tree is fully built
+    // This prevents crashes during permission grants on first launch
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_hasLoaded) {
+        _hasLoaded = true;
+        context.read<ContactBloc>().add(const LoadContacts());
+      }
+    });
   }
 
   @override

@@ -15,11 +15,18 @@ class CallHistoryScreen extends StatefulWidget {
 }
 
 class _CallHistoryScreenState extends State<CallHistoryScreen> with WidgetsBindingObserver {
+  bool _hasLoadedInitially = false;
+
   @override
   void initState() {
     super.initState();
-    // Load call logs once when screen initializes
-    context.read<CallLogBloc>().add(const LoadCallLogs());
+    // Load call logs once when screen initializes - use postFrameCallback for safety
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_hasLoadedInitially) {
+        _hasLoadedInitially = true;
+        context.read<CallLogBloc>().add(const LoadCallLogs());
+      }
+    });
     // Add lifecycle observer to detect when app resumes from background
     WidgetsBinding.instance.addObserver(this);
   }
@@ -34,7 +41,8 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> with WidgetsBindi
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     // Refresh call logs when app resumes (e.g., after a phone call)
-    if (state == AppLifecycleState.resumed) {
+    // Only refresh if we've already loaded initially to avoid double-loading
+    if (state == AppLifecycleState.resumed && mounted && _hasLoadedInitially) {
       context.read<CallLogBloc>().add(const RefreshCallLogs());
     }
   }

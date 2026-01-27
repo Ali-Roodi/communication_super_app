@@ -17,19 +17,13 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     on<DeleteMessage>(_onDeleteMessage);
     on<DeleteThread>(_onDeleteThread);
 
-    // Set up SMS listener callback (avoid potential isolate issues)
-    try {
+    // Set up SMS listener callback
     _smsService.onMessageReceived = (message) {
       add(ReceiveMessage(message));
     };
     
-    // Initialize SMS listening (non-blocking, won't throw)
-    // This will only work when SMS permissions are granted
-      _smsService.listenToIncomingSms();
-    } catch (e) {
-      // Ignore initialization errors - SMS listening can be retried later
-      // when permissions are granted or when the messages screen is opened
-    }
+    // NOTE: SMS listening will be initialized only after permissions are granted
+    // and when LoadThreads event is first triggered (in _onLoadThreads)
   }
 
   Future<void> _onLoadThreads(
@@ -48,6 +42,13 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         try {
         await _smsService.importDeviceMessages(forceRefresh: event.forceRefresh);
         _hasImported = true;
+        
+        // Initialize SMS listening only after successful import (permissions granted)
+        try {
+          _smsService.listenToIncomingSms();
+        } catch (e) {
+          // Silently fail - SMS listening is not critical for basic functionality
+        }
         } catch (importError) {
           // If import fails (e.g., permissions denied), continue to show local messages
           // but emit error if there are no local messages
@@ -93,9 +94,8 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       );
       if (success) {
         emit(const MessageSent());
-        // Only reload threads for the list, not individual messages
-        // The conversation screen will reload via its listener
-        add(const LoadThreads());
+        // Do not automatically reload threads or messages here
+        // Let the UI screens decide what to reload based on their context
       } else {
         emit(const MessageError('Failed to send message'));
       }
