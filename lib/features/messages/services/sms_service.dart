@@ -1,18 +1,24 @@
 import 'package:telephony/telephony.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import '../models/message_model.dart';
 import '../repositories/message_repository.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:uuid/uuid.dart';
 import 'notification_service.dart';
+import 'native_sms_service.dart';
+import 'dart:async';
 
 class SmsService {
   final Telephony _telephony = Telephony.instance;
   final MessageRepository _messageRepository = MessageRepository();
   final ContactRepository _contactRepository = ContactRepository();
   final NotificationService _notificationService = NotificationService();
+  final NativeSmsService _nativeSmsService = NativeSmsService();
   Function(MessageModel)? onMessageReceived;
   static bool _imported = false;
+  StreamSubscription<SmsReceivedEvent>? _nativeSmsSubscription;
 
   Future<bool> requestPermissions() async {
     // Request permissions via permission_handler (reliable across devices)
@@ -31,10 +37,15 @@ class SmsService {
       final normalized = _normalizePhoneNumber(phoneNumber);
       final threadId = normalized.isNotEmpty ? normalized : phoneNumber;
 
-      await _telephony.sendSms(
-        to: phoneNumber,
+      // Use native SMS service for sending
+      final result = await _nativeSmsService.sendSms(
+        phoneNumber: phoneNumber,
         message: message,
       );
+
+      if (!result.success) {
+        return false;
+      }
 
       final contact = await _contactRepository.getContactByPhoneNumber(
         phoneNumber,
@@ -48,12 +59,17 @@ class SmsService {
         body: message,
         type: MessageType.sent,
         status: MessageStatus.sent,
-        timestamp: DateTime.now(),
+        timestamp: DateTime.fromMillisecondsSinceEpoch(result.timestamp),
       );
 
       await _messageRepository.createMessage(messageModel);
       return true;
+    } on PlatformException catch (e) {
+      // Handle platform-specific errors
+      debugPrint('Platform error sending SMS: ${e.code} - ${e.message}');
+      return false;
     } catch (e) {
+      debugPrint('Error sending SMS: $e');
       return false;
     }
   }
@@ -63,6 +79,63 @@ class SmsService {
       // Initialize notifications
       _notificationService.initialize();
       
+      // Initialize native SMS service for receiving
+      _nativeSmsService.initialize().then((_) {
+        // Listen to native SMS events
+        _nativeSmsSubscription = _nativeSmsService.onSmsReceived.listen(
+          (SmsReceivedEvent event) async {
+            final phoneNumber = event.address;
+            final body = event.body;
+            final normalized = _normalizePhoneNumber(phoneNumber);
+            final threadId = normalized.isNotEmpty ? normalized : phoneNumber;
+
+            final contact = await _contactRepository.getContactByPhoneNumber(
+              phoneNumber,
+            );
+
+            final messageModel = MessageModel(
+              id: const Uuid().v4(),
+              threadId: threadId,
+              contactId: contact?.id,
+              phoneNumber: phoneNumber,
+              body: body,
+              type: MessageType.received,
+              status: MessageStatus.delivered,
+              timestamp: DateTime.fromMillisecondsSinceEpoch(event.timestamp),
+            );
+
+            await _messageRepository.createMessage(messageModel);
+            
+            // Show notification
+            await _notificationService.showSmsNotification(
+              contactName: contact?.name ?? '',
+              phoneNumber: phoneNumber,
+              message: body,
+              threadId: threadId,
+            );
+            
+            onMessageReceived?.call(messageModel);
+          },
+          onError: (error) {
+            debugPrint('Error receiving SMS via native service: $error');
+          },
+          cancelOnError: false,
+        );
+      }).catchError((error) {
+        debugPrint('Failed to initialize native SMS service: $error');
+        // Fallback to telephony plugin
+        _useTelephonyFallback();
+      });
+    } catch (e) {
+      // Silently handle errors (e.g., permission denied)
+      // SMS listening will be retried when permissions are granted
+      debugPrint('Error setting up SMS listener: $e');
+    }
+  }
+
+  /// Fallback to telephony plugin if native implementation fails
+  void _useTelephonyFallback() {
+    try {
       _telephony.listenIncomingSms(
         onNewMessage: (SmsMessage message) async {
           final phoneNumber = message.address ?? '';
@@ -97,11 +170,10 @@ class SmsService {
           
           onMessageReceived?.call(messageModel);
         },
-        listenInBackground: true, // Changed to true for background notifications
+        listenInBackground: true,
       );
     } catch (e) {
-      // Silently handle errors (e.g., permission denied)
-      // SMS listening will be retried when permissions are granted
+      debugPrint('Telephony fallback also failed: $e');
     }
   }
 
@@ -203,6 +275,13 @@ class SmsService {
 
   static String _normalizePhoneNumber(String phone) {
     return phone.replaceAll(RegExp(r'[^\d]'), '');
+  }
+
+  /// Dispose and clean up resources
+  void dispose() {
+    _nativeSmsSubscription?.cancel();
+    _nativeSmsSubscription = null;
+    _nativeSmsService.dispose();
   }
 }
 
