@@ -26,15 +26,29 @@ class ConversationScreen extends StatefulWidget {
 class _ConversationScreenState extends State<ConversationScreen> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  bool _isLoadingMore = false;
 
   @override
   void initState() {
     super.initState();
     context.read<MessageBloc>().add(LoadMessages(widget.threadId));
+    _scrollController.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    if (!mounted || _isLoadingMore) return;
+    final state = context.read<MessageBloc>().state;
+    if (state is! MessagesLoaded || !state.hasMore) return;
+    final pos = _scrollController.position;
+    if (pos.pixels <= 200) {
+      _isLoadingMore = true;
+      context.read<MessageBloc>().add(LoadMoreMessages(widget.threadId));
+    }
   }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -72,7 +86,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       body: BlocListener<MessageBloc, MessageState>(
         listener: (context, state) {
           if (state is MessagesLoaded) {
-            // Auto-scroll to bottom when new messages are loaded
+            _isLoadingMore = false;
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (_scrollController.hasClients) {
                 _scrollController.animateTo(
@@ -83,7 +97,6 @@ class _ConversationScreenState extends State<ConversationScreen> {
               }
             });
           } else if (state is MessageSent) {
-            // Reload messages after sending to display the new message
             context.read<MessageBloc>().add(LoadMessages(widget.threadId));
           }
         },

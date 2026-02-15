@@ -222,7 +222,6 @@ class SmsService {
         }
       }
 
-      // Fetch inbox and sent messages
       final inbox = await _telephony.getInboxSms(
         columns: [
           SmsColumn.ID,
@@ -243,22 +242,34 @@ class SmsService {
         sortOrder: [OrderBy(SmsColumn.DATE, sort: Sort.DESC)],
       );
 
-      // Process messages (removed isolate to fix serialization error)
-      final allMessages = <MessageModel>[];
-      
-      for (final message in inbox) {
-        final model = _createMessageModel(message, MessageType.received, contactMap);
-        allMessages.add(model);
+      const int batchSize = 100;
+      final inboxList = inbox.toList();
+      final sentList = sent.toList();
+      final batch = <MessageModel>[];
+
+      for (final message in inboxList) {
+        batch.add(_createMessageModel(message, MessageType.received, contactMap));
+        if (batch.length >= batchSize) {
+          await _messageRepository.createMessagesBatch(batch);
+          batch.clear();
+          await Future.delayed(Duration.zero);
+        }
       }
-      
-      for (final message in sent) {
-        final model = _createMessageModel(message, MessageType.sent, contactMap);
-        allMessages.add(model);
+      if (batch.isNotEmpty) {
+        await _messageRepository.createMessagesBatch(batch);
+        batch.clear();
       }
 
-      // Persist messages
-      for (final message in allMessages) {
-        await _messageRepository.createMessage(message);
+      for (final message in sentList) {
+        batch.add(_createMessageModel(message, MessageType.sent, contactMap));
+        if (batch.length >= batchSize) {
+          await _messageRepository.createMessagesBatch(batch);
+          batch.clear();
+          await Future.delayed(Duration.zero);
+        }
+      }
+      if (batch.isNotEmpty) {
+        await _messageRepository.createMessagesBatch(batch);
       }
 
       _imported = true;

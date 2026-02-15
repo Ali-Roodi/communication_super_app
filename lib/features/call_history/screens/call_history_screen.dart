@@ -16,23 +16,35 @@ class CallHistoryScreen extends StatefulWidget {
 
 class _CallHistoryScreenState extends State<CallHistoryScreen> with WidgetsBindingObserver {
   bool _hasLoadedInitially = false;
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
-    // Load call logs once when screen initializes - use postFrameCallback for safety
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && !_hasLoadedInitially) {
         _hasLoadedInitially = true;
         context.read<CallLogBloc>().add(const LoadCallLogs());
       }
     });
-    // Add lifecycle observer to detect when app resumes from background
     WidgetsBinding.instance.addObserver(this);
+    _scrollController.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    if (!mounted) return;
+    final state = context.read<CallLogBloc>().state;
+    if (state is! CallLogsLoaded || !state.hasMore) return;
+    final pos = _scrollController.position;
+    if (pos.pixels >= pos.maxScrollExtent - 200) {
+      context.read<CallLogBloc>().add(const LoadMoreCallLogs());
+    }
   }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -72,45 +84,28 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> with WidgetsBindi
               );
             }
 
-            final grouped = _groupCallLogsByDate(state.callLogs);
+            final flatItems = _buildFlatCallLogList(state.callLogs);
 
             return RefreshIndicator(
               onRefresh: () async {
                 context.read<CallLogBloc>().add(const RefreshCallLogs());
               },
               child: ListView.builder(
-                itemCount: grouped.length,
+                controller: _scrollController,
+                padding: const EdgeInsets.only(bottom: 80),
+                itemCount: flatItems.length + (state.hasMore ? 1 : 0),
                 itemBuilder: (context, index) {
-                  final entry = grouped[index];
-                  return Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                        // Section header
-                        Container(
-                          width: double.infinity,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                          vertical: 8,
-                        ),
-                          color: theme.brightness == Brightness.dark
-                              ? const Color(0xFF1A1A1A)
-                              : const Color(0xFFF5F5F5),
-                        child: Text(
-                          entry['title'] as String,
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                              color: theme.textTheme.bodyMedium?.color,
-                            ),
-                            textAlign: TextAlign.right,
-                        ),
-                      ),
-                        // Call logs in this section
-                      ...(entry['logs'] as List<CallLogModel>).map(
-                          (log) => _buildCallLogItem(context, log, theme),
-                      ),
-                    ],
-                  );
+                  if (state.hasMore && index == flatItems.length) {
+                    return const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Center(child: CircularProgressIndicator()),
+                    );
+                  }
+                  final item = flatItems[index];
+                  if (item.isHeader) {
+                    return _buildSectionHeader(item.title!, theme);
+                  }
+                  return _buildCallLogItem(context, item.log!, theme);
                 },
               ),
             );
@@ -123,9 +118,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> with WidgetsBindi
     );
   }
 
-  List<Map<String, dynamic>> _groupCallLogsByDate(
-    List<CallLogModel> logs,
-  ) {
+  List<_CallLogListRow> _buildFlatCallLogList(List<CallLogModel> logs) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final yesterday = today.subtract(const Duration(days: 1));
@@ -145,18 +138,45 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> with WidgetsBindi
       }
     }
 
-    final grouped = <Map<String, dynamic>>[];
+    final flat = <_CallLogListRow>[];
     if (todayLogs.isNotEmpty) {
-      grouped.add({'title': 'امروز', 'logs': todayLogs});
+      flat.add(_CallLogListRow(title: 'امروز'));
+      for (final log in todayLogs) {
+        flat.add(_CallLogListRow(log: log));
+      }
     }
     if (yesterdayLogs.isNotEmpty) {
-      grouped.add({'title': 'دیروز', 'logs': yesterdayLogs});
+      flat.add(_CallLogListRow(title: 'دیروز'));
+      for (final log in yesterdayLogs) {
+        flat.add(_CallLogListRow(log: log));
+      }
     }
     if (olderLogs.isNotEmpty) {
-      grouped.add({'title': 'قدیمی‌تر', 'logs': olderLogs});
+      flat.add(_CallLogListRow(title: 'قدیمی‌تر'));
+      for (final log in olderLogs) {
+        flat.add(_CallLogListRow(log: log));
+      }
     }
+    return flat;
+  }
 
-    return grouped;
+  Widget _buildSectionHeader(String title, ThemeData theme) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      color: theme.brightness == Brightness.dark
+          ? const Color(0xFF1A1A1A)
+          : const Color(0xFFF5F5F5),
+      child: Text(
+        title,
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+          color: theme.textTheme.bodyMedium?.color,
+        ),
+        textAlign: TextAlign.right,
+      ),
+    );
   }
 
   Widget _buildCallLogItem(BuildContext context, CallLogModel log, ThemeData theme) {
@@ -243,5 +263,12 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> with WidgetsBindi
     }
     return result;
   }
+}
+
+class _CallLogListRow {
+  final String? title;
+  final CallLogModel? log;
+  _CallLogListRow({this.title, this.log});
+  bool get isHeader => title != null;
 }
 
