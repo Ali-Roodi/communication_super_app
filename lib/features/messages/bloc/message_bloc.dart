@@ -74,8 +74,17 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     LoadMessages event,
     Emitter<MessageState> emit,
   ) async {
-    emit(const MessageLoading());
+    // Only emit loading if we're not already in MessagesLoaded state
+    // This prevents blank screen when sending messages or receiving updates
+    if (state is! MessagesLoaded) {
+      emit(const MessageLoading());
+    }
+    
     try {
+      // Mark all messages in this thread as read
+      await _repository.markThreadAsRead(event.threadId);
+      
+      // Load messages
       final messages = await _repository.getMessagesByThread(event.threadId);
       emit(MessagesLoaded(messages));
     } catch (e) {

@@ -21,6 +21,7 @@ class MessageModel extends Equatable {
   final MessageType type;
   final MessageStatus status;
   final DateTime timestamp;
+  final bool isRead;
 
   const MessageModel({
     required this.id,
@@ -31,6 +32,7 @@ class MessageModel extends Equatable {
     required this.type,
     required this.status,
     required this.timestamp,
+    this.isRead = false,
   });
 
   Map<String, dynamic> toMap() {
@@ -43,6 +45,7 @@ class MessageModel extends Equatable {
       'type': type.name,
       'status': status.name,
       'timestamp': timestamp.millisecondsSinceEpoch,
+      'is_read': isRead ? 1 : 0,
     };
   }
 
@@ -62,6 +65,7 @@ class MessageModel extends Equatable {
         orElse: () => MessageStatus.sent,
       ),
       timestamp: DateTime.fromMillisecondsSinceEpoch(map['timestamp'] as int),
+      isRead: (map['is_read'] as int?) == 1,
     );
   }
 
@@ -75,6 +79,7 @@ class MessageModel extends Equatable {
         type,
         status,
         timestamp,
+        isRead,
       ];
 }
 

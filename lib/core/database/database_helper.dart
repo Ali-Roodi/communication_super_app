@@ -35,8 +35,25 @@ class DatabaseHelper {
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // Handle database migrations if needed in the future
-    // Currently no migrations needed
+    // Migration from version 1 to 2: Add is_read field to messages table
+    if (oldVersion < 2) {
+      await db.execute('''
+        ALTER TABLE ${AppConstants.messagesTable} 
+        ADD COLUMN is_read INTEGER DEFAULT 0
+      ''');
+      
+      // Mark all sent messages as read by default
+      await db.execute('''
+        UPDATE ${AppConstants.messagesTable} 
+        SET is_read = 1 
+        WHERE type = 'sent'
+      ''');
+      
+      // Create index for faster unread queries
+      await db.execute('''
+        CREATE INDEX idx_messages_is_read ON ${AppConstants.messagesTable}(is_read)
+      ''');
+    }
   }
 
   Future<void> _createDB(Database db, int version) async {
@@ -64,6 +81,7 @@ class DatabaseHelper {
           type TEXT NOT NULL,
           status TEXT NOT NULL,
           timestamp INTEGER NOT NULL,
+          is_read INTEGER DEFAULT 0,
           FOREIGN KEY (contact_id) REFERENCES ${AppConstants.contactsTable}(id) ON DELETE SET NULL
         )
       ''');
@@ -76,6 +94,11 @@ class DatabaseHelper {
       // Create index for faster timestamp sorting
       await db.execute('''
         CREATE INDEX idx_messages_timestamp ON ${AppConstants.messagesTable}(timestamp DESC)
+      ''');
+
+      // Create index for faster unread queries
+      await db.execute('''
+        CREATE INDEX idx_messages_is_read ON ${AppConstants.messagesTable}(is_read)
       ''');
 
       // Notes table
