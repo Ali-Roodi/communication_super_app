@@ -43,20 +43,40 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
     }).toList();
   }
 
-  List<Map<String, dynamic>> _groupContactsAlphabetically(List<ContactModel> contacts) {
+  List<_ContactListRow> _buildFlatContactList(List<ContactModel> contacts) {
     final Map<String, List<ContactModel>> grouped = {};
-    
     for (var contact in contacts) {
       final firstChar = contact.name.isNotEmpty ? contact.name[0] : '#';
       grouped.putIfAbsent(firstChar, () => []).add(contact);
     }
-    
     final sortedKeys = grouped.keys.toList()..sort();
-    
-    return sortedKeys.map((key) => {
-      'letter': key,
-      'contacts': grouped[key]!,
-    }).toList();
+    final flat = <_ContactListRow>[];
+    for (final key in sortedKeys) {
+      flat.add(_ContactListRow(letter: key));
+      for (final c in grouped[key]!) {
+        flat.add(_ContactListRow(contact: c));
+      }
+    }
+    return flat;
+  }
+
+  Widget _buildSectionHeader(String letter, ThemeData theme) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      color: theme.brightness == Brightness.dark
+          ? const Color(0xFF1A1A1A)
+          : const Color(0xFFF5F5F5),
+      child: Text(
+        letter,
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+          color: theme.textTheme.bodyMedium?.color,
+        ),
+        textAlign: TextAlign.right,
+      ),
+    );
   }
 
   @override
@@ -180,42 +200,16 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
                       );
                     }
 
-                    final groupedContacts = _groupContactsAlphabetically(filteredContacts);
+                    final flatItems = _buildFlatContactList(filteredContacts);
 
                     return ListView.builder(
-                      itemCount: groupedContacts.length,
+                      itemCount: flatItems.length,
                       itemBuilder: (context, index) {
-                        final group = groupedContacts[index];
-                        final letter = group['letter'] as String;
-                        final contacts = group['contacts'] as List<ContactModel>;
-                        
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            // Section header
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 20,
-                                vertical: 8,
-                              ),
-                              color: theme.brightness == Brightness.dark
-                                  ? const Color(0xFF1A1A1A)
-                                  : const Color(0xFFF5F5F5),
-                              child: Text(
-                                letter,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                  color: theme.textTheme.bodyMedium?.color,
-                                ),
-                                textAlign: TextAlign.right,
-                              ),
-                            ),
-                            // Contacts in this section
-                            ...contacts.map((contact) => _buildContactItem(context, contact, theme)),
-                          ],
-                        );
+                        final item = flatItems[index];
+                        if (item.isHeader) {
+                          return _buildSectionHeader(item.letter!, theme);
+                        }
+                        return _buildContactItem(context, item.contact!, theme);
                       },
                     );
                   }
@@ -295,6 +289,13 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
     }
     return AvatarWidget(name: contact.name, size: 48);
   }
+}
+
+class _ContactListRow {
+  final String? letter;
+  final ContactModel? contact;
+  _ContactListRow({this.letter, this.contact});
+  bool get isHeader => letter != null;
 }
 
 

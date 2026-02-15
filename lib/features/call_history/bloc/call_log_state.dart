@@ -18,11 +18,12 @@ class CallLogLoading extends CallLogState {
 
 class CallLogsLoaded extends CallLogState {
   final List<CallLogModel> callLogs;
+  final bool hasMore;
 
-  const CallLogsLoaded(this.callLogs);
+  const CallLogsLoaded(this.callLogs, {this.hasMore = false});
 
   @override
-  List<Object?> get props => [callLogs];
+  List<Object?> get props => [callLogs, hasMore];
 }
 
 class CallLogError extends CallLogState {

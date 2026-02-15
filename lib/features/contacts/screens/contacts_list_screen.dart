@@ -61,45 +61,19 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
               );
             }
 
-            final groupedContacts = _groupContactsAlphabetically(state.contacts);
+            final flatItems = _buildFlatContactList(state.contacts);
 
             return Directionality(
               textDirection: TextDirection.rtl,
               child: ListView.builder(
                 padding: const EdgeInsets.only(bottom: 80),
-                itemCount: groupedContacts.length,
+                itemCount: flatItems.length,
                 itemBuilder: (context, index) {
-                  final group = groupedContacts[index];
-                  final letter = group['letter'] as String;
-                  final contacts = group['contacts'] as List<ContactModel>;
-                  
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      // Section header
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 8,
-                        ),
-                        color: theme.brightness == Brightness.dark
-                            ? const Color(0xFF1A1A1A)
-                            : const Color(0xFFF5F5F5),
-                        child: Text(
-                          letter,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            color: theme.textTheme.bodyMedium?.color,
-                          ),
-                          textAlign: TextAlign.right,
-                        ),
-                      ),
-                      // Contacts in this section
-                      ...contacts.map((contact) => _buildContactItem(context, contact, theme)),
-                    ],
-                  );
+                  final item = flatItems[index];
+                  if (item.isHeader) {
+                    return _buildSectionHeader(item.letter!, theme);
+                  }
+                  return _buildContactItem(context, item.contact!, theme);
                 },
               ),
             );
@@ -136,20 +110,41 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
     );
   }
 
-  List<Map<String, dynamic>> _groupContactsAlphabetically(List<ContactModel> contacts) {
+  /// One row per item: either section header or single contact (lazy-friendly).
+  List<_ContactListItem> _buildFlatContactList(List<ContactModel> contacts) {
     final Map<String, List<ContactModel>> grouped = {};
-    
     for (var contact in contacts) {
       final firstChar = contact.name.isNotEmpty ? contact.name[0] : '#';
       grouped.putIfAbsent(firstChar, () => []).add(contact);
     }
-    
     final sortedKeys = grouped.keys.toList()..sort();
-    
-    return sortedKeys.map((key) => {
-      'letter': key,
-      'contacts': grouped[key]!,
-    }).toList();
+    final flat = <_ContactListItem>[];
+    for (final key in sortedKeys) {
+      flat.add(_ContactListItem(letter: key));
+      for (final c in grouped[key]!) {
+        flat.add(_ContactListItem(contact: c));
+      }
+    }
+    return flat;
+  }
+
+  Widget _buildSectionHeader(String letter, ThemeData theme) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      color: theme.brightness == Brightness.dark
+          ? const Color(0xFF1A1A1A)
+          : const Color(0xFFF5F5F5),
+      child: Text(
+        letter,
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+          color: theme.textTheme.bodyMedium?.color,
+        ),
+        textAlign: TextAlign.right,
+      ),
+    );
   }
 
   Widget _buildContactItem(BuildContext context, ContactModel contact, ThemeData theme) {
@@ -196,6 +191,13 @@ Widget _buildAvatar(ContactModel contact) {
     );
   }
   return AvatarWidget(name: contact.name, size: 48);
+}
+
+class _ContactListItem {
+  final String? letter;
+  final ContactModel? contact;
+  _ContactListItem({this.letter, this.contact});
+  bool get isHeader => letter != null;
 }
 
 class ContactSearchDelegate extends SearchDelegate {

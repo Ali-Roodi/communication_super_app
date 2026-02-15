@@ -10,17 +10,42 @@ abstract class MessageEvent extends Equatable {
 
 class LoadThreads extends MessageEvent {
   final bool forceRefresh;
-  
-  const LoadThreads({this.forceRefresh = false});
-  
+  final int limit;
+  final int offset;
+
+  const LoadThreads({
+    this.forceRefresh = false,
+    this.limit = 50,
+    this.offset = 0,
+  });
+
   @override
-  List<Object?> get props => [forceRefresh];
+  List<Object?> get props => [forceRefresh, limit, offset];
+}
+
+class LoadMoreThreads extends MessageEvent {
+  const LoadMoreThreads();
 }
 
 class LoadMessages extends MessageEvent {
   final String threadId;
+  final int limit;
+  final int offset;
 
-  const LoadMessages(this.threadId);
+  const LoadMessages(
+    this.threadId, {
+    this.limit = 50,
+    this.offset = 0,
+  });
+
+  @override
+  List<Object?> get props => [threadId, limit, offset];
+}
+
+class LoadMoreMessages extends MessageEvent {
+  final String threadId;
+
+  const LoadMoreMessages(this.threadId);
 
   @override
   List<Object?> get props => [threadId];

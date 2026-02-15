@@ -1,9 +1,28 @@
-import 'dart:typed_data';
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:communication_super_app/core/database/database_helper.dart';
 import 'package:communication_super_app/core/constants/app_constants.dart';
 import 'package:flutter_contacts/flutter_contacts.dart' as device_contacts;
 import '../models/contact_model.dart';
+
+/// Top-level function for isolate: maps serialized contact maps to output maps (with avatar_base64).
+List<Map<String, dynamic>> _mapContactsInIsolate(List<Map<String, dynamic>> serialized) {
+  return serialized.map((m) {
+    final phones = (m['phones'] as List<dynamic>?)?.map((e) => e as String).where((p) => p.isNotEmpty).toList() ?? [];
+    final primary = phones.isNotEmpty ? phones.first : '';
+    if (primary.isEmpty) return null;
+    final name = (m['name'] as String?)?.isNotEmpty == true ? m['name']! : 'بدون نام';
+    return <String, dynamic>{
+      'id': m['id'] as String? ?? '',
+      'name': name,
+      'phone_number': primary,
+      'phone_numbers': phones,
+      'email': m['email'] as String?,
+      'avatar_base64': m['avatar_base64'] as String?,
+    };
+  }).whereType<Map<String, dynamic>>().toList();
+}
 
 class ContactRepository {
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
@@ -19,29 +38,10 @@ class ContactRepository {
     return device_contacts.FlutterContacts.requestPermission();
   }
 
-  ContactModel _mapDeviceContact(device_contacts.Contact contact) {
-    final phones = contact.phones.map((p) => p.number).where((p) => p.isNotEmpty).toList();
-    final primaryPhone = phones.isNotEmpty ? phones.first : '';
-    Uint8List? avatar = contact.photo;
-
-    return ContactModel(
-      id: contact.id,
-      name: contact.displayName.isNotEmpty ? contact.displayName : 'بدون نام',
-      phoneNumber: primaryPhone,
-      phoneNumbers: phones,
-      email: contact.emails.isNotEmpty ? contact.emails.first.address : null,
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-      avatar: avatar,
-    );
-  }
-
   Future<List<ContactModel>> getDeviceContacts() async {
     if (_cache != null) return _cache!;
 
-    // Prevent duplicate parallel loads
     if (_isLoading) {
-      // Wait briefly until loading completes
       while (_isLoading) {
         await Future.delayed(const Duration(milliseconds: 50));
       }
@@ -61,11 +61,49 @@ class ContactRepository {
         withPhoto: true,
       );
 
-      _cache =
-          contacts.map(_mapDeviceContact).where((c) => c.phoneNumber.isNotEmpty).toList();
+      // Serialize for isolate (minimal data; photos as base64)
+      final serialized = <Map<String, dynamic>>[];
+      for (final c in contacts) {
+        final phones = c.phones.map((p) => p.number).where((p) => p.isNotEmpty).toList();
+        if (phones.isEmpty) continue;
+        serialized.add({
+          'id': c.id,
+          'name': c.displayName,
+          'phones': phones,
+          'email': c.emails.isNotEmpty ? c.emails.first.address : null,
+          'avatar_base64': c.photo != null ? base64Encode(c.photo!) : null,
+        });
+      }
+
+      // Heavy mapping off main thread
+      final mapped = await compute(_mapContactsInIsolate, serialized);
+
+      // Quick pass on main thread: build ContactModels (decode base64)
+      final now = DateTime.now();
+      _cache = mapped
+          .map((m) => ContactModel(
+                id: m['id'] as String,
+                name: m['name'] as String,
+                phoneNumber: m['phone_number'] as String,
+                phoneNumbers: List<String>.from(m['phone_numbers'] as List),
+                email: m['email'] as String?,
+                createdAt: now,
+                updatedAt: now,
+                avatar: _decodeAvatar(m['avatar_base64'] as String?),
+              ))
+          .toList();
       return _cache!;
     } finally {
       _isLoading = false;
+    }
+  }
+
+  static Uint8List? _decodeAvatar(String? base64) {
+    if (base64 == null || base64.isEmpty) return null;
+    try {
+      return Uint8List.fromList(base64Decode(base64));
+    } catch (_) {
+      return null;
     }
   }
 
