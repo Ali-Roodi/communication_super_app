@@ -4,7 +4,7 @@ class AppConstants {
   
   // Database
   static const String databaseName = 'communication_app.db';
-  static const int databaseVersion = 1;
+  static const int databaseVersion = 2;
   
   // Tables
   static const String contactsTable = 'contacts';
