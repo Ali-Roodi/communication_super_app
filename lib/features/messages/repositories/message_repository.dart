@@ -43,7 +43,7 @@ class MessageRepository {
         m.timestamp AS last_message_time,
         (
           SELECT COUNT(*) FROM ${AppConstants.messagesTable} mi 
-          WHERE mi.thread_id = m.thread_id AND mi.type = 'received'
+          WHERE mi.thread_id = m.thread_id AND mi.type = 'received' AND mi.is_read = 0
         ) AS unread_count
       FROM ${AppConstants.messagesTable} m
       JOIN (
@@ -109,6 +109,16 @@ class MessageRepository {
       AppConstants.messagesTable,
       where: 'thread_id = ?',
       whereArgs: [threadId],
+    );
+  }
+
+  Future<void> markThreadAsRead(String threadId) async {
+    final db = await _dbHelper.database;
+    await db.update(
+      AppConstants.messagesTable,
+      {'is_read': 1},
+      where: 'thread_id = ? AND type = ? AND is_read = 0',
+      whereArgs: [threadId, 'received'],
     );
   }
 }

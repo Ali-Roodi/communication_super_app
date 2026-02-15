@@ -19,6 +19,10 @@ class SmsService {
   Function(MessageModel)? onMessageReceived;
   static bool _imported = false;
   StreamSubscription<SmsReceivedEvent>? _nativeSmsSubscription;
+  
+  // Deduplication: Track recently processed SMS to prevent duplicates
+  final Set<String> _recentSmsHashes = {};
+  static const int _deduplicationWindowMs = 5000; // 5 second window
 
   Future<bool> requestPermissions() async {
     // Request permissions via permission_handler (reliable across devices)
@@ -60,6 +64,7 @@ class SmsService {
         type: MessageType.sent,
         status: MessageStatus.sent,
         timestamp: DateTime.fromMillisecondsSinceEpoch(result.timestamp),
+        isRead: true, // Sent messages are always marked as read
       );
 
       await _messageRepository.createMessage(messageModel);
@@ -86,6 +91,12 @@ class SmsService {
           (SmsReceivedEvent event) async {
             final phoneNumber = event.address;
             final body = event.body;
+            
+            // Check for duplicates
+            if (_isDuplicateSms(phoneNumber, body, event.timestamp)) {
+              return; // Skip duplicate
+            }
+            
             final normalized = _normalizePhoneNumber(phoneNumber);
             final threadId = normalized.isNotEmpty ? normalized : phoneNumber;
 
@@ -102,6 +113,7 @@ class SmsService {
               type: MessageType.received,
               status: MessageStatus.delivered,
               timestamp: DateTime.fromMillisecondsSinceEpoch(event.timestamp),
+              isRead: false, // New received messages are unread
             );
 
             await _messageRepository.createMessage(messageModel);
@@ -140,6 +152,13 @@ class SmsService {
         onNewMessage: (SmsMessage message) async {
           final phoneNumber = message.address ?? '';
           final body = message.body ?? '';
+          final timestamp = DateTime.now().millisecondsSinceEpoch;
+          
+          // Check for duplicates
+          if (_isDuplicateSms(phoneNumber, body, timestamp)) {
+            return; // Skip duplicate
+          }
+          
           final normalized = _normalizePhoneNumber(phoneNumber);
           final threadId = normalized.isNotEmpty ? normalized : phoneNumber;
 
@@ -155,7 +174,8 @@ class SmsService {
             body: body,
             type: MessageType.received,
             status: MessageStatus.delivered,
-            timestamp: DateTime.now(),
+            timestamp: DateTime.fromMillisecondsSinceEpoch(timestamp),
+            isRead: false, // New received messages are unread
           );
 
           await _messageRepository.createMessage(messageModel);
@@ -270,11 +290,41 @@ class SmsService {
       timestamp: DateTime.fromMillisecondsSinceEpoch(
         smsMessage.date ?? DateTime.now().millisecondsSinceEpoch,
       ),
+      // Imported messages from device are considered already read
+      isRead: true,
     );
   }
 
   static String _normalizePhoneNumber(String phone) {
     return phone.replaceAll(RegExp(r'[^\d]'), '');
+  }
+
+  /// Generate a unique hash for SMS deduplication
+  /// Uses address, body, and timestamp (rounded to nearest second)
+  String _generateSmsHash(String address, String body, int timestamp) {
+    final normalizedPhone = _normalizePhoneNumber(address);
+    final roundedTimestamp = (timestamp / 1000).floor(); // Round to nearest second
+    return '$normalizedPhone:$body:$roundedTimestamp';
+  }
+
+  /// Check if SMS is a duplicate and mark it as processed if not
+  bool _isDuplicateSms(String address, String body, int timestamp) {
+    final hash = _generateSmsHash(address, body, timestamp);
+    
+    if (_recentSmsHashes.contains(hash)) {
+      debugPrint('Duplicate SMS detected and ignored: $hash');
+      return true;
+    }
+    
+    // Add to recent set
+    _recentSmsHashes.add(hash);
+    
+    // Clean up old hashes after deduplication window
+    Future.delayed(const Duration(milliseconds: _deduplicationWindowMs), () {
+      _recentSmsHashes.remove(hash);
+    });
+    
+    return false;
   }
 
   /// Dispose and clean up resources
