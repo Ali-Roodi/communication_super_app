@@ -11,7 +11,9 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
 
   MessageBloc() : super(const MessageInitial()) {
     on<LoadThreads>(_onLoadThreads);
+    on<LoadMoreThreads>(_onLoadMoreThreads);
     on<LoadMessages>(_onLoadMessages);
+    on<LoadMoreMessages>(_onLoadMoreMessages);
     on<SendMessage>(_onSendMessage);
     on<ReceiveMessage>(_onReceiveMessage);
     on<DeleteMessage>(_onDeleteMessage);
@@ -52,7 +54,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         } catch (importError) {
           // If import fails (e.g., permissions denied), continue to show local messages
           // but emit error if there are no local messages
-          final threads = await _repository.getAllThreads();
+          final threads = await _repository.getAllThreads(limit: 50, offset: 0);
           if (threads.isEmpty) {
             emit(MessageError('دسترسی به پیام‌ها رد شد. لطفاً مجوزهای لازم را بررسی کنید.'));
             return;
@@ -60,8 +62,13 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         }
       }
 
-      final threads = await _repository.getAllThreads();
-      emit(ThreadsLoaded(threads));
+      final limit = event.limit;
+      final offset = event.offset;
+      final threads = await _repository.getAllThreads(limit: limit, offset: offset);
+      emit(ThreadsLoaded(
+        threads,
+        hasMore: threads.length >= limit,
+      ));
     } catch (e) {
       final errorMessage = e.toString().contains('Permission') 
           ? 'دسترسی به پیام‌ها رد شد. لطفاً مجوزهای لازم را بررسی کنید.'
@@ -74,21 +81,76 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     LoadMessages event,
     Emitter<MessageState> emit,
   ) async {
-    // Only emit loading if we're not already in MessagesLoaded state
-    // This prevents blank screen when sending messages or receiving updates
     if (state is! MessagesLoaded) {
       emit(const MessageLoading());
     }
-    
     try {
-      // Mark all messages in this thread as read
       await _repository.markThreadAsRead(event.threadId);
-      
-      // Load messages
-      final messages = await _repository.getMessagesByThread(event.threadId);
-      emit(MessagesLoaded(messages));
+      // Load latest messages first (DESC), then reverse for chronological order
+      final messages = await _repository.getMessagesByThread(
+        event.threadId,
+        limit: event.limit,
+        offset: event.offset,
+        orderDesc: true,
+      );
+      final chronological = messages.reversed.toList();
+      emit(MessagesLoaded(
+        chronological,
+        hasMore: messages.length >= event.limit,
+      ));
     } catch (e) {
       emit(MessageError(e.toString()));
+    }
+  }
+
+  Future<void> _onLoadMoreThreads(
+    LoadMoreThreads event,
+    Emitter<MessageState> emit,
+  ) async {
+    final current = state;
+    if (current is! ThreadsLoaded || !current.hasMore) return;
+    try {
+      final more = await _repository.getAllThreads(
+        limit: 50,
+        offset: current.threads.length,
+      );
+      if (more.isEmpty) {
+        emit(ThreadsLoaded(current.threads, hasMore: false));
+        return;
+      }
+      emit(ThreadsLoaded(
+        [...current.threads, ...more],
+        hasMore: more.length >= 50,
+      ));
+    } catch (_) {
+      emit(ThreadsLoaded(current.threads, hasMore: false));
+    }
+  }
+
+  Future<void> _onLoadMoreMessages(
+    LoadMoreMessages event,
+    Emitter<MessageState> emit,
+  ) async {
+    final current = state;
+    if (current is! MessagesLoaded || !current.hasMore) return;
+    try {
+      final older = await _repository.getMessagesByThread(
+        event.threadId,
+        limit: 50,
+        offset: current.messages.length,
+        orderDesc: true,
+      );
+      if (older.isEmpty) {
+        emit(MessagesLoaded(current.messages, hasMore: false));
+        return;
+      }
+      final chronologicalOlder = older.reversed.toList();
+      emit(MessagesLoaded(
+        [...chronologicalOlder, ...current.messages],
+        hasMore: older.length >= 50,
+      ));
+    } catch (_) {
+      emit(MessagesLoaded(current.messages, hasMore: false));
     }
   }
 

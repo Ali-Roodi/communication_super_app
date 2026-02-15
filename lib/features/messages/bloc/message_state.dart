@@ -18,20 +18,22 @@ class MessageLoading extends MessageState {
 
 class ThreadsLoaded extends MessageState {
   final List<MessageThread> threads;
+  final bool hasMore;
 
-  const ThreadsLoaded(this.threads);
+  const ThreadsLoaded(this.threads, {this.hasMore = false});
 
   @override
-  List<Object?> get props => [threads];
+  List<Object?> get props => [threads, hasMore];
 }
 
 class MessagesLoaded extends MessageState {
   final List<MessageModel> messages;
+  final bool hasMore;
 
-  const MessagesLoaded(this.messages);
+  const MessagesLoaded(this.messages, {this.hasMore = false});
 
   @override
-  List<Object?> get props => [messages];
+  List<Object?> get props => [messages, hasMore];
 }
 
 class MessageSent extends MessageState {

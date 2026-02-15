@@ -16,13 +16,32 @@ class MessageRepository {
     return message.id;
   }
 
-  Future<List<MessageModel>> getMessagesByThread(String threadId, {int? limit, int? offset}) async {
+  Future<void> createMessagesBatch(List<MessageModel> messages) async {
+    if (messages.isEmpty) return;
+    final db = await _dbHelper.database;
+    final batch = db.batch();
+    for (final message in messages) {
+      batch.insert(
+        AppConstants.messagesTable,
+        message.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  Future<List<MessageModel>> getMessagesByThread(
+    String threadId, {
+    int? limit,
+    int? offset,
+    bool orderDesc = false,
+  }) async {
     final db = await _dbHelper.database;
     final maps = await db.query(
       AppConstants.messagesTable,
       where: 'thread_id = ?',
       whereArgs: [threadId],
-      orderBy: 'timestamp ASC',
+      orderBy: orderDesc ? 'timestamp DESC' : 'timestamp ASC',
       limit: limit,
       offset: offset,
     );

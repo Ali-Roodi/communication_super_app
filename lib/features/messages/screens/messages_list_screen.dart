@@ -17,23 +17,35 @@ class MessagesListScreen extends StatefulWidget {
 
 class _MessagesListScreenState extends State<MessagesListScreen> with WidgetsBindingObserver {
   bool _hasLoadedInitially = false;
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
-    // Load threads when screen initializes - use postFrameCallback for safety
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && !_hasLoadedInitially) {
         _hasLoadedInitially = true;
         context.read<MessageBloc>().add(const LoadThreads());
       }
     });
-    // Add lifecycle observer to detect when app resumes
     WidgetsBinding.instance.addObserver(this);
+    _scrollController.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    if (!mounted) return;
+    final state = context.read<MessageBloc>().state;
+    if (state is! ThreadsLoaded || !state.hasMore) return;
+    final pos = _scrollController.position;
+    if (pos.pixels >= pos.maxScrollExtent - 200) {
+      context.read<MessageBloc>().add(const LoadMoreThreads());
+    }
   }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -78,9 +90,16 @@ class _MessagesListScreenState extends State<MessagesListScreen> with WidgetsBin
             return Directionality(
               textDirection: TextDirection.rtl,
               child: ListView.builder(
+                controller: _scrollController,
                 padding: const EdgeInsets.only(bottom: 80),
-                itemCount: state.threads.length,
+                itemCount: state.threads.length + (state.hasMore ? 1 : 0),
                 itemBuilder: (context, index) {
+                  if (state.hasMore && index == state.threads.length) {
+                    return const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Center(child: CircularProgressIndicator()),
+                    );
+                  }
                   final thread = state.threads[index];
                   final displayName = thread.contactName ?? thread.phoneNumber;
 

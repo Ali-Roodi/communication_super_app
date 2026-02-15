@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:equatable/equatable.dart';
 
@@ -46,6 +47,30 @@ class ContactModel extends Equatable {
       createdAt: DateTime.fromMillisecondsSinceEpoch(map['created_at'] as int),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(map['updated_at'] as int),
       avatar: null,
+    );
+  }
+
+  /// From serialized map (e.g. from isolate) with optional avatar_base64.
+  factory ContactModel.fromSerializedMap(Map<String, dynamic> map) {
+    Uint8List? avatar;
+    final avatarBase64 = map['avatar_base64'] as String?;
+    if (avatarBase64 != null && avatarBase64.isNotEmpty) {
+      try {
+        avatar = Uint8List.fromList(base64Decode(avatarBase64));
+      } catch (_) {}
+    }
+    final now = DateTime.now();
+    final phones = (map['phone_numbers'] as List<dynamic>?)?.map((e) => e as String).toList() ?? [];
+    final primary = phones.isNotEmpty ? phones.first : (map['phone_number'] as String? ?? '');
+    return ContactModel(
+      id: map['id'] as String,
+      name: map['name'] as String,
+      phoneNumber: primary,
+      phoneNumbers: phones,
+      email: map['email'] as String?,
+      createdAt: now,
+      updatedAt: now,
+      avatar: avatar,
     );
   }
 

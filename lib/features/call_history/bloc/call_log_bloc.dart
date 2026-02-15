@@ -4,13 +4,17 @@ import 'call_log_state.dart';
 import '../services/call_log_service.dart';
 import '../repositories/call_log_repository.dart';
 
+const int _callLogPageSize = 50;
+
 class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
   final CallLogService _service = CallLogService();
   final CallLogRepository _repository = CallLogRepository();
+  bool _isLoadingMore = false;
 
   CallLogBloc() : super(const CallLogInitial()) {
     on<LoadCallLogs>(_onLoadCallLogs);
     on<RefreshCallLogs>(_onRefreshCallLogs);
+    on<LoadMoreCallLogs>(_onLoadMoreCallLogs);
     on<DeleteCallLog>(_onDeleteCallLog);
   }
 
@@ -20,8 +24,15 @@ class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
   ) async {
     emit(const CallLogLoading());
     try {
-      final callLogs = await _service.getCallLogs();
-      emit(CallLogsLoaded(callLogs));
+      await _service.getCallLogs();
+      final callLogs = await _repository.getAllCallLogs(
+        limit: _callLogPageSize,
+        offset: 0,
+      );
+      emit(CallLogsLoaded(
+        callLogs,
+        hasMore: callLogs.length >= _callLogPageSize,
+      ));
     } catch (e) {
       emit(CallLogError(e.toString()));
     }
@@ -33,10 +44,45 @@ class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
   ) async {
     emit(const CallLogLoading());
     try {
-      final callLogs = await _service.getCallLogs(forceRefresh: true);
-      emit(CallLogsLoaded(callLogs));
+      await _service.getCallLogs(forceRefresh: true);
+      final callLogs = await _repository.getAllCallLogs(
+        limit: _callLogPageSize,
+        offset: 0,
+      );
+      emit(CallLogsLoaded(
+        callLogs,
+        hasMore: callLogs.length >= _callLogPageSize,
+      ));
     } catch (e) {
       emit(CallLogError(e.toString()));
+    }
+  }
+
+  Future<void> _onLoadMoreCallLogs(
+    LoadMoreCallLogs event,
+    Emitter<CallLogState> emit,
+  ) async {
+    if (_isLoadingMore) return;
+    final current = state;
+    if (current is! CallLogsLoaded || !current.hasMore) return;
+    _isLoadingMore = true;
+    try {
+      final more = await _repository.getAllCallLogs(
+        limit: _callLogPageSize,
+        offset: current.callLogs.length,
+      );
+      if (more.isEmpty) {
+        emit(CallLogsLoaded(current.callLogs, hasMore: false));
+        return;
+      }
+      emit(CallLogsLoaded(
+        [...current.callLogs, ...more],
+        hasMore: more.length >= _callLogPageSize,
+      ));
+    } catch (_) {
+      emit(CallLogsLoaded(current.callLogs, hasMore: false));
+    } finally {
+      _isLoadingMore = false;
     }
   }
 
@@ -46,8 +92,14 @@ class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
   ) async {
     try {
       await _repository.deleteCallLog(event.id);
-      final callLogs = await _repository.getAllCallLogs();
-      emit(CallLogsLoaded(callLogs));
+      final callLogs = await _repository.getAllCallLogs(
+        limit: _callLogPageSize,
+        offset: 0,
+      );
+      emit(CallLogsLoaded(
+        callLogs,
+        hasMore: callLogs.length >= _callLogPageSize,
+      ));
     } catch (e) {
       emit(CallLogError(e.toString()));
     }

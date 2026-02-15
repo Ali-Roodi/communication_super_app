@@ -15,6 +15,10 @@ class RefreshCallLogs extends CallLogEvent {
   const RefreshCallLogs();
 }
 
+class LoadMoreCallLogs extends CallLogEvent {
+  const LoadMoreCallLogs();
+}
+
 class DeleteCallLog extends CallLogEvent {
   final String id;
 
