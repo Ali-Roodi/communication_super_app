@@ -29,11 +29,13 @@ class ThreadsLoaded extends MessageState {
 class MessagesLoaded extends MessageState {
   final List<MessageModel> messages;
   final bool hasMore;
+  /// Thread id for the open conversation (needed to append incoming messages in-place).
+  final String threadId;
 
-  const MessagesLoaded(this.messages, {this.hasMore = false});
+  const MessagesLoaded(this.messages, {this.hasMore = false, required this.threadId});
 
   @override
-  List<Object?> get props => [messages, hasMore];
+  List<Object?> get props => [threadId, messages, hasMore];
 }
 
 class MessageSent extends MessageState {

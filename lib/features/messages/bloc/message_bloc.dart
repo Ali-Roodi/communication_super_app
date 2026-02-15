@@ -32,9 +32,10 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     LoadThreads event,
     Emitter<MessageState> emit,
   ) async {
-    // Only emit loading if we're not already in ThreadsLoaded state
-    // This prevents the loading spinner from showing when returning from conversation
-    if (state is! ThreadsLoaded) {
+    // Only emit loading when we're not already showing threads or conversation.
+    // This prevents the chat screen from going black when an incoming SMS triggers
+    // a background thread refresh (e.g. user on conversation for another thread).
+    if (state is! ThreadsLoaded && state is! MessagesLoaded) {
       emit(const MessageLoading());
     }
     
@@ -97,6 +98,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       emit(MessagesLoaded(
         chronological,
         hasMore: messages.length >= event.limit,
+        threadId: event.threadId,
       ));
     } catch (e) {
       emit(MessageError(e.toString()));
@@ -141,16 +143,17 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         orderDesc: true,
       );
       if (older.isEmpty) {
-        emit(MessagesLoaded(current.messages, hasMore: false));
+        emit(MessagesLoaded(current.messages, hasMore: false, threadId: current.threadId));
         return;
       }
       final chronologicalOlder = older.reversed.toList();
       emit(MessagesLoaded(
         [...chronologicalOlder, ...current.messages],
         hasMore: older.length >= 50,
+        threadId: current.threadId,
       ));
     } catch (_) {
-      emit(MessagesLoaded(current.messages, hasMore: false));
+      emit(MessagesLoaded(current.messages, hasMore: false, threadId: current.threadId));
     }
   }
 
@@ -180,14 +183,28 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     Emitter<MessageState> emit,
   ) async {
     try {
-      await _repository.createMessage(event.message);
-      add(const LoadThreads());
-      if (state is MessagesLoaded) {
-        final currentState = state as MessagesLoaded;
-        if (currentState.messages.isNotEmpty &&
-            currentState.messages.first.threadId == event.message.threadId) {
-          add(LoadMessages(event.message.threadId));
+      // Message is already created in SmsService before this callback; do not insert again.
+      final current = state;
+      if (current is MessagesLoaded) {
+        if (current.threadId == event.message.threadId) {
+          // Dedupe: avoid appending if this message is already in the list (e.g. duplicate event).
+          final alreadyPresent = current.messages.any((m) =>
+              m.id == event.message.id ||
+              (m.body == event.message.body &&
+                  m.timestamp == event.message.timestamp &&
+                  m.phoneNumber == event.message.phoneNumber));
+          if (!alreadyPresent) {
+            emit(MessagesLoaded(
+              [...current.messages, event.message],
+              hasMore: current.hasMore,
+              threadId: current.threadId,
+            ));
+          }
         }
+        // Else: different thread; do not dispatch LoadThreads so we don't replace state with ThreadsLoaded.
+      } else {
+        // Not on conversation screen: refresh thread list (won't emit loading due to _onLoadThreads guard).
+        add(const LoadThreads());
       }
     } catch (e) {
       emit(MessageError(e.toString()));

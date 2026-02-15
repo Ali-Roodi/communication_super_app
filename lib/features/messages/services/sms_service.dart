@@ -81,6 +81,10 @@ class SmsService {
 
   void listenToIncomingSms() {
     try {
+      // Cancel any existing subscription to prevent duplicate listeners (e.g. on forceRefresh).
+      _nativeSmsSubscription?.cancel();
+      _nativeSmsSubscription = null;
+
       // Initialize notifications
       _notificationService.initialize();
       
@@ -310,12 +314,11 @@ class SmsService {
     return phone.replaceAll(RegExp(r'[^\d]'), '');
   }
 
-  /// Generate a unique hash for SMS deduplication
-  /// Uses address, body, and timestamp (rounded to nearest second)
+  /// Generate a unique hash for SMS deduplication.
+  /// Uses address, body, and exact timestamp so the same SMS delivered twice is deduped.
   String _generateSmsHash(String address, String body, int timestamp) {
     final normalizedPhone = _normalizePhoneNumber(address);
-    final roundedTimestamp = (timestamp / 1000).floor(); // Round to nearest second
-    return '$normalizedPhone:$body:$roundedTimestamp';
+    return '$normalizedPhone:$body:$timestamp';
   }
 
   /// Check if SMS is a duplicate and mark it as processed if not
