@@ -21,10 +21,14 @@ class MessageRepository {
     final db = await _dbHelper.database;
     final batch = db.batch();
     for (final message in messages) {
+      // IGNORE on conflict: the unique index on (phone_number, body, timestamp,
+      // type) ensures a message that was already inserted by the live
+      // BroadcastReceiver (with a UUID id) is not duplicated by the device
+      // inbox import (which uses the device SMS id as the id value).
       batch.insert(
         AppConstants.messagesTable,
         message.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.replace,
+        conflictAlgorithm: ConflictAlgorithm.ignore,
       );
     }
     await batch.commit(noResult: true);

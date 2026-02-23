@@ -116,10 +116,10 @@ class CallLogService {
         );
       }).toList();
 
-      // Persist to DB (not on isolate)
-      for (final log in enriched) {
-        await _repository.saveCallLog(log);
-      }
+      // Persist to DB in a single batch transaction instead of N individual
+      // writes, which previously caused multi-second freezes when the device
+      // call history contains thousands of entries.
+      await _repository.saveCallLogsBatch(enriched);
 
       _cache = enriched;
       return _cache!;

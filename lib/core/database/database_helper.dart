@@ -54,6 +54,28 @@ class DatabaseHelper {
         CREATE INDEX idx_messages_is_read ON ${AppConstants.messagesTable}(is_read)
       ''');
     }
+
+    // Migration from version 2 to 3:
+    // Add a unique content index to prevent duplicate rows that arise when a
+    // message is first inserted by the live BroadcastReceiver and then
+    // re-imported from the device inbox (which assigns a different id).
+    if (oldVersion < 3) {
+      // Remove any pre-existing duplicates, keeping the row with the smallest
+      // rowid (the first-inserted, i.e. the live-received UUID row).
+      await db.execute('''
+        DELETE FROM ${AppConstants.messagesTable}
+        WHERE rowid NOT IN (
+          SELECT MIN(rowid)
+          FROM ${AppConstants.messagesTable}
+          GROUP BY phone_number, body, timestamp, type
+        )
+      ''');
+
+      await db.execute('''
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_content_unique
+        ON ${AppConstants.messagesTable}(phone_number, body, timestamp, type)
+      ''');
+    }
   }
 
   Future<void> _createDB(Database db, int version) async {

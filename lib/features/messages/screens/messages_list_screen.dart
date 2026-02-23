@@ -5,6 +5,7 @@ import '../bloc/message_event.dart';
 import '../bloc/message_state.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
+import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'conversation_screen.dart';
 import 'contact_selector_screen.dart';
 
@@ -53,10 +54,13 @@ class _MessagesListScreenState extends State<MessagesListScreen> with WidgetsBin
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    // Refresh messages when app resumes (e.g., after receiving SMS while away)
-    // Only refresh if we've already loaded initially to avoid double-loading
+    // Refresh the thread list when the app resumes (e.g. after dismissing a
+    // notification).  Do NOT use forceRefresh here: that would re-import the
+    // whole device inbox and restart the SMS listener pipeline, both of which
+    // cause duplicate messages in the DB and a window where incoming SMS events
+    // are silently dropped.
     if (state == AppLifecycleState.resumed && mounted && _hasLoadedInitially) {
-      context.read<MessageBloc>().add(const LoadThreads(forceRefresh: true));
+      context.read<MessageBloc>().add(const LoadThreads());
     }
   }
 
@@ -67,8 +71,12 @@ class _MessagesListScreenState extends State<MessagesListScreen> with WidgetsBin
     return Scaffold(
       body: BlocConsumer<MessageBloc, MessageState>(
         listener: (context, state) {
-          // No automatic reloading here - let explicit user actions trigger reloads
-          // This prevents unwanted state changes while viewing the list
+          // If a send result (success or failure) arrives while the list is
+          // visible (user navigated back before the async send completed),
+          // reload threads so the list reflects the latest state.
+          if (state is MessageSent || state is MessageSendFailed) {
+            context.read<MessageBloc>().add(const LoadThreads());
+          }
         },
         builder: (context, state) {
           // Handle loading state
@@ -76,9 +84,16 @@ class _MessagesListScreenState extends State<MessagesListScreen> with WidgetsBin
             return const Center(child: CircularProgressIndicator());
           }
 
-          // Handle error state
+          // Handle error state (load errors only; send errors go via SnackBar
+          // on the conversation screen and are handled by the listener above).
           if (state is MessageError) {
             return _buildErrorState(context, state.message, theme);
+          }
+
+          // Send result arrived while list is visible; show spinner while
+          // the listener's LoadThreads() call completes.
+          if (state is MessageSent || state is MessageSendFailed) {
+            return const Center(child: CircularProgressIndicator());
           }
 
           // Handle threads loaded state
@@ -101,7 +116,11 @@ class _MessagesListScreenState extends State<MessagesListScreen> with WidgetsBin
                     );
                   }
                   final thread = state.threads[index];
-                  final displayName = thread.contactName ?? thread.phoneNumber;
+                  // Prefer saved contact name; fall back to normalized national
+                  // format (09xxxxxxxxx) so raw digit-only thread IDs look friendly.
+                  final displayName = thread.contactName?.isNotEmpty == true
+                      ? thread.contactName!
+                      : PhoneNormalizer.toNational(thread.phoneNumber);
 
                 return ListTile(
                   leading: AvatarWidget(name: displayName),

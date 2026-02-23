@@ -7,10 +7,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
+import android.provider.Settings
+import android.telephony.ServiceState
 import android.telephony.SmsManager
 import android.telephony.SmsMessage
 import android.telephony.SubscriptionInfo
 import android.telephony.SubscriptionManager
+import android.telephony.TelephonyManager
 import android.util.Log
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
@@ -213,6 +216,16 @@ class SmsHandler(
                 return@withContext Result.failure(IllegalArgumentException("Message cannot be empty"))
             }
 
+            // Pre-flight checks before calling the fire-and-forget sendTextMessage.
+            // Without these, Android queues the SMS silently and the Flutter
+            // side never knows it couldn't be sent.
+            if (!hasActiveSim()) {
+                return@withContext Result.failure(Exception("NO_SIM_CARD"))
+            }
+            if (!isInService()) {
+                return@withContext Result.failure(Exception("NO_SERVICE"))
+            }
+
             val smsManager = getSmsManager(subscriptionId)
             
             // Create pending intents for sent/delivered status
@@ -273,10 +286,70 @@ class SmsHandler(
             Result.success(result)
         } catch (e: SecurityException) {
             Log.e(TAG, "SMS permission denied: ${e.message}", e)
+            // Re-wrap so the MethodChannel handler can detect it via instanceof check.
             Result.failure(e)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send SMS: ${e.message}", e)
-            Result.failure(e)
+            // Check for RESULT_ERROR_NO_SERVICE style errors that surface as
+            // generic exceptions on some devices.
+            val msg = e.message ?: ""
+            if (msg.contains("no service", ignoreCase = true) ||
+                msg.contains("radio off", ignoreCase = true)) {
+                Result.failure(Exception("NO_SERVICE"))
+            } else {
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Returns true if the device has cellular service (not in airplane mode
+     * and the network reports STATE_IN_SERVICE).
+     *
+     * SmsManager.sendTextMessage() is fire-and-forget; it does not throw when
+     * there is no signal.  This pre-flight check lets Flutter show a clear
+     * error instead of optimistically adding a message that was never queued.
+     *
+     * READ_PHONE_STATE is declared in the manifest and is requested at runtime
+     * by the Flutter side before any send is attempted.  If the permission is
+     * somehow missing, the check falls through to true (send proceeds naturally
+     * and will fail via the sent PendingIntent).
+     */
+    private fun isInService(): Boolean {
+        // Airplane mode check requires no runtime permission.
+        val isAirplaneMode = Settings.Global.getInt(
+            context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) == 1
+        if (isAirplaneMode) return false
+
+        return try {
+            val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+            val state = tm?.serviceState?.state
+            // null means we couldn't read the state – assume in service
+            state == null || state == ServiceState.STATE_IN_SERVICE
+        } catch (e: SecurityException) {
+            Log.w(TAG, "READ_PHONE_STATE not granted; skipping service-state check")
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "Service-state check failed: ${e.message}")
+            true
+        }
+    }
+
+    /**
+     * Returns true if the device has at least one active SIM card.
+     * Used to give a clear error to the user instead of a silent failure.
+     */
+    private fun hasActiveSim(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP_MR1) return true
+        return try {
+            val subscriptionManager = context.getSystemService(
+                Context.TELEPHONY_SUBSCRIPTION_SERVICE
+            ) as? SubscriptionManager
+            (subscriptionManager?.activeSubscriptionInfoCount ?: 0) > 0
+        } catch (e: SecurityException) {
+            // READ_PHONE_STATE not granted; assume SIM present and let the
+            // actual send surface the real error.
+            true
         }
     }
 
@@ -357,14 +430,19 @@ class SmsHandler(
                                 result.success(sendResult.getOrNull())
                             } else {
                                 val error = sendResult.exceptionOrNull()
-                                result.error(
-                                    "SMS_SEND_FAILED",
-                                    error?.message ?: "Failed to send SMS",
-                                    error?.stackTraceToString()
-                                )
+                                val errorMsg = error?.message ?: ""
+                                // Map well-known error messages to typed codes so
+                                // Flutter can show a localized user-facing message.
+                                val code = when {
+                                    errorMsg == "NO_SIM_CARD" -> "NO_SIM_CARD"
+                                    errorMsg == "NO_SERVICE" -> "NO_SERVICE"
+                                    error is SecurityException -> "PERMISSION_DENIED"
+                                    else -> "SMS_SEND_FAILED"
+                                }
+                                result.error(code, errorMsg, null)
                             }
                         } catch (e: Exception) {
-                            result.error("SMS_SEND_ERROR", e.message, e.stackTraceToString())
+                            result.error("SMS_SEND_FAILED", e.message, null)
                         }
                     }
                 }

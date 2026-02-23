@@ -18,6 +18,18 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> with WidgetsBindi
   bool _hasLoadedInitially = false;
   final ScrollController _scrollController = ScrollController();
 
+  // Memoize the flat row list so _buildFlatCallLogList() is only called when
+  // the underlying data changes, not on every widget rebuild.
+  List<CallLogModel>? _lastLogs;
+  List<_CallLogListRow> _cachedFlatRows = [];
+
+  List<_CallLogListRow> _getOrBuildFlatRows(List<CallLogModel> logs) {
+    if (identical(_lastLogs, logs)) return _cachedFlatRows;
+    _lastLogs = logs;
+    _cachedFlatRows = _buildFlatCallLogList(logs);
+    return _cachedFlatRows;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -84,7 +96,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> with WidgetsBindi
               );
             }
 
-            final flatItems = _buildFlatCallLogList(state.callLogs);
+            final flatItems = _getOrBuildFlatRows(state.callLogs);
 
             return RefreshIndicator(
               onRefresh: () async {

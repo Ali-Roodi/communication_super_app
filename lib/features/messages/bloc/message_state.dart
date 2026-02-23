@@ -42,6 +42,19 @@ class MessageSent extends MessageState {
   const MessageSent();
 }
 
+/// Emitted when SMS sending fails.  Carries a typed [errorCode] so the UI can
+/// show an appropriate localized message without replacing the conversation.
+class MessageSendFailed extends MessageState {
+  /// One of: 'NO_SIM_CARD', 'NO_SERVICE', 'PERMISSION_DENIED', 'SMS_SEND_FAILED'
+  final String errorCode;
+  final String userMessage;
+
+  const MessageSendFailed({required this.errorCode, required this.userMessage});
+
+  @override
+  List<Object?> get props => [errorCode, userMessage];
+}
+
 class MessageError extends MessageState {
   final String message;
 

@@ -10,6 +10,23 @@ import 'notification_service.dart';
 import 'native_sms_service.dart';
 import 'dart:async';
 
+/// Result of an SMS send operation, carrying a typed error code when sending
+/// fails so callers can display an appropriate localized message.
+class SmsServiceResult {
+  final bool success;
+
+  /// Error code from native layer. One of:
+  ///  'NO_SIM_CARD'      – device has no active SIM
+  ///  'NO_SERVICE'       – SIM present but no cellular service
+  ///  'PERMISSION_DENIED'– SEND_SMS permission not granted
+  ///  'SMS_SEND_FAILED'  – generic failure
+  final String? errorCode;
+
+  const SmsServiceResult._({required this.success, this.errorCode});
+  const SmsServiceResult.ok() : this._(success: true);
+  const SmsServiceResult.fail(String code) : this._(success: false, errorCode: code);
+}
+
 class SmsService {
   final Telephony _telephony = Telephony.instance;
   final MessageRepository _messageRepository = MessageRepository();
@@ -19,23 +36,33 @@ class SmsService {
   Function(MessageModel)? onMessageReceived;
   static bool _imported = false;
   StreamSubscription<SmsReceivedEvent>? _nativeSmsSubscription;
+
+  // Guard: SMS listener should be set up exactly once per app session.
+  bool _listening = false;
+  bool get isListening => _listening;
   
   // Deduplication: Track recently processed SMS to prevent duplicates
   final Set<String> _recentSmsHashes = {};
   static const int _deduplicationWindowMs = 5000; // 5 second window
 
   Future<bool> requestPermissions() async {
-    // Request permissions via permission_handler (reliable across devices)
-    final sms = await Permission.sms.request();
-    final phone = await Permission.phone.request(); // some devices need phone for SMS access
+    // Fast-path: return immediately if already granted so that calling this
+    // from an already-open conversation or list screen never shows a dialog.
+    final smsStatus = await Permission.sms.status;
+    final phoneStatus = await Permission.phone.status;
+    if (smsStatus.isGranted && phoneStatus.isGranted) return true;
+
+    // Request only what is missing (sequential, one dialog at a time).
+    final sms = smsStatus.isGranted ? smsStatus : await Permission.sms.request();
+    final phone = phoneStatus.isGranted ? phoneStatus : await Permission.phone.request();
     return sms.isGranted && phone.isGranted;
   }
 
-  Future<bool> sendSms(String phoneNumber, String message) async {
+  Future<SmsServiceResult> sendSms(String phoneNumber, String message) async {
     try {
       final hasPermission = await requestPermissions();
       if (!hasPermission) {
-        return false;
+        return const SmsServiceResult.fail('PERMISSION_DENIED');
       }
 
       final normalized = _normalizePhoneNumber(phoneNumber);
@@ -48,7 +75,7 @@ class SmsService {
       );
 
       if (!result.success) {
-        return false;
+        return const SmsServiceResult.fail('SMS_SEND_FAILED');
       }
 
       final contact = await _contactRepository.getContactByPhoneNumber(
@@ -68,23 +95,28 @@ class SmsService {
       );
 
       await _messageRepository.createMessage(messageModel);
-      return true;
+      return const SmsServiceResult.ok();
     } on PlatformException catch (e) {
-      // Handle platform-specific errors
+      // Surface the native error code (NO_SIM_CARD, NO_SERVICE, etc.) directly
+      // so the BLoC can show a localized message to the user.
       debugPrint('Platform error sending SMS: ${e.code} - ${e.message}');
-      return false;
+      return SmsServiceResult.fail(e.code);
     } catch (e) {
       debugPrint('Error sending SMS: $e');
-      return false;
+      return const SmsServiceResult.fail('SMS_SEND_FAILED');
     }
   }
 
   void listenToIncomingSms() {
+    // Guard: only register once per app session.  A second call (e.g. from a
+    // forceRefresh) would tear down and rebuild the EventChannel subscription,
+    // creating a window where eventSink is null and SMS events are silently
+    // dropped by the native layer.
+    if (_listening) {
+      debugPrint('SmsService already listening for incoming SMS, skipping');
+      return;
+    }
     try {
-      // Cancel any existing subscription to prevent duplicate listeners (e.g. on forceRefresh).
-      _nativeSmsSubscription?.cancel();
-      _nativeSmsSubscription = null;
-
       // Initialize notifications
       _notificationService.initialize();
       
@@ -137,6 +169,7 @@ class SmsService {
           },
           cancelOnError: false,
         );
+        _listening = true;
       }).catchError((error) {
         debugPrint('Failed to initialize native SMS service: $error');
         // Fallback to telephony plugin
@@ -149,20 +182,26 @@ class SmsService {
     }
   }
 
-  /// Fallback to telephony plugin if native implementation fails
+  /// Fallback to telephony plugin if native implementation fails.
+  ///
+  /// IMPORTANT: `listenInBackground: true` spawns a background Dart isolate
+  /// using `BackgroundIsolateBinaryMessenger`.  On some Android versions the
+  /// engine reference held by that isolate becomes stale when the Activity is
+  /// recreated (which Android can trigger right after permission grants),
+  /// causing an immediate crash.  Using `false` keeps reception foreground-only
+  /// but avoids the crash; the native `SmsHandler.kt` BroadcastReceiver
+  /// handles background reception anyway.
   void _useTelephonyFallback() {
+    if (_listening) return;
     try {
       _telephony.listenIncomingSms(
         onNewMessage: (SmsMessage message) async {
           final phoneNumber = message.address ?? '';
           final body = message.body ?? '';
           final timestamp = DateTime.now().millisecondsSinceEpoch;
-          
-          // Check for duplicates
-          if (_isDuplicateSms(phoneNumber, body, timestamp)) {
-            return; // Skip duplicate
-          }
-          
+
+          if (_isDuplicateSms(phoneNumber, body, timestamp)) return;
+
           final normalized = _normalizePhoneNumber(phoneNumber);
           final threadId = normalized.isNotEmpty ? normalized : phoneNumber;
 
@@ -179,27 +218,39 @@ class SmsService {
             type: MessageType.received,
             status: MessageStatus.delivered,
             timestamp: DateTime.fromMillisecondsSinceEpoch(timestamp),
-            isRead: false, // New received messages are unread
+            isRead: false,
           );
 
           await _messageRepository.createMessage(messageModel);
-          
-          // Show notification
+
           await _notificationService.showSmsNotification(
             contactName: contact?.name ?? '',
             phoneNumber: phoneNumber,
             message: body,
             threadId: threadId,
           );
-          
+
           onMessageReceived?.call(messageModel);
         },
-        listenInBackground: true,
+        // Keep false: background isolate on some Android versions crashes when
+        // Activity is recreated after permission grants (see note above).
+        listenInBackground: false,
       );
+      _listening = true;
     } catch (e) {
       debugPrint('Telephony fallback also failed: $e');
     }
   }
+
+  /// Maximum number of inbox/sent messages imported per session.
+  ///
+  /// The `telephony` plugin transfers ALL matching rows through the
+  /// MethodChannel as a single JSON payload.  On a device with tens of
+  /// thousands of SMS this payload can exceed the Binder transaction limit
+  /// (~1 MB), causing an OOM crash or a TransactionTooLargeException.
+  /// Capping the import at a reasonable number keeps the first-run safe while
+  /// still showing all recent conversations.
+  static const int _importLimit = 500;
 
   Future<void> importDeviceMessages({bool forceRefresh = false}) async {
     if (_imported && !forceRefresh) return;
@@ -247,8 +298,11 @@ class SmsService {
       );
 
       const int batchSize = 100;
-      final inboxList = inbox.toList();
-      final sentList = sent.toList();
+      // Cap at _importLimit: the telephony MethodChannel payload is already
+      // in memory at this point; limiting here reduces DB write time and
+      // prevents processing tens of thousands of rows on the main isolate.
+      final inboxList = inbox.take(_importLimit).toList();
+      final sentList = sent.take(_importLimit).toList();
       final batch = <MessageModel>[];
 
       for (final message in inboxList) {
@@ -345,6 +399,7 @@ class SmsService {
   void dispose() {
     _nativeSmsSubscription?.cancel();
     _nativeSmsSubscription = null;
+    _listening = false;
     _nativeSmsService.dispose();
   }
 }
