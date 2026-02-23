@@ -6,6 +6,7 @@ import 'package:communication_super_app/features/contacts/bloc/contact_event.dar
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
+import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'conversation_screen.dart';
 
 class ContactSelectorScreen extends StatefulWidget {
@@ -225,14 +226,21 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
   }
 
   Widget _buildContactItem(BuildContext context, ContactModel contact, ThemeData theme) {
+    // The threadId must use the same normalization as SmsService._normalizePhoneNumber
+    // (pure digits) so that LoadMessages(threadId) finds the message that was just saved.
+    final threadId = PhoneNormalizer.toThreadId(contact.phoneNumber);
+    final displayPhone = PhoneNormalizer.toNational(contact.phoneNumber);
+
     return InkWell(
       onTap: () {
-        // Navigate to conversation screen with the selected contact
+        // Navigate to conversation screen with the selected contact.
+        // pushReplacement pops ContactSelectorScreen off the stack so the user
+        // returns directly to MessagesListScreen when they press back.
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
             builder: (context) => ConversationScreen(
-              threadId: contact.phoneNumber,
+              threadId: threadId,
               phoneNumber: contact.phoneNumber,
               contactName: contact.name,
             ),
@@ -260,10 +268,10 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
                     ),
                     textAlign: TextAlign.right,
                   ),
-                  if (contact.phoneNumber.isNotEmpty) ...[
+                  if (displayPhone.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Text(
-                      contact.phoneNumber,
+                      displayPhone,
                       style: TextStyle(
                         fontSize: 14,
                         color: theme.textTheme.bodyMedium?.color,

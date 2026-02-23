@@ -3,11 +3,22 @@ import 'message_event.dart';
 import 'message_state.dart';
 import '../repositories/message_repository.dart';
 import '../services/sms_service.dart';
+import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
+import '../models/message_model.dart';
 
 class MessageBloc extends Bloc<MessageEvent, MessageState> {
   final MessageRepository _repository = MessageRepository();
   final SmsService _smsService = SmsService();
+  final ContactRepository _contactRepository = ContactRepository();
   static bool _hasImported = false;
+
+  /// One-per-session cache of the digits-only → contact name lookup table.
+  ///
+  /// Building this map requires fetching all device contacts (which is slow on
+  /// the first call but fast once the ContactRepository cache is warm).
+  /// Caching it here avoids re-fetching on every LoadThreads dispatch
+  /// (e.g., on app resume, on tab switch, after sending a message).
+  Map<String, String>? _cachedPhoneToName;
 
   MessageBloc() : super(const MessageInitial()) {
     on<LoadThreads>(_onLoadThreads);
@@ -43,15 +54,20 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       // Import device messages only once per app session (or on explicit force)
       if (!_hasImported || event.forceRefresh) {
         try {
-        await _smsService.importDeviceMessages(forceRefresh: event.forceRefresh);
-        _hasImported = true;
-        
-        // Initialize SMS listening only after successful import (permissions granted)
-        try {
-          _smsService.listenToIncomingSms();
-        } catch (e) {
-          // Silently fail - SMS listening is not critical for basic functionality
-        }
+          await _smsService.importDeviceMessages(forceRefresh: event.forceRefresh);
+          _hasImported = true;
+
+          // Start the SMS listener only once: the SmsService._listening guard
+          // makes subsequent calls no-ops, but we also avoid unnecessary calls
+          // so that the EventChannel is never torn down and rebuilt (which would
+          // create a window where incoming messages are dropped).
+          if (!_smsService.isListening) {
+            try {
+              _smsService.listenToIncomingSms();
+            } catch (e) {
+              // Silently fail - SMS listening is not critical for basic functionality
+            }
+          }
         } catch (importError) {
           // If import fails (e.g., permissions denied), continue to show local messages
           // but emit error if there are no local messages
@@ -65,7 +81,8 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
 
       final limit = event.limit;
       final offset = event.offset;
-      final threads = await _repository.getAllThreads(limit: limit, offset: offset);
+      final rawThreads = await _repository.getAllThreads(limit: limit, offset: offset);
+      final threads = await _resolveContactNames(rawThreads);
       emit(ThreadsLoaded(
         threads,
         hasMore: threads.length >= limit,
@@ -162,19 +179,92 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     Emitter<MessageState> emit,
   ) async {
     try {
-      final success = await _smsService.sendSms(
+      final result = await _smsService.sendSms(
         event.phoneNumber,
         event.body,
       );
-      if (success) {
+      if (result.success) {
         emit(const MessageSent());
-        // Do not automatically reload threads or messages here
-        // Let the UI screens decide what to reload based on their context
+        // Let the UI screens decide what to reload based on their context.
       } else {
-        emit(const MessageError('Failed to send message'));
+        emit(MessageSendFailed(
+          errorCode: result.errorCode ?? 'SMS_SEND_FAILED',
+          userMessage: _localizedSendError(result.errorCode),
+        ));
       }
     } catch (e) {
-      emit(MessageError(e.toString()));
+      emit(MessageSendFailed(
+        errorCode: 'SMS_SEND_FAILED',
+        userMessage: _localizedSendError(null),
+      ));
+    }
+  }
+
+  /// Enriches [threads] with contact names looked up from the device contacts
+  /// cache (ContactRepository).
+  ///
+  /// The app's local `contacts` DB table is only populated for contacts that
+  /// the user has manually saved through the app; device contacts are held in
+  /// an in-memory cache.  The SQL LEFT JOIN in getAllThreads() therefore often
+  /// returns null for contact_name.  This post-load pass fills the gap without
+  /// a DB schema change.
+  ///
+  /// The phone-to-name map is built ONCE per app session and reused for all
+  /// subsequent calls.  This avoids the O(contacts) fetch on every LoadThreads
+  /// dispatch (tab switch, app resume, new message arrived, etc.).
+  Future<List<MessageThread>> _resolveContactNames(
+    List<MessageThread> threads,
+  ) async {
+    if (threads.isEmpty) return threads;
+    try {
+      // Build (or reuse) the cached lookup map.
+      if (_cachedPhoneToName == null) {
+        final contacts = await _contactRepository.getAllContacts();
+        final map = <String, String>{};
+        for (final c in contacts) {
+          if (c.name.isEmpty) continue;
+          for (final phone in [...c.phoneNumbers, c.phoneNumber]) {
+            final digits = phone.replaceAll(RegExp(r'[^\d]'), '');
+            if (digits.isNotEmpty) map[digits] = c.name;
+          }
+        }
+        _cachedPhoneToName = map;
+      }
+
+      final phoneToName = _cachedPhoneToName!;
+      if (phoneToName.isEmpty) return threads;
+
+      return threads.map((t) {
+        if (t.contactName != null && t.contactName!.isNotEmpty) return t;
+        final digits = t.phoneNumber.replaceAll(RegExp(r'[^\d]'), '');
+        final name = phoneToName[digits];
+        if (name == null || name.isEmpty) return t;
+        return MessageThread(
+          threadId: t.threadId,
+          phoneNumber: t.phoneNumber,
+          contactId: t.contactId,
+          contactName: name,
+          lastMessage: t.lastMessage,
+          lastMessageTime: t.lastMessageTime,
+          unreadCount: t.unreadCount,
+        );
+      }).toList();
+    } catch (_) {
+      return threads;
+    }
+  }
+
+  /// Maps a native error code to a user-facing Persian string.
+  static String _localizedSendError(String? code) {
+    switch (code) {
+      case 'NO_SIM_CARD':
+        return 'سیم‌کارتی در دستگاه یافت نشد.';
+      case 'NO_SERVICE':
+        return 'سرویس شبکه در دسترس نیست. لطفاً اتصال شبکه را بررسی کنید.';
+      case 'PERMISSION_DENIED':
+        return 'دسترسی به ارسال پیامک رد شد. لطفاً مجوزهای لازم را بررسی کنید.';
+      default:
+        return 'خطا در ارسال پیامک. لطفاً مجدداً تلاش کنید.';
     }
   }
 

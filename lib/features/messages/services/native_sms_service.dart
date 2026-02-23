@@ -21,15 +21,32 @@ class NativeSmsService {
   final StreamController<SmsReceivedEvent> _smsController =
       StreamController<SmsReceivedEvent>.broadcast();
 
+  // Guard against calling initialize() more than once so that the native
+  // EventChannel is never set up with more than one active StreamSubscription.
+  // A second subscription would trigger onCancel → onListen on the native side
+  // (clearing eventSink momentarily), causing a window where SMS events are
+  // silently dropped.
+  bool _initialized = false;
+
   /// Stream of incoming SMS messages
   Stream<SmsReceivedEvent> get onSmsReceived => _smsController.stream;
 
-  /// Initialize the SMS service and start listening for incoming messages
+  /// Initialize the SMS service and start listening for incoming messages.
+  /// Safe to call multiple times — subsequent calls are no-ops.
   Future<void> initialize() async {
+    if (_initialized) {
+      debugPrint('NativeSmsService already initialized, skipping');
+      return;
+    }
     try {
-      // Register the native receiver
+      // Register the native BroadcastReceiver (idempotent on the Kotlin side).
       await _methodChannel.invokeMethod('registerReceiver');
-      
+
+      // Cancel any leftover subscription before creating a new one (safety net
+      // for an unexpected double-init path).
+      await _smsSubscription?.cancel();
+      _smsSubscription = null;
+
       // Start listening to incoming SMS via EventChannel
       _smsSubscription = _eventChannel.receiveBroadcastStream().listen(
         (dynamic event) {
@@ -50,7 +67,8 @@ class NativeSmsService {
         },
         cancelOnError: false,
       );
-      
+
+      _initialized = true;
       debugPrint('NativeSmsService initialized successfully');
     } catch (e) {
       debugPrint('Failed to initialize NativeSmsService: $e');
@@ -142,7 +160,10 @@ class NativeSmsService {
   void dispose() {
     _smsSubscription?.cancel();
     _smsSubscription = null;
-    _smsController.close();
+    if (!_smsController.isClosed) {
+      _smsController.close();
+    }
+    _initialized = false;
     debugPrint('NativeSmsService disposed');
   }
 }

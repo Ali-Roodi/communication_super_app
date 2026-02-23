@@ -19,6 +19,19 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
   final TextEditingController _searchController = TextEditingController();
   bool _hasLoaded = false;
 
+  // Memoize the flat (header + contact) row list so _buildFlatContactList()
+  // is only recomputed when the contacts data actually changes, not on every
+  // widget rebuild triggered by theme changes, parent rebuilds, etc.
+  List<ContactModel>? _lastContacts;
+  List<_ContactListItem> _cachedFlatItems = [];
+
+  List<_ContactListItem> _getOrBuildFlatList(List<ContactModel> contacts) {
+    if (identical(_lastContacts, contacts)) return _cachedFlatItems;
+    _lastContacts = contacts;
+    _cachedFlatItems = _buildFlatContactList(contacts);
+    return _cachedFlatItems;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -61,7 +74,7 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
               );
             }
 
-            final flatItems = _buildFlatContactList(state.contacts);
+            final flatItems = _getOrBuildFlatList(state.contacts);
 
             return Directionality(
               textDirection: TextDirection.rtl,

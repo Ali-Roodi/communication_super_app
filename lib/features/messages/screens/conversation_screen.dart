@@ -6,6 +6,7 @@ import '../bloc/message_state.dart';
 import '../models/message_model.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
+import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 
 class ConversationScreen extends StatefulWidget {
   final String threadId;
@@ -28,10 +29,14 @@ class _ConversationScreenState extends State<ConversationScreen> {
   final ScrollController _scrollController = ScrollController();
   bool _isLoadingMore = false;
 
+  // Cache the bloc reference so it can be used safely in dispose().
+  late final MessageBloc _messageBloc;
+
   @override
   void initState() {
     super.initState();
-    context.read<MessageBloc>().add(LoadMessages(widget.threadId));
+    _messageBloc = context.read<MessageBloc>();
+    _messageBloc.add(LoadMessages(widget.threadId));
     _scrollController.addListener(_onScroll);
   }
 
@@ -51,20 +56,22 @@ class _ConversationScreenState extends State<ConversationScreen> {
     _scrollController.removeListener(_onScroll);
     _messageController.dispose();
     _scrollController.dispose();
+    // Reload thread list whenever the conversation is closed, regardless of how
+    // it was navigated to.  This covers two scenarios:
+    //  1. Opened via MessagesListScreen.onTap (which also calls LoadThreads
+    //     after await Navigator.push returns — having both is harmless).
+    //  2. Opened via ContactSelectorScreen.pushReplacement — in this case
+    //     the MessagesListScreen.onTap callback never fires, so this is the
+    //     only place that restores the list from MessagesLoaded state.
+    _messageBloc.add(const LoadThreads());
     super.dispose();
   }
 
   void _sendMessage() {
-    if (_messageController.text.trim().isEmpty) return;
-
-    context.read<MessageBloc>().add(
-          SendMessage(
-            phoneNumber: widget.phoneNumber,
-            body: _messageController.text.trim(),
-          ),
-        );
-
+    final text = _messageController.text.trim();
+    if (text.isEmpty) return;
     _messageController.clear();
+    _messageBloc.add(SendMessage(phoneNumber: widget.phoneNumber, body: text));
   }
 
   @override
@@ -74,16 +81,24 @@ class _ConversationScreenState extends State<ConversationScreen> {
         titleWidget: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.contactName ?? widget.phoneNumber),
+            Text(widget.contactName ?? PhoneNormalizer.toNational(widget.phoneNumber)),
             if (widget.contactName != null)
               Text(
-                widget.phoneNumber,
+                PhoneNormalizer.toNational(widget.phoneNumber),
                 style: Theme.of(context).textTheme.bodySmall,
               ),
           ],
         ),
       ),
       body: BlocListener<MessageBloc, MessageState>(
+        // Only react to states that are meaningful on the conversation screen.
+        // ThreadsLoaded (emitted by background refreshes) is intentionally
+        // excluded so it never causes a black screen here.
+        listenWhen: (_, curr) =>
+            curr is MessagesLoaded ||
+            curr is MessageSent ||
+            curr is MessageSendFailed ||
+            curr is MessageError,
         listener: (context, state) {
           if (state is MessagesLoaded) {
             _isLoadingMore = false;
@@ -98,19 +113,36 @@ class _ConversationScreenState extends State<ConversationScreen> {
             });
           } else if (state is MessageSent) {
             context.read<MessageBloc>().add(LoadMessages(widget.threadId));
+          } else if (state is MessageSendFailed) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(state.userMessage),
+                backgroundColor: Theme.of(context).colorScheme.error,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          } else if (state is MessageError) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(state.message),
+                backgroundColor: Theme.of(context).colorScheme.error,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
           }
         },
         child: Column(
           children: [
             Expanded(
               child: BlocBuilder<MessageBloc, MessageState>(
+                // Only rebuild the message list for loading and conversation
+                // states. Rebuilding on ThreadsLoaded / MessageSent /
+                // MessageSendFailed / MessageError would flash the view.
+                buildWhen: (_, curr) =>
+                    curr is MessageLoading || curr is MessagesLoaded,
                 builder: (context, state) {
                   if (state is MessageLoading) {
                     return const Center(child: CircularProgressIndicator());
-                  }
-
-                  if (state is MessageError) {
-                    return Center(child: Text('Error: ${state.message}'));
                   }
 
                   if (state is MessagesLoaded) {
