@@ -131,7 +131,7 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: InkWell(
                 onTap: () {
-                  // TODO: Implement group creation
+                  // PHASE-2: Group SMS creation
                 },
                 child: Container(
                   padding: const EdgeInsets.all(16),

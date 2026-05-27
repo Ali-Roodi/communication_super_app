@@ -1,217 +1,407 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter_phone_direct_caller/flutter_phone_direct_caller.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
+import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_bloc.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_event.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_state.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
 
+// ── Main screen ───────────────────────────────────────────────────────────────
+
 class DialerScreen extends StatelessWidget {
   const DialerScreen({super.key});
 
+  /// Sub-labels shown below each dial key (standard phone keypad layout)
+  static const Map<String, String> _keySubLabels = {
+    '1': '',    '2': 'ABC',  '3': 'DEF',
+    '4': 'GHI', '5': 'JKL',  '6': 'MNO',
+    '7': 'PQRS','8': 'TUV',  '9': 'WXYZ',
+    '*': '',    '0': '+',    '#': '',
+  };
+
+  /// [Persian display, English value sent to BLoC]
+  static const List<List<List<String>>> _keyRows = [
+    [['۱', '1'], ['۲', '2'], ['۳', '3']],
+    [['۴', '4'], ['۵', '5'], ['۶', '6']],
+    [['۷', '7'], ['۸', '8'], ['۹', '9']],
+    [['*',  '*'], ['۰', '0'], ['#',  '#']],
+  ];
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    
-    return BlocBuilder<DialerBloc, DialerState>(
-      builder: (context, state) {
-        String phoneNumber = '';
-        List<ContactModel> matchingContacts = [];
-        bool isNumberInContacts = false;
-
-        if (state is DialerInitial) {
-          phoneNumber = state.phoneNumber;
-          matchingContacts = state.matchingContacts;
-          isNumberInContacts = state.isNumberInContacts;
-        } else if (state is DialerLoading) {
-          phoneNumber = state.phoneNumber;
-        } else if (state is DialerFiltered) {
-          phoneNumber = state.phoneNumber;
-          matchingContacts = state.matchingContacts;
-          isNumberInContacts = state.isNumberInContacts;
-        }
-
-        return Container(
-          color: theme.scaffoldBackgroundColor,
-          child: Column(
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: BlocBuilder<DialerBloc, DialerState>(
+        builder: (context, state) {
+          return Column(
             children: [
-              // Top section: Contact suggestions and dialed number
+              // Contact suggestions — visible when number is being typed
               Expanded(
-                child: _buildContactSuggestions(
-                  context,
-                  phoneNumber,
-                  matchingContacts,
-                  isNumberInContacts,
-                  theme,
-                  isDark,
-                ),
+                child: state.dialedNumber.isEmpty
+                    ? const SizedBox.shrink()
+                    : _buildSuggestions(context, state),
               ),
-              // Bottom section: Keypad and call button
-              _buildKeypadSection(context, phoneNumber, theme, isDark),
+              // Keypad panel — always anchored at bottom
+              _buildKeypadPanel(context, state),
             ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildContactSuggestions(
-    BuildContext context,
-    String phoneNumber,
-    List<ContactModel> matchingContacts,
-    bool isNumberInContacts,
-    ThemeData theme,
-    bool isDark,
-  ) {
-    if (phoneNumber.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return Container(
-      color: theme.scaffoldBackgroundColor,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Section header
-          Directionality(
-            textDirection: TextDirection.rtl,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Text(
-                'همه مخاطبین',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w400,
-                  color: theme.textTheme.bodyMedium?.color,
-                ),
-              ),
-            ),
-          ),
-          // Contact list
-          Expanded(
-            child: Directionality(
-              textDirection: TextDirection.rtl,
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: matchingContacts.isNotEmpty 
-                    ? matchingContacts.length 
-                    : (isNumberInContacts ? 0 : 1),
-                itemBuilder: (context, index) {
-                  if (matchingContacts.isNotEmpty) {
-                    return _buildContactListItem(
-                      context, 
-                      matchingContacts[index],
-                      theme,
-                      isDark,
-                    );
-                  } else {
-                    return _buildUnknownNumberListItem(
-                      phoneNumber,
-                      theme,
-                      isDark,
-                    );
-                  }
-                },
-              ),
-            ),
-          ),
-          if (matchingContacts.isEmpty && !isNumberInContacts)
-            Directionality(
-              textDirection: TextDirection.rtl,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: Text(
-                  'در مخاطبین وجود ندارد',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w400,
-                    color: theme.textTheme.bodyMedium?.color,
-                  ),
-                ),
-              ),
-            ),
-        ],
+          );
+        },
       ),
     );
   }
 
-  Widget _buildContactListItem(
-    BuildContext context, 
-    ContactModel contact,
-    ThemeData theme,
-    bool isDark,
-  ) {
-    final primaryPhone = contact.phoneNumbers.isNotEmpty
+  // ── Contact suggestions ───────────────────────────────────────────────────
+
+  Widget _buildSuggestions(BuildContext context, DialerState state) {
+    final theme = Theme.of(context);
+    final contacts = state.matchingContacts;
+
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      itemCount: contacts.isEmpty ? 1 : contacts.length,
+      itemBuilder: (_, i) => contacts.isNotEmpty
+          ? _ContactRow(contact: contacts[i], theme: theme)
+          : _UnknownRow(phone: state.dialedNumber, theme: theme),
+    );
+  }
+
+  // ── Keypad panel ──────────────────────────────────────────────────────────
+
+  Widget _buildKeypadPanel(BuildContext context, DialerState state) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final hasNumber = state.dialedNumber.isNotEmpty;
+    // Disable call button while a call is already in progress
+    final canCall = hasNumber && !state.isInCall;
+
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ── Number display ──────────────────────────────────
+            SizedBox(
+              height: 60,
+              child: Center(
+                child: hasNumber
+                    ? Directionality(
+                        textDirection: TextDirection.ltr,
+                        child: Text(
+                          PersianUtils.toPersianNumber(state.dialedNumber),
+                          style: TextStyle(
+                            fontSize: 34,
+                            fontWeight: FontWeight.w300,
+                            color: theme.textTheme.bodyLarge?.color,
+                            letterSpacing: 2,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                        ),
+                      )
+                    : Text(
+                        'شماره را وارد کنید',
+                        style: TextStyle(
+                          fontSize: 17,
+                          color: theme.textTheme.bodyMedium?.color
+                              ?.withValues(alpha: 0.5),
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // ── Keypad grid (4 rows × 3 cols) ───────────────────
+            for (final row in _keyRows) ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: row
+                    .map((k) => _DialKey(
+                          display: k[0],
+                          value: k[1],
+                          subLabel: _keySubLabels[k[1]] ?? '',
+                          isDark: isDark,
+                        ))
+                    .toList(),
+              ),
+              const SizedBox(height: 12),
+            ],
+
+            const SizedBox(height: 4),
+
+            // ── Call button row ─────────────────────────────────
+            // Layout: [left spacer (balances backspace)] [call btn] [backspace]
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Left spacer — mirrors backspace width for symmetry
+                const SizedBox(width: 72 + 20),
+                // Green call button
+                _CallButton(enabled: canCall),
+                const SizedBox(width: 20),
+                // Backspace: tap = delete last digit, long-press = clear all
+                SizedBox(
+                  width: 72,
+                  child: AnimatedOpacity(
+                    opacity: hasNumber ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 200),
+                    child: Center(
+                      child: GestureDetector(
+                        onTap: hasNumber
+                            ? () => context
+                                .read<DialerBloc>()
+                                .add(const DialerNumberDeleted())
+                            : null,
+                        onLongPress: hasNumber
+                            ? () => context
+                                .read<DialerBloc>()
+                                .add(const DialerNumberCleared())
+                            : null,
+                        child: Container(
+                          width: 52,
+                          height: 52,
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Colors.white.withValues(alpha: 0.08)
+                                : Colors.black.withValues(alpha: 0.06),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.backspace_outlined,
+                            size: 22,
+                            color: isDark ? Colors.white70 : Colors.black54,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Animated dial key ─────────────────────────────────────────────────────────
+
+class _DialKey extends StatefulWidget {
+  final String display;   // Persian character to display
+  final String value;     // ASCII value sent to BLoC
+  final String subLabel;  // Letters shown below the digit
+  final bool isDark;
+
+  const _DialKey({
+    required this.display,
+    required this.value,
+    required this.subLabel,
+    required this.isDark,
+  });
+
+  @override
+  State<_DialKey> createState() => _DialKeyState();
+}
+
+class _DialKeyState extends State<_DialKey>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 60),
+      reverseDuration: const Duration(milliseconds: 160),
+    );
+    _scale = Tween<double>(begin: 1.0, end: 0.86).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeIn),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _onTapDown(TapDownDetails _) => _ctrl.forward();
+
+  void _onTapUp(TapUpDetails _) {
+    _ctrl.reverse();
+    context.read<DialerBloc>().add(DialerNumberPressed(widget.value));
+  }
+
+  void _onTapCancel() => _ctrl.reverse();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isSpecial = widget.value == '*' || widget.value == '#';
+
+    return GestureDetector(
+      onTapDown: _onTapDown,
+      onTapUp: _onTapUp,
+      onTapCancel: _onTapCancel,
+      child: AnimatedBuilder(
+        animation: _scale,
+        builder: (_, child) =>
+            Transform.scale(scale: _scale.value, child: child),
+        child: Container(
+          width: 72,
+          height: 72,
+          decoration: BoxDecoration(
+            color: widget.isDark ? AppColors.keypadDark : Colors.white,
+            shape: BoxShape.circle,
+            boxShadow: widget.isDark
+                ? []
+                : [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.10),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                widget.display,
+                style: TextStyle(
+                  fontSize: isSpecial ? 22 : 26,
+                  fontWeight: FontWeight.w400,
+                  color: isSpecial
+                      ? theme.textTheme.bodyMedium?.color
+                      : theme.textTheme.bodyLarge?.color,
+                  height: widget.subLabel.isEmpty ? 1.0 : 1.25,
+                ),
+              ),
+              if (widget.subLabel.isNotEmpty)
+                Text(
+                  widget.subLabel,
+                  style: TextStyle(
+                    fontSize: 8,
+                    fontWeight: FontWeight.w700,
+                    color: theme.textTheme.bodyMedium?.color
+                        ?.withValues(alpha: 0.65),
+                    letterSpacing: 1.2,
+                    height: 1.0,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Call button ───────────────────────────────────────────────────────────────
+
+class _CallButton extends StatelessWidget {
+  final bool enabled;
+  const _CallButton({required this.enabled});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = enabled
+        ? AppColors.callAnswerGreen
+        : AppColors.callAnswerGreen.withValues(alpha: 0.35);
+
+    return GestureDetector(
+      onTap: enabled
+          ? () => context.read<DialerBloc>().add(const MakeCall())
+          : null,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: 72,
+        height: 72,
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          boxShadow: enabled
+              ? [
+                  BoxShadow(
+                    color: AppColors.callAnswerGreen.withValues(alpha: 0.4),
+                    blurRadius: 14,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : [],
+        ),
+        child: const Icon(Icons.phone, color: Colors.white, size: 30),
+      ),
+    );
+  }
+}
+
+// ── Contact suggestion rows ───────────────────────────────────────────────────
+
+class _ContactRow extends StatelessWidget {
+  final ContactModel contact;
+  final ThemeData theme;
+
+  const _ContactRow({required this.contact, required this.theme});
+
+  @override
+  Widget build(BuildContext context) {
+    final phone = contact.phoneNumbers.isNotEmpty
         ? contact.phoneNumbers.first
         : contact.phoneNumber;
 
     return InkWell(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => DeviceContactDetailScreen(contact: contact),
-          ),
-        );
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DeviceContactDetailScreen(contact: contact),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
         child: Row(
           children: [
-            // Avatar (right side for RTL)
-            _buildContactAvatar(contact),
+            _buildAvatar(),
             const SizedBox(width: 12),
-            // Contact info (right side for RTL)
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     contact.name,
-                    textAlign: TextAlign.right,
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w500,
                       color: theme.textTheme.bodyLarge?.color,
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 2),
                   Directionality(
                     textDirection: TextDirection.ltr,
                     child: Text(
-                      '${PersianUtils.toPersianNumber(primaryPhone)}  موبایل',
-                      textAlign: TextAlign.right,
+                      PersianUtils.toPersianNumber(phone),
                       style: TextStyle(
-                        fontSize: 14,
+                        fontSize: 13,
                         color: theme.textTheme.bodyMedium?.color,
                       ),
-                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(width: 8),
-            // Call button
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: theme.colorScheme.outline,
-                  width: 1,
-                ),
-              ),
-              child: Icon(
-                Icons.phone_outlined,
-                size: 20,
-                color: theme.textTheme.bodyMedium?.color,
-              ),
+            Icon(
+              Icons.phone_outlined,
+              size: 20,
+              color: theme.colorScheme.primary,
             ),
           ],
         ),
@@ -219,27 +409,35 @@ class DialerScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildUnknownNumberListItem(
-    String phoneNumber,
-    ThemeData theme,
-    bool isDark,
-  ) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+  Widget _buildAvatar() {
+    if (contact.avatar != null) {
+      return CircleAvatar(
+        radius: 22,
+        backgroundImage: MemoryImage(contact.avatar!),
+      );
+    }
+    return AvatarWidget(name: contact.name, size: 44);
+  }
+}
+
+class _UnknownRow extends StatelessWidget {
+  final String phone;
+  final ThemeData theme;
+
+  const _UnknownRow({required this.phone, required this.theme});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
       child: Row(
         children: [
-          // Orange avatar for unknown number
           const CircleAvatar(
-            radius: 24,
+            radius: 22,
             backgroundColor: Color(0xFFFF9800),
-            child: Icon(
-              Icons.person,
-              color: Colors.white,
-              size: 24,
-            ),
+            child: Icon(Icons.person, color: Colors.white, size: 22),
           ),
           const SizedBox(width: 12),
-          // Number info (right side for RTL)
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -247,365 +445,31 @@ class DialerScreen extends StatelessWidget {
                 Directionality(
                   textDirection: TextDirection.ltr,
                   child: Text(
-                    PersianUtils.toPersianNumber(phoneNumber),
-                    textAlign: TextAlign.right,
+                    PersianUtils.toPersianNumber(phone),
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w500,
                       color: theme.textTheme.bodyLarge?.color,
                     ),
-                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                const SizedBox(height: 4),
                 Text(
-                  _getPersianDate(DateTime.now()),
-                  textAlign: TextAlign.right,
+                  'در مخاطبین نیست',
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: 13,
                     color: theme.textTheme.bodyMedium?.color,
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 8),
-          // Call button
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: theme.colorScheme.outline,
-                width: 1,
-              ),
-            ),
-            child: Icon(
-              Icons.phone_outlined,
-              size: 20,
-              color: theme.textTheme.bodyMedium?.color,
-            ),
+          Icon(
+            Icons.person_add_outlined,
+            size: 20,
+            color: theme.textTheme.bodyMedium?.color,
           ),
         ],
       ),
     );
-  }
-
-  Widget _buildContactAvatar(ContactModel contact) {
-    if (contact.avatar != null) {
-      return CircleAvatar(
-        radius: 24,
-        backgroundImage: MemoryImage(contact.avatar!),
-      );
-    }
-    return AvatarWidget(name: contact.name, size: 48);
-  }
-
-  String _getPersianDate(DateTime date) {
-    // Simple Persian date formatting
-    // You might want to use a proper Persian date package for production
-    final persianMonths = [
-      'فروردین',
-      'اردیبهشت',
-      'خرداد',
-      'تیر',
-      'مرداد',
-      'شهریور',
-      'مهر',
-      'آبان',
-      'آذر',
-      'دی',
-      'بهمن',
-      'اسفند',
-    ];
-    
-    // Approximate conversion (for demo purposes)
-    // In production, use a proper Persian calendar library
-    final monthIndex = (date.month - 1) % 12;
-    final day = date.day;
-    final year = 1400 + (date.year - 2021); // Approximate
-    
-    return '$day ${persianMonths[monthIndex]} $year';
-  }
-
-  Widget _buildKeypadSection(
-    BuildContext context, 
-    String phoneNumber,
-    ThemeData theme,
-    bool isDark,
-  ) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(28),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Number display bar when typing (or close button when empty)
-          if (phoneNumber.isNotEmpty)
-            _buildNumberDisplayBar(context, phoneNumber, theme, isDark)
-          else
-            Directionality(
-              textDirection: TextDirection.rtl,
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: GestureDetector(
-                  onTap: () {
-                    context.read<DialerBloc>().add(const DialerNumberCleared());
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: isDark 
-                          ? Colors.white.withValues(alpha: 0.1)
-                          : Colors.white.withValues(alpha: 0.5),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(
-                      Icons.close_rounded,
-                      size: 18,
-                      color: theme.textTheme.bodyMedium?.color,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          const SizedBox(height: 12),
-          _buildKeypad(context, theme, isDark),
-          const SizedBox(height: 16),
-          _buildCallButton(context, phoneNumber, theme, isDark),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNumberDisplayBar(
-    BuildContext context, 
-    String phoneNumber,
-    ThemeData theme,
-    bool isDark,
-  ) {
-    final displayBarColor = isDark 
-        ? const Color(0xFF2A2A2A)
-        : const Color(0xFFD8D9DB);
-    final closeButtonColor = isDark
-        ? Colors.white.withValues(alpha: 0.15)
-        : Colors.white.withValues(alpha: 0.6);
-    
-    return Directionality(
-      textDirection: TextDirection.ltr,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        decoration: BoxDecoration(
-          color: displayBarColor,
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Row(
-          children: [
-            // Three-dot menu
-            GestureDetector(
-              onTap: () {
-                // Show options menu
-              },
-              child: Icon(
-                Icons.more_vert,
-                size: 20,
-                color: theme.textTheme.bodyMedium?.color,
-              ),
-            ),
-            const SizedBox(width: 6),
-            // Phone number display
-            Expanded(
-              child: Text(
-                PersianUtils.toPersianNumber(phoneNumber),
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w600,
-                  color: theme.textTheme.bodyLarge?.color,
-                  height: 1.0,
-                ),
-              ),
-            ),
-            const SizedBox(width: 6),
-            // Close button
-            GestureDetector(
-              onTap: () {
-                context.read<DialerBloc>().add(const DialerNumberCleared());
-              },
-              child: Container(
-                padding: const EdgeInsets.all(3),
-                decoration: BoxDecoration(
-                  color: closeButtonColor,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Icon(
-                  Icons.close_rounded,
-                  size: 18,
-                  color: theme.textTheme.bodyMedium?.color,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildKeypad(BuildContext context, ThemeData theme, bool isDark) {
-    final persianNumbers = [
-      ['۱', '۲', '۳'],
-      ['۴', '۵', '۶'],
-      ['۷', '۸', '۹'],
-      ['*', '۰', '#'],
-    ];
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        // Calculate button width to fit screen with proper spacing
-        final availableWidth = constraints.maxWidth;
-        final spacing = 10.0;
-        final buttonWidth = (availableWidth - (spacing * 4)) / 3;
-        
-        return Column(
-          children: persianNumbers.asMap().entries.map((entry) {
-            final isLastRow = entry.key == persianNumbers.length - 1;
-            return Padding(
-              padding: EdgeInsets.only(bottom: isLastRow ? 0 : 10),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: entry.value.map((number) {
-                  return _buildKeyButton(context, number, theme, isDark, buttonWidth);
-                }).toList(),
-              ),
-            );
-          }).toList(),
-        );
-      },
-    );
-  }
-
-  Widget _buildKeyButton(
-    BuildContext context, 
-    String number,
-    ThemeData theme,
-    bool isDark,
-    double buttonWidth,
-  ) {
-    final englishNumber = PersianUtils.toEnglishNumber(number);
-    final isSpecial = number == '*' || number == '#';
-    final buttonColor = isDark
-        ? const Color(0xFF2C2C2C)
-        : Colors.white;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () {
-          context.read<DialerBloc>().add(DialerNumberPressed(englishNumber));
-        },
-        borderRadius: BorderRadius.circular(20),
-        child: Container(
-          width: buttonWidth,
-          height: 65,
-          decoration: BoxDecoration(
-            color: buttonColor,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: isDark 
-                ? []
-                : [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.04),
-                      blurRadius: 8,
-                      spreadRadius: 0,
-                      offset: const Offset(0, 1),
-                    ),
-                  ],
-          ),
-          child: Center(
-            child: Text(
-              number,
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.w600,
-                color: isSpecial 
-                    ? theme.textTheme.bodyMedium?.color 
-                    : theme.textTheme.bodyLarge?.color,
-                height: 1.0,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCallButton(
-    BuildContext context, 
-    String phoneNumber,
-    ThemeData theme,
-    bool isDark,
-  ) {
-    final isEnabled = phoneNumber.isNotEmpty;
-    final callButtonColor = isEnabled 
-        ? theme.colorScheme.secondary 
-        : (isDark ? const Color(0xFF424242) : const Color(0xFFBDBDBD));
-    
-    return Center(
-      child: Container(
-        width: 200,
-        height: 52,
-        decoration: BoxDecoration(
-          color: callButtonColor,
-          borderRadius: BorderRadius.circular(26),
-          boxShadow: isEnabled && !isDark
-              ? [
-                  BoxShadow(
-                    color: callButtonColor.withValues(alpha: 0.3),
-                    blurRadius: 10,
-                    offset: const Offset(0, 3),
-                  ),
-                ]
-              : [],
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: isEnabled ? () => _makeCall(context, phoneNumber) : null,
-            borderRadius: BorderRadius.circular(26),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Text(
-                  'تماس',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    height: 1.0,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                const Icon(
-                  Icons.phone,
-                  color: Colors.white,
-                  size: 20,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _makeCall(BuildContext context, String phoneNumber) async {
-    if (phoneNumber.isNotEmpty) {
-      await FlutterPhoneDirectCaller.callNumber(phoneNumber);
-    }
   }
 }

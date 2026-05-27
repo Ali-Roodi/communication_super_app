@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter_phone_direct_caller/flutter_phone_direct_caller.dart';
 import '../bloc/call_log_bloc.dart';
 import '../bloc/call_log_event.dart';
 import '../bloc/call_log_state.dart';
 import '../models/call_log_model.dart';
-import 'package:communication_super_app/core/widgets/avatar_widget.dart';
+import 'widgets/call_log_tile.dart';
 
 class CallHistoryScreen extends StatefulWidget {
   const CallHistoryScreen({super.key});
@@ -117,7 +116,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> with WidgetsBindi
                   if (item.isHeader) {
                     return _buildSectionHeader(item.title!, theme);
                   }
-                  return _buildCallLogItem(context, item.log!, theme);
+                  return CallLogTile(log: item.log!);
                 },
               ),
             );
@@ -191,90 +190,6 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> with WidgetsBindi
     );
   }
 
-  Widget _buildCallLogItem(BuildContext context, CallLogModel log, ThemeData theme) {
-    final displayName = log.contactName ?? log.phoneNumber;
-
-    // Format time as "شبانه ۱۵:۱۷"
-    final hour = log.timestamp.hour;
-    final minute = log.timestamp.minute;
-    final timeOfDay = hour >= 12 && hour < 18 ? 'بعدازظهر' : 'شبانه';
-    final persianHour = _toPersianNumber(hour.toString().padLeft(2, '0'));
-    final persianMinute = _toPersianNumber(minute.toString().padLeft(2, '0'));
-    final timeString = '$timeOfDay $persianHour:$persianMinute';
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        children: [
-          AvatarWidget(name: displayName, size: 48),
-          const SizedBox(width: 12),
-          // Call details (vertical column)
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  displayName,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                    color: theme.textTheme.bodyLarge?.color,
-                  ),
-                  textAlign: TextAlign.left,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  timeString,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: theme.textTheme.bodyMedium?.color,
-                  ),
-                  textAlign: TextAlign.left,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  log.simSlot != null ? 'SIM${log.simSlot}' : 'SIM1',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: Color(0xFF2196F3),
-                    fontWeight: FontWeight.w500,
-                  ),
-                  textAlign: TextAlign.left,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          // Avatar on the right (RTL)
-          // Phone callback button on the left (RTL)
-          IconButton(
-            icon: const Icon(Icons.phone_outlined),
-            iconSize: 24,
-            color: theme.textTheme.bodyMedium?.color,
-            onPressed: () async {
-              await FlutterPhoneDirectCaller.callNumber(log.phoneNumber);
-            },
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(
-              minWidth: 40,
-              minHeight: 40,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _toPersianNumber(String number) {
-    const english = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
-    const persian = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
-    
-    String result = number;
-    for (int i = 0; i < english.length; i++) {
-      result = result.replaceAll(english[i], persian[i]);
-    }
-    return result;
-  }
 }
 
 class _CallLogListRow {

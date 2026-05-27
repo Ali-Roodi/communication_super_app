@@ -2,9 +2,11 @@ import 'package:telephony/telephony.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/message_model.dart';
 import '../repositories/message_repository.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
+import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:uuid/uuid.dart';
 import 'notification_service.dart';
 import 'native_sms_service.dart';
@@ -34,7 +36,7 @@ class SmsService {
   final NotificationService _notificationService = NotificationService();
   final NativeSmsService _nativeSmsService = NativeSmsService();
   Function(MessageModel)? onMessageReceived;
-  static bool _imported = false;
+  // _imported flag moved to SharedPreferences (sms_imported_v1) — B6 fix
   StreamSubscription<SmsReceivedEvent>? _nativeSmsSubscription;
 
   // Guard: SMS listener should be set up exactly once per app session.
@@ -253,7 +255,10 @@ class SmsService {
   static const int _importLimit = 500;
 
   Future<void> importDeviceMessages({bool forceRefresh = false}) async {
-    if (_imported && !forceRefresh) return;
+    // B6 fix: persist the import flag across restarts via SharedPreferences
+    final prefs = await SharedPreferences.getInstance();
+    final alreadyImported = prefs.getBool('sms_imported_v1') ?? false;
+    if (alreadyImported && !forceRefresh) return;
 
     try {
       final hasPermission = await requestPermissions();
@@ -330,9 +335,10 @@ class SmsService {
         await _messageRepository.createMessagesBatch(batch);
       }
 
-      _imported = true;
+      await prefs.setBool('sms_imported_v1', true);
     } catch (e) {
-      _imported = false;
+      // Do NOT reset the flag on failure — prevents infinite retry loops.
+      // The user can force a refresh via forceRefresh: true if needed.
       rethrow;
     }
   }
@@ -364,9 +370,16 @@ class SmsService {
     );
   }
 
-  static String _normalizePhoneNumber(String phone) {
-    return phone.replaceAll(RegExp(r'[^\d]'), '');
-  }
+  /// Delegates to [PhoneNormalizer.toThreadId] so that all thread IDs are
+  /// produced by a single canonical implementation.
+  ///
+  /// Normalizes to national `09xxxxxxxxx` form:
+  ///   +989120000000  →  09120000000
+  ///    989120000000  →  09120000000
+  ///   09120000000   →  09120000000  (unchanged)
+  ///    9120000000   →  09120000000
+  static String _normalizePhoneNumber(String phone) =>
+      PhoneNormalizer.toThreadId(phone);
 
   /// Generate a unique hash for SMS deduplication.
   /// Uses address, body, and exact timestamp so the same SMS delivered twice is deduped.

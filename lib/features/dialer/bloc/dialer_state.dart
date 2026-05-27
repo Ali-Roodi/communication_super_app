@@ -1,87 +1,77 @@
 import 'package:equatable/equatable.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
 
-abstract class DialerState extends Equatable {
-  const DialerState();
+/// وضعیت چرخه‌حیات تماس
+enum CallStatus { idle, connecting, ringing, active, incoming, onHold }
 
-  @override
-  List<Object?> get props => [];
-}
-
-class DialerInitial extends DialerState {
-  final String phoneNumber;
+/// Single-state class — شامل هم keypad و هم call state
+class DialerState extends Equatable {
+  // ── Keypad ────────────────────────────────────────────────
+  final String dialedNumber;
   final List<ContactModel> matchingContacts;
   final bool isNumberInContacts;
+  final bool isLoadingContacts;
 
-  const DialerInitial({
-    this.phoneNumber = '',
+  // ── Call ──────────────────────────────────────────────────
+  final CallStatus callStatus;
+  final String activePhone;
+  final bool isMuted;
+  final bool isSpeakerOn;
+  final String? error;
+
+  const DialerState({
+    this.dialedNumber = '',
     this.matchingContacts = const [],
     this.isNumberInContacts = false,
+    this.isLoadingContacts = false,
+    this.callStatus = CallStatus.idle,
+    this.activePhone = '',
+    this.isMuted = false,
+    this.isSpeakerOn = false,
+    this.error,
   });
 
-  @override
-  List<Object?> get props => [phoneNumber, matchingContacts, isNumberInContacts];
+  bool get isInCall =>
+      callStatus == CallStatus.active ||
+      callStatus == CallStatus.onHold ||
+      callStatus == CallStatus.ringing ||
+      callStatus == CallStatus.connecting;
 
-  DialerInitial copyWith({
-    String? phoneNumber,
+  DialerState copyWith({
+    String? dialedNumber,
     List<ContactModel>? matchingContacts,
     bool? isNumberInContacts,
+    bool? isLoadingContacts,
+    CallStatus? callStatus,
+    String? activePhone,
+    bool? isMuted,
+    bool? isSpeakerOn,
+    String? error,
+    bool clearError = false,
   }) {
-    return DialerInitial(
-      phoneNumber: phoneNumber ?? this.phoneNumber,
+    return DialerState(
+      dialedNumber: dialedNumber ?? this.dialedNumber,
       matchingContacts: matchingContacts ?? this.matchingContacts,
       isNumberInContacts: isNumberInContacts ?? this.isNumberInContacts,
+      isLoadingContacts: isLoadingContacts ?? this.isLoadingContacts,
+      callStatus: callStatus ?? this.callStatus,
+      activePhone: activePhone ?? this.activePhone,
+      isMuted: isMuted ?? this.isMuted,
+      isSpeakerOn: isSpeakerOn ?? this.isSpeakerOn,
+      error: clearError ? null : (error ?? this.error),
     );
   }
-}
-
-class DialerLoading extends DialerState {
-  final String phoneNumber;
-
-  const DialerLoading(this.phoneNumber);
 
   @override
-  List<Object?> get props => [phoneNumber];
+  List<Object?> get props => [
+        dialedNumber,
+        matchingContacts,
+        isNumberInContacts,
+        isLoadingContacts,
+        callStatus,
+        activePhone,
+        isMuted,
+        isSpeakerOn,
+        error,
+      ];
 }
-
-class DialerFiltered extends DialerState {
-  final String phoneNumber;
-  final List<ContactModel> matchingContacts;
-  final bool isNumberInContacts;
-
-  const DialerFiltered({
-    required this.phoneNumber,
-    required this.matchingContacts,
-    required this.isNumberInContacts,
-  });
-
-  @override
-  List<Object?> get props => [phoneNumber, matchingContacts, isNumberInContacts];
-}
-
-class DialerError extends DialerState {
-  final String message;
-
-  const DialerError(this.message);
-
-  @override
-  List<Object?> get props => [message];
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

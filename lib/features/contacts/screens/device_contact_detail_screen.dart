@@ -5,6 +5,7 @@ import 'package:communication_super_app/core/widgets/lock_button.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
 import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
+import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 
 class DeviceContactDetailScreen extends StatelessWidget {
   final ContactModel contact;
@@ -184,10 +185,12 @@ class DeviceContactDetailScreen extends StatelessWidget {
 
   void _startSms(BuildContext context, String phone) {
     if (phone.isEmpty) return;
+    // Normalize to canonical thread-ID (09xxxxxxxxx) so it matches stored messages
+    final threadId = PhoneNormalizer.toThreadId(phone);
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => ConversationScreen(
-          threadId: phone,
+          threadId: threadId,
           phoneNumber: phone,
           contactName: contact.name,
         ),
