@@ -117,71 +117,82 @@ class DialerScreen extends StatelessWidget {
             const SizedBox(height: 16),
 
             // ── Keypad grid (4 rows × 3 cols) ───────────────────
-            for (final row in _keyRows) ...[
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: row
-                    .map((k) => _DialKey(
-                          display: k[0],
-                          value: k[1],
-                          subLabel: _keySubLabels[k[1]] ?? '',
-                          isDark: isDark,
-                        ))
-                    .toList(),
-              ),
-              const SizedBox(height: 12),
-            ],
+            // Force LTR so digits 1-2-3 always appear left→right,
+            // matching the universal phone keypad layout.
+            Directionality(
+              textDirection: TextDirection.ltr,
+              child: Column(
+                children: [
+                  for (final row in _keyRows) ...[
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: row
+                          .map((k) => _DialKey(
+                                display: k[0],
+                                value: k[1],
+                                subLabel: _keySubLabels[k[1]] ?? '',
+                                isDark: isDark,
+                              ))
+                          .toList(),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
 
-            const SizedBox(height: 4),
+                  const SizedBox(height: 4),
 
-            // ── Call button row ─────────────────────────────────
-            // Layout: [left spacer (balances backspace)] [call btn] [backspace]
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Left spacer — mirrors backspace width for symmetry
-                const SizedBox(width: 72 + 20),
-                // Green call button
-                _CallButton(enabled: canCall),
-                const SizedBox(width: 20),
-                // Backspace: tap = delete last digit, long-press = clear all
-                SizedBox(
-                  width: 72,
-                  child: AnimatedOpacity(
-                    opacity: hasNumber ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 200),
-                    child: Center(
-                      child: GestureDetector(
-                        onTap: hasNumber
-                            ? () => context
-                                .read<DialerBloc>()
-                                .add(const DialerNumberDeleted())
-                            : null,
-                        onLongPress: hasNumber
-                            ? () => context
-                                .read<DialerBloc>()
-                                .add(const DialerNumberCleared())
-                            : null,
-                        child: Container(
-                          width: 52,
-                          height: 52,
-                          decoration: BoxDecoration(
-                            color: isDark
-                                ? Colors.white.withValues(alpha: 0.08)
-                                : Colors.black.withValues(alpha: 0.06),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            Icons.backspace_outlined,
-                            size: 22,
-                            color: isDark ? Colors.white70 : Colors.black54,
+                  // ── Call button row ───────────────────────────
+                  // Layout: [spacer] [call btn] [backspace]
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // Spacer — mirrors backspace width for symmetry
+                      const SizedBox(width: 72 + 20),
+                      // Green call button
+                      _CallButton(enabled: canCall),
+                      const SizedBox(width: 20),
+                      // Backspace: tap = delete last, long-press = clear all
+                      SizedBox(
+                        width: 72,
+                        child: AnimatedOpacity(
+                          opacity: hasNumber ? 1.0 : 0.0,
+                          duration: const Duration(milliseconds: 200),
+                          child: Center(
+                            child: GestureDetector(
+                              onTap: hasNumber
+                                  ? () => context
+                                      .read<DialerBloc>()
+                                      .add(const DialerNumberDeleted())
+                                  : null,
+                              onLongPress: hasNumber
+                                  ? () => context
+                                      .read<DialerBloc>()
+                                      .add(const DialerNumberCleared())
+                                  : null,
+                              child: Container(
+                                width: 52,
+                                height: 52,
+                                decoration: BoxDecoration(
+                                  color: isDark
+                                      ? Colors.white.withValues(alpha: 0.08)
+                                      : Colors.black.withValues(alpha: 0.06),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(
+                                  Icons.backspace_outlined,
+                                  size: 22,
+                                  color: isDark
+                                      ? Colors.white70
+                                      : Colors.black54,
+                                ),
+                              ),
+                            ),
                           ),
                         ),
                       ),
-                    ),
+                    ],
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ),
