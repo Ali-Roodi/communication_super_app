@@ -5,6 +5,7 @@ import android.telecom.ConnectionRequest
 import android.telecom.ConnectionService
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
+import android.util.Log
 
 class CallConnectionService : ConnectionService() {
 
@@ -14,9 +15,13 @@ class CallConnectionService : ConnectionService() {
     ): Connection {
         val connection = CallConnection()
         connection.setDialing()
-        connection.address = request.address
+        // address is read-only in Kotlin — use setAddress(uri, presentation)
+        request.address?.let { uri ->
+            connection.setAddress(uri, TelecomManager.PRESENTATION_ALLOWED)
+        }
 
         val phone = request.address?.schemeSpecificPart ?: ""
+        Log.d("CallConnectionService", "Outgoing call to: $phone")
         CallEventStreamHandler.sendEvent(
             CallEvent.RINGING,
             mapOf("phone" to phone, "direction" to "outgoing")
@@ -30,10 +35,14 @@ class CallConnectionService : ConnectionService() {
     ): Connection {
         val connection = CallConnection()
         connection.setRinging()
-        connection.address = request.address
+        // address is read-only in Kotlin — use setAddress(uri, presentation)
+        request.address?.let { uri ->
+            connection.setAddress(uri, TelecomManager.PRESENTATION_ALLOWED)
+        }
 
         val phone = request.extras
             ?.getString(TelecomManager.EXTRA_INCOMING_CALL_ADDRESS) ?: ""
+        Log.d("CallConnectionService", "Incoming call from: $phone")
         CallEventStreamHandler.sendEvent(
             CallEvent.INCOMING,
             mapOf("phone" to phone, "direction" to "incoming")
