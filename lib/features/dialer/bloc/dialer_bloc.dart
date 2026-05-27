@@ -156,14 +156,18 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
 
   Future<void> _onMakeCall(MakeCall event, Emitter<DialerState> emit) async {
     if (state.dialedNumber.isEmpty) return;
-    emit(state.copyWith(callStatus: CallStatus.connecting, clearError: true));
     try {
+      // Option A: native system dialer opens and manages the full call lifecycle.
+      // Clear the keypad so the dialer is ready when the user returns.
       await _callService.makeCall(state.dialedNumber);
-    } catch (e) {
       emit(state.copyWith(
-        callStatus: CallStatus.idle,
-        error: e.toString(),
+        dialedNumber: '',
+        matchingContacts: [],
+        isNumberInContacts: false,
+        clearError: true,
       ));
+    } catch (e) {
+      emit(state.copyWith(error: e.toString()));
     }
   }
 

@@ -50,6 +50,9 @@ class _MainNavigationState extends State<MainNavigation> {
 
   @override
   Widget build(BuildContext context) {
+    // PHASE-2 VoIP: this listener navigates to IncomingCallScreen / InCallScreen
+    // when callStatus changes. For cellular calls (Option A) callStatus stays
+    // idle and the native system dialer manages the UI — so this never fires.
     return BlocListener<DialerBloc, DialerState>(
       listenWhen: (prev, curr) => prev.callStatus != curr.callStatus,
       listener: (context, state) {
