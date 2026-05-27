@@ -240,6 +240,8 @@ class _PermissionRow extends StatelessWidget {
       icon = Icons.message_outlined;
     } else if (permission == Permission.phone) {
       icon = Icons.phone_outlined;
+    } else if (permission == Permission.notification) {
+      icon = Icons.notifications_outlined;
     } else {
       icon = Icons.contacts_outlined;
     }

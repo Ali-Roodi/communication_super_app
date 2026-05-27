@@ -1,213 +1,198 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'app_colors.dart';
 
-class AppTheme {
-  // Light theme colors - from Figma design
-  static const Color _lightPrimary = Color(0xFF4FC3F7); // Blue badge color
-  static const Color _lightBackground = Color(0xFFFAFAFA);
-  static const Color _lightSurface = Color(0xFFFFFFFF);
-  static const Color _lightKeypadBackground = Color(0xFFE8E9EB);
-  static const Color _lightCallButtonGreen = Color(0xFF5CB85C);
-  static const Color _lightTextPrimary = Color(0xFF202124);
-  static const Color _lightTextSecondary = Color(0xFF5F6368);
-  static const Color _lightDivider = Color(0xFFE0E0E0);
-  
-  // Dark theme colors - professionally designed
-  static const Color _darkPrimary = Color(0xFF64B5F6);
-  static const Color _darkBackground = Color(0xFF0D0D0D);
-  static const Color _darkSurface = Color(0xFF1A1A1A);
-  static const Color _darkKeypadBackground = Color(0xFF242424);
-  static const Color _darkCallButtonGreen = Color(0xFF66BB6A);
-  static const Color _darkTextPrimary = Color(0xFFE8E8E8);
-  static const Color _darkTextSecondary = Color(0xFFB0B0B0);
-  static const Color _darkDivider = Color(0xFF333333);
+/// تم‌های روشن و تاریک اپ — بر اساس Google Phone (Material 3)
+abstract class AppTheme {
+  // ── Light Theme ─────────────────────────────────────────
+  static ThemeData get light => ThemeData(
+        useMaterial3: true,
+        brightness: Brightness.light,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: AppColors.googleBlue,
+          brightness: Brightness.light,
+          primary: AppColors.googleBlue,
+          surface: AppColors.surfaceLight,
+        ),
+        scaffoldBackgroundColor: AppColors.backgroundLight,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: AppColors.surfaceLight,
+          foregroundColor: AppColors.onSurfaceLight,
+          elevation: 0,
+          scrolledUnderElevation: 1,
+          surfaceTintColor: Colors.transparent,
+          centerTitle: false,
+          systemOverlayStyle: SystemUiOverlayStyle.dark,
+          titleTextStyle: TextStyle(
+            color: AppColors.onSurfaceLight,
+            fontSize: 18,
+            fontWeight: FontWeight.w500,
+          ),
+          iconTheme: IconThemeData(
+            color: AppColors.onSurfaceLightDim,
+            size: 24,
+          ),
+        ),
+        bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+          backgroundColor: AppColors.surfaceLight,
+          selectedItemColor: AppColors.googleBlue,
+          unselectedItemColor: AppColors.onSurfaceLightDim,
+          type: BottomNavigationBarType.fixed,
+          elevation: 8,
+          selectedLabelStyle: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+          ),
+          unselectedLabelStyle: TextStyle(fontSize: 12),
+        ),
+        floatingActionButtonTheme: const FloatingActionButtonThemeData(
+          backgroundColor: AppColors.callAnswerGreen,
+          foregroundColor: Colors.white,
+          elevation: 4,
+        ),
+        cardTheme: CardThemeData(
+          color: AppColors.cardLight,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        dividerTheme: const DividerThemeData(
+          color: AppColors.dividerLight,
+          thickness: 0.5,
+          space: 0,
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: AppColors.backgroundLight,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(28),
+            borderSide: BorderSide.none,
+          ),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        ),
+        textTheme: const TextTheme(
+          displayLarge: TextStyle(
+              fontSize: 32,
+              fontWeight: FontWeight.bold,
+              color: AppColors.onSurfaceLight),
+          displayMedium: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: AppColors.onSurfaceLight),
+          titleLarge: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+              color: AppColors.onSurfaceLight),
+          titleMedium: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              color: AppColors.onSurfaceLight),
+          bodyLarge:
+              TextStyle(fontSize: 16, color: AppColors.onSurfaceLight),
+          bodyMedium:
+              TextStyle(fontSize: 14, color: AppColors.onSurfaceLightDim),
+          bodySmall:
+              TextStyle(fontSize: 12, color: AppColors.onSurfaceLightDim),
+        ),
+      );
 
-  static ThemeData get lightTheme {
-    return ThemeData(
-      useMaterial3: true,
-      brightness: Brightness.light,
-      colorScheme: const ColorScheme.light(
-        primary: _lightPrimary,
-        onPrimary: Colors.white,
-        secondary: _lightCallButtonGreen,
-        onSecondary: Colors.white,
-        surface: _lightSurface,
-        onSurface: _lightTextPrimary,
-        surfaceContainerHighest: _lightKeypadBackground,
-        outline: _lightDivider,
-      ),
-      scaffoldBackgroundColor: _lightBackground,
-      appBarTheme: const AppBarTheme(
-        backgroundColor: _lightSurface,
-        foregroundColor: _lightTextPrimary,
-        elevation: 0,
-        centerTitle: false,
-        titleTextStyle: TextStyle(
-          color: _lightTextPrimary,
-          fontSize: 18,
-          fontWeight: FontWeight.w500,
-          fontFamily: 'sans-serif',
+  // ── Dark Theme ──────────────────────────────────────────
+  static ThemeData get dark => ThemeData(
+        useMaterial3: true,
+        brightness: Brightness.dark,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: AppColors.googleBlue,
+          brightness: Brightness.dark,
+          primary: AppColors.googleBlueDark,
+          surface: AppColors.surfaceDark,
         ),
-        iconTheme: IconThemeData(
-          color: _lightTextSecondary,
-          size: 24,
+        scaffoldBackgroundColor: AppColors.backgroundDark,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: AppColors.surfaceDark,
+          foregroundColor: AppColors.onSurfaceDark,
+          elevation: 0,
+          scrolledUnderElevation: 1,
+          surfaceTintColor: Colors.transparent,
+          centerTitle: false,
+          systemOverlayStyle: SystemUiOverlayStyle.light,
+          titleTextStyle: TextStyle(
+            color: AppColors.onSurfaceDark,
+            fontSize: 18,
+            fontWeight: FontWeight.w500,
+          ),
+          iconTheme: IconThemeData(
+            color: AppColors.onSurfaceDarkDim,
+            size: 24,
+          ),
         ),
-      ),
-      cardTheme: CardThemeData(
-        color: _lightSurface,
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+        bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+          backgroundColor: AppColors.surfaceDark,
+          selectedItemColor: AppColors.googleBlueDark,
+          unselectedItemColor: AppColors.onSurfaceDarkDim,
+          type: BottomNavigationBarType.fixed,
+          elevation: 8,
+          selectedLabelStyle: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+          ),
+          unselectedLabelStyle: TextStyle(fontSize: 12),
         ),
-      ),
-      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-        backgroundColor: _lightSurface,
-        selectedItemColor: _lightPrimary,
-        unselectedItemColor: _lightTextSecondary,
-        type: BottomNavigationBarType.fixed,
-        elevation: 8,
-        selectedLabelStyle: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
+        floatingActionButtonTheme: const FloatingActionButtonThemeData(
+          backgroundColor: AppColors.callAnswerGreen,
+          foregroundColor: Colors.white,
+          elevation: 4,
         ),
-        unselectedLabelStyle: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.normal,
+        cardTheme: CardThemeData(
+          color: AppColors.cardDark,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
         ),
-      ),
-      dividerTheme: const DividerThemeData(
-        color: _lightDivider,
-        thickness: 1,
-        space: 1,
-      ),
-      textTheme: const TextTheme(
-        displayLarge: TextStyle(
-          fontSize: 32,
-          fontWeight: FontWeight.bold,
-          color: _lightTextPrimary,
+        dividerTheme: const DividerThemeData(
+          color: AppColors.dividerDark,
+          thickness: 0.5,
+          space: 0,
         ),
-        displayMedium: TextStyle(
-          fontSize: 24,
-          fontWeight: FontWeight.bold,
-          color: _lightTextPrimary,
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: AppColors.surfaceDark,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(28),
+            borderSide: BorderSide.none,
+          ),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         ),
-        titleLarge: TextStyle(
-          fontSize: 20,
-          fontWeight: FontWeight.w600,
-          color: _lightTextPrimary,
+        textTheme: const TextTheme(
+          displayLarge: TextStyle(
+              fontSize: 32,
+              fontWeight: FontWeight.bold,
+              color: AppColors.onSurfaceDark),
+          displayMedium: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: AppColors.onSurfaceDark),
+          titleLarge: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+              color: AppColors.onSurfaceDark),
+          titleMedium: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              color: AppColors.onSurfaceDark),
+          bodyLarge:
+              TextStyle(fontSize: 16, color: AppColors.onSurfaceDark),
+          bodyMedium:
+              TextStyle(fontSize: 14, color: AppColors.onSurfaceDarkDim),
+          bodySmall:
+              TextStyle(fontSize: 12, color: AppColors.onSurfaceDarkDim),
         ),
-        titleMedium: TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w500,
-          color: _lightTextPrimary,
-        ),
-        bodyLarge: TextStyle(
-          fontSize: 16,
-          color: _lightTextPrimary,
-        ),
-        bodyMedium: TextStyle(
-          fontSize: 14,
-          color: _lightTextSecondary,
-        ),
-        bodySmall: TextStyle(
-          fontSize: 12,
-          color: _lightTextSecondary,
-        ),
-      ),
-    );
-  }
+      );
 
-  static ThemeData get darkTheme {
-    return ThemeData(
-      useMaterial3: true,
-      brightness: Brightness.dark,
-      colorScheme: const ColorScheme.dark(
-        primary: _darkPrimary,
-        onPrimary: _darkTextPrimary,
-        secondary: _darkCallButtonGreen,
-        onSecondary: Colors.white,
-        surface: _darkSurface,
-        onSurface: _darkTextPrimary,
-        surfaceContainerHighest: _darkKeypadBackground,
-        outline: _darkDivider,
-      ),
-      scaffoldBackgroundColor: _darkBackground,
-      appBarTheme: const AppBarTheme(
-        backgroundColor: _darkSurface,
-        foregroundColor: _darkTextPrimary,
-        elevation: 0,
-        centerTitle: false,
-        titleTextStyle: TextStyle(
-          color: _darkTextPrimary,
-          fontSize: 18,
-          fontWeight: FontWeight.w500,
-          fontFamily: 'sans-serif',
-        ),
-        iconTheme: IconThemeData(
-          color: _darkTextSecondary,
-          size: 24,
-        ),
-      ),
-      cardTheme: CardThemeData(
-        color: _darkSurface,
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-      ),
-      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-        backgroundColor: _darkSurface,
-        selectedItemColor: _darkPrimary,
-        unselectedItemColor: _darkTextSecondary,
-        type: BottomNavigationBarType.fixed,
-        elevation: 8,
-        selectedLabelStyle: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-        ),
-        unselectedLabelStyle: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.normal,
-        ),
-      ),
-      dividerTheme: const DividerThemeData(
-        color: _darkDivider,
-        thickness: 1,
-        space: 1,
-      ),
-      textTheme: const TextTheme(
-        displayLarge: TextStyle(
-          fontSize: 32,
-          fontWeight: FontWeight.bold,
-          color: _darkTextPrimary,
-        ),
-        displayMedium: TextStyle(
-          fontSize: 24,
-          fontWeight: FontWeight.bold,
-          color: _darkTextPrimary,
-        ),
-        titleLarge: TextStyle(
-          fontSize: 20,
-          fontWeight: FontWeight.w600,
-          color: _darkTextPrimary,
-        ),
-        titleMedium: TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w500,
-          color: _darkTextPrimary,
-        ),
-        bodyLarge: TextStyle(
-          fontSize: 16,
-          color: _darkTextPrimary,
-        ),
-        bodyMedium: TextStyle(
-          fontSize: 14,
-          color: _darkTextSecondary,
-        ),
-        bodySmall: TextStyle(
-          fontSize: 12,
-          color: _darkTextSecondary,
-        ),
-      ),
-    );
-  }
+  // ── Backward-compat aliases (موجود در کد قدیمی) ────────
+  static ThemeData get lightTheme => light;
+  static ThemeData get darkTheme  => dark;
 }

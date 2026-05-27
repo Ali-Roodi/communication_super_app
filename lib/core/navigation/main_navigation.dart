@@ -1,9 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/features/dialer/screens/dialer_screen.dart';
+import 'package:communication_super_app/features/dialer/screens/incoming_call_screen.dart';
+import 'package:communication_super_app/features/dialer/screens/in_call_screen.dart';
+import 'package:communication_super_app/features/dialer/bloc/dialer_bloc.dart';
+import 'package:communication_super_app/features/dialer/bloc/dialer_state.dart';
 import 'package:communication_super_app/features/contacts/screens/contacts_list_screen.dart';
 import 'package:communication_super_app/features/messages/screens/messages_list_screen.dart';
+import 'package:communication_super_app/features/messages/bloc/message_bloc.dart';
+import 'package:communication_super_app/features/messages/bloc/message_state.dart';
 import 'package:communication_super_app/features/call_history/screens/call_history_screen.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
+import 'package:communication_super_app/features/settings/screens/settings_screen.dart';
 
 class MainNavigation extends StatefulWidget {
   final int initialIndex;
@@ -20,14 +28,14 @@ class MainNavigation extends StatefulWidget {
 class _MainNavigationState extends State<MainNavigation> {
   int _currentIndex = 0;
 
-  final List<Widget> _screens = const [
+  static const List<Widget> _screens = [
     DialerScreen(),
     CallHistoryScreen(),
     ContactsListScreen(),
     MessagesListScreen(),
   ];
 
-  final List<String> _titles = const [
+  static const List<String> _titles = [
     'شماره‌گیر',
     'تاریخچه تماس‌ها',
     'مخاطبین',
@@ -42,137 +50,138 @@ class _MainNavigationState extends State<MainNavigation> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    
-    return Scaffold(
-      appBar: RtlAppBar(
-        title: _titles[_currentIndex],
-        showDrawer: true,
-        showSearch: true,
-        showLock: true,
-        onSearchPressed: () {
-          // TODO: Implement search functionality
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('جستجو')),
-          );
-        },
-        onLockPressed: () {
-          // TODO: Navigate to app lock screen
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('قفل برنامه')),
-          );
-        },
-      ),
-      drawer: null,
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _screens,
-      ),
-      bottomNavigationBar: Directionality(
-        textDirection: TextDirection.rtl,
-        child: Container(
-          decoration: BoxDecoration(
-            color: theme.bottomNavigationBarTheme.backgroundColor,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.1),
-                blurRadius: 8,
-                offset: const Offset(0, -2),
+    return BlocListener<DialerBloc, DialerState>(
+      listenWhen: (prev, curr) => prev.callStatus != curr.callStatus,
+      listener: (context, state) {
+        switch (state.callStatus) {
+          case CallStatus.incoming:
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                fullscreenDialog: true,
+                builder: (_) => BlocProvider.value(
+                  value: context.read<DialerBloc>(),
+                  child: IncomingCallScreen(phone: state.activePhone),
+                ),
               ),
-            ],
-          ),
-          child: SafeArea(
-            child: SizedBox(
-              height: 64,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _buildNavItem(
-                    context: context,
-                    index: 0,
-                    iconOutlined: Icons.apps_outlined,
-                    iconFilled: Icons.apps,
-                    label: 'شماره‌گیری',
-                    theme: theme,
-                  ),
-                  _buildNavItem(
-                    context: context,
-                    index: 1,
-                    iconOutlined: Icons.history_outlined,
-                    iconFilled: Icons.history,
-                    label: 'اخیر',
-                    theme: theme,
-                  ),
-                  _buildNavItem(
-                    context: context,
-                    index: 2,
-                    iconOutlined: Icons.person_outline,
-                    iconFilled: Icons.person,
-                    label: 'مخاطبین',
-                    theme: theme,
-                  ),
-                  _buildNavItem(
-                    context: context,
-                    index: 3,
-                    iconOutlined: Icons.chat_bubble_outline,
-                    iconFilled: Icons.chat_bubble,
-                    label: 'پیام‌ها',
-                    theme: theme,
-                  ),
-                ],
+            );
+          case CallStatus.active:
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(
+                fullscreenDialog: true,
+                builder: (_) => BlocProvider.value(
+                  value: context.read<DialerBloc>(),
+                  child: InCallScreen(phone: state.activePhone),
+                ),
+              ),
+            );
+          case CallStatus.idle:
+            if (Navigator.of(context).canPop()) {
+              Navigator.of(context).pop();
+            }
+          default:
+            break;
+        }
+      },
+      child: Scaffold(
+        appBar: RtlAppBar(
+          title: _titles[_currentIndex],
+          showSearch: true,
+          showLock: false,
+          onSearchPressed: () {
+            // PHASE-2: Implement global search
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('جستجو')),
+            );
+          },
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.settings_outlined),
+              tooltip: 'تنظیمات',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const SettingsScreen(),
+                ),
               ),
             ),
+          ],
+        ),
+        drawer: null,
+        body: IndexedStack(
+          index: _currentIndex,
+          children: _screens,
+        ),
+        bottomNavigationBar: Directionality(
+          textDirection: TextDirection.rtl,
+          child: BlocBuilder<MessageBloc, MessageState>(
+            // Only rebuild when the unread total changes or state type changes
+            buildWhen: (prev, curr) {
+              if (prev.runtimeType != curr.runtimeType) return true;
+              if (curr is ThreadsLoaded && prev is ThreadsLoaded) {
+                return _totalUnread(curr) != _totalUnread(prev);
+              }
+              return false;
+            },
+            builder: (context, msgState) {
+              final unread = msgState is ThreadsLoaded
+                  ? _totalUnread(msgState)
+                  : 0;
+
+              return NavigationBar(
+                selectedIndex: _currentIndex,
+                onDestinationSelected: (i) {
+                  setState(() => _currentIndex = i);
+                },
+                destinations: [
+                  const NavigationDestination(
+                    icon: Icon(Icons.phone_outlined),
+                    selectedIcon: Icon(Icons.phone),
+                    label: 'شماره‌گیری',
+                  ),
+                  const NavigationDestination(
+                    icon: Icon(Icons.history_outlined),
+                    selectedIcon: Icon(Icons.history),
+                    label: 'اخیر',
+                  ),
+                  const NavigationDestination(
+                    icon: Icon(Icons.person_outline),
+                    selectedIcon: Icon(Icons.person),
+                    label: 'مخاطبین',
+                  ),
+                  NavigationDestination(
+                    icon: _MessageNavIcon(unread: unread, filled: false),
+                    selectedIcon: _MessageNavIcon(unread: unread, filled: true),
+                    label: 'پیام‌ها',
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),
     );
   }
 
-  Widget _buildNavItem({
-    required BuildContext context,
-    required int index,
-    required IconData iconOutlined,
-    required IconData iconFilled,
-    required String label,
-    required ThemeData theme,
-  }) {
-    final isSelected = _currentIndex == index;
-    final color = isSelected
-        ? theme.bottomNavigationBarTheme.selectedItemColor
-        : theme.bottomNavigationBarTheme.unselectedItemColor;
+  /// Sum of unread messages across all threads
+  static int _totalUnread(ThreadsLoaded state) =>
+      state.threads.fold(0, (sum, t) => sum + t.unreadCount);
+}
 
-    return Expanded(
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () {
-            setState(() {
-              _currentIndex = index;
-            });
-          },
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                isSelected ? iconFilled : iconOutlined,
-                color: color,
-                size: 24,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: isSelected ? FontWeight.w500 : FontWeight.normal,
-                  color: color,
-                ),
-              ),
-            ],
-          ),
-        ),
+// ── Message nav icon with unread badge ───────────────────────────────────────
+
+class _MessageNavIcon extends StatelessWidget {
+  final int unread;
+  final bool filled;
+
+  const _MessageNavIcon({required this.unread, required this.filled});
+
+  @override
+  Widget build(BuildContext context) {
+    return Badge(
+      isLabelVisible: unread > 0,
+      label: Text(unread > 99 ? '99+' : '$unread'),
+      child: Icon(
+        filled ? Icons.chat_bubble : Icons.chat_bubble_outline,
       ),
     );
   }
 }
-
-

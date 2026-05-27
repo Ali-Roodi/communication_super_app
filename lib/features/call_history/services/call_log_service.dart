@@ -5,6 +5,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../models/call_log_model.dart';
 import '../repositories/call_log_repository.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
+import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:uuid/uuid.dart';
 
 class CallLogService {
@@ -131,8 +132,8 @@ class CallLogService {
     }
   }
 
-  static String _normalizePhoneNumber(String phone) {
-    return phone.replaceAll(RegExp(r'[^\d]'), '');
-  }
+  /// Delegates to [PhoneNormalizer.toThreadId] — canonical national form.
+  static String _normalizePhoneNumber(String phone) =>
+      PhoneNormalizer.toThreadId(phone);
 }
 

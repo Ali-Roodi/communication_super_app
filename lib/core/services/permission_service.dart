@@ -14,10 +14,15 @@ class PermissionService {
   static final PermissionService instance = PermissionService._();
 
   /// The full set of runtime permissions the app needs.
-  static const List<Permission> requiredPermissions = [
+  ///
+  /// [Permission.notification] is included for Android 13+ (API 33).
+  /// On older Android versions permission_handler auto-grants it, so it is
+  /// safe to always include it in the list.
+  static List<Permission> get requiredPermissions => [
     Permission.sms,
     Permission.phone,
     Permission.contacts,
+    Permission.notification, // B4 fix: required on Android 13+ (API 33+)
   ];
 
   /// Returns `true` if every required permission is already granted.
@@ -57,6 +62,7 @@ class PermissionService {
     if (permission == Permission.sms) return 'پیامک (خواندن و ارسال)';
     if (permission == Permission.phone) return 'تلفن (شناسه خط)';
     if (permission == Permission.contacts) return 'مخاطبین (مشاهده فهرست)';
+    if (permission == Permission.notification) return 'نوتیفیکیشن (نمایش اعلان‌ها)';
     return permission.toString();
   }
 }

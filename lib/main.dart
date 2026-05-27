@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'core/theme/app_theme.dart';
+import 'core/theme/theme_bloc.dart';
 import 'core/bloc_providers/app_bloc_providers.dart';
 import 'core/widgets/app_lock_wrapper.dart';
 import 'features/authentication/screens/auth_wrapper_screen.dart';
@@ -32,18 +34,24 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppBlocProviders(
-      child: MaterialApp(
-        title: 'Communication Super App',
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.lightTheme,
-        darkTheme: AppTheme.darkTheme,
-        themeMode: ThemeMode.system,
-        builder: (context, child) {
-          return AppLockWrapper(
-            child: child ?? const AuthWrapperScreen(),
+      // BlocBuilder داخل AppBlocProviders است تا به ThemeBloc دسترسی داشته باشد
+      child: BlocBuilder<ThemeBloc, ThemeState>(
+        builder: (context, themeState) {
+          return MaterialApp(
+            title: 'قاسم',
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.light,
+            darkTheme: AppTheme.dark,
+            themeMode:
+                themeState.isDark ? ThemeMode.dark : ThemeMode.light,
+            builder: (context, child) {
+              return AppLockWrapper(
+                child: child ?? const AuthWrapperScreen(),
+              );
+            },
+            home: const AuthWrapperScreen(),
           );
         },
-        home: const AuthWrapperScreen(),
       ),
     );
   }
