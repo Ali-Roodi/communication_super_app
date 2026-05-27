@@ -154,16 +154,6 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 32),
-            Center(
-              child: Text(
-                'ساخته شده با ❤️ در ایران',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.grey.shade500,
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
           ],
         ),
       ),

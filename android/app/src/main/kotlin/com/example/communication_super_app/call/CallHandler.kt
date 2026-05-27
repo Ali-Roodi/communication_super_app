@@ -2,6 +2,7 @@ package com.example.communication_super_app.call
 
 import android.content.Context
 import android.media.AudioManager
+import android.media.ToneGenerator
 import android.net.Uri
 import android.os.Bundle
 import android.telecom.TelecomManager
@@ -113,6 +114,30 @@ class CallHandler(
     }
 
     private fun sendDtmf(digit: String) {
-        if (digit.isNotEmpty()) CallConnection.instance?.playDtmfTone(digit[0])
+        if (digit.isEmpty()) return
+        // Map the character to a ToneGenerator DTMF constant
+        val toneType = when (digit[0]) {
+            '0'  -> ToneGenerator.TONE_DTMF_0
+            '1'  -> ToneGenerator.TONE_DTMF_1
+            '2'  -> ToneGenerator.TONE_DTMF_2
+            '3'  -> ToneGenerator.TONE_DTMF_3
+            '4'  -> ToneGenerator.TONE_DTMF_4
+            '5'  -> ToneGenerator.TONE_DTMF_5
+            '6'  -> ToneGenerator.TONE_DTMF_6
+            '7'  -> ToneGenerator.TONE_DTMF_7
+            '8'  -> ToneGenerator.TONE_DTMF_8
+            '9'  -> ToneGenerator.TONE_DTMF_9
+            '*'  -> ToneGenerator.TONE_DTMF_S
+            '#'  -> ToneGenerator.TONE_DTMF_P
+            else -> return
+        }
+        try {
+            // Play local DTMF audio feedback (120 ms)
+            // PHASE-2: also route the signal to the remote party via telecom stack
+            val toneGen = ToneGenerator(AudioManager.STREAM_DTMF, 100)
+            toneGen.startTone(toneType, 120)
+        } catch (e: Exception) {
+            Log.e(TAG, "DTMF tone error: ${e.message}")
+        }
     }
 }
