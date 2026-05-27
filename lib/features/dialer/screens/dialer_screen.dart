@@ -355,7 +355,7 @@ class _CallButton extends StatelessWidget {
   }
 }
 
-// ── Contact suggestion rows ───────────────────────────────────────────────────
+// ── Contact suggestion rows ───────────────────────────────────────────────────-
 
 class _ContactRow extends StatelessWidget {
   final ContactModel contact;
