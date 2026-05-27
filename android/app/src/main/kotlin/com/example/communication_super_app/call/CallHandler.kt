@@ -1,11 +1,10 @@
 package com.example.communication_super_app.call
 
 import android.content.Context
+import android.content.Intent
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.net.Uri
-import android.os.Bundle
-import android.telecom.TelecomManager
 import android.util.Log
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -21,9 +20,6 @@ class CallHandler(
         private const val TAG    = "CallHandler"
     }
 
-    private val telecomManager by lazy {
-        context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
-    }
     private val audioManager by lazy {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
@@ -81,18 +77,20 @@ class CallHandler(
             result.error("INVALID_NUMBER", "شماره تلفن معتبر نیست", null)
             return
         }
+        // Option A: hand off to the system default dialer via ACTION_CALL.
+        // The native in-call screen manages the entire call lifecycle.
+        // PHASE-2: switch to self-managed PhoneAccount for VoIP/custom UI.
         val uri = Uri.fromParts("tel", clean, null)
-        telecomManager.placeCall(uri, Bundle())
+        val intent = Intent(Intent.ACTION_CALL, uri).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
         result.success(null)
     }
 
     private fun endCall() {
-        CallConnection.instance?.onDisconnect() ?: run {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                @Suppress("DEPRECATION")
-                telecomManager.endCall()
-            }
-        }
+        // PHASE-2 VoIP only — native cellular calls are managed by the system dialer
+        CallConnection.instance?.onDisconnect()
     }
 
     private fun answerCall() = CallConnection.instance?.onAnswer()
