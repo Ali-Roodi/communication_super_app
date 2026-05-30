@@ -1,202 +1,410 @@
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:flutter_phone_direct_caller/flutter_phone_direct_caller.dart';
-import 'package:communication_super_app/core/widgets/lock_button.dart';
-import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
-import 'package:communication_super_app/features/contacts/models/contact_model.dart';
-import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_contacts/flutter_contacts.dart';
+import 'package:communication_super_app/core/theme/app_colors.dart';
+import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
+import 'package:communication_super_app/features/contacts/models/contact_model.dart';
+import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
+import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
+import 'package:communication_super_app/features/favorites/bloc/favorites_bloc.dart';
+import 'package:communication_super_app/features/favorites/bloc/favorites_event.dart';
+import 'package:communication_super_app/features/favorites/bloc/favorites_state.dart';
+import 'package:communication_super_app/features/favorites/models/favorite_model.dart';
+import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
 
-class DeviceContactDetailScreen extends StatelessWidget {
+/// Contact detail with a collapsing toolbar, action row, and PHONE / EMAIL /
+/// ADDRESS / NOTES sections. Header data comes from the [ContactModel]; full
+/// details (labeled phones, emails, address, notes) are loaded by device id.
+class DeviceContactDetailScreen extends StatefulWidget {
   final ContactModel contact;
 
   const DeviceContactDetailScreen({super.key, required this.contact});
 
   @override
+  State<DeviceContactDetailScreen> createState() =>
+      _DeviceContactDetailScreenState();
+}
+
+class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
+  Contact? _full;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      _full = await FlutterContacts.getContact(
+        widget.contact.id,
+        withProperties: true,
+        withPhoto: true,
+      );
+    } catch (_) {
+      _full = null;
+    }
+    if (mounted) setState(() => _loading = false);
+  }
+
+  String get _name => widget.contact.name;
+
+  String get _primaryPhone {
+    if (_full != null && _full!.phones.isNotEmpty) {
+      return _full!.phones.first.number;
+    }
+    return widget.contact.primaryPhone;
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: const RtlAppBar(
-        title: '',
-        actions: [LockButton()],
-      ),
-      body: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const SizedBox(height: 16),
-            Center(child: _buildAvatar(contact.avatar, contact.name)),
-            const SizedBox(height: 12),
-            Center(
-              child: Text(
-                contact.name,
-                style: Theme.of(context).textTheme.headlineSmall,
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        body: CustomScrollView(
+          slivers: [
+            _buildAppBar(context),
+            SliverToBoxAdapter(child: _buildActionRow(context)),
+            if (_loading)
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              )
+            else
+              SliverList(
+                delegate: SliverChildListDelegate(_buildSections(context)),
               ),
-            ),
-            const SizedBox(height: 24),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            const SliverToBoxAdapter(child: SizedBox(height: 96)),
+          ],
+        ),
+        floatingActionButton: FloatingActionButton.extended(
+          heroTag: 'contact_detail_edit',
+          onPressed: _openEditor,
+          icon: const Icon(Icons.edit_outlined),
+          label: const Text('ویرایش'),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openEditor() async {
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => AddEditContactScreen(contactId: widget.contact.id),
+      ),
+    );
+    if (changed == true && mounted) {
+      setState(() => _loading = true);
+      await _load();
+      // If the contact was deleted while editing, leave the detail screen.
+      if (mounted && _full == null) Navigator.of(context).pop();
+    }
+  }
+
+  // ── Collapsing toolbar ────────────────────────────────────────────────────
+
+  Widget _buildAppBar(BuildContext context) {
+    final photo = _full?.photo ?? widget.contact.avatar;
+    final norm = FavoriteModel.normalize(_primaryPhone);
+
+    return SliverAppBar(
+      expandedHeight: 280,
+      pinned: true,
+      actions: [
+        BlocBuilder<FavoritesBloc, FavoritesState>(
+          builder: (context, state) {
+            final isFav = state is FavoritesLoaded &&
+                state.favorites.any((f) => f.normalized == norm);
+            return IconButton(
+              icon: Icon(isFav ? Icons.star : Icons.star_border),
+              color: isFav ? AppColors.callHoldOrange : null,
+              tooltip: isFav ? 'حذف از موردعلاقه‌ها' : 'افزودن به موردعلاقه‌ها',
+              onPressed: () {
+                final bloc = context.read<FavoritesBloc>();
+                if (isFav) {
+                  bloc.add(RemoveFavorite(norm));
+                } else {
+                  bloc.add(AddFavorite(
+                    phoneNumber: _primaryPhone,
+                    name: _name,
+                    contactId: widget.contact.id,
+                  ));
+                }
+              },
+            );
+          },
+        ),
+      ],
+      flexibleSpace: FlexibleSpaceBar(
+        collapseMode: CollapseMode.parallax,
+        title: Text(_name,
+            style: const TextStyle(color: Colors.white, fontSize: 18)),
+        background: photo != null
+            ? Stack(
+                fit: StackFit.expand,
                 children: [
-                  _actionChip(
-                    context,
-                    icon: Icons.message,
-                    label: 'پیام',
-                    onTap: () => _startSms(context, contact.primaryPhone),
-                  ),
-                  _actionChip(
-                    context,
-                    icon: Icons.phone,
-                    label: 'تماس',
-                    onTap: () => _startCall(contact.primaryPhone),
+                  Image.memory(photo, fit: BoxFit.cover),
+                  // Scrim so the title stays legible over the photo.
+                  const DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.center,
+                        end: Alignment.bottomCenter,
+                        colors: [Colors.transparent, Colors.black54],
+                      ),
+                    ),
                   ),
                 ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: _buildPhones(context),
-            ),
-            if (contact.email != null && contact.email!.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: _infoRow(
-                  context,
-                  icon: Icons.email_outlined,
-                  label: contact.email!,
-                  subtitle: 'ایمیل',
-                ),
-              ),
-            ],
-            const SizedBox(height: 32),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAvatar(Uint8List? avatar, String name) {
-    if (avatar != null) {
-      return CircleAvatar(
-        radius: 44,
-        backgroundImage: MemoryImage(avatar),
-      );
-    }
-    return CircleAvatar(
-      radius: 44,
-      backgroundColor: Colors.grey.shade300,
-      child: Text(
-        name.isNotEmpty ? name[0] : '?',
-        style: const TextStyle(fontSize: 32, color: Colors.black87),
-      ),
-    );
-  }
-
-  Widget _actionChip(BuildContext context,
-      {required IconData icon, required String label, required VoidCallback onTap}) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.blue.shade50,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: Theme.of(context).colorScheme.primary),
-            const SizedBox(height: 6),
-            Text(
-              label,
-              style: TextStyle(color: Theme.of(context).colorScheme.primary),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPhones(BuildContext context) {
-    final phones = contact.phoneNumbers.isNotEmpty
-        ? contact.phoneNumbers
-        : [contact.primaryPhone].where((p) => p.isNotEmpty).toList();
-    return Column(
-      children: phones
-          .map(
-            (p) => Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: _infoRow(
-                context,
-                icon: Icons.phone_outlined,
-                label: p,
-                subtitle: 'شماره',
-                trailing: IconButton(
-                  icon: const Icon(Icons.call),
-                  onPressed: () => _startCall(p),
-                ),
-              ),
-            ),
-          )
-          .toList(),
-    );
-  }
-
-  Widget _infoRow(BuildContext context,
-      {required IconData icon,
-      required String label,
-      String? subtitle,
-      Widget? trailing}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade100,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: Colors.grey.shade700),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                if (subtitle != null)
-                  Text(
-                    subtitle,
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+              )
+            : Container(
+                color: PersianUtils.getAvatarColor(_name),
+                alignment: Alignment.center,
+                child: Text(
+                  PersianUtils.getInitials(_name),
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.9),
+                    fontSize: 72,
+                    fontWeight: FontWeight.w500,
                   ),
-              ],
-            ),
+                ),
+              ),
+      ),
+    );
+  }
+
+  // ── Action row ──────────────────────────────────────────────────────────
+
+  Widget _buildActionRow(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _ActionButton(
+            icon: Icons.call,
+            label: 'تماس',
+            onTap: () => NativeCallService.instance.makeCall(_primaryPhone),
           ),
-          if (trailing != null) trailing,
+          _ActionButton(
+            icon: Icons.message_outlined,
+            label: 'پیام',
+            onTap: () => _openSms(_primaryPhone),
+          ),
+          _ActionButton(
+            icon: Icons.videocam_outlined,
+            label: 'تصویری',
+            onTap: () => _snack('تماس تصویری پشتیبانی نمی‌شود'),
+          ),
+          _ActionButton(
+            icon: Icons.more_horiz,
+            label: 'بیشتر',
+            onTap: () => _snack('به‌زودی'),
+          ),
         ],
       ),
     );
   }
 
-  void _startCall(String phone) {
-    if (phone.isEmpty) return;
-    FlutterPhoneDirectCaller.callNumber(phone);
+  // ── Sections ──────────────────────────────────────────────────────────────
+
+  List<Widget> _buildSections(BuildContext context) {
+    final widgets = <Widget>[];
+    final phones = _full?.phones ?? const <Phone>[];
+    final emails = _full?.emails ?? const <Email>[];
+    final addresses = _full?.addresses ?? const <Address>[];
+    final notes = _full?.notes ?? const <Note>[];
+
+    // Fall back to the model's numbers if the full load failed.
+    if (phones.isEmpty) {
+      final fallback = widget.contact.phoneNumbers.isNotEmpty
+          ? widget.contact.phoneNumbers
+          : [widget.contact.primaryPhone];
+      widgets.add(_sectionHeader('تلفن'));
+      for (final p in fallback.where((p) => p.isNotEmpty)) {
+        widgets.add(_phoneTile(p, 'موبایل'));
+      }
+    } else {
+      widgets.add(_sectionHeader('تلفن'));
+      for (final p in phones) {
+        widgets.add(_phoneTile(p.number, _phoneLabelFa(p)));
+      }
+    }
+
+    if (emails.isNotEmpty) {
+      widgets.add(_sectionHeader('ایمیل'));
+      for (final e in emails) {
+        widgets.add(_emailTile(e.address, _emailLabelFa(e)));
+      }
+    }
+
+    if (addresses.isNotEmpty) {
+      widgets.add(_sectionHeader('نشانی'));
+      for (final a in addresses) {
+        widgets.add(ListTile(
+          leading: const Icon(Icons.location_on_outlined),
+          title: Text(a.address),
+        ));
+      }
+    }
+
+    if (notes.isNotEmpty) {
+      widgets.add(_sectionHeader('یادداشت'));
+      for (final n in notes) {
+        widgets.add(ListTile(
+          leading: const Icon(Icons.notes_outlined),
+          title: Text(n.note),
+        ));
+      }
+    }
+
+    return widgets;
   }
 
-  void _startSms(BuildContext context, String phone) {
+  Widget _sectionHeader(String title) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      child: Text(
+        title,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: theme.colorScheme.primary,
+        ),
+      ),
+    );
+  }
+
+  Widget _phoneTile(String number, String label) {
+    return ListTile(
+      leading: const Icon(Icons.phone_outlined),
+      title: Directionality(
+        textDirection: TextDirection.ltr,
+        child: Text(PersianUtils.toPersianNumber(number),
+            textAlign: TextAlign.right),
+      ),
+      subtitle: Text(label),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.call),
+            color: AppColors.callAnswerGreen,
+            tooltip: 'تماس',
+            onPressed: () => NativeCallService.instance.makeCall(number),
+          ),
+          IconButton(
+            icon: const Icon(Icons.message_outlined),
+            tooltip: 'پیام',
+            onPressed: () => _openSms(number),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emailTile(String address, String label) {
+    return ListTile(
+      leading: const Icon(Icons.email_outlined),
+      title: Text(address),
+      subtitle: Text(label),
+      trailing: IconButton(
+        icon: const Icon(Icons.copy_outlined),
+        tooltip: 'کپی',
+        onPressed: () {
+          Clipboard.setData(ClipboardData(text: address));
+          _snack('ایمیل کپی شد');
+        },
+      ),
+    );
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+
+  void _openSms(String phone) {
     if (phone.isEmpty) return;
-    // Normalize to canonical thread-ID (09xxxxxxxxx) so it matches stored messages
-    final threadId = PhoneNormalizer.toThreadId(phone);
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => ConversationScreen(
-          threadId: threadId,
+        builder: (_) => ConversationScreen(
+          threadId: PhoneNormalizer.toThreadId(phone),
           phoneNumber: phone,
-          contactName: contact.name,
+          contactName: _name,
+        ),
+      ),
+    );
+  }
+
+  void _snack(String msg) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+
+  String _phoneLabelFa(Phone p) {
+    if (p.label == PhoneLabel.custom && p.customLabel.isNotEmpty) {
+      return p.customLabel;
+    }
+    switch (p.label) {
+      case PhoneLabel.mobile:
+        return 'موبایل';
+      case PhoneLabel.home:
+        return 'منزل';
+      case PhoneLabel.work:
+        return 'محل کار';
+      case PhoneLabel.main:
+        return 'اصلی';
+      default:
+        return 'تلفن';
+    }
+  }
+
+  String _emailLabelFa(Email e) {
+    if (e.label == EmailLabel.custom && e.customLabel.isNotEmpty) {
+      return e.customLabel;
+    }
+    switch (e.label) {
+      case EmailLabel.home:
+        return 'شخصی';
+      case EmailLabel.work:
+        return 'محل کار';
+      default:
+        return 'ایمیل';
+    }
+  }
+}
+
+class _ActionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _ActionButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Container(
+        width: 76,
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Column(
+          children: [
+            Icon(icon, color: theme.colorScheme.primary, size: 26),
+            const SizedBox(height: 6),
+            Text(label,
+                style: TextStyle(
+                    fontSize: 12, color: theme.colorScheme.primary)),
+          ],
         ),
       ),
     );
   }
 }
-
-

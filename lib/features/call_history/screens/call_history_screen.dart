@@ -13,20 +13,21 @@ class CallHistoryScreen extends StatefulWidget {
   State<CallHistoryScreen> createState() => _CallHistoryScreenState();
 }
 
-class _CallHistoryScreenState extends State<CallHistoryScreen> with WidgetsBindingObserver {
+class _CallHistoryScreenState extends State<CallHistoryScreen>
+    with WidgetsBindingObserver {
   bool _hasLoadedInitially = false;
   final ScrollController _scrollController = ScrollController();
 
-  // Memoize the flat row list so _buildFlatCallLogList() is only called when
-  // the underlying data changes, not on every widget rebuild.
+  // Memoize the grouped row list so grouping only runs when the underlying
+  // data changes, not on every widget rebuild.
   List<CallLogModel>? _lastLogs;
-  List<_CallLogListRow> _cachedFlatRows = [];
+  List<_CallGroup> _cachedGroups = [];
 
-  List<_CallLogListRow> _getOrBuildFlatRows(List<CallLogModel> logs) {
-    if (identical(_lastLogs, logs)) return _cachedFlatRows;
+  List<_CallGroup> _getOrBuildGroups(List<CallLogModel> logs) {
+    if (identical(_lastLogs, logs)) return _cachedGroups;
     _lastLogs = logs;
-    _cachedFlatRows = _buildFlatCallLogList(logs);
-    return _cachedFlatRows;
+    _cachedGroups = _groupCallLogs(logs);
+    return _cachedGroups;
   }
 
   @override
@@ -63,8 +64,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> with WidgetsBindi
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    // Refresh call logs when app resumes (e.g., after a phone call)
-    // Only refresh if we've already loaded initially to avoid double-loading
+    // Refresh call logs when app resumes (e.g., after a phone call).
     if (state == AppLifecycleState.resumed && mounted && _hasLoadedInitially) {
       context.read<CallLogBloc>().add(const RefreshCallLogs());
     }
@@ -73,129 +73,115 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> with WidgetsBindi
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Container(
         color: theme.scaffoldBackgroundColor,
         child: BlocBuilder<CallLogBloc, CallLogState>(
-        builder: (context, state) {
-          if (state is CallLogLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
+          builder: (context, state) {
+            if (state is CallLogLoading) {
+              return const Center(child: CircularProgressIndicator());
+            }
 
-          if (state is CallLogError) {
-            return Center(child: Text('Error: ${state.message}'));
-          }
+            if (state is CallLogError) {
+              return Center(child: Text('خطا: ${state.message}'));
+            }
 
-          if (state is CallLogsLoaded) {
-            if (state.callLogs.isEmpty) {
-              return const Center(
-                child: Text('No call history'),
+            if (state is CallLogsLoaded) {
+              if (state.callLogs.isEmpty) {
+                return _buildEmptyState(theme);
+              }
+
+              final groups = _getOrBuildGroups(state.callLogs);
+
+              return RefreshIndicator(
+                onRefresh: () async {
+                  context.read<CallLogBloc>().add(const RefreshCallLogs());
+                },
+                child: ListView.builder(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.only(top: 4, bottom: 96),
+                  itemCount: groups.length + (state.hasMore ? 1 : 0),
+                  itemBuilder: (context, index) {
+                    if (state.hasMore && index == groups.length) {
+                      return const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+                    final group = groups[index];
+                    return CallLogTile(
+                      log: group.representative,
+                      count: group.count,
+                    );
+                  },
+                ),
               );
             }
 
-            final flatItems = _getOrBuildFlatRows(state.callLogs);
-
-            return RefreshIndicator(
-              onRefresh: () async {
-                context.read<CallLogBloc>().add(const RefreshCallLogs());
-              },
-              child: ListView.builder(
-                controller: _scrollController,
-                padding: const EdgeInsets.only(bottom: 80),
-                itemCount: flatItems.length + (state.hasMore ? 1 : 0),
-                itemBuilder: (context, index) {
-                  if (state.hasMore && index == flatItems.length) {
-                    return const Padding(
-                      padding: EdgeInsets.all(16),
-                      child: Center(child: CircularProgressIndicator()),
-                    );
-                  }
-                  final item = flatItems[index];
-                  if (item.isHeader) {
-                    return _buildSectionHeader(item.title!, theme);
-                  }
-                  return CallLogTile(log: item.log!);
-                },
-              ),
-            );
-          }
-
-          return const SizedBox.shrink();
-        },
+            return const SizedBox.shrink();
+          },
         ),
       ),
     );
   }
 
-  List<_CallLogListRow> _buildFlatCallLogList(List<CallLogModel> logs) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final yesterday = today.subtract(const Duration(days: 1));
-
-    final todayLogs = <CallLogModel>[];
-    final yesterdayLogs = <CallLogModel>[];
-    final olderLogs = <CallLogModel>[];
-
-    for (var log in logs) {
-      final logDate = DateTime(log.timestamp.year, log.timestamp.month, log.timestamp.day);
-      if (logDate == today) {
-        todayLogs.add(log);
-      } else if (logDate == yesterday) {
-        yesterdayLogs.add(log);
-      } else {
-        olderLogs.add(log);
-      }
-    }
-
-    final flat = <_CallLogListRow>[];
-    if (todayLogs.isNotEmpty) {
-      flat.add(_CallLogListRow(title: 'امروز'));
-      for (final log in todayLogs) {
-        flat.add(_CallLogListRow(log: log));
-      }
-    }
-    if (yesterdayLogs.isNotEmpty) {
-      flat.add(_CallLogListRow(title: 'دیروز'));
-      for (final log in yesterdayLogs) {
-        flat.add(_CallLogListRow(log: log));
-      }
-    }
-    if (olderLogs.isNotEmpty) {
-      flat.add(_CallLogListRow(title: 'قدیمی‌تر'));
-      for (final log in olderLogs) {
-        flat.add(_CallLogListRow(log: log));
-      }
-    }
-    return flat;
-  }
-
-  Widget _buildSectionHeader(String title, ThemeData theme) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      color: theme.brightness == Brightness.dark
-          ? const Color(0xFF1A1A1A)
-          : const Color(0xFFF5F5F5),
-      child: Text(
-        title,
-        style: TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w500,
-          color: theme.textTheme.bodyMedium?.color,
-        ),
-        textAlign: TextAlign.right,
+  Widget _buildEmptyState(ThemeData theme) {
+    final dim = theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.6);
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.history, size: 96, color: dim),
+          const SizedBox(height: 16),
+          Text('تماس اخیری وجود ندارد', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 8),
+          Text(
+            'تماس‌های ورودی و خروجی شما اینجا نمایش داده می‌شوند',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyMedium?.copyWith(color: dim),
+          ),
+        ],
       ),
     );
   }
 
+  /// Collapses consecutive calls to/from the same number on the same calendar
+  /// day into one [_CallGroup] (the representative is the most recent call;
+  /// [count] is how many were merged). Mirrors Google Phone's "(×N)" grouping.
+  List<_CallGroup> _groupCallLogs(List<CallLogModel> logs) {
+    final groups = <_CallGroup>[];
+    var i = 0;
+    while (i < logs.length) {
+      final base = logs[i];
+      final baseKey = _normalize(base.phoneNumber);
+      final baseDay = _dayOf(base.timestamp);
+
+      var j = i + 1;
+      while (j < logs.length) {
+        final next = logs[j];
+        if (_normalize(next.phoneNumber) == baseKey &&
+            _dayOf(next.timestamp) == baseDay) {
+          j++;
+        } else {
+          break;
+        }
+      }
+      groups.add(_CallGroup(representative: base, count: j - i));
+      i = j;
+    }
+    return groups;
+  }
+
+  static String _normalize(String phone) =>
+      phone.replaceAll(RegExp(r'[^\d]'), '');
+
+  static DateTime _dayOf(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
 }
 
-class _CallLogListRow {
-  final String? title;
-  final CallLogModel? log;
-  _CallLogListRow({this.title, this.log});
-  bool get isHeader => title != null;
+class _CallGroup {
+  final CallLogModel representative;
+  final int count;
+  const _CallGroup({required this.representative, required this.count});
 }
-

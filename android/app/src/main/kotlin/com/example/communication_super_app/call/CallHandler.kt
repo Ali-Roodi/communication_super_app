@@ -24,6 +24,17 @@ class CallHandler(
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
 
+    // Single reusable DTMF tone generator — created lazily, reused across
+    // presses so rapid dialing does not leak a ToneGenerator each time.
+    private val dtmfToneGenerator: ToneGenerator? by lazy {
+        try {
+            ToneGenerator(AudioManager.STREAM_DTMF, 80)
+        } catch (e: Exception) {
+            Log.e(TAG, "ToneGenerator init error: ${e.message}")
+            null
+        }
+    }
+
     init {
         // ── Method Channel ─────────────────────────────────────────────
         MethodChannel(
@@ -130,10 +141,9 @@ class CallHandler(
             else -> return
         }
         try {
-            // Play local DTMF audio feedback (120 ms)
+            // Play local DTMF audio feedback (120 ms) via the shared generator.
             // PHASE-2: also route the signal to the remote party via telecom stack
-            val toneGen = ToneGenerator(AudioManager.STREAM_DTMF, 100)
-            toneGen.startTone(toneType, 120)
+            dtmfToneGenerator?.startTone(toneType, 120)
         } catch (e: Exception) {
             Log.e(TAG, "DTMF tone error: ${e.message}")
         }

@@ -42,8 +42,7 @@ class MyApp extends StatelessWidget {
             debugShowCheckedModeBanner: false,
             theme: AppTheme.light,
             darkTheme: AppTheme.dark,
-            themeMode:
-                themeState.isDark ? ThemeMode.dark : ThemeMode.light,
+            themeMode: themeState.themeMode,
             builder: (context, child) {
               return AppLockWrapper(
                 child: child ?? const AuthWrapperScreen(),
