@@ -135,15 +135,12 @@ class _MainNavigationState extends State<MainNavigation> {
                 child: const Icon(Icons.dialpad),
               )
             : null,
-        body: AnimatedSwitcher(
+        // Fade between tabs (spec: 150ms) while keeping every tab mounted so
+        // scroll position and loaded state survive switching.
+        body: _FadeIndexedStack(
+          index: _currentIndex,
           duration: const Duration(milliseconds: 150),
-          // Fade between tabs (spec: 150ms). The IndexedStack keeps every tab
-          // mounted; keying by index lets the switcher cross-fade on change.
-          child: IndexedStack(
-            key: ValueKey<int>(_currentIndex),
-            index: _currentIndex,
-            children: _screens,
-          ),
+          children: _screens,
         ),
         bottomNavigationBar: Directionality(
           textDirection: TextDirection.rtl,
@@ -199,6 +196,58 @@ class _MainNavigationState extends State<MainNavigation> {
   /// Sum of unread messages across all threads
   static int _totalUnread(ThreadsLoaded state) =>
       state.threads.fold(0, (sum, t) => sum + t.unreadCount);
+}
+
+// ── Fade-on-switch IndexedStack ───────────────────────────────────────────────
+
+/// An [IndexedStack] that fades in the active child whenever [index] changes.
+/// Unlike wrapping an IndexedStack in an [AnimatedSwitcher] with a per-index
+/// key, this keeps the single IndexedStack (and therefore every child's State,
+/// scroll position and loaded data) mounted across switches.
+class _FadeIndexedStack extends StatefulWidget {
+  final int index;
+  final List<Widget> children;
+  final Duration duration;
+
+  const _FadeIndexedStack({
+    required this.index,
+    required this.children,
+    required this.duration,
+  });
+
+  @override
+  State<_FadeIndexedStack> createState() => _FadeIndexedStackState();
+}
+
+class _FadeIndexedStackState extends State<_FadeIndexedStack>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller =
+      AnimationController(vsync: this, duration: widget.duration, value: 1);
+
+  @override
+  void didUpdateWidget(_FadeIndexedStack oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.index != widget.index) {
+      _controller.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _controller,
+      child: IndexedStack(
+        index: widget.index,
+        children: widget.children,
+      ),
+    );
+  }
 }
 
 // ── Message nav icon with unread badge ───────────────────────────────────────
