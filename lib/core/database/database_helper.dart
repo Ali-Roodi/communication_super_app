@@ -76,6 +76,43 @@ class DatabaseHelper {
         ON ${AppConstants.messagesTable}(phone_number, body, timestamp, type)
       ''');
     }
+
+    // Migration from version 3 to 4: add the favorites table.
+    // Favorites are keyed by normalized phone number (digits only) rather than
+    // a contacts-table id, because the app's contacts are read from the device
+    // (flutter_contacts), not stored as rows in the contacts table.
+    if (oldVersion < 4) {
+      await _createFavoritesTable(db);
+    }
+
+    // Migration from version 4 to 5: add the blocked_numbers table.
+    if (oldVersion < 5) {
+      await _createBlockedNumbersTable(db);
+    }
+  }
+
+  Future<void> _createFavoritesTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE ${AppConstants.favoritesTable} (
+        id TEXT PRIMARY KEY,
+        phone_number TEXT NOT NULL,
+        normalized TEXT NOT NULL UNIQUE,
+        name TEXT,
+        contact_id TEXT,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  Future<void> _createBlockedNumbersTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE ${AppConstants.blockedNumbersTable} (
+        id TEXT PRIMARY KEY,
+        phone_number TEXT NOT NULL,
+        normalized TEXT NOT NULL UNIQUE,
+        created_at INTEGER NOT NULL
+      )
+    ''');
   }
 
   Future<void> _createDB(Database db, int version) async {
@@ -152,6 +189,12 @@ class DatabaseHelper {
       await db.execute('''
         CREATE INDEX idx_call_logs_timestamp ON ${AppConstants.callLogsTable}(timestamp DESC)
       ''');
+
+      // Favorites table (starred phone numbers)
+      await _createFavoritesTable(db);
+
+      // Blocked numbers table
+      await _createBlockedNumbersTable(db);
     } catch (e) {
       throw Exception('Failed to create database tables: $e');
     }

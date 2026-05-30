@@ -1,18 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:uuid/uuid.dart';
+import 'package:flutter_contacts/flutter_contacts.dart';
+import 'package:communication_super_app/core/theme/app_colors.dart';
+import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import '../bloc/contact_bloc.dart';
 import '../bloc/contact_event.dart';
-import '../bloc/contact_state.dart';
-import '../models/contact_model.dart';
-import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
+import '../repositories/contact_repository.dart';
 
+/// Full-screen Add / Edit contact form. Writes to the **device** contacts
+/// (flutter_contacts) so changes appear everywhere (list, favorites, dialer).
+///
+/// [contactId] is a device contact id (edit mode); [initialPhone] pre-fills the
+/// first phone when creating.
 class AddEditContactScreen extends StatefulWidget {
   final String? contactId;
+  final String? initialPhone;
 
   const AddEditContactScreen({
     super.key,
     this.contactId,
+    this.initialPhone,
   });
 
   @override
@@ -21,128 +28,572 @@ class AddEditContactScreen extends StatefulWidget {
 
 class _AddEditContactScreenState extends State<AddEditContactScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _phoneController = TextEditingController();
-  final _emailController = TextEditingController();
-  ContactModel? _originalContact;
+
+  final _firstName = TextEditingController();
+  final _lastName = TextEditingController();
+  final _address = TextEditingController();
+  final _company = TextEditingController();
+  final _notes = TextEditingController();
+  final _nickname = TextEditingController();
+  final _website = TextEditingController();
+
+  final List<_PhoneEntry> _phones = [];
+  final List<_EmailEntry> _emails = [];
+  DateTime? _birthday;
+
+  Contact? _editing; // populated in edit mode
+  bool _loading = false;
+  bool _saving = false;
+  bool _showMore = false;
+
+  bool get _isEdit => widget.contactId != null;
 
   @override
   void initState() {
     super.initState();
-    if (widget.contactId != null) {
-      context.read<ContactBloc>().add(GetContactById(widget.contactId!));
+    if (_isEdit) {
+      _loadContact();
+    } else {
+      _phones.add(_PhoneEntry(text: widget.initialPhone ?? ''));
     }
   }
 
   @override
   void dispose() {
-    _nameController.dispose();
-    _phoneController.dispose();
-    _emailController.dispose();
+    _firstName.dispose();
+    _lastName.dispose();
+    _address.dispose();
+    _company.dispose();
+    _notes.dispose();
+    _nickname.dispose();
+    _website.dispose();
+    for (final p in _phones) {
+      p.controller.dispose();
+    }
+    for (final e in _emails) {
+      e.controller.dispose();
+    }
     super.dispose();
   }
 
-  void _saveContact() {
-    if (_formKey.currentState!.validate()) {
-      final now = DateTime.now();
-      final contact = ContactModel(
-        id: widget.contactId ?? const Uuid().v4(),
-        name: _nameController.text.trim(),
-        phoneNumber: _phoneController.text.trim(),
-        email: _emailController.text.trim().isEmpty
-            ? null
-            : _emailController.text.trim(),
-        createdAt: _originalContact?.createdAt ?? now,
-        updatedAt: now,
-      );
+  Future<void> _loadContact() async {
+    setState(() => _loading = true);
+    final c = await FlutterContacts.getContact(
+      widget.contactId!,
+      withProperties: true,
+      withPhoto: true,
+      withAccounts: true,
+    );
+    if (c == null) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
+    _editing = c;
+    _firstName.text = c.name.first;
+    _lastName.text = c.name.last;
+    _nickname.text = c.name.nickname;
+    for (final p in c.phones) {
+      // Coerce labels outside our dropdown set so DropdownButton has a match.
+      final label =
+          _phoneLabels.containsKey(p.label) ? p.label : PhoneLabel.other;
+      _phones.add(_PhoneEntry(text: p.number, label: label));
+    }
+    if (_phones.isEmpty) _phones.add(_PhoneEntry());
+    for (final e in c.emails) {
+      final label =
+          _emailLabels.containsKey(e.label) ? e.label : EmailLabel.other;
+      _emails.add(_EmailEntry(text: e.address, label: label));
+    }
+    if (c.addresses.isNotEmpty) _address.text = c.addresses.first.address;
+    if (c.organizations.isNotEmpty) {
+      _company.text = c.organizations.first.company;
+    }
+    if (c.notes.isNotEmpty) _notes.text = c.notes.first.note;
+    if (c.websites.isNotEmpty) _website.text = c.websites.first.url;
+    final bday = c.events.where((e) => e.label == EventLabel.birthday);
+    if (bday.isNotEmpty) {
+      final e = bday.first;
+      _birthday = DateTime(e.year ?? 2000, e.month, e.day);
+    }
+    if (mounted) setState(() => _loading = false);
+  }
 
-      if (widget.contactId != null) {
-        context.read<ContactBloc>().add(UpdateContact(contact));
-      } else {
-        context.read<ContactBloc>().add(CreateContact(contact));
+  // ── Save / delete ─────────────────────────────────────────────────────────
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _saving = true);
+    try {
+      if (!await FlutterContacts.requestPermission(readonly: false)) {
+        _snack('دسترسی به مخاطبین داده نشد');
+        setState(() => _saving = false);
+        return;
       }
+
+      final contact = _editing ?? Contact();
+      contact.name = Name(
+        first: _firstName.text.trim(),
+        last: _lastName.text.trim(),
+        nickname: _nickname.text.trim(),
+      );
+      contact.phones = _phones
+          .where((p) => p.controller.text.trim().isNotEmpty)
+          .map((p) => Phone(p.controller.text.trim(), label: p.label))
+          .toList();
+      contact.emails = _emails
+          .where((e) => e.controller.text.trim().isNotEmpty)
+          .map((e) => Email(e.controller.text.trim(), label: e.label))
+          .toList();
+      contact.addresses = _address.text.trim().isEmpty
+          ? []
+          : [Address(_address.text.trim(), label: AddressLabel.home)];
+      contact.organizations = _company.text.trim().isEmpty
+          ? []
+          : [Organization(company: _company.text.trim())];
+      contact.notes =
+          _notes.text.trim().isEmpty ? [] : [Note(_notes.text.trim())];
+      contact.websites =
+          _website.text.trim().isEmpty ? [] : [Website(_website.text.trim())];
+      contact.events = _birthday == null
+          ? []
+          : [
+              Event(
+                year: _birthday!.year,
+                month: _birthday!.month,
+                day: _birthday!.day,
+                label: EventLabel.birthday,
+              )
+            ];
+
+      if (_isEdit) {
+        await contact.update();
+      } else {
+        await contact.insert();
+      }
+
+      ContactRepository().invalidateCache();
+      if (!mounted) return;
+      context.read<ContactBloc>().add(const LoadContacts());
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      _snack('ذخیره ناموفق بود: $e');
+      if (mounted) setState(() => _saving = false);
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return BlocListener<ContactBloc, ContactState>(
-      listener: (context, state) {
-        if (state is ContactLoaded && widget.contactId != null) {
-          _originalContact = state.contact;
-          _nameController.text = state.contact.name;
-          _phoneController.text = state.contact.phoneNumber;
-          _emailController.text = state.contact.email ?? '';
-        }
-
-        if (state is ContactOperationSuccess) {
-          Navigator.of(context).pop();
-        }
-
-        if (state is ContactError) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(state.message)),
-          );
-        }
-      },
-      child: Scaffold(
-        appBar: RtlAppBar(
-          title: widget.contactId != null ? 'Edit Contact' : 'Add Contact',
+  Future<void> _delete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('حذف مخاطب'),
+          content: const Text('این مخاطب حذف شود؟'),
           actions: [
             TextButton(
-              onPressed: _saveContact,
-              child: const Text('Save'),
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('لغو'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('حذف',
+                  style: TextStyle(color: AppColors.callRejectRed)),
             ),
           ],
         ),
-        body: Form(
-          key: _formKey,
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Name',
-                  prefixIcon: Icon(Icons.person),
-                ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Please enter a name';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _phoneController,
-                decoration: const InputDecoration(
-                  labelText: 'Phone Number',
-                  prefixIcon: Icon(Icons.phone),
-                ),
-                keyboardType: TextInputType.phone,
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Please enter a phone number';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _emailController,
-                decoration: const InputDecoration(
-                  labelText: 'Email (Optional)',
-                  prefixIcon: Icon(Icons.email),
-                ),
-                keyboardType: TextInputType.emailAddress,
-              ),
-            ],
+      ),
+    );
+    if (confirmed != true || _editing == null) return;
+    try {
+      await _editing!.delete();
+      ContactRepository().invalidateCache();
+      if (!mounted) return;
+      context.read<ContactBloc>().add(const LoadContacts());
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      _snack('حذف ناموفق بود: $e');
+    }
+  }
+
+  void _snack(String msg) => ScaffoldMessenger.of(context)
+      .showSnackBar(SnackBar(content: Text(msg)));
+
+  // ── UI ──────────────────────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        appBar: AppBar(
+          leading: TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('لغو'),
           ),
+          leadingWidth: 72,
+          title: Text(_isEdit ? 'ویرایش مخاطب' : 'مخاطب جدید'),
+          actions: [
+            TextButton(
+              onPressed: _saving ? null : _save,
+              child: _saving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('ذخیره'),
+            ),
+          ],
+        ),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : Form(
+                key: _formKey,
+                child: ListView(
+                  children: [
+                    _buildAvatarSection(theme),
+                    const SizedBox(height: 8),
+                    _buildNameSection(),
+                    const Divider(height: 24),
+                    _buildPhoneSection(theme),
+                    const Divider(height: 24),
+                    _buildEmailSection(theme),
+                    const Divider(height: 24),
+                    _field(
+                      controller: _address,
+                      icon: Icons.home_outlined,
+                      label: 'نشانی',
+                      maxLines: 3,
+                    ),
+                    _field(
+                      controller: _company,
+                      icon: Icons.business_outlined,
+                      label: 'شرکت',
+                    ),
+                    _field(
+                      controller: _notes,
+                      icon: Icons.notes_outlined,
+                      label: 'یادداشت',
+                      maxLines: 3,
+                    ),
+                    _buildMoreFields(theme),
+                    if (_isEdit) _buildDeleteButton(),
+                    const SizedBox(height: 32),
+                  ],
+                ),
+              ),
+      ),
+    );
+  }
+
+  Widget _buildAvatarSection(ThemeData theme) {
+    final photo = _editing?.photo;
+    final name = '${_firstName.text} ${_lastName.text}'.trim();
+    return Container(
+      color: theme.brightness == Brightness.dark
+          ? AppColors.keypadDark
+          : AppColors.keypadLight,
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      child: Center(
+        child: Stack(
+          children: [
+            photo != null
+                ? CircleAvatar(radius: 60, backgroundImage: MemoryImage(photo))
+                : AvatarWidget(
+                    name: name.isEmpty ? 'مخاطب جدید' : name, size: 120),
+            Positioned(
+              bottom: 0,
+              right: 0,
+              child: Material(
+                color: theme.colorScheme.primary,
+                shape: const CircleBorder(),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: () => _snack('انتخاب عکس به‌زودی فعال می‌شود'),
+                  child: const Padding(
+                    padding: EdgeInsets.all(8),
+                    child: Icon(Icons.photo_camera,
+                        color: Colors.white, size: 20),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
+
+  Widget _buildNameSection() {
+    return Column(
+      children: [
+        _field(
+          controller: _firstName,
+          icon: Icons.person_outline,
+          label: 'نام',
+          onChanged: (_) => setState(() {}), // refresh avatar initials
+          validator: (v) {
+            if ((v == null || v.trim().isEmpty) &&
+                _lastName.text.trim().isEmpty) {
+              return 'نام را وارد کنید';
+            }
+            return null;
+          },
+        ),
+        _field(
+          controller: _lastName,
+          icon: null,
+          label: 'نام خانوادگی',
+          onChanged: (_) => setState(() {}),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPhoneSection(ThemeData theme) {
+    return Column(
+      children: [
+        for (var i = 0; i < _phones.length; i++)
+          _buildPhoneRow(i, theme),
+        _addMoreButton(
+          'افزودن شماره',
+          () => setState(() => _phones.add(_PhoneEntry())),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPhoneRow(int i, ThemeData theme) {
+    final entry = _phones[i];
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Icon(i == 0 ? Icons.phone_outlined : null,
+              color: theme.iconTheme.color?.withValues(alpha: 0.7)),
+          const SizedBox(width: 16),
+          Expanded(
+            child: TextFormField(
+              controller: entry.controller,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(labelText: 'شماره تلفن'),
+            ),
+          ),
+          const SizedBox(width: 8),
+          DropdownButton<PhoneLabel>(
+            value: entry.label,
+            underline: const SizedBox.shrink(),
+            items: _phoneLabels.entries
+                .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
+                .toList(),
+            onChanged: (v) => setState(() => entry.label = v ?? entry.label),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, size: 20),
+            onPressed: _phones.length == 1
+                ? null
+                : () => setState(() => _phones.removeAt(i)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmailSection(ThemeData theme) {
+    return Column(
+      children: [
+        for (var i = 0; i < _emails.length; i++)
+          _buildEmailRow(i, theme),
+        _addMoreButton(
+          'افزودن ایمیل',
+          () => setState(() => _emails.add(_EmailEntry())),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmailRow(int i, ThemeData theme) {
+    final entry = _emails[i];
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Icon(i == 0 ? Icons.email_outlined : null,
+              color: theme.iconTheme.color?.withValues(alpha: 0.7)),
+          const SizedBox(width: 16),
+          Expanded(
+            child: TextFormField(
+              controller: entry.controller,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(labelText: 'ایمیل'),
+            ),
+          ),
+          const SizedBox(width: 8),
+          DropdownButton<EmailLabel>(
+            value: entry.label,
+            underline: const SizedBox.shrink(),
+            items: _emailLabels.entries
+                .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
+                .toList(),
+            onChanged: (v) => setState(() => entry.label = v ?? entry.label),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, size: 20),
+            onPressed: () => setState(() => _emails.removeAt(i)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMoreFields(ThemeData theme) {
+    if (!_showMore) {
+      return Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: TextButton.icon(
+          onPressed: () => setState(() => _showMore = true),
+          icon: const Icon(Icons.expand_more),
+          label: const Text('فیلدهای بیشتر'),
+        ),
+      );
+    }
+    return Column(
+      children: [
+        const Divider(height: 24),
+        _field(
+          controller: _nickname,
+          icon: Icons.badge_outlined,
+          label: 'نام مستعار',
+        ),
+        _field(
+          controller: _website,
+          icon: Icons.language_outlined,
+          label: 'وب‌سایت',
+        ),
+        ListTile(
+          leading: const Icon(Icons.cake_outlined),
+          title: const Text('تاریخ تولد'),
+          subtitle: Text(_birthday == null
+              ? 'تعیین نشده'
+              : '${_birthday!.year}/${_birthday!.month}/${_birthday!.day}'),
+          trailing: _birthday == null
+              ? null
+              : IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () => setState(() => _birthday = null),
+                ),
+          onTap: _pickBirthday,
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickBirthday() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _birthday ?? DateTime(now.year - 20),
+      firstDate: DateTime(1900),
+      lastDate: now,
+    );
+    if (picked != null) setState(() => _birthday = picked);
+  }
+
+  Widget _buildDeleteButton() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      child: Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: TextButton.icon(
+          onPressed: _delete,
+          icon: const Icon(Icons.delete_outline,
+              color: AppColors.callRejectRed),
+          label: const Text('حذف مخاطب',
+              style: TextStyle(color: AppColors.callRejectRed)),
+        ),
+      ),
+    );
+  }
+
+  // ── Reusable underline field with leading icon ────────────────────────────
+
+  Widget _field({
+    required TextEditingController controller,
+    required IconData? icon,
+    required String label,
+    int maxLines = 1,
+    TextInputType? keyboardType,
+    void Function(String)? onChanged,
+    String? Function(String?)? validator,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 24,
+            child: icon == null
+                ? null
+                : Padding(
+                    padding: const EdgeInsets.only(top: 16),
+                    child: Icon(icon),
+                  ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: TextFormField(
+              controller: controller,
+              maxLines: maxLines,
+              keyboardType: keyboardType,
+              onChanged: onChanged,
+              validator: validator,
+              decoration: InputDecoration(labelText: label),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _addMoreButton(String label, VoidCallback onTap) {
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: TextButton.icon(
+        onPressed: onTap,
+        icon: const Icon(Icons.add),
+        label: Text(label),
+      ),
+    );
+  }
+
+  static const Map<PhoneLabel, String> _phoneLabels = {
+    PhoneLabel.mobile: 'موبایل',
+    PhoneLabel.home: 'منزل',
+    PhoneLabel.work: 'محل کار',
+    PhoneLabel.other: 'سایر',
+  };
+
+  static const Map<EmailLabel, String> _emailLabels = {
+    EmailLabel.home: 'شخصی',
+    EmailLabel.work: 'محل کار',
+    EmailLabel.other: 'سایر',
+  };
 }
 
+class _PhoneEntry {
+  final TextEditingController controller;
+  PhoneLabel label;
+  _PhoneEntry({String text = '', this.label = PhoneLabel.mobile})
+      : controller = TextEditingController(text: text);
+}
 
+class _EmailEntry {
+  final TextEditingController controller;
+  EmailLabel label;
+  _EmailEntry({String text = '', this.label = EmailLabel.home})
+      : controller = TextEditingController(text: text);
+}

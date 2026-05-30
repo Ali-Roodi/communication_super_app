@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:communication_super_app/features/dialer/screens/dialer_screen.dart';
+import 'package:communication_super_app/features/dialer/widgets/dialer_bottom_sheet.dart';
 import 'package:communication_super_app/features/dialer/screens/incoming_call_screen.dart';
 import 'package:communication_super_app/features/dialer/screens/in_call_screen.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_bloc.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_state.dart';
+import 'package:communication_super_app/features/favorites/screens/favorites_screen.dart';
 import 'package:communication_super_app/features/contacts/screens/contacts_list_screen.dart';
 import 'package:communication_super_app/features/messages/screens/messages_list_screen.dart';
 import 'package:communication_super_app/features/messages/bloc/message_bloc.dart';
 import 'package:communication_super_app/features/messages/bloc/message_state.dart';
 import 'package:communication_super_app/features/call_history/screens/call_history_screen.dart';
+import 'package:communication_super_app/core/theme/app_colors.dart';
+import 'package:communication_super_app/features/search/screens/search_screen.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/features/settings/screens/settings_screen.dart';
 
@@ -28,19 +31,25 @@ class MainNavigation extends StatefulWidget {
 class _MainNavigationState extends State<MainNavigation> {
   int _currentIndex = 0;
 
+  // Google Phone tab order: Favorites · Recents · Contacts (+ Messages, kept as
+  // a 4th tab since this super-app's SMS feature has no other entry point).
+  // The dialer is no longer a tab — it opens from the FAB as a bottom sheet.
   static const List<Widget> _screens = [
-    DialerScreen(),
+    FavoritesScreen(),
     CallHistoryScreen(),
     ContactsListScreen(),
     MessagesListScreen(),
   ];
 
   static const List<String> _titles = [
-    'شماره‌گیر',
-    'تاریخچه تماس‌ها',
+    'موردعلاقه‌ها',
+    'تلفن',
     'مخاطبین',
     'پیام‌ها',
   ];
+
+  /// Tabs that show the dialer FAB (Favorites + Recents, per Google Phone).
+  bool get _showDialerFab => _currentIndex == 0 || _currentIndex == 1;
 
   @override
   void initState() {
@@ -90,28 +99,51 @@ class _MainNavigationState extends State<MainNavigation> {
           title: _titles[_currentIndex],
           showSearch: true,
           showLock: false,
-          onSearchPressed: () {
-            // PHASE-2: Implement global search
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('جستجو')),
-            );
-          },
+          onSearchPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const SearchScreen()),
+          ),
           actions: [
-            IconButton(
-              icon: const Icon(Icons.settings_outlined),
-              tooltip: 'تنظیمات',
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const SettingsScreen(),
+            // 3-dot overflow menu (Google Phone style) → Settings.
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert),
+              tooltip: 'گزینه‌های بیشتر',
+              onSelected: (value) {
+                if (value == 'settings') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const SettingsScreen(),
+                    ),
+                  );
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem<String>(
+                  value: 'settings',
+                  child: Text('تنظیمات'),
                 ),
-              ),
+              ],
             ),
           ],
         ),
         drawer: null,
-        body: IndexedStack(
-          index: _currentIndex,
-          children: _screens,
+        floatingActionButton: _showDialerFab
+            ? FloatingActionButton(
+                onPressed: () => showDialerBottomSheet(context),
+                backgroundColor: AppColors.callAnswerGreen,
+                foregroundColor: Colors.white,
+                tooltip: 'شماره‌گیری',
+                child: const Icon(Icons.dialpad),
+              )
+            : null,
+        body: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 150),
+          // Fade between tabs (spec: 150ms). The IndexedStack keeps every tab
+          // mounted; keying by index lets the switcher cross-fade on change.
+          child: IndexedStack(
+            key: ValueKey<int>(_currentIndex),
+            index: _currentIndex,
+            children: _screens,
+          ),
         ),
         bottomNavigationBar: Directionality(
           textDirection: TextDirection.rtl,
@@ -136,13 +168,13 @@ class _MainNavigationState extends State<MainNavigation> {
                 },
                 destinations: [
                   const NavigationDestination(
-                    icon: Icon(Icons.phone_outlined),
-                    selectedIcon: Icon(Icons.phone),
-                    label: 'شماره‌گیری',
+                    icon: Icon(Icons.star_outline),
+                    selectedIcon: Icon(Icons.star),
+                    label: 'موردعلاقه‌ها',
                   ),
                   const NavigationDestination(
-                    icon: Icon(Icons.history_outlined),
-                    selectedIcon: Icon(Icons.history),
+                    icon: Icon(Icons.access_time),
+                    selectedIcon: Icon(Icons.access_time_filled),
                     label: 'اخیر',
                   ),
                   const NavigationDestination(

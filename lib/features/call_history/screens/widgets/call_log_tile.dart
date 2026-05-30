@@ -1,100 +1,153 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_phone_direct_caller/flutter_phone_direct_caller.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
+import 'package:communication_super_app/features/call_history/bloc/call_log_bloc.dart';
+import 'package:communication_super_app/features/call_history/bloc/call_log_event.dart';
 import 'package:communication_super_app/features/call_history/models/call_log_model.dart';
+import 'package:communication_super_app/features/call_history/screens/widgets/call_detail_sheet.dart';
+import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
+import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
 
-/// A single row in the call log list.
+/// A single row in the recents list (Google Phone style).
 ///
-/// Shows the contact avatar (with a colour-coded call-type badge), name,
-/// formatted time + duration, SIM slot, and a callback button.
+/// Layout: avatar · [name/number (+ ×N count when collapsed)] over
+/// [type-arrow icon · type label · relative time] · ⓘ info button.
+/// Tapping the row places a call; the ⓘ opens the call detail sheet; a long
+/// press opens the options sheet (copy / block / delete).
 class CallLogTile extends StatelessWidget {
   final CallLogModel log;
 
-  const CallLogTile({super.key, required this.log});
+  /// Number of consecutive same-number/same-day calls collapsed into this row.
+  final int count;
+
+  const CallLogTile({super.key, required this.log, this.count = 1});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final displayName = log.contactName?.isNotEmpty == true
         ? log.contactName!
-        : log.phoneNumber;
+        : PersianUtils.toPersianNumber(log.phoneNumber);
     final isMissed = log.callType == CallType.missed;
 
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      leading: _AvatarWithBadge(
-        name: displayName,
-        callType: log.callType,
-        backgroundColor: theme.scaffoldBackgroundColor,
-      ),
-      title: Text(
-        displayName,
-        style: TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w500,
-          // Missed calls are shown in red to draw attention
-          color: isMissed
-              ? AppColors.missedCallRed
-              : theme.textTheme.bodyLarge?.color,
+    return InkWell(
+      onTap: () => NativeCallService.instance.makeCall(log.phoneNumber),
+      onLongPress: () => _showOptions(context),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Row(
+          children: [
+            AvatarWidget(name: displayName, size: 48),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          displayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: isMissed
+                                ? AppColors.missedCallRed
+                                : theme.textTheme.bodyLarge?.color,
+                          ),
+                        ),
+                      ),
+                      if (count > 1)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: Text(
+                            '(${PersianUtils.toPersianNumber('$count')})',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: isMissed
+                                  ? AppColors.missedCallRed
+                                  : theme.textTheme.bodyMedium?.color,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  _Subtitle(log: log, theme: theme),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.info_outline),
+              iconSize: 22,
+              color: theme.textTheme.bodyMedium?.color,
+              tooltip: 'جزئیات تماس',
+              onPressed: () => showCallDetailSheet(context, log),
+            ),
+          ],
         ),
-      ),
-      subtitle: _Subtitle(log: log, theme: theme),
-      trailing: IconButton(
-        icon: const Icon(Icons.phone_outlined),
-        iconSize: 22,
-        color: theme.colorScheme.primary,
-        padding: EdgeInsets.zero,
-        constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-        onPressed: () async {
-          // PHASE-2: Replace with NativeCallService.makeCall() after telecom integration is verified
-          await FlutterPhoneDirectCaller.callNumber(log.phoneNumber);
-        },
       ),
     );
   }
-}
 
-// ── Avatar with colour-coded call-type badge ──────────────────────────────────
-
-class _AvatarWithBadge extends StatelessWidget {
-  final String name;
-  final CallType callType;
-  final Color backgroundColor; // used for the badge border ring
-
-  const _AvatarWithBadge({
-    required this.name,
-    required this.callType,
-    required this.backgroundColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        AvatarWidget(name: name, size: 48),
-        Positioned(
-          bottom: -2,
-          right: -2,
-          child: Container(
-            width: 18,
-            height: 18,
-            decoration: BoxDecoration(
-              color: _callColor(callType),
-              shape: BoxShape.circle,
-              border: Border.all(color: backgroundColor, width: 1.5),
-            ),
-            child: Icon(_callIcon(callType), color: Colors.white, size: 10),
+  void _showOptions(BuildContext context) {
+    final bloc = context.read<CallLogBloc>();
+    final blockedBloc = context.read<BlockedNumbersBloc>();
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.copy_outlined),
+                title: const Text('کپی شماره'),
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: log.phoneNumber));
+                  Navigator.of(sheetContext).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('شماره کپی شد')),
+                  );
+                },
+              ),
+              ListTile(
+                leading:
+                    const Icon(Icons.block, color: AppColors.callRejectRed),
+                title: const Text('مسدود کردن'),
+                onTap: () {
+                  blockedBloc.add(BlockNumber(log.phoneNumber));
+                  Navigator.of(sheetContext).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('شماره مسدود شد')),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete_outline,
+                    color: AppColors.callRejectRed),
+                title: const Text('حذف'),
+                onTap: () {
+                  bloc.add(DeleteCallLog(log.id));
+                  Navigator.of(sheetContext).pop();
+                },
+              ),
+            ],
           ),
         ),
-      ],
+      ),
     );
   }
 }
 
-// ── Subtitle row (time · duration · SIM) ─────────────────────────────────────
+// ── Subtitle row: type-arrow icon · type label · relative time ────────────────
 
 class _Subtitle extends StatelessWidget {
   final CallLogModel log;
@@ -104,24 +157,29 @@ class _Subtitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final timeStr = _formatTime(log.timestamp);
-    final durStr = _formatDuration(log.callType, log.duration);
-    final simStr =
-        log.simSlot != null ? ' · SIM${log.simSlot}' : '';
+    final color = theme.textTheme.bodyMedium?.color;
+    final simStr = log.simSlot != null ? ' · SIM${log.simSlot}' : '';
+    final text = '${_callLabel(log.callType)} · '
+        '${_relativeTime(log.timestamp)}$simStr';
 
-    final text = [timeStr, if (durStr != null) durStr].join(' · ') + simStr;
-
-    return Text(
-      text,
-      style: TextStyle(
-        fontSize: 13,
-        color: theme.textTheme.bodyMedium?.color,
-      ),
+    return Row(
+      children: [
+        Icon(_callIcon(log.callType), size: 16, color: _callColor(log.callType)),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 13, color: color),
+          ),
+        ),
+      ],
     );
   }
 }
 
-// ── Static helper functions ───────────────────────────────────────────────────
+// ── Static helpers ────────────────────────────────────────────────────────────
 
 Color _callColor(CallType type) {
   switch (type) {
@@ -145,30 +203,41 @@ IconData _callIcon(CallType type) {
   }
 }
 
-/// Formats a timestamp as "صبح ۰۸:۳۰", "بعدازظهر ۱۴:۱۵", etc.
-String _formatTime(DateTime dt) {
-  final ph = PersianUtils.toPersianNumber(dt.hour.toString().padLeft(2, '0'));
-  final pm = PersianUtils.toPersianNumber(dt.minute.toString().padLeft(2, '0'));
-  return '${_timePeriod(dt.hour)} $ph:$pm';
-}
-
-String _timePeriod(int hour) {
-  if (hour < 12) return 'صبح';
-  if (hour == 12) return 'ظهر';
-  if (hour < 18) return 'بعدازظهر';
-  return 'شب';
-}
-
-/// Returns a human-readable duration string, or null if unavailable (missed/rejected).
-String? _formatDuration(CallType type, int? seconds) {
-  if (type == CallType.missed) return 'رد شد';
-  if (seconds == null || seconds == 0) return null;
-  final m = seconds ~/ 60;
-  final s = seconds % 60;
-  if (m == 0) {
-    return '${PersianUtils.toPersianNumber(s.toString())} ث';
+String _callLabel(CallType type) {
+  switch (type) {
+    case CallType.missed:
+      return 'تماس بی‌پاسخ';
+    case CallType.incoming:
+      return 'تماس ورودی';
+    case CallType.outgoing:
+      return 'تماس خروجی';
   }
-  final ps = PersianUtils.toPersianNumber(s.toString().padLeft(2, '0'));
-  final pm = PersianUtils.toPersianNumber(m.toString());
-  return '$pm:$ps';
+}
+
+/// Persian relative time: "هم‌اکنون", "۳ دقیقه پیش", "دیروز", "۱۴۰۳/۰۲/۱۵"...
+String _relativeTime(DateTime dt) {
+  final now = DateTime.now();
+  final diff = now.difference(dt);
+
+  if (diff.inMinutes < 1) return 'هم‌اکنون';
+  if (diff.inMinutes < 60) {
+    return '${PersianUtils.toPersianNumber('${diff.inMinutes}')} دقیقه پیش';
+  }
+
+  final today = DateTime(now.year, now.month, now.day);
+  final logDay = DateTime(dt.year, dt.month, dt.day);
+  final dayDiff = today.difference(logDay).inDays;
+
+  if (dayDiff == 0) {
+    return '${PersianUtils.toPersianNumber('${diff.inHours}')} ساعت پیش';
+  }
+  if (dayDiff == 1) return 'دیروز';
+  if (dayDiff < 7) {
+    return '${PersianUtils.toPersianNumber('$dayDiff')} روز پیش';
+  }
+
+  final y = PersianUtils.toPersianNumber('${dt.year}');
+  final m = PersianUtils.toPersianNumber(dt.month.toString().padLeft(2, '0'));
+  final d = PersianUtils.toPersianNumber(dt.day.toString().padLeft(2, '0'));
+  return '$y/$m/$d';
 }

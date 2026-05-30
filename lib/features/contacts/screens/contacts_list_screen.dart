@@ -3,10 +3,15 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/contact_bloc.dart';
 import '../bloc/contact_event.dart';
 import '../bloc/contact_state.dart';
+import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
 import 'add_edit_contact_screen.dart';
 import '../models/contact_model.dart';
+
+// Fixed extents so the fast-scroll index bar can compute jump offsets.
+const double _kRowHeight = 64;
+const double _kHeaderHeight = 32;
 
 class ContactsListScreen extends StatefulWidget {
   const ContactsListScreen({super.key});
@@ -17,26 +22,24 @@ class ContactsListScreen extends StatefulWidget {
 
 class _ContactsListScreenState extends State<ContactsListScreen> {
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
   bool _hasLoaded = false;
+  String _query = '';
 
-  // Memoize the flat (header + contact) row list so _buildFlatContactList()
-  // is only recomputed when the contacts data actually changes, not on every
-  // widget rebuild triggered by theme changes, parent rebuilds, etc.
+  // Memoized section grouping (rebuilt only when the contact list changes).
   List<ContactModel>? _lastContacts;
-  List<_ContactListItem> _cachedFlatItems = [];
+  List<_Section> _sections = [];
 
-  List<_ContactListItem> _getOrBuildFlatList(List<ContactModel> contacts) {
-    if (identical(_lastContacts, contacts)) return _cachedFlatItems;
+  List<_Section> _getOrBuildSections(List<ContactModel> contacts) {
+    if (identical(_lastContacts, contacts)) return _sections;
     _lastContacts = contacts;
-    _cachedFlatItems = _buildFlatContactList(contacts);
-    return _cachedFlatItems;
+    _sections = _buildSections(contacts);
+    return _sections;
   }
 
   @override
   void initState() {
     super.initState();
-    // Defer permission request until after the widget tree is fully built
-    // This prevents crashes during permission grants on first launch
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && !_hasLoaded) {
         _hasLoaded = true;
@@ -48,145 +51,299 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
-    return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
-      body: BlocBuilder<ContactBloc, ContactState>(
-        builder: (context, state) {
-          if (state is ContactLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
 
-          if (state is ContactError) {
-            return Center(child: Text('Error: ${state.message}'));
-          }
-
-          if (state is ContactsLoaded) {
-            if (state.contacts.isEmpty) {
-              return const Center(
-                child: Text('No contacts found'),
-              );
-            }
-
-            final flatItems = _getOrBuildFlatList(state.contacts);
-
-            return Directionality(
-              textDirection: TextDirection.rtl,
-              child: ListView.builder(
-                padding: const EdgeInsets.only(bottom: 80),
-                itemCount: flatItems.length,
-                itemBuilder: (context, index) {
-                  final item = flatItems[index];
-                  if (item.isHeader) {
-                    return _buildSectionHeader(item.letter!, theme);
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        backgroundColor: theme.scaffoldBackgroundColor,
+        body: Column(
+          children: [
+            _buildSearchField(theme),
+            Expanded(
+              child: BlocBuilder<ContactBloc, ContactState>(
+                builder: (context, state) {
+                  if (state is ContactLoading) {
+                    return const Center(child: CircularProgressIndicator());
                   }
-                  return _buildContactItem(context, item.contact!, theme);
+                  if (state is ContactError) {
+                    return Center(child: Text('خطا: ${state.message}'));
+                  }
+                  if (state is ContactsLoaded) {
+                    if (state.contacts.isEmpty) {
+                      return _buildEmptyState(theme);
+                    }
+                    return _query.trim().isEmpty
+                        ? _buildSectionedList(
+                            _getOrBuildSections(state.contacts), theme)
+                        : _buildSearchResults(state.contacts, theme);
+                  }
+                  return const SizedBox.shrink();
                 },
               ),
-            );
-          }
-
-          return const SizedBox.shrink();
-        },
-      ),
-      floatingActionButton: Directionality(
-        textDirection: TextDirection.rtl,
-        child: FloatingActionButton.extended(
-          heroTag: 'contacts_fab', // Unique hero tag to avoid conflicts
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const AddEditContactScreen(),
-              ),
-            );
-          },
-          icon: const Icon(Icons.add),
-          label: const Text('افزودن مخاطب'),
-          backgroundColor: const Color(0xFFC3E7FF),
-          foregroundColor: theme.brightness == Brightness.dark
-              ? const Color(0xFF01579B)
-              : const Color(0xFF01579B),
-          elevation: 6,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-          ),
+            ),
+          ],
         ),
+        floatingActionButton: FloatingActionButton(
+          heroTag: 'contacts_fab',
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const AddEditContactScreen()),
+          ),
+          tooltip: 'افزودن مخاطب',
+          child: const Icon(Icons.add),
+        ),
+        floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
     );
   }
 
-  /// One row per item: either section header or single contact (lazy-friendly).
-  List<_ContactListItem> _buildFlatContactList(List<ContactModel> contacts) {
-    final Map<String, List<ContactModel>> grouped = {};
-    for (var contact in contacts) {
-      final firstChar = contact.name.isNotEmpty ? contact.name[0] : '#';
-      grouped.putIfAbsent(firstChar, () => []).add(contact);
-    }
-    final sortedKeys = grouped.keys.toList()..sort();
-    final flat = <_ContactListItem>[];
-    for (final key in sortedKeys) {
-      flat.add(_ContactListItem(letter: key));
-      for (final c in grouped[key]!) {
-        flat.add(_ContactListItem(contact: c));
-      }
-    }
-    return flat;
+  // ── Search ──────────────────────────────────────────────────────────────
+
+  Widget _buildSearchField(ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: TextField(
+        controller: _searchController,
+        onChanged: (v) => setState(() => _query = v),
+        decoration: InputDecoration(
+          hintText: 'جستجوی مخاطبین',
+          prefixIcon: const Icon(Icons.search),
+          isDense: true,
+          filled: true,
+          suffixIcon: _query.isEmpty
+              ? null
+              : IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() => _query = '');
+                  },
+                ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(28),
+            borderSide: BorderSide.none,
+          ),
+        ),
+      ),
+    );
   }
 
-  Widget _buildSectionHeader(String letter, ThemeData theme) {
+  Widget _buildSearchResults(List<ContactModel> contacts, ThemeData theme) {
+    final q = _query.trim().toLowerCase();
+    final results = contacts
+        .where((c) =>
+            c.name.toLowerCase().contains(q) ||
+            c.phoneNumbers.any((p) => p.contains(q)))
+        .toList();
+    if (results.isEmpty) {
+      return Center(
+        child: Text('نتیجه‌ای برای «$_query» یافت نشد',
+            style: theme.textTheme.bodyMedium),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.only(bottom: 96),
+      itemCount: results.length,
+      itemBuilder: (_, i) => _ContactRow(contact: results[i]),
+    );
+  }
+
+  // ── Sectioned list with sticky headers + fast-scroll bar ──────────────────
+
+  Widget _buildSectionedList(List<_Section> sections, ThemeData theme) {
+    final slivers = <Widget>[];
+    for (final s in sections) {
+      slivers.add(SliverPersistentHeader(
+        pinned: true,
+        delegate: _SectionHeaderDelegate(s.letter),
+      ));
+      slivers.add(SliverFixedExtentList(
+        itemExtent: _kRowHeight,
+        delegate: SliverChildBuilderDelegate(
+          (_, i) => _ContactRow(contact: s.contacts[i]),
+          childCount: s.contacts.length,
+        ),
+      ));
+    }
+
+    return Stack(
+      children: [
+        CustomScrollView(
+          controller: _scrollController,
+          slivers: [
+            ...slivers,
+            const SliverToBoxAdapter(child: SizedBox(height: 96)),
+          ],
+        ),
+        Positioned(
+          top: 0,
+          bottom: 0,
+          left: 0, // mirrored to the left edge for the RTL layout
+          child: _AlphabetBar(
+            letters: sections.map((s) => s.letter).toList(),
+            onSelect: _jumpToLetter,
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _jumpToLetter(String letter) {
+    var offset = 0.0;
+    for (final s in _sections) {
+      if (s.letter == letter) break;
+      offset += _kHeaderHeight + s.contacts.length * _kRowHeight;
+    }
+    if (!_scrollController.hasClients) return;
+    final max = _scrollController.position.maxScrollExtent;
+    _scrollController.animateTo(
+      offset.clamp(0.0, max),
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+    );
+  }
+
+  List<_Section> _buildSections(List<ContactModel> contacts) {
+    final grouped = <String, List<ContactModel>>{};
+    for (final c in contacts) {
+      grouped.putIfAbsent(_sectionLetter(c.name), () => []).add(c);
+    }
+    final keys = grouped.keys.toList()..sort();
+    return [for (final k in keys) _Section(k, grouped[k]!)];
+  }
+
+  static String _sectionLetter(String name) {
+    if (name.isEmpty) return '#';
+    final ch = name[0];
+    final code = ch.codeUnitAt(0);
+    // Group digits / symbols under '#'.
+    final isLetter = (code >= 65 && code <= 90) ||
+        (code >= 97 && code <= 122) ||
+        code > 0x600; // Arabic/Persian block and beyond
+    return isLetter ? ch.toUpperCase() : '#';
+  }
+
+  Widget _buildEmptyState(ThemeData theme) {
+    final dim = theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.6);
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.person_outline, size: 96, color: dim),
+          const SizedBox(height: 16),
+          Text('مخاطبی یافت نشد', style: theme.textTheme.titleMedium),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Section model ─────────────────────────────────────────────────────────────
+
+class _Section {
+  final String letter;
+  final List<ContactModel> contacts;
+  const _Section(this.letter, this.contacts);
+}
+
+// ── Sticky section header ─────────────────────────────────────────────────────
+
+class _SectionHeaderDelegate extends SliverPersistentHeaderDelegate {
+  final String letter;
+  _SectionHeaderDelegate(this.letter);
+
+  @override
+  double get minExtent => _kHeaderHeight;
+  @override
+  double get maxExtent => _kHeaderHeight;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    final theme = Theme.of(context);
     return Container(
+      height: _kHeaderHeight,
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      color: theme.brightness == Brightness.dark
-          ? const Color(0xFF1A1A1A)
-          : const Color(0xFFF5F5F5),
+      alignment: AlignmentDirectional.centerStart,
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      color: theme.scaffoldBackgroundColor,
       child: Text(
         letter,
         style: TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w500,
-          color: theme.textTheme.bodyMedium?.color,
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: theme.colorScheme.primary,
         ),
-        textAlign: TextAlign.right,
       ),
     );
   }
 
-  Widget _buildContactItem(BuildContext context, ContactModel contact, ThemeData theme) {
+  @override
+  bool shouldRebuild(_SectionHeaderDelegate oldDelegate) =>
+      oldDelegate.letter != letter;
+}
+
+// ── Contact row ───────────────────────────────────────────────────────────────
+
+class _ContactRow extends StatelessWidget {
+  final ContactModel contact;
+  const _ContactRow({required this.contact});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return InkWell(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => DeviceContactDetailScreen(contact: contact),
-          ),
-        );
-      },
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DeviceContactDetailScreen(contact: contact),
+        ),
+      ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: Row(
           children: [
-            // Avatar on the right (RTL)
-            _buildAvatar(contact),
+            contact.avatar != null
+                ? CircleAvatar(
+                    radius: 24, backgroundImage: MemoryImage(contact.avatar!))
+                : AvatarWidget(name: contact.name, size: 48),
             const SizedBox(width: 16),
-            // Name
             Expanded(
-              child: Text(
-                contact.name,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                  color: theme.textTheme.bodyLarge?.color,
-                ),
-                textAlign: TextAlign.right,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    contact.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      color: theme.textTheme.bodyLarge?.color,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Directionality(
+                    textDirection: TextDirection.ltr,
+                    child: Text(
+                      PersianUtils.toPersianNumber(contact.primaryPhone),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.right,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: theme.textTheme.bodyMedium?.color,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -196,95 +353,54 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
   }
 }
 
-Widget _buildAvatar(ContactModel contact) {
-  if (contact.avatar != null) {
-    return CircleAvatar(
-      radius: 24,
-      backgroundImage: MemoryImage(contact.avatar!),
-    );
-  }
-  return AvatarWidget(name: contact.name, size: 48);
-}
+// ── Fast-scroll alphabet index bar ────────────────────────────────────────────
 
-class _ContactListItem {
-  final String? letter;
-  final ContactModel? contact;
-  _ContactListItem({this.letter, this.contact});
-  bool get isHeader => letter != null;
-}
+class _AlphabetBar extends StatelessWidget {
+  final List<String> letters;
+  final ValueChanged<String> onSelect;
 
-class ContactSearchDelegate extends SearchDelegate {
-  final ContactBloc contactBloc;
-
-  ContactSearchDelegate({required this.contactBloc});
+  const _AlphabetBar({required this.letters, required this.onSelect});
 
   @override
-  List<Widget>? buildActions(BuildContext context) {
-    return [
-      IconButton(
-        icon: const Icon(Icons.clear),
-        onPressed: () {
-          query = '';
-        },
-      ),
-    ];
-  }
+  Widget build(BuildContext context) {
+    if (letters.length < 2) return const SizedBox.shrink();
+    final theme = Theme.of(context);
 
-  @override
-  Widget? buildLeading(BuildContext context) {
-    return IconButton(
-      icon: const Icon(Icons.arrow_back),
-      onPressed: () {
-        close(context, null);
-      },
-    );
-  }
-
-  @override
-  Widget buildResults(BuildContext context) {
-    contactBloc.add(SearchContacts(query));
-    return BlocBuilder<ContactBloc, ContactState>(
-      bloc: contactBloc,
-      builder: (context, state) {
-        if (state is ContactLoading) {
-          return const Center(child: CircularProgressIndicator());
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        void handle(Offset local) {
+          final h = constraints.maxHeight;
+          if (h <= 0) return;
+          final i = (local.dy / h * letters.length)
+              .floor()
+              .clamp(0, letters.length - 1);
+          onSelect(letters[i]);
         }
 
-        if (state is ContactsLoaded) {
-          if (state.contacts.isEmpty) {
-            return const Center(child: Text('No contacts found'));
-          }
-
-          return ListView.builder(
-            itemCount: state.contacts.length,
-            itemBuilder: (context, index) {
-              final contact = state.contacts[index];
-              return ListTile(
-                leading: AvatarWidget(name: contact.name),
-                title: Text(contact.name),
-                subtitle: Text(contact.primaryPhone),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => DeviceContactDetailScreen(contact: contact),
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (d) => handle(d.localPosition),
+          onVerticalDragUpdate: (d) => handle(d.localPosition),
+          child: Container(
+            width: 24,
+            alignment: Alignment.center,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                for (final l in letters)
+                  Text(
+                    l,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.primary,
                     ),
-                  );
-                },
-              );
-            },
-          );
-        }
-
-        return const SizedBox.shrink();
+                  ),
+              ],
+            ),
+          ),
+        );
       },
     );
   }
-
-  @override
-  Widget buildSuggestions(BuildContext context) {
-    return const SizedBox.shrink();
-  }
 }
-
-
