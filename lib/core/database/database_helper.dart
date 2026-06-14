@@ -114,6 +114,16 @@ class DatabaseHelper {
         ADD COLUMN ringtone_uri TEXT
       ''');
     }
+
+    // Migration from version 6 to 7:
+    // - message_categories: user-defined labels for drafts (e.g. "تولد").
+    // - drafts: saved message drafts with an optional title (not sent) and an
+    //   optional category. category_id → message_categories ON DELETE SET NULL
+    //   so deleting a category leaves its drafts in "بدون دسته‌بندی".
+    if (oldVersion < 7) {
+      await _createMessageCategoriesTable(db);
+      await _createDraftsTable(db);
+    }
   }
 
   Future<void> _createFavoritesTable(Database db) async {
@@ -154,6 +164,29 @@ class DatabaseHelper {
       CREATE TABLE ${AppConstants.pinnedThreadsTable} (
         thread_id TEXT PRIMARY KEY,
         pinned_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  Future<void> _createMessageCategoriesTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE ${AppConstants.messageCategoriesTable} (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  Future<void> _createDraftsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE ${AppConstants.draftsTable} (
+        id TEXT PRIMARY KEY,
+        title TEXT,
+        body TEXT NOT NULL,
+        category_id TEXT,
+        updated_at INTEGER NOT NULL,
+        FOREIGN KEY (category_id) REFERENCES ${AppConstants.messageCategoriesTable}(id) ON DELETE SET NULL
       )
     ''');
   }
@@ -245,6 +278,10 @@ class DatabaseHelper {
       // Archived & pinned thread state (Google Messages style)
       await _createArchivedThreadsTable(db);
       await _createPinnedThreadsTable(db);
+
+      // Message categories + drafts (Messages "pro" suite)
+      await _createMessageCategoriesTable(db);
+      await _createDraftsTable(db);
     } catch (e) {
       throw Exception('Failed to create database tables: $e');
     }

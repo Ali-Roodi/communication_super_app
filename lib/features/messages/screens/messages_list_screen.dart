@@ -4,11 +4,13 @@ import '../bloc/message_bloc.dart';
 import '../bloc/message_event.dart';
 import '../bloc/message_state.dart';
 import '../models/message_model.dart';
+import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
 import 'package:communication_super_app/features/settings/screens/settings_screen.dart';
 import 'conversation_screen.dart';
 import 'contact_selector_screen.dart';
 import 'archived_threads_screen.dart';
+import 'drafts_list_screen.dart';
 import 'widgets/thread_tile.dart';
 
 /// Inbox of conversations — Google Messages style.
@@ -194,6 +196,11 @@ class _MessagesListScreenState extends State<MessagesListScreen>
                 ).then((_) {
                   if (mounted) bloc.add(const LoadThreads());
                 });
+              case 'drafts':
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const DraftsListScreen()),
+                );
               case 'settings':
                 Navigator.push(
                   context,
@@ -203,6 +210,7 @@ class _MessagesListScreenState extends State<MessagesListScreen>
           },
           itemBuilder: (_) => const [
             PopupMenuItem(value: 'archived', child: Text('بایگانی')),
+            PopupMenuItem(value: 'drafts', child: Text('پیش‌نویس‌ها')),
             PopupMenuItem(value: 'settings', child: Text('تنظیمات')),
           ],
         ),
@@ -491,9 +499,9 @@ class _MessagesListScreenState extends State<MessagesListScreen>
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.delete_outline, color: Colors.red),
+                leading: const Icon(Icons.delete_outline, color: AppColors.danger),
                 title: const Text('حذف گفتگو',
-                    style: TextStyle(color: Colors.red)),
+                    style: TextStyle(color: AppColors.danger)),
                 onTap: () {
                   Navigator.pop(sheetCtx);
                   _confirmDeleteThread(context, thread);
@@ -543,7 +551,7 @@ class _MessagesListScreenState extends State<MessagesListScreen>
             ),
             TextButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('حذف', style: TextStyle(color: Colors.red)),
+              child: const Text('حذف', style: TextStyle(color: AppColors.danger)),
             ),
           ],
         ),

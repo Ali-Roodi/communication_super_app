@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
+import 'package:communication_super_app/core/theme/app_dimensions.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/features/call_history/bloc/call_log_bloc.dart';
@@ -134,36 +135,44 @@ class _ActionChips extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        _ActionChip(
-          icon: Icons.call,
-          label: 'تماس',
-          onTap: () {
-            Navigator.of(context).pop();
-            NativeCallService.instance.makeCall(log.phoneNumber);
-          },
-        ),
-        _ActionChip(
-          icon: Icons.message_outlined,
-          label: 'پیام',
-          onTap: () {
-            Navigator.of(context).pop();
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => ConversationScreen.forPhone(
-                  log.phoneNumber,
-                  contactName: log.contactName,
-                ),
-              ),
-            );
-          },
-        ),
-        _ActionChip(
-          icon: hasName ? Icons.person : Icons.person_add_alt,
-          label: hasName ? 'مشاهده مخاطب' : 'افزودن مخاطب',
-          onTap: () async {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppDimensions.paddingMd),
+      child: Row(
+        children: [
+          Expanded(
+            child: _ActionChip(
+              icon: Icons.call,
+              label: 'تماس',
+              onTap: () {
+                Navigator.of(context).pop();
+                NativeCallService.instance.makeCall(log.phoneNumber);
+              },
+            ),
+          ),
+          const SizedBox(width: AppDimensions.paddingSm),
+          Expanded(
+            child: _ActionChip(
+              icon: Icons.message_outlined,
+              label: 'پیام',
+              onTap: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => ConversationScreen.forPhone(
+                      log.phoneNumber,
+                      contactName: log.contactName,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(width: AppDimensions.paddingSm),
+          Expanded(
+            child: _ActionChip(
+              icon: hasName ? Icons.person : Icons.person_add_alt,
+              label: hasName ? 'مخاطب' : 'افزودن',
+              onTap: () async {
             if (hasName) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('به‌زودی')),
@@ -185,9 +194,11 @@ class _ActionChips extends StatelessWidget {
                 callLogBloc.add(const RefreshCallLogs());
               }
             }
-          },
-        ),
-      ],
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -206,18 +217,30 @@ class _ActionChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: theme.colorScheme.primary, size: 26),
-            const SizedBox(height: 6),
-            Text(label, style: theme.textTheme.bodySmall),
-          ],
+    // Filled light-accent rounded square (Figma 627:4073 detail actions).
+    final bg = AppColors.accent.withValues(alpha: 0.12);
+    return Material(
+      color: bg,
+      borderRadius: BorderRadius.circular(AppDimensions.radiusLg),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: theme.colorScheme.primary, size: 24),
+              const SizedBox(height: 6),
+              Text(
+                label,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

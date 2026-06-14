@@ -3,7 +3,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/contact_bloc.dart';
 import '../bloc/contact_event.dart';
 import '../bloc/contact_state.dart';
-import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
 import 'add_edit_contact_screen.dart';
@@ -90,14 +89,15 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
             ),
           ],
         ),
-        floatingActionButton: FloatingActionButton(
+        // Extended pill "افزودن مخاطب" per Figma 627:4074.
+        floatingActionButton: FloatingActionButton.extended(
           heroTag: 'contacts_fab',
           onPressed: () => Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const AddEditContactScreen()),
           ),
-          tooltip: 'افزودن مخاطب',
-          child: const Icon(Icons.add),
+          icon: const Icon(Icons.add),
+          label: const Text('افزودن مخاطب'),
         ),
         floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       ),
@@ -274,11 +274,12 @@ class _SectionHeaderDelegate extends SliverPersistentHeaderDelegate {
       padding: const EdgeInsets.symmetric(horizontal: 20),
       color: theme.scaffoldBackgroundColor,
       child: Text(
+        // Dim-gray section letters per Figma 627:4074 (not the accent colour).
         letter,
         style: TextStyle(
           fontSize: 13,
           fontWeight: FontWeight.w600,
-          color: theme.colorScheme.primary,
+          color: theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.7),
         ),
       ),
     );
@@ -314,36 +315,17 @@ class _ContactRow extends StatelessWidget {
                     radius: 24, backgroundImage: MemoryImage(contact.avatar!))
                 : AvatarWidget(name: contact.name, size: 48),
             const SizedBox(width: 16),
+            // Name-only rows per Figma 627:4074 (number shows on the detail).
             Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    contact.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                      color: theme.textTheme.bodyLarge?.color,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Directionality(
-                    textDirection: TextDirection.ltr,
-                    child: Text(
-                      PersianUtils.toPersianNumber(contact.primaryPhone),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.right,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: theme.textTheme.bodyMedium?.color,
-                      ),
-                    ),
-                  ),
-                ],
+              child: Text(
+                contact.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: theme.textTheme.bodyLarge?.color,
+                ),
               ),
             ),
           ],

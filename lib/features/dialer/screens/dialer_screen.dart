@@ -7,6 +7,7 @@ import 'package:communication_super_app/features/settings/bloc/settings_bloc.dar
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
+import 'package:communication_super_app/core/theme/app_dimensions.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_bloc.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_event.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_state.dart';
@@ -25,17 +26,9 @@ import 'package:communication_super_app/features/contacts/screens/add_edit_conta
 class DialerScreen extends StatelessWidget {
   const DialerScreen({super.key});
 
-  /// Key background per spec: white (light) / #2D2E31 (dark).
-  static const Color _keyLight = Color(0xFFFFFFFF);
-  static const Color _keyDark = Color(0xFF2D2E31);
-
-  /// Sub-labels shown below each dial key (standard phone keypad layout).
-  static const Map<String, String> _keySubLabels = {
-    '1': '', '2': 'ABC', '3': 'DEF',
-    '4': 'GHI', '5': 'JKL', '6': 'MNO',
-    '7': 'PQRS', '8': 'TUV', '9': 'WXYZ',
-    '*': '', '0': '+', '#': '',
-  };
+  // Key pill background — white in light, card surface in dark (Figma tokens).
+  static const Color _keyLight = AppColors.surfaceLight;
+  static const Color _keyDark = AppColors.cardDark;
 
   /// [Persian display, English value sent to BLoC]
   static const List<List<List<String>>> _keyRows = [
@@ -123,8 +116,6 @@ class DialerScreen extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(horizontal: 6),
                       child: _DialKey(
                         display: k[0],
-                        subLabel: _keySubLabels[value] ?? '',
-                        isVoicemail: value == '1',
                         keyColor: keyColor,
                         onTap: () => press(value),
                         onLongPress: _longPressFor(context, value),
@@ -378,16 +369,12 @@ class _SideAction extends StatelessWidget {
 
 class _DialKey extends StatefulWidget {
   final String display; // Persian character to show
-  final String subLabel; // Letters under the digit
-  final bool isVoicemail; // key "1" shows a voicemail icon instead of letters
   final Color keyColor;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
 
   const _DialKey({
     required this.display,
-    required this.subLabel,
-    required this.isVoicemail,
     required this.keyColor,
     required this.onTap,
     this.onLongPress,
@@ -444,48 +431,27 @@ class _DialKeyState extends State<_DialKey>
       child: Material(
         color: _pressed ? pressedColor : widget.keyColor,
         elevation: 1,
-        shadowColor: Colors.black.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(16),
+        shadowColor: Colors.black.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppDimensions.radiusLg),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(AppDimensions.radiusLg),
           onTap: widget.onTap,
           onLongPress: widget.onLongPress,
           onHighlightChanged: _setPressed,
           child: SizedBox(
-            height: 64,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  widget.display,
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w400,
-                    height: 1.0,
-                    color: theme.textTheme.bodyLarge?.color,
-                  ),
+            // Digit-only keys, vertically centred (Figma 627:4072 — no ABC labels).
+            height: 62,
+            child: Center(
+              child: Text(
+                widget.display,
+                style: TextStyle(
+                  fontSize: 30,
+                  fontWeight: FontWeight.w500,
+                  height: 1.0,
+                  color: theme.textTheme.bodyLarge?.color,
                 ),
-                if (widget.isVoicemail)
-                  Icon(
-                    Icons.voicemail,
-                    size: 12,
-                    color: theme.textTheme.bodyMedium?.color
-                        ?.withValues(alpha: 0.6),
-                  )
-                else if (widget.subLabel.isNotEmpty)
-                  Text(
-                    widget.subLabel,
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w400,
-                      letterSpacing: 2.0,
-                      height: 1.0,
-                      color: theme.textTheme.bodyMedium?.color
-                          ?.withValues(alpha: 0.65),
-                    ),
-                  ),
-              ],
+              ),
             ),
           ),
         ),
@@ -519,7 +485,7 @@ class _CallButton extends StatelessWidget {
           height: 56,
           decoration: BoxDecoration(
             color: AppColors.callAnswerGreen,
-            borderRadius: BorderRadius.circular(32),
+            borderRadius: BorderRadius.circular(AppDimensions.radiusPill),
             boxShadow: enabled
                 ? [
                     BoxShadow(
