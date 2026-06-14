@@ -15,6 +15,8 @@ abstract class AppColors {
   static const Color missedCallRed   = Color(0xFFEA4335);
   static const Color incomingCall    = Color(0xFF34A853);
   static const Color outgoingCall    = Color(0xFF1A73E8);
+  static const Color rejectedCall    = Color(0xFFFF6D00); // orange — رد شده
+  static const Color blockedCall     = Color(0xFF9AA0A6); // gray — مسدود
 
   // ── Light Theme ─────────────────────────────────────────
   static const Color surfaceLight      = Color(0xFFFFFFFF);

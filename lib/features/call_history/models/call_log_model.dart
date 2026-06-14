@@ -4,6 +4,8 @@ enum CallType {
   incoming,
   outgoing,
   missed,
+  rejected,
+  blocked,
 }
 
 class CallLogModel extends Equatable {

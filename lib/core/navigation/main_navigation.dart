@@ -31,24 +31,24 @@ class MainNavigation extends StatefulWidget {
 class _MainNavigationState extends State<MainNavigation> {
   int _currentIndex = 0;
 
-  // Google Phone tab order: Favorites · Recents · Contacts (+ Messages, kept as
-  // a 4th tab since this super-app's SMS feature has no other entry point).
+  // Tab order: Recents · Favorites · Contacts (+ Messages, kept as a 4th tab
+  // since this super-app's SMS feature has no other entry point).
   // The dialer is no longer a tab — it opens from the FAB as a bottom sheet.
   static const List<Widget> _screens = [
-    FavoritesScreen(),
     CallHistoryScreen(),
+    FavoritesScreen(),
     ContactsListScreen(),
     MessagesListScreen(),
   ];
 
   static const List<String> _titles = [
+    'اخیر',
     'موردعلاقه‌ها',
-    'تلفن',
     'مخاطبین',
     'پیام‌ها',
   ];
 
-  /// Tabs that show the dialer FAB (Favorites + Recents, per Google Phone).
+  /// Tabs that show the dialer FAB (Recents + Favorites, per Google Phone).
   bool get _showDialerFab => _currentIndex == 0 || _currentIndex == 1;
 
   @override
@@ -95,36 +95,41 @@ class _MainNavigationState extends State<MainNavigation> {
         }
       },
       child: Scaffold(
-        appBar: RtlAppBar(
-          title: _titles[_currentIndex],
-          showSearch: true,
-          showLock: false,
-          onSearchPressed: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const SearchScreen()),
-          ),
-          actions: [
-            // 3-dot overflow menu (Google Phone style) → Settings.
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert),
-              tooltip: 'گزینه‌های بیشتر',
-              onSelected: (value) {
-                if (value == 'settings') {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const SettingsScreen(),
-                    ),
-                  );
-                }
-              },
-              itemBuilder: (_) => const [
-                PopupMenuItem<String>(
-                  value: 'settings',
-                  child: Text('تنظیمات'),
+        // The Messages tab (index 3) hosts its own contextual app bar (inline
+        // search, multi-select, archived menu), so the shared header is hidden
+        // there to avoid a duplicate header.
+        appBar: _currentIndex == 3
+            ? null
+            : RtlAppBar(
+                title: _titles[_currentIndex],
+                showSearch: true,
+                showLock: false,
+                onSearchPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const SearchScreen()),
                 ),
-              ],
-            ),
-          ],
-        ),
+                actions: [
+                  // 3-dot overflow menu (Google Phone style) → Settings.
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert),
+                    tooltip: 'گزینه‌های بیشتر',
+                    onSelected: (value) {
+                      if (value == 'settings') {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const SettingsScreen(),
+                          ),
+                        );
+                      }
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem<String>(
+                        value: 'settings',
+                        child: Text('تنظیمات'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
         drawer: null,
         floatingActionButton: _showDialerFab
             ? FloatingActionButton(
@@ -165,14 +170,14 @@ class _MainNavigationState extends State<MainNavigation> {
                 },
                 destinations: [
                   const NavigationDestination(
-                    icon: Icon(Icons.star_outline),
-                    selectedIcon: Icon(Icons.star),
-                    label: 'موردعلاقه‌ها',
-                  ),
-                  const NavigationDestination(
                     icon: Icon(Icons.access_time),
                     selectedIcon: Icon(Icons.access_time_filled),
                     label: 'اخیر',
+                  ),
+                  const NavigationDestination(
+                    icon: Icon(Icons.star_outline),
+                    selectedIcon: Icon(Icons.star),
+                    label: 'موردعلاقه‌ها',
                   ),
                   const NavigationDestination(
                     icon: Icon(Icons.person_outline),

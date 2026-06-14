@@ -20,10 +20,13 @@ class ThreadsLoaded extends MessageState {
   final List<MessageThread> threads;
   final bool hasMore;
 
-  const ThreadsLoaded(this.threads, {this.hasMore = false});
+  /// Whether these are archived conversations (archived view) or the inbox.
+  final bool archived;
+
+  const ThreadsLoaded(this.threads, {this.hasMore = false, this.archived = false});
 
   @override
-  List<Object?> get props => [threads, hasMore];
+  List<Object?> get props => [threads, hasMore, archived];
 }
 
 class MessagesLoaded extends MessageState {

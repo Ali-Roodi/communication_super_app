@@ -43,7 +43,7 @@ class MessageRepository {
     final db = await _dbHelper.database;
     final maps = await db.query(
       AppConstants.messagesTable,
-      where: 'thread_id = ?',
+      where: 'thread_id = ? AND is_deleted = 0',
       whereArgs: [threadId],
       orderBy: orderDesc ? 'timestamp DESC' : 'timestamp ASC',
       limit: limit,
@@ -52,12 +52,22 @@ class MessageRepository {
     return maps.map((map) => MessageModel.fromMap(map)).toList();
   }
 
-  Future<List<MessageThread>> getAllThreads({int? limit, int? offset}) async {
+  Future<List<MessageThread>> getAllThreads({
+    int? limit,
+    int? offset,
+    bool archived = false,
+  }) async {
     final db = await _dbHelper.database;
-    
-    // Build the query with optional pagination
+
+    // archived == false  -> exclude threads present in archived_threads
+    // archived == true   -> only threads present in archived_threads
+    final archiveClause = archived
+        ? 'm.thread_id IN (SELECT thread_id FROM ${AppConstants.archivedThreadsTable})'
+        : 'm.thread_id NOT IN (SELECT thread_id FROM ${AppConstants.archivedThreadsTable})';
+
+    // Pinned threads (only relevant in the non-archived inbox) float to the top.
     String query = '''
-      SELECT 
+      SELECT
         m.thread_id,
         m.phone_number,
         m.contact_id,
@@ -65,26 +75,32 @@ class MessageRepository {
         m.body AS last_message,
         m.timestamp AS last_message_time,
         (
-          SELECT COUNT(*) FROM ${AppConstants.messagesTable} mi 
-          WHERE mi.thread_id = m.thread_id AND mi.type = 'received' AND mi.is_read = 0
-        ) AS unread_count
+          SELECT COUNT(*) FROM ${AppConstants.messagesTable} mi
+          WHERE mi.thread_id = m.thread_id AND mi.type = 'received'
+            AND mi.is_read = 0 AND mi.is_deleted = 0
+        ) AS unread_count,
+        p.thread_id AS pinned_id,
+        p.pinned_at AS pinned_at
       FROM ${AppConstants.messagesTable} m
       JOIN (
         SELECT thread_id, MAX(timestamp) AS max_ts
         FROM ${AppConstants.messagesTable}
+        WHERE is_deleted = 0
         GROUP BY thread_id
       ) latest ON latest.thread_id = m.thread_id AND latest.max_ts = m.timestamp
       LEFT JOIN ${AppConstants.contactsTable} c ON c.id = m.contact_id
-      ORDER BY m.timestamp DESC
+      LEFT JOIN ${AppConstants.pinnedThreadsTable} p ON p.thread_id = m.thread_id
+      WHERE m.is_deleted = 0 AND $archiveClause
+      ORDER BY (pinned_id IS NOT NULL) DESC, m.timestamp DESC
     ''';
-    
+
     if (limit != null) {
       query += ' LIMIT $limit';
       if (offset != null) {
         query += ' OFFSET $offset';
       }
     }
-    
+
     final maps = await db.rawQuery(query);
 
     final threads = <MessageThread>[];
@@ -99,6 +115,7 @@ class MessageRepository {
           map['last_message_time'] as int,
         ),
         unreadCount: (map['unread_count'] as int?) ?? 0,
+        isPinned: map['pinned_id'] != null,
       ));
     }
     return threads;
@@ -143,6 +160,99 @@ class MessageRepository {
       where: 'thread_id = ? AND type = ? AND is_read = 0',
       whereArgs: [threadId, 'received'],
     );
+  }
+
+  /// Marks all received messages in a thread as unread again.
+  Future<void> markThreadAsUnread(String threadId) async {
+    final db = await _dbHelper.database;
+    await db.update(
+      AppConstants.messagesTable,
+      {'is_read': 0},
+      where: 'thread_id = ? AND type = ?',
+      whereArgs: [threadId, 'received'],
+    );
+  }
+
+  /// Soft-deletes a single message (kept in DB so the dedup unique index row
+  /// survives, but hidden from every query via is_deleted = 0 filters).
+  Future<void> softDeleteMessage(String messageId) async {
+    final db = await _dbHelper.database;
+    await db.update(
+      AppConstants.messagesTable,
+      {'is_deleted': 1},
+      where: 'id = ?',
+      whereArgs: [messageId],
+    );
+  }
+
+  Future<void> softDeleteMessages(List<String> messageIds) async {
+    if (messageIds.isEmpty) return;
+    final db = await _dbHelper.database;
+    final placeholders = List.filled(messageIds.length, '?').join(',');
+    await db.rawUpdate(
+      'UPDATE ${AppConstants.messagesTable} SET is_deleted = 1 WHERE id IN ($placeholders)',
+      messageIds,
+    );
+  }
+
+  // ── Archive ────────────────────────────────────────────────────────────
+  Future<void> archiveThread(String threadId) async {
+    final db = await _dbHelper.database;
+    await db.insert(
+      AppConstants.archivedThreadsTable,
+      {'thread_id': threadId, 'archived_at': DateTime.now().millisecondsSinceEpoch},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> unarchiveThread(String threadId) async {
+    final db = await _dbHelper.database;
+    await db.delete(
+      AppConstants.archivedThreadsTable,
+      where: 'thread_id = ?',
+      whereArgs: [threadId],
+    );
+  }
+
+  Future<bool> isThreadArchived(String threadId) async {
+    final db = await _dbHelper.database;
+    final rows = await db.query(
+      AppConstants.archivedThreadsTable,
+      where: 'thread_id = ?',
+      whereArgs: [threadId],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
+  }
+
+  // ── Pin ────────────────────────────────────────────────────────────────
+  Future<void> pinThread(String threadId) async {
+    final db = await _dbHelper.database;
+    await db.insert(
+      AppConstants.pinnedThreadsTable,
+      {'thread_id': threadId, 'pinned_at': DateTime.now().millisecondsSinceEpoch},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> unpinThread(String threadId) async {
+    final db = await _dbHelper.database;
+    await db.delete(
+      AppConstants.pinnedThreadsTable,
+      where: 'thread_id = ?',
+      whereArgs: [threadId],
+    );
+  }
+
+  Future<bool> isThreadPinned(String threadId) async {
+    final db = await _dbHelper.database;
+    final rows = await db.query(
+      AppConstants.pinnedThreadsTable,
+      where: 'thread_id = ?',
+      whereArgs: [threadId],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
   }
 }
 

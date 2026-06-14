@@ -73,14 +73,6 @@ class ContactDetailScreen extends StatelessWidget {
                     children: [
                       _buildActionButton(
                         context,
-                        icon: Icons.videocam,
-                        label: 'ویدئو',
-                        onTap: () {
-                          // Handle video call
-                        },
-                      ),
-                      _buildActionButton(
-                        context,
                         icon: Icons.phone,
                         label: 'تماس',
                         onTap: () async {
@@ -108,7 +100,6 @@ class ContactDetailScreen extends StatelessWidget {
                         Row(
                           children: [
                             const Icon(Icons.message, size: 20),
-                            const Icon(Icons.videocam, size: 20),
                             const SizedBox(width: 8),
                             Text(
                               contact.phoneNumber,
