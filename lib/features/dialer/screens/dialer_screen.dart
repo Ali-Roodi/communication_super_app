@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -15,18 +16,25 @@ import 'package:communication_super_app/features/contacts/screens/add_edit_conta
 
 // ── Main screen ───────────────────────────────────────────────────────────────
 
-/// Google Phone style dialer. Hosted inside the FAB bottom sheet
-/// (see dialer_bottom_sheet.dart). Layout, top → bottom:
-///   number display (+ backspace) · contact suggestions · keypad · action row.
+/// Dialer keypad (Section 1 spec): rounded-rectangle keys + green pill call
+/// button. Hosted inside the draggable FAB bottom sheet
+/// (see dialer_bottom_sheet.dart).
+///
+/// Built with [MainAxisSize.min] so it has an intrinsic height and can live
+/// inside the scroll-driven [DraggableScrollableSheet].
 class DialerScreen extends StatelessWidget {
   const DialerScreen({super.key});
 
+  /// Key background per spec: white (light) / #2D2E31 (dark).
+  static const Color _keyLight = Color(0xFFFFFFFF);
+  static const Color _keyDark = Color(0xFF2D2E31);
+
   /// Sub-labels shown below each dial key (standard phone keypad layout).
   static const Map<String, String> _keySubLabels = {
-    '1': '',    '2': 'ABC',  '3': 'DEF',
-    '4': 'GHI', '5': 'JKL',  '6': 'MNO',
-    '7': 'PQRS','8': 'TUV',  '9': 'WXYZ',
-    '*': '',    '0': '+',    '#': '',
+    '1': '', '2': 'ABC', '3': 'DEF',
+    '4': 'GHI', '5': 'JKL', '6': 'MNO',
+    '7': 'PQRS', '8': 'TUV', '9': 'WXYZ',
+    '*': '', '0': '+', '#': '',
   };
 
   /// [Persian display, English value sent to BLoC]
@@ -34,7 +42,7 @@ class DialerScreen extends StatelessWidget {
     [['۱', '1'], ['۲', '2'], ['۳', '3']],
     [['۴', '4'], ['۵', '5'], ['۶', '6']],
     [['۷', '7'], ['۸', '8'], ['۹', '9']],
-    [['*',  '*'], ['۰', '0'], ['#',  '#']],
+    [['*', '*'], ['۰', '0'], ['#', '#']],
   ];
 
   @override
@@ -43,15 +51,18 @@ class DialerScreen extends StatelessWidget {
       textDirection: TextDirection.rtl,
       child: BlocBuilder<DialerBloc, DialerState>(
         builder: (context, state) {
+          // Bottom-aligned: the flexible top area (contact suggestions, or
+          // empty space) pushes the number field + keypad + actions down to
+          // the bottom of the sheet, matching the native dialer.
           return Column(
             children: [
-              _NumberDisplay(state: state),
-              // Suggestions fill the gap between the number field and keypad.
               Expanded(
                 child: state.dialedNumber.isEmpty
                     ? const SizedBox.shrink()
                     : _buildSuggestions(context, state),
               ),
+              _NumberDisplay(state: state),
+              const SizedBox(height: 8),
               _buildKeypad(context),
               _ActionRow(state: state),
             ],
@@ -68,6 +79,7 @@ class DialerScreen extends StatelessWidget {
     final contacts = state.matchingContacts;
 
     return ListView.builder(
+      shrinkWrap: true,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       itemCount: contacts.isEmpty ? 1 : contacts.length,
       itemBuilder: (_, i) => contacts.isNotEmpty
@@ -81,40 +93,47 @@ class DialerScreen extends StatelessWidget {
   Widget _buildKeypad(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final keyColor = isDark ? AppColors.keypadDark : AppColors.keypadLight;
+    final keyColor = isDark ? _keyDark : _keyLight;
     final bloc = context.read<DialerBloc>();
     final tonesOn = context.read<SettingsBloc>().state.dialpadTones;
 
     void press(String value) {
       bloc.add(DialerNumberPressed(value));
-      // Audible + haptic feedback, honoring the "Dialpad tones" setting.
+      // Audible tone (honoring the setting) + light haptic on every key.
       if (tonesOn) NativeCallService.instance.sendDtmf(value);
-      HapticFeedback.selectionClick();
+      HapticFeedback.lightImpact();
     }
 
     // Force LTR so 1-2-3 always appear left→right (universal keypad layout).
+    // A subtle shadow sits on the whole keypad container (per spec) — provided
+    // by the elevation of each key's Material plus this wrapper's padding.
     return Directionality(
       textDirection: TextDirection.ltr,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
+        padding: const EdgeInsets.symmetric(horizontal: 20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             for (final row in _keyRows) ...[
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: row.map((k) {
                   final value = k[1];
-                  return _DialKey(
-                    display: k[0],
-                    subLabel: _keySubLabels[value] ?? '',
-                    keyColor: keyColor,
-                    onTap: () => press(value),
-                    onLongPress: _longPressFor(context, value),
+                  return Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      child: _DialKey(
+                        display: k[0],
+                        subLabel: _keySubLabels[value] ?? '',
+                        isVoicemail: value == '1',
+                        keyColor: keyColor,
+                        onTap: () => press(value),
+                        onLongPress: _longPressFor(context, value),
+                      ),
+                    ),
                   );
                 }).toList(),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
             ],
           ],
         ),
@@ -125,18 +144,19 @@ class DialerScreen extends StatelessWidget {
   /// Long-press behaviours: 0 → "+", 1 → voicemail (snackbar placeholder).
   VoidCallback? _longPressFor(BuildContext context, String value) {
     if (value == '0') {
-      return () => context.read<DialerBloc>().add(const DialerNumberPressed('+'));
+      return () =>
+          context.read<DialerBloc>().add(const DialerNumberPressed('+'));
     }
     if (value == '1') {
       return () => ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('پست صوتی')),
+            const SnackBar(content: Text('در حال تماس با پست صوتی...')),
           );
     }
     return null;
   }
 }
 
-// ── Number display + backspace ────────────────────────────────────────────────
+// ── Number display + caret + backspace ──────────────────────────────────────────
 
 class _NumberDisplay extends StatelessWidget {
   final DialerState state;
@@ -147,11 +167,13 @@ class _NumberDisplay extends StatelessWidget {
     final theme = Theme.of(context);
     final hasNumber = state.dialedNumber.isNotEmpty;
     final bloc = context.read<DialerBloc>();
+    // Shrink past 11 digits so long numbers stay on one line.
+    final fontSize = state.dialedNumber.length > 11 ? 28.0 : 40.0;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
       child: SizedBox(
-        height: 56,
+        height: 60,
         child: Row(
           children: [
             const SizedBox(width: 48), // balances the backspace button
@@ -160,17 +182,26 @@ class _NumberDisplay extends StatelessWidget {
                 child: hasNumber
                     ? Directionality(
                         textDirection: TextDirection.ltr,
-                        child: Text(
-                          PersianUtils.toPersianNumber(state.dialedNumber),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 36,
-                            fontWeight: FontWeight.w300,
-                            letterSpacing: 2,
-                            color: theme.textTheme.bodyLarge?.color,
-                          ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                PersianUtils.toPersianNumber(
+                                    state.dialedNumber),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: fontSize,
+                                  fontWeight: FontWeight.w300,
+                                  letterSpacing: 2,
+                                  color: theme.textTheme.bodyLarge?.color,
+                                ),
+                              ),
+                            ),
+                            _BlinkingCaret(height: fontSize),
+                          ],
                         ),
                       )
                     : Text(
@@ -196,9 +227,13 @@ class _NumberDisplay extends StatelessWidget {
                   onPressed: hasNumber
                       ? () => bloc.add(const DialerNumberDeleted())
                       : null,
-                  // Long-press clears the whole field.
-                  onLongPress:
-                      hasNumber ? () => bloc.add(const DialerNumberCleared()) : null,
+                  // Long-press clears the whole field with a single vibration.
+                  onLongPress: hasNumber
+                      ? () {
+                          HapticFeedback.mediumImpact();
+                          bloc.add(const DialerNumberCleared());
+                        }
+                      : null,
                 ),
               ),
             ),
@@ -209,7 +244,49 @@ class _NumberDisplay extends StatelessWidget {
   }
 }
 
-// ── Action row: add-to-contacts · call FAB · video ────────────────────────────
+/// Thin blinking caret rendered at the end of the typed number.
+class _BlinkingCaret extends StatefulWidget {
+  final double height;
+  const _BlinkingCaret({required this.height});
+
+  @override
+  State<_BlinkingCaret> createState() => _BlinkingCaretState();
+}
+
+class _BlinkingCaretState extends State<_BlinkingCaret> {
+  Timer? _timer;
+  bool _visible = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      if (mounted) setState(() => _visible = !_visible);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedOpacity(
+      opacity: _visible ? 1 : 0,
+      duration: const Duration(milliseconds: 120),
+      child: Container(
+        width: 2,
+        height: widget.height,
+        margin: const EdgeInsets.only(left: 2),
+        color: Theme.of(context).colorScheme.primary,
+      ),
+    );
+  }
+}
+
+// ── Action row: add-to-contacts · call pill · delete ─────────────────────────────
 
 class _ActionRow extends StatelessWidget {
   final DialerState state;
@@ -219,6 +296,7 @@ class _ActionRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final hasNumber = state.dialedNumber.isNotEmpty;
     final canCall = hasNumber && !state.isInCall;
+    final theme = Theme.of(context);
 
     return SafeArea(
       top: false,
@@ -233,26 +311,26 @@ class _ActionRow extends StatelessWidget {
                     tooltip: 'افزودن به مخاطبین',
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) =>
-                            AddEditContactScreen(initialPhone: state.dialedNumber),
+                        builder: (_) => AddEditContactScreen(
+                            initialPhone: state.dialedNumber),
                       ),
                     ),
                   ),
                   _CallButton(enabled: canCall),
                   _SideAction(
-                    icon: Icons.videocam_outlined,
-                    tooltip: 'تماس تصویری',
-                    onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('تماس تصویری پشتیبانی نمی‌شود'),
-                      ),
-                    ),
+                    icon: Icons.backspace_outlined,
+                    tooltip: 'حذف',
+                    color: theme.textTheme.bodyMedium?.color,
+                    onTap: () =>
+                        context.read<DialerBloc>().add(const DialerNumberDeleted()),
+                    onLongPress: () {
+                      HapticFeedback.mediumImpact();
+                      context.read<DialerBloc>().add(const DialerNumberCleared());
+                    },
                   ),
                 ],
               )
-            : Center(
-                child: _CallButton(enabled: false),
-              ),
+            : Center(child: _CallButton(enabled: false)),
       ),
     );
   }
@@ -261,12 +339,16 @@ class _ActionRow extends StatelessWidget {
 class _SideAction extends StatelessWidget {
   final IconData icon;
   final String tooltip;
+  final Color? color;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
 
   const _SideAction({
     required this.icon,
     required this.tooltip,
     required this.onTap,
+    this.color,
+    this.onLongPress,
   });
 
   @override
@@ -275,23 +357,29 @@ class _SideAction extends StatelessWidget {
     return SizedBox(
       width: 72,
       child: Center(
-        child: IconButton(
-          icon: Icon(icon),
-          iconSize: 26,
-          color: theme.colorScheme.primary,
-          tooltip: tooltip,
-          onPressed: onTap,
+        // GestureDetector adds the long-press (clear) gesture that IconButton
+        // does not expose; the tap is still handled by IconButton.onPressed.
+        child: GestureDetector(
+          onLongPress: onLongPress,
+          child: IconButton(
+            icon: Icon(icon),
+            iconSize: 26,
+            color: color ?? theme.colorScheme.primary,
+            tooltip: tooltip,
+            onPressed: onTap,
+          ),
         ),
       ),
     );
   }
 }
 
-// ── Animated dial key (scale + ripple) ─────────────────────────────────────────
+// ── Animated rounded-rectangle dial key (scale 0.94 + darken on press) ───────────
 
 class _DialKey extends StatefulWidget {
-  final String display;   // Persian character to show
-  final String subLabel;  // Letters under the digit
+  final String display; // Persian character to show
+  final String subLabel; // Letters under the digit
+  final bool isVoicemail; // key "1" shows a voicemail icon instead of letters
   final Color keyColor;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
@@ -299,6 +387,7 @@ class _DialKey extends StatefulWidget {
   const _DialKey({
     required this.display,
     required this.subLabel,
+    required this.isVoicemail,
     required this.keyColor,
     required this.onTap,
     this.onLongPress,
@@ -312,17 +401,18 @@ class _DialKeyState extends State<_DialKey>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
   late final Animation<double> _scale;
+  bool _pressed = false;
 
   @override
   void initState() {
     super.initState();
-    // Spec: scale 1.0 → 0.88, 80ms ease-out.
+    // Spec: scale 1.0 → 0.94 on press, spring back on release.
     _ctrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 80),
-      reverseDuration: const Duration(milliseconds: 140),
+      duration: const Duration(milliseconds: 90),
+      reverseDuration: const Duration(milliseconds: 160),
     );
-    _scale = Tween<double>(begin: 1.0, end: 0.88).animate(
+    _scale = Tween<double>(begin: 1.0, end: 0.94).animate(
       CurvedAnimation(parent: _ctrl, curve: Curves.easeOut),
     );
   }
@@ -333,46 +423,63 @@ class _DialKeyState extends State<_DialKey>
     super.dispose();
   }
 
+  void _setPressed(bool pressed) {
+    setState(() => _pressed = pressed);
+    pressed ? _ctrl.forward() : _ctrl.reverse();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    // "Background darkens slightly on press."
+    final pressedColor = isDark
+        ? Color.alphaBlend(Colors.white.withValues(alpha: 0.08), widget.keyColor)
+        : Color.alphaBlend(Colors.black.withValues(alpha: 0.06), widget.keyColor);
+
     return AnimatedBuilder(
       animation: _scale,
       builder: (_, child) =>
           Transform.scale(scale: _scale.value, child: child),
       child: Material(
-        color: widget.keyColor,
-        shape: const CircleBorder(),
+        color: _pressed ? pressedColor : widget.keyColor,
+        elevation: 1,
+        shadowColor: Colors.black.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(16),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          customBorder: const CircleBorder(),
+          borderRadius: BorderRadius.circular(16),
           onTap: widget.onTap,
           onLongPress: widget.onLongPress,
-          // Drive the press-scale from the ripple highlight state.
-          onHighlightChanged: (pressed) =>
-              pressed ? _ctrl.forward() : _ctrl.reverse(),
+          onHighlightChanged: _setPressed,
           child: SizedBox(
-            width: 56,
-            height: 56,
+            height: 64,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
                   widget.display,
                   style: TextStyle(
-                    fontSize: 24,
+                    fontSize: 28,
                     fontWeight: FontWeight.w400,
-                    height: widget.subLabel.isEmpty ? 1.0 : 1.1,
+                    height: 1.0,
                     color: theme.textTheme.bodyLarge?.color,
                   ),
                 ),
-                if (widget.subLabel.isNotEmpty)
+                if (widget.isVoicemail)
+                  Icon(
+                    Icons.voicemail,
+                    size: 12,
+                    color: theme.textTheme.bodyMedium?.color
+                        ?.withValues(alpha: 0.6),
+                  )
+                else if (widget.subLabel.isNotEmpty)
                   Text(
                     widget.subLabel,
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w400,
-                      letterSpacing: 1.5,
+                      letterSpacing: 2.0,
                       height: 1.0,
                       color: theme.textTheme.bodyMedium?.color
                           ?.withValues(alpha: 0.65),
@@ -387,7 +494,7 @@ class _DialKeyState extends State<_DialKey>
   }
 }
 
-// ── Call button ───────────────────────────────────────────────────────────────
+// ── Green pill call button ──────────────────────────────────────────────────────
 
 class _CallButton extends StatelessWidget {
   final bool enabled;
@@ -395,37 +502,50 @@ class _CallButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = enabled
-        ? AppColors.callAnswerGreen
-        : AppColors.callAnswerGreen.withValues(alpha: 0.35);
-
-    return GestureDetector(
-      onTap: enabled
-          ? () {
-              context.read<DialerBloc>().add(const MakeCall());
-              // The dialer lives in a modal bottom sheet (launched from the
-              // FAB); dismiss it so the system dialer / call UI is unobstructed.
-              Navigator.of(context).maybePop();
-            }
-          : null,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        width: 72,
-        height: 72,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          boxShadow: enabled
-              ? [
-                  BoxShadow(
-                    color: AppColors.callAnswerGreen.withValues(alpha: 0.4),
-                    blurRadius: 14,
-                    offset: const Offset(0, 4),
-                  ),
-                ]
-              : [],
+    return Opacity(
+      opacity: enabled ? 1.0 : 0.45,
+      child: GestureDetector(
+        onTap: enabled
+            ? () {
+                context.read<DialerBloc>().add(const MakeCall());
+                // The dialer lives in a modal bottom sheet (launched from the
+                // FAB); dismiss it so the system call UI is unobstructed.
+                Navigator.of(context).maybePop();
+              }
+            : null,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          width: 160,
+          height: 56,
+          decoration: BoxDecoration(
+            color: AppColors.callAnswerGreen,
+            borderRadius: BorderRadius.circular(32),
+            boxShadow: enabled
+                ? [
+                    BoxShadow(
+                      color: AppColors.callAnswerGreen.withValues(alpha: 0.4),
+                      blurRadius: 16,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
+                : [],
+          ),
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.phone, color: Colors.white, size: 24),
+              SizedBox(width: 8),
+              Text(
+                'تماس',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
         ),
-        child: const Icon(Icons.phone, color: Colors.white, size: 30),
       ),
     );
   }
@@ -515,47 +635,55 @@ class _UnknownRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-      child: Row(
-        children: [
-          const CircleAvatar(
-            radius: 22,
-            backgroundColor: Color(0xFFFF9800),
-            child: Icon(Icons.person, color: Colors.white, size: 22),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Directionality(
-                  textDirection: TextDirection.ltr,
-                  child: Text(
-                    PersianUtils.toPersianNumber(phone),
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                      color: theme.textTheme.bodyLarge?.color,
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => AddEditContactScreen(initialPhone: phone),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+        child: Row(
+          children: [
+            const CircleAvatar(
+              radius: 22,
+              backgroundColor: Color(0xFFFF9800),
+              child: Icon(Icons.person, color: Colors.white, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Directionality(
+                    textDirection: TextDirection.ltr,
+                    child: Text(
+                      PersianUtils.toPersianNumber(phone),
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: theme.textTheme.bodyLarge?.color,
+                      ),
                     ),
                   ),
-                ),
-                Text(
-                  'در مخاطبین نیست',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: theme.textTheme.bodyMedium?.color,
+                  Text(
+                    'در مخاطبین نیست',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: theme.textTheme.bodyMedium?.color,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          Icon(
-            Icons.person_add_outlined,
-            size: 20,
-            color: theme.textTheme.bodyMedium?.color,
-          ),
-        ],
+            Icon(
+              Icons.person_add_outlined,
+              size: 20,
+              color: theme.textTheme.bodyMedium?.color,
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -89,6 +89,31 @@ class DatabaseHelper {
     if (oldVersion < 5) {
       await _createBlockedNumbersTable(db);
     }
+
+    // Migration from version 5 to 6:
+    // - archived_threads / pinned_threads: per-thread state for the Google
+    //   Messages style archive & pin features. Keyed by thread_id (the
+    //   digits-only normalized phone number, same as messages.thread_id).
+    // - messages.is_deleted: soft-delete flag so a deleted message can be
+    //   hidden from the UI without losing the dedup unique-index row.
+    // - contacts.is_favorite / contacts.ringtone_uri: per-contact metadata for
+    //   the favorites star and assigned-ringtone features.
+    if (oldVersion < 6) {
+      await _createArchivedThreadsTable(db);
+      await _createPinnedThreadsTable(db);
+      await db.execute('''
+        ALTER TABLE ${AppConstants.messagesTable}
+        ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0
+      ''');
+      await db.execute('''
+        ALTER TABLE ${AppConstants.contactsTable}
+        ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0
+      ''');
+      await db.execute('''
+        ALTER TABLE ${AppConstants.contactsTable}
+        ADD COLUMN ringtone_uri TEXT
+      ''');
+    }
   }
 
   Future<void> _createFavoritesTable(Database db) async {
@@ -115,6 +140,24 @@ class DatabaseHelper {
     ''');
   }
 
+  Future<void> _createArchivedThreadsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE ${AppConstants.archivedThreadsTable} (
+        thread_id TEXT PRIMARY KEY,
+        archived_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  Future<void> _createPinnedThreadsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE ${AppConstants.pinnedThreadsTable} (
+        thread_id TEXT PRIMARY KEY,
+        pinned_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
   Future<void> _createDB(Database db, int version) async {
     try {
       // Contacts table
@@ -124,6 +167,8 @@ class DatabaseHelper {
           name TEXT NOT NULL,
           phone_number TEXT NOT NULL,
           email TEXT,
+          is_favorite INTEGER NOT NULL DEFAULT 0,
+          ringtone_uri TEXT,
           created_at INTEGER NOT NULL,
           updated_at INTEGER NOT NULL
         )
@@ -141,6 +186,7 @@ class DatabaseHelper {
           status TEXT NOT NULL,
           timestamp INTEGER NOT NULL,
           is_read INTEGER DEFAULT 0,
+          is_deleted INTEGER NOT NULL DEFAULT 0,
           FOREIGN KEY (contact_id) REFERENCES ${AppConstants.contactsTable}(id) ON DELETE SET NULL
         )
       ''');
@@ -195,6 +241,10 @@ class DatabaseHelper {
 
       // Blocked numbers table
       await _createBlockedNumbersTable(db);
+
+      // Archived & pinned thread state (Google Messages style)
+      await _createArchivedThreadsTable(db);
+      await _createPinnedThreadsTable(db);
     } catch (e) {
       throw Exception('Failed to create database tables: $e');
     }

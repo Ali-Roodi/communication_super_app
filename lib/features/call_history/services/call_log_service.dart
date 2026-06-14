@@ -81,7 +81,12 @@ class CallLogService {
             callType = CallType.incoming;
           } else if (ct == call_log.CallType.outgoing.name) {
             callType = CallType.outgoing;
+          } else if (ct == call_log.CallType.rejected.name) {
+            callType = CallType.rejected;
+          } else if (ct == call_log.CallType.blocked.name) {
+            callType = CallType.blocked;
           } else {
+            // missed, voiceMail, answeredExternally, wifi*, unknown → missed
             callType = CallType.missed;
           }
 

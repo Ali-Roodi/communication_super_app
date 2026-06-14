@@ -29,6 +29,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     on<ReceiveMessage>(_onReceiveMessage);
     on<DeleteMessage>(_onDeleteMessage);
     on<DeleteThread>(_onDeleteThread);
+    on<DeleteThreads>(_onDeleteThreads);
+    on<DeleteMessages>(_onDeleteMessages);
+    on<ArchiveThreads>(_onArchiveThreads);
+    on<PinThread>(_onPinThread);
+    on<SetThreadRead>(_onSetThreadRead);
 
     // Set up SMS listener callback
     _smsService.onMessageReceived = (message) {
@@ -81,11 +86,16 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
 
       final limit = event.limit;
       final offset = event.offset;
-      final rawThreads = await _repository.getAllThreads(limit: limit, offset: offset);
+      final rawThreads = await _repository.getAllThreads(
+        limit: limit,
+        offset: offset,
+        archived: event.archived,
+      );
       final threads = await _resolveContactNames(rawThreads);
       emit(ThreadsLoaded(
         threads,
         hasMore: threads.length >= limit,
+        archived: event.archived,
       ));
     } catch (e) {
       final errorMessage = e.toString().contains('Permission') 
@@ -132,17 +142,22 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       final more = await _repository.getAllThreads(
         limit: 50,
         offset: current.threads.length,
+        archived: current.archived,
       );
       if (more.isEmpty) {
-        emit(ThreadsLoaded(current.threads, hasMore: false));
+        emit(ThreadsLoaded(current.threads,
+            hasMore: false, archived: current.archived));
         return;
       }
+      final resolved = await _resolveContactNames(more);
       emit(ThreadsLoaded(
-        [...current.threads, ...more],
+        [...current.threads, ...resolved],
         hasMore: more.length >= 50,
+        archived: current.archived,
       ));
     } catch (_) {
-      emit(ThreadsLoaded(current.threads, hasMore: false));
+      emit(ThreadsLoaded(current.threads,
+          hasMore: false, archived: current.archived));
     }
   }
 
@@ -239,15 +254,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         final digits = t.phoneNumber.replaceAll(RegExp(r'[^\d]'), '');
         final name = phoneToName[digits];
         if (name == null || name.isEmpty) return t;
-        return MessageThread(
-          threadId: t.threadId,
-          phoneNumber: t.phoneNumber,
-          contactId: t.contactId,
-          contactName: name,
-          lastMessage: t.lastMessage,
-          lastMessageTime: t.lastMessageTime,
-          unreadCount: t.unreadCount,
-        );
+        return t.copyWith(contactName: name);
       }).toList();
     } catch (_) {
       return threads;
@@ -320,6 +327,88 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     try {
       await _repository.deleteThread(event.threadId);
       add(const LoadThreads());
+    } catch (e) {
+      emit(MessageError(e.toString()));
+    }
+  }
+
+  Future<void> _onDeleteThreads(
+    DeleteThreads event,
+    Emitter<MessageState> emit,
+  ) async {
+    try {
+      for (final id in event.threadIds) {
+        await _repository.deleteThread(id);
+      }
+      final archived = state is ThreadsLoaded && (state as ThreadsLoaded).archived;
+      add(LoadThreads(archived: archived));
+    } catch (e) {
+      emit(MessageError(e.toString()));
+    }
+  }
+
+  Future<void> _onDeleteMessages(
+    DeleteMessages event,
+    Emitter<MessageState> emit,
+  ) async {
+    try {
+      await _repository.softDeleteMessages(event.messageIds);
+      // Reload the open conversation so the deleted bubbles disappear.
+      add(LoadMessages(event.threadId));
+    } catch (e) {
+      emit(MessageError(e.toString()));
+    }
+  }
+
+  Future<void> _onArchiveThreads(
+    ArchiveThreads event,
+    Emitter<MessageState> emit,
+  ) async {
+    try {
+      for (final id in event.threadIds) {
+        if (event.archive) {
+          await _repository.archiveThread(id);
+        } else {
+          await _repository.unarchiveThread(id);
+        }
+      }
+      add(LoadThreads(archived: event.fromArchivedView));
+    } catch (e) {
+      emit(MessageError(e.toString()));
+    }
+  }
+
+  Future<void> _onPinThread(
+    PinThread event,
+    Emitter<MessageState> emit,
+  ) async {
+    try {
+      if (event.pin) {
+        await _repository.pinThread(event.threadId);
+      } else {
+        await _repository.unpinThread(event.threadId);
+      }
+      final archived = state is ThreadsLoaded && (state as ThreadsLoaded).archived;
+      add(LoadThreads(archived: archived));
+    } catch (e) {
+      emit(MessageError(e.toString()));
+    }
+  }
+
+  Future<void> _onSetThreadRead(
+    SetThreadRead event,
+    Emitter<MessageState> emit,
+  ) async {
+    try {
+      for (final id in event.threadIds) {
+        if (event.read) {
+          await _repository.markThreadAsRead(id);
+        } else {
+          await _repository.markThreadAsUnread(id);
+        }
+      }
+      final archived = state is ThreadsLoaded && (state as ThreadsLoaded).archived;
+      add(LoadThreads(archived: archived));
     } catch (e) {
       emit(MessageError(e.toString()));
     }

@@ -5,10 +5,12 @@ import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/features/call_history/bloc/call_log_bloc.dart';
+import 'package:communication_super_app/features/call_history/bloc/call_log_event.dart';
 import 'package:communication_super_app/features/call_history/bloc/call_log_state.dart';
 import 'package:communication_super_app/features/call_history/models/call_log_model.dart';
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
+import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
 import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
 
 /// Call detail bottom sheet — opened from the ⓘ icon on a recents row.
@@ -146,26 +148,42 @@ class _ActionChips extends StatelessWidget {
         _ActionChip(
           icon: Icons.message_outlined,
           label: 'پیام',
-          onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('به‌زودی')),
-          ),
+          onTap: () {
+            Navigator.of(context).pop();
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => ConversationScreen.forPhone(
+                  log.phoneNumber,
+                  contactName: log.contactName,
+                ),
+              ),
+            );
+          },
         ),
         _ActionChip(
           icon: hasName ? Icons.person : Icons.person_add_alt,
           label: hasName ? 'مشاهده مخاطب' : 'افزودن مخاطب',
-          onTap: () {
+          onTap: () async {
             if (hasName) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('به‌زودی')),
               );
             } else {
-              Navigator.of(context).pop();
-              Navigator.of(context).push(
+              // Capture the bloc before the sheet's context is torn down so we
+              // can refresh the recents list once the contact is saved (its
+              // name then resolves in the log).
+              final callLogBloc = context.read<CallLogBloc>();
+              final navigator = Navigator.of(context);
+              navigator.pop();
+              final saved = await navigator.push<bool>(
                 MaterialPageRoute(
                   builder: (_) =>
                       AddEditContactScreen(initialPhone: log.phoneNumber),
                 ),
               );
+              if (saved == true) {
+                callLogBloc.add(const RefreshCallLogs());
+              }
             }
           },
         ),
@@ -243,6 +261,10 @@ Color _callColor(CallType type) {
       return AppColors.incomingCall;
     case CallType.outgoing:
       return AppColors.outgoingCall;
+    case CallType.rejected:
+      return AppColors.rejectedCall;
+    case CallType.blocked:
+      return AppColors.blockedCall;
   }
 }
 
@@ -254,6 +276,10 @@ IconData _callIcon(CallType type) {
       return Icons.call_received;
     case CallType.outgoing:
       return Icons.call_made;
+    case CallType.rejected:
+      return Icons.call_end;
+    case CallType.blocked:
+      return Icons.block;
   }
 }
 
@@ -265,6 +291,10 @@ String _callLabel(CallType type) {
       return 'تماس ورودی';
     case CallType.outgoing:
       return 'تماس خروجی';
+    case CallType.rejected:
+      return 'رد شده';
+    case CallType.blocked:
+      return 'مسدود شده';
   }
 }
 
@@ -276,7 +306,17 @@ String _dateTime(DateTime dt) {
 }
 
 String _duration(CallLogModel log) {
-  if (log.callType == CallType.missed) return 'بی‌پاسخ';
+  switch (log.callType) {
+    case CallType.missed:
+      return 'بی‌پاسخ';
+    case CallType.rejected:
+      return 'رد شده';
+    case CallType.blocked:
+      return 'مسدود';
+    case CallType.incoming:
+    case CallType.outgoing:
+      break;
+  }
   final s = log.duration ?? 0;
   if (s == 0) return '—';
   final m = s ~/ 60;

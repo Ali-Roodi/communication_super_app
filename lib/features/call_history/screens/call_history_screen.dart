@@ -13,20 +13,35 @@ class CallHistoryScreen extends StatefulWidget {
   State<CallHistoryScreen> createState() => _CallHistoryScreenState();
 }
 
+enum _CallFilter { all, missed }
+
 class _CallHistoryScreenState extends State<CallHistoryScreen>
     with WidgetsBindingObserver {
   bool _hasLoadedInitially = false;
   final ScrollController _scrollController = ScrollController();
+  _CallFilter _filter = _CallFilter.all;
+
+  /// "Missed" tab includes missed and rejected calls.
+  bool _matchesFilter(CallLogModel log) {
+    if (_filter == _CallFilter.all) return true;
+    return log.callType == CallType.missed ||
+        log.callType == CallType.rejected;
+  }
 
   // Memoize the grouped row list so grouping only runs when the underlying
-  // data changes, not on every widget rebuild.
-  List<CallLogModel>? _lastLogs;
+  // data or the active filter changes, not on every widget rebuild.
+  List<CallLogModel>? _lastSource;
+  _CallFilter? _lastFilter;
   List<_CallGroup> _cachedGroups = [];
 
-  List<_CallGroup> _getOrBuildGroups(List<CallLogModel> logs) {
-    if (identical(_lastLogs, logs)) return _cachedGroups;
-    _lastLogs = logs;
-    _cachedGroups = _groupCallLogs(logs);
+  List<_CallGroup> _getOrBuildGroups(List<CallLogModel> source) {
+    if (identical(_lastSource, source) && _lastFilter == _filter) {
+      return _cachedGroups;
+    }
+    _lastSource = source;
+    _lastFilter = _filter;
+    final filtered = source.where(_matchesFilter).toList();
+    _cachedGroups = _groupCallLogs(filtered);
     return _cachedGroups;
   }
 
@@ -90,39 +105,94 @@ class _CallHistoryScreenState extends State<CallHistoryScreen>
 
             if (state is CallLogsLoaded) {
               if (state.callLogs.isEmpty) {
-                return _buildEmptyState(theme);
+                return Column(
+                  children: [
+                    _buildFilterBar(theme),
+                    Expanded(child: _buildEmptyState(theme)),
+                  ],
+                );
               }
 
               final groups = _getOrBuildGroups(state.callLogs);
 
-              return RefreshIndicator(
-                onRefresh: () async {
-                  context.read<CallLogBloc>().add(const RefreshCallLogs());
-                },
-                child: ListView.builder(
-                  controller: _scrollController,
-                  padding: const EdgeInsets.only(top: 4, bottom: 96),
-                  itemCount: groups.length + (state.hasMore ? 1 : 0),
-                  itemBuilder: (context, index) {
-                    if (state.hasMore && index == groups.length) {
-                      return const Padding(
-                        padding: EdgeInsets.all(16),
-                        child: Center(child: CircularProgressIndicator()),
-                      );
-                    }
-                    final group = groups[index];
-                    return CallLogTile(
-                      log: group.representative,
-                      count: group.count,
-                    );
-                  },
-                ),
+              return Column(
+                children: [
+                  _buildFilterBar(theme),
+                  Expanded(
+                    child: RefreshIndicator(
+                      onRefresh: () async {
+                        context
+                            .read<CallLogBloc>()
+                            .add(const RefreshCallLogs());
+                      },
+                      child: groups.isEmpty
+                          ? ListView(
+                              children: [
+                                const SizedBox(height: 80),
+                                Center(
+                                  child: Text('تماس بی‌پاسخی نیست',
+                                      style: theme.textTheme.titleMedium),
+                                ),
+                              ],
+                            )
+                          : ListView.builder(
+                              controller: _scrollController,
+                              padding:
+                                  const EdgeInsets.only(top: 4, bottom: 96),
+                              itemCount:
+                                  groups.length + (state.hasMore ? 1 : 0),
+                              itemBuilder: (context, index) {
+                                if (state.hasMore &&
+                                    index == groups.length) {
+                                  return const Padding(
+                                    padding: EdgeInsets.all(16),
+                                    child: Center(
+                                        child: CircularProgressIndicator()),
+                                  );
+                                }
+                                final group = groups[index];
+                                return CallLogTile(
+                                  log: group.representative,
+                                  count: group.count,
+                                );
+                              },
+                            ),
+                    ),
+                  ),
+                ],
               );
             }
 
             return const SizedBox.shrink();
           },
         ),
+      ),
+    );
+  }
+
+  Widget _buildFilterBar(ThemeData theme) {
+    Widget chip(String label, _CallFilter value) {
+      final selected = _filter == value;
+      return Padding(
+        padding: const EdgeInsets.only(left: 8),
+        child: ChoiceChip(
+          label: Text(label),
+          selected: selected,
+          onSelected: (_) {
+            if (_filter != value) setState(() => _filter = value);
+          },
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Row(
+        children: [
+          chip('همه', _CallFilter.all),
+          chip('بی‌پاسخ', _CallFilter.missed),
+        ],
       ),
     );
   }

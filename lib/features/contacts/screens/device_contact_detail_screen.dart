@@ -196,11 +196,6 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
             onTap: () => _openSms(_primaryPhone),
           ),
           _ActionButton(
-            icon: Icons.videocam_outlined,
-            label: 'تصویری',
-            onTap: () => _snack('تماس تصویری پشتیبانی نمی‌شود'),
-          ),
-          _ActionButton(
             icon: Icons.more_horiz,
             label: 'بیشتر',
             onTap: () => _snack('به‌زودی'),

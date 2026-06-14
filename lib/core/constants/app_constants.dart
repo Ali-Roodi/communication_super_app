@@ -4,7 +4,7 @@ class AppConstants {
   
   // Database
   static const String databaseName = 'communication_app.db';
-  static const int databaseVersion = 5;
+  static const int databaseVersion = 6;
 
   // Tables
   static const String contactsTable = 'contacts';
@@ -13,6 +13,8 @@ class AppConstants {
   static const String callLogsTable = 'call_logs';
   static const String favoritesTable = 'favorites';
   static const String blockedNumbersTable = 'blocked_numbers';
+  static const String archivedThreadsTable = 'archived_threads';
+  static const String pinnedThreadsTable = 'pinned_threads';
   
   // Storage Keys
   static const String pinKey = 'app_pin';

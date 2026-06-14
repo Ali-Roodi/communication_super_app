@@ -91,6 +91,7 @@ class MessageThread extends Equatable {
   final String lastMessage;
   final DateTime lastMessageTime;
   final int unreadCount;
+  final bool isPinned;
 
   const MessageThread({
     required this.threadId,
@@ -100,7 +101,32 @@ class MessageThread extends Equatable {
     required this.lastMessage,
     required this.lastMessageTime,
     this.unreadCount = 0,
+    this.isPinned = false,
   });
+
+  bool get hasUnread => unreadCount > 0;
+
+  MessageThread copyWith({
+    String? threadId,
+    String? phoneNumber,
+    String? contactId,
+    String? contactName,
+    String? lastMessage,
+    DateTime? lastMessageTime,
+    int? unreadCount,
+    bool? isPinned,
+  }) {
+    return MessageThread(
+      threadId: threadId ?? this.threadId,
+      phoneNumber: phoneNumber ?? this.phoneNumber,
+      contactId: contactId ?? this.contactId,
+      contactName: contactName ?? this.contactName,
+      lastMessage: lastMessage ?? this.lastMessage,
+      lastMessageTime: lastMessageTime ?? this.lastMessageTime,
+      unreadCount: unreadCount ?? this.unreadCount,
+      isPinned: isPinned ?? this.isPinned,
+    );
+  }
 
   @override
   List<Object?> get props => [
@@ -111,6 +137,7 @@ class MessageThread extends Equatable {
         lastMessage,
         lastMessageTime,
         unreadCount,
+        isPinned,
       ];
 }
 

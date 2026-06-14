@@ -7,6 +7,7 @@ import 'package:communication_super_app/features/contacts/models/contact_model.d
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
+import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'conversation_screen.dart';
 
 class ContactSelectorScreen extends StatefulWidget {
@@ -172,6 +173,10 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
               ),
             ),
 
+            // "Send to <number>" — appears when the query looks like a phone
+            // number, so an unsaved number can start a conversation directly.
+            _buildSendToNumber(context, theme),
+
             // Contacts list
             Expanded(
               child: BlocBuilder<ContactBloc, ContactState>(
@@ -222,6 +227,34 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  /// Shows a "Send to [number]" row when the query is a dialable number.
+  Widget _buildSendToNumber(BuildContext context, ThemeData theme) {
+    final digits = _searchQuery.replaceAll(RegExp(r'[^\d+]'), '');
+    if (digits.replaceAll('+', '').length < 4) return const SizedBox.shrink();
+    final national = PhoneNormalizer.toNational(digits);
+    return ListTile(
+      leading: const CircleAvatar(
+        backgroundColor: Color(0xFF2196F3),
+        child: Icon(Icons.send, color: Colors.white, size: 20),
+      ),
+      title: Directionality(
+        textDirection: TextDirection.ltr,
+        child: Text(
+          'ارسال به ${PersianUtils.toPersianNumber(national)}',
+          textAlign: TextAlign.right,
+        ),
+      ),
+      onTap: () {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ConversationScreen.forPhone(national),
+          ),
+        );
+      },
     );
   }
 

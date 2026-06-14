@@ -217,11 +217,23 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
   }
 
   Future<void> _onEndCall(EndCall event, Emitter<DialerState> emit) async {
-    try {
-      await _callService.endCall();
-    } catch (e) {
-      debugPrint('DialerBloc: endCall error: $e');
-    }
+    // Reset the call UI IMMEDIATELY so the in-call screen dismisses without
+    // waiting for the native round-trip. The actual teardown is fired and
+    // forgotten; the DISCONNECTED stream event will arrive as a no-op.
+    emit(state.copyWith(
+      callStatus: CallStatus.idle,
+      activePhone: '',
+      isMuted: false,
+      isSpeakerOn: false,
+      clearError: true,
+    ));
+    unawaited(() async {
+      try {
+        await _callService.endCall();
+      } catch (e) {
+        debugPrint('DialerBloc: endCall error: $e');
+      }
+    }());
   }
 
   Future<void> _onAnswer(AnswerCall event, Emitter<DialerState> emit) async {

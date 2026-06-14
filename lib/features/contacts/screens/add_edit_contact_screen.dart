@@ -1,8 +1,10 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
+import 'package:communication_super_app/core/services/image_picker_service.dart';
 import '../bloc/contact_bloc.dart';
 import '../bloc/contact_event.dart';
 import '../repositories/contact_repository.dart';
@@ -42,6 +44,7 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
   DateTime? _birthday;
 
   Contact? _editing; // populated in edit mode
+  Uint8List? _photo; // selected/loaded profile photo
   bool _loading = false;
   bool _saving = false;
   bool _showMore = false;
@@ -89,6 +92,7 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
       return;
     }
     _editing = c;
+    _photo = c.photo;
     _firstName.text = c.name.first;
     _lastName.text = c.name.last;
     _nickname.text = c.name.nickname;
@@ -131,6 +135,7 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
       }
 
       final contact = _editing ?? Contact();
+      contact.photo = _photo;
       contact.name = Name(
         first: _firstName.text.trim(),
         last: _lastName.text.trim(),
@@ -288,7 +293,6 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
   }
 
   Widget _buildAvatarSection(ThemeData theme) {
-    final photo = _editing?.photo;
     final name = '${_firstName.text} ${_lastName.text}'.trim();
     return Container(
       color: theme.brightness == Brightness.dark
@@ -298,8 +302,8 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
       child: Center(
         child: Stack(
           children: [
-            photo != null
-                ? CircleAvatar(radius: 60, backgroundImage: MemoryImage(photo))
+            _photo != null
+                ? CircleAvatar(radius: 60, backgroundImage: MemoryImage(_photo!))
                 : AvatarWidget(
                     name: name.isEmpty ? 'مخاطب جدید' : name, size: 120),
             Positioned(
@@ -310,7 +314,7 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
                 shape: const CircleBorder(),
                 child: InkWell(
                   customBorder: const CircleBorder(),
-                  onTap: () => _snack('انتخاب عکس به‌زودی فعال می‌شود'),
+                  onTap: _pickPhoto,
                   child: const Padding(
                     padding: EdgeInsets.all(8),
                     child: Icon(Icons.photo_camera,
@@ -319,10 +323,37 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
                 ),
               ),
             ),
+            if (_photo != null)
+              Positioned(
+                bottom: 0,
+                left: 0,
+                child: Material(
+                  color: AppColors.callRejectRed,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: () => setState(() => _photo = null),
+                    child: const Padding(
+                      padding: EdgeInsets.all(8),
+                      child: Icon(Icons.delete_outline,
+                          color: Colors.white, size: 20),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _pickPhoto() async {
+    try {
+      final bytes = await ImagePickerService.instance.pickImage();
+      if (bytes != null && mounted) setState(() => _photo = bytes);
+    } catch (e) {
+      _snack('انتخاب عکس ناموفق بود');
+    }
   }
 
   Widget _buildNameSection() {

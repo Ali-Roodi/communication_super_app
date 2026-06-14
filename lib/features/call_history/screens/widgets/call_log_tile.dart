@@ -31,7 +31,7 @@ class CallLogTile extends StatelessWidget {
     final displayName = log.contactName?.isNotEmpty == true
         ? log.contactName!
         : PersianUtils.toPersianNumber(log.phoneNumber);
-    final isMissed = log.callType == CallType.missed;
+    final titleColor = _titleColor(log.callType, theme);
 
     return InkWell(
       onTap: () => NativeCallService.instance.makeCall(log.phoneNumber),
@@ -56,9 +56,8 @@ class CallLogTile extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w500,
-                            color: isMissed
-                                ? AppColors.missedCallRed
-                                : theme.textTheme.bodyLarge?.color,
+                            color: titleColor ??
+                                theme.textTheme.bodyLarge?.color,
                           ),
                         ),
                       ),
@@ -69,9 +68,8 @@ class CallLogTile extends StatelessWidget {
                             '(${PersianUtils.toPersianNumber('$count')})',
                             style: TextStyle(
                               fontSize: 14,
-                              color: isMissed
-                                  ? AppColors.missedCallRed
-                                  : theme.textTheme.bodyMedium?.color,
+                              color: titleColor ??
+                                  theme.textTheme.bodyMedium?.color,
                             ),
                           ),
                         ),
@@ -181,6 +179,20 @@ class _Subtitle extends StatelessWidget {
 
 // ── Static helpers ────────────────────────────────────────────────────────────
 
+/// Title (name/number) color for "alert" call types; null = default color.
+Color? _titleColor(CallType type, ThemeData theme) {
+  switch (type) {
+    case CallType.missed:
+      return AppColors.missedCallRed;
+    case CallType.rejected:
+      return AppColors.rejectedCall;
+    case CallType.incoming:
+    case CallType.outgoing:
+    case CallType.blocked:
+      return null;
+  }
+}
+
 Color _callColor(CallType type) {
   switch (type) {
     case CallType.missed:
@@ -189,6 +201,10 @@ Color _callColor(CallType type) {
       return AppColors.incomingCall;
     case CallType.outgoing:
       return AppColors.outgoingCall;
+    case CallType.rejected:
+      return AppColors.rejectedCall;
+    case CallType.blocked:
+      return AppColors.blockedCall;
   }
 }
 
@@ -200,6 +216,10 @@ IconData _callIcon(CallType type) {
       return Icons.call_received;
     case CallType.outgoing:
       return Icons.call_made;
+    case CallType.rejected:
+      return Icons.call_end;
+    case CallType.blocked:
+      return Icons.block;
   }
 }
 
@@ -211,6 +231,10 @@ String _callLabel(CallType type) {
       return 'تماس ورودی';
     case CallType.outgoing:
       return 'تماس خروجی';
+    case CallType.rejected:
+      return 'رد شده';
+    case CallType.blocked:
+      return 'مسدود شده';
   }
 }
 
