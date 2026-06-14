@@ -6,6 +6,8 @@ import 'package:communication_super_app/features/authentication/repositories/aut
 import 'package:communication_super_app/features/contacts/bloc/contact_bloc.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/messages/bloc/message_bloc.dart';
+import 'package:communication_super_app/features/messages/bloc/draft_bloc.dart';
+import 'package:communication_super_app/features/messages/repositories/draft_repository.dart';
 import 'package:communication_super_app/features/call_history/bloc/call_log_bloc.dart';
 import 'package:communication_super_app/features/notes/bloc/note_bloc.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_bloc.dart';
@@ -44,6 +46,9 @@ class AppBlocProviders extends StatelessWidget {
         ),
         BlocProvider(
           create: (context) => MessageBloc(),
+        ),
+        BlocProvider(
+          create: (context) => DraftBloc(DraftRepository()),
         ),
         BlocProvider(
           create: (context) => CallLogBloc(),

@@ -156,22 +156,39 @@ class _Subtitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = theme.textTheme.bodyMedium?.color;
-    final simStr = log.simSlot != null ? ' · SIM${log.simSlot}' : '';
-    final text = '${_callLabel(log.callType)} · '
-        '${_relativeTime(log.timestamp)}$simStr';
+    final text = '${_callLabel(log.callType)} · ${_relativeTime(log.timestamp)}';
 
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(_callIcon(log.callType), size: 16, color: _callColor(log.callType)),
-        const SizedBox(width: 6),
-        Flexible(
-          child: Text(
-            text,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 13, color: color),
-          ),
+        Row(
+          children: [
+            Icon(_callIcon(log.callType),
+                size: 16, color: _callColor(log.callType)),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                text,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 13, color: color),
+              ),
+            ),
+          ],
         ),
+        // SIM badge on its own line in the accent colour (Figma 627:4073).
+        if (log.simSlot != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              'SIM${PersianUtils.toPersianNumber('${log.simSlot}')}',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: AppColors.accent,
+              ),
+            ),
+          ),
       ],
     );
   }

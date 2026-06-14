@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/theme/theme_bloc.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_bloc.dart';
@@ -259,9 +260,9 @@ class SettingsScreen extends StatelessWidget {
             if (authState is AuthAuthenticated || authState is AuthSet)
               ListTile(
                 leading: const Icon(Icons.no_encryption_outlined,
-                    color: Colors.red),
+                    color: AppColors.danger),
                 title: const Text('حذف قفل برنامه',
-                    style: TextStyle(color: Colors.red)),
+                    style: TextStyle(color: AppColors.danger)),
                 subtitle: const Text('بدون قفل وارد برنامه می‌شوید'),
                 onTap: () => _confirmClearAuth(context),
               ),
@@ -287,7 +288,7 @@ class SettingsScreen extends StatelessWidget {
               child: const Text('انصراف'),
             ),
             TextButton(
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              style: TextButton.styleFrom(foregroundColor: AppColors.danger),
               onPressed: () => Navigator.of(dialogCtx).pop(true),
               child: const Text('حذف قفل'),
             ),

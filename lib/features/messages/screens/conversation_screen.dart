@@ -5,6 +5,7 @@ import '../bloc/message_bloc.dart';
 import '../bloc/message_event.dart';
 import '../bloc/message_state.dart';
 import '../models/message_model.dart';
+import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
@@ -12,6 +13,8 @@ import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
+import 'drafts_list_screen.dart';
+import 'template_picker_screen.dart';
 
 /// Google Messages style chat screen.
 ///
@@ -451,9 +454,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.delete_outline, color: Colors.red),
+                leading: const Icon(Icons.delete_outline, color: AppColors.danger),
                 title:
-                    const Text('حذف', style: TextStyle(color: Colors.red)),
+                    const Text('حذف', style: TextStyle(color: AppColors.danger)),
                 onTap: () {
                   Navigator.pop(sheetCtx);
                   _confirmDeleteMessages([msg.id]);
@@ -527,7 +530,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
             TextButton(
                 onPressed: () => Navigator.pop(ctx, true),
                 child:
-                    const Text('حذف', style: TextStyle(color: Colors.red))),
+                    const Text('حذف', style: TextStyle(color: AppColors.danger))),
           ],
         ),
       ),
@@ -552,7 +555,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
             TextButton(
                 onPressed: () => Navigator.pop(ctx, true),
                 child:
-                    const Text('حذف', style: TextStyle(color: Colors.red))),
+                    const Text('حذف', style: TextStyle(color: AppColors.danger))),
           ],
         ),
       ),
@@ -711,6 +714,24 @@ class _ConversationScreenState extends State<ConversationScreen> {
         child: SafeArea(
           child: Wrap(
             children: [
+              // Functional: insert a saved draft or a generated template.
+              ListTile(
+                leading: const Icon(Icons.edit_note_outlined),
+                title: const Text('پیش‌نویس'),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  _insertDraft();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.description_outlined),
+                title: const Text('قالب آماده'),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  _insertTemplate();
+                },
+              ),
+              const Divider(height: 1),
               for (final item in const [
                 (Icons.photo_camera_outlined, 'دوربین'),
                 (Icons.photo_library_outlined, 'گالری'),
@@ -731,6 +752,31 @@ class _ConversationScreenState extends State<ConversationScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  /// Opens the drafts picker and inserts the chosen draft's body into the
+  /// composer (appending to any existing text).
+  Future<void> _insertDraft() async {
+    final body = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => const DraftsListScreen(pickMode: true),
+      ),
+    );
+    if (body != null && body.isNotEmpty) _appendToComposer(body);
+  }
+
+  Future<void> _insertTemplate() async {
+    final text = await showTemplatePicker(context, contactName: widget.contactName);
+    if (text != null && text.isNotEmpty) _appendToComposer(text);
+  }
+
+  void _appendToComposer(String text) {
+    final existing = _messageController.text;
+    _messageController.text =
+        existing.isEmpty ? text : '$existing\n$text';
+    _messageController.selection = TextSelection.fromPosition(
+      TextPosition(offset: _messageController.text.length),
     );
   }
 }
@@ -860,7 +906,7 @@ class _MessageBubble extends StatelessWidget {
         return GestureDetector(
           onTap: onRetry,
           child: const Icon(Icons.error_outline,
-              size: 14, color: Colors.red),
+              size: 14, color: AppColors.danger),
         );
     }
   }

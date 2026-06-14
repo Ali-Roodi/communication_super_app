@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
+import 'package:communication_super_app/core/theme/app_dimensions.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
@@ -181,24 +182,32 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
 
   Widget _buildActionRow(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppDimensions.paddingMd, vertical: AppDimensions.paddingMd),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _ActionButton(
-            icon: Icons.call,
-            label: 'تماس',
-            onTap: () => NativeCallService.instance.makeCall(_primaryPhone),
+          Expanded(
+            child: _ActionButton(
+              icon: Icons.call,
+              label: 'تماس',
+              onTap: () => NativeCallService.instance.makeCall(_primaryPhone),
+            ),
           ),
-          _ActionButton(
-            icon: Icons.message_outlined,
-            label: 'پیام',
-            onTap: () => _openSms(_primaryPhone),
+          const SizedBox(width: AppDimensions.paddingSm),
+          Expanded(
+            child: _ActionButton(
+              icon: Icons.message_outlined,
+              label: 'پیام',
+              onTap: () => _openSms(_primaryPhone),
+            ),
           ),
-          _ActionButton(
-            icon: Icons.more_horiz,
-            label: 'بیشتر',
-            onTap: () => _snack('به‌زودی'),
+          const SizedBox(width: AppDimensions.paddingSm),
+          Expanded(
+            child: _ActionButton(
+              icon: Icons.more_horiz,
+              label: 'بیشتر',
+              onTap: () => _snack('به‌زودی'),
+            ),
           ),
         ],
       ),
@@ -265,11 +274,12 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
       child: Text(
+        // Dim-gray section titles per Figma 627:4074.
         title,
         style: TextStyle(
           fontSize: 13,
           fontWeight: FontWeight.w600,
-          color: theme.colorScheme.primary,
+          color: theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.7),
         ),
       ),
     );
@@ -384,20 +394,27 @@ class _ActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: onTap,
-      child: Container(
-        width: 76,
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        child: Column(
-          children: [
-            Icon(icon, color: theme.colorScheme.primary, size: 26),
-            const SizedBox(height: 6),
-            Text(label,
-                style: TextStyle(
-                    fontSize: 12, color: theme.colorScheme.primary)),
-          ],
+    // Filled light-accent rounded square (Figma 627:4074 contact actions).
+    return Material(
+      color: AppColors.accent.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(AppDimensions.radiusLg),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Column(
+            children: [
+              Icon(icon, color: theme.colorScheme.primary, size: 24),
+              const SizedBox(height: 6),
+              Text(label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: theme.colorScheme.primary,
+                  )),
+            ],
+          ),
         ),
       ),
     );

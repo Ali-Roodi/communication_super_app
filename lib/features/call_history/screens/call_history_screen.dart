@@ -28,21 +28,48 @@ class _CallHistoryScreenState extends State<CallHistoryScreen>
         log.callType == CallType.rejected;
   }
 
-  // Memoize the grouped row list so grouping only runs when the underlying
-  // data or the active filter changes, not on every widget rebuild.
+  // Memoize the display item list (day headers + grouped rows) so grouping
+  // only runs when the underlying data or the active filter changes, not on
+  // every widget rebuild.
   List<CallLogModel>? _lastSource;
   _CallFilter? _lastFilter;
-  List<_CallGroup> _cachedGroups = [];
+  List<Object> _cachedItems = [];
 
-  List<_CallGroup> _getOrBuildGroups(List<CallLogModel> source) {
+  /// Returns a flat list of display items: [String] day headers
+  /// (امروز / دیروز / قدیمی‌تر) interleaved with [_CallGroup] rows — matching
+  /// the Figma recents layout (627:4073).
+  List<Object> _getOrBuildItems(List<CallLogModel> source) {
     if (identical(_lastSource, source) && _lastFilter == _filter) {
-      return _cachedGroups;
+      return _cachedItems;
     }
     _lastSource = source;
     _lastFilter = _filter;
     final filtered = source.where(_matchesFilter).toList();
-    _cachedGroups = _groupCallLogs(filtered);
-    return _cachedGroups;
+    final groups = _groupCallLogs(filtered);
+
+    final items = <Object>[];
+    String? currentBucket;
+    for (final g in groups) {
+      final bucket = _dayBucket(g.representative.timestamp);
+      if (bucket != currentBucket) {
+        currentBucket = bucket;
+        items.add(bucket);
+      }
+      items.add(g);
+    }
+    _cachedItems = items;
+    return _cachedItems;
+  }
+
+  /// Persian day-bucket label for a timestamp.
+  static String _dayBucket(DateTime dt) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final day = DateTime(dt.year, dt.month, dt.day);
+    final diff = today.difference(day).inDays;
+    if (diff <= 0) return 'امروز';
+    if (diff == 1) return 'دیروز';
+    return 'قدیمی‌تر';
   }
 
   @override
@@ -113,7 +140,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen>
                 );
               }
 
-              final groups = _getOrBuildGroups(state.callLogs);
+              final items = _getOrBuildItems(state.callLogs);
 
               return Column(
                 children: [
@@ -125,7 +152,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen>
                             .read<CallLogBloc>()
                             .add(const RefreshCallLogs());
                       },
-                      child: groups.isEmpty
+                      child: items.isEmpty
                           ? ListView(
                               children: [
                                 const SizedBox(height: 80),
@@ -140,17 +167,21 @@ class _CallHistoryScreenState extends State<CallHistoryScreen>
                               padding:
                                   const EdgeInsets.only(top: 4, bottom: 96),
                               itemCount:
-                                  groups.length + (state.hasMore ? 1 : 0),
+                                  items.length + (state.hasMore ? 1 : 0),
                               itemBuilder: (context, index) {
                                 if (state.hasMore &&
-                                    index == groups.length) {
+                                    index == items.length) {
                                   return const Padding(
                                     padding: EdgeInsets.all(16),
                                     child: Center(
                                         child: CircularProgressIndicator()),
                                   );
                                 }
-                                final group = groups[index];
+                                final item = items[index];
+                                if (item is String) {
+                                  return _DayHeader(label: item);
+                                }
+                                final group = item as _CallGroup;
                                 return CallLogTile(
                                   log: group.representative,
                                   count: group.count,
@@ -254,4 +285,25 @@ class _CallGroup {
   final CallLogModel representative;
   final int count;
   const _CallGroup({required this.representative, required this.count});
+}
+
+/// Small day-section header (امروز / دیروز / قدیمی‌تر) — Figma 627:4073.
+class _DayHeader extends StatelessWidget {
+  final String label;
+  const _DayHeader({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+      child: Text(
+        label,
+        style: theme.textTheme.bodySmall?.copyWith(
+          fontWeight: FontWeight.w600,
+          color: theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.7),
+        ),
+      ),
+    );
+  }
 }

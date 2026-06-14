@@ -2,17 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'app_colors.dart';
 
-/// تم‌های روشن و تاریک اپ — بر اساس Google Phone (Material 3)
+/// تم‌های روشن و تاریک اپ — بر اساس فایل Figma «قاسم» (Material 3)
 abstract class AppTheme {
+  /// خانواده فونت فارسی برند
+  static const String fontFamily = 'Vazirmatn';
+
   // ── Light Theme ─────────────────────────────────────────
   static ThemeData get light => ThemeData(
         useMaterial3: true,
+        fontFamily: fontFamily,
         brightness: Brightness.light,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: AppColors.googleBlue,
+          seedColor: AppColors.accent,
           brightness: Brightness.light,
-          primary: AppColors.googleBlue,
+          primary: AppColors.accent,
           surface: AppColors.surfaceLight,
+          onSurface: AppColors.onSurfaceLight,
+          error: AppColors.danger,
         ),
         scaffoldBackgroundColor: AppColors.backgroundLight,
         appBarTheme: const AppBarTheme(
@@ -45,10 +51,36 @@ abstract class AppTheme {
           ),
           unselectedLabelStyle: TextStyle(fontSize: 12),
         ),
+        // M3 NavigationBar — active item in the Figma accent blue.
+        navigationBarTheme: NavigationBarThemeData(
+          backgroundColor: AppColors.surfaceLight,
+          indicatorColor: AppColors.accent.withValues(alpha: 0.14),
+          elevation: 3,
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+          iconTheme: WidgetStateProperty.resolveWith(
+            (states) => IconThemeData(
+              size: 24,
+              color: states.contains(WidgetState.selected)
+                  ? AppColors.accent
+                  : AppColors.onSurfaceLightDim,
+            ),
+          ),
+          labelTextStyle: WidgetStateProperty.resolveWith(
+            (states) => TextStyle(
+              fontSize: 12,
+              fontWeight: states.contains(WidgetState.selected)
+                  ? FontWeight.w600
+                  : FontWeight.w400,
+              color: states.contains(WidgetState.selected)
+                  ? AppColors.accent
+                  : AppColors.onSurfaceLightDim,
+            ),
+          ),
+        ),
         floatingActionButtonTheme: const FloatingActionButtonThemeData(
-          backgroundColor: AppColors.callAnswerGreen,
+          backgroundColor: AppColors.accent,
           foregroundColor: Colors.white,
-          elevation: 4,
+          elevation: 3,
         ),
         cardTheme: CardThemeData(
           color: AppColors.cardLight,
@@ -101,12 +133,15 @@ abstract class AppTheme {
   // ── Dark Theme ──────────────────────────────────────────
   static ThemeData get dark => ThemeData(
         useMaterial3: true,
+        fontFamily: fontFamily,
         brightness: Brightness.dark,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: AppColors.googleBlue,
+          seedColor: AppColors.accent,
           brightness: Brightness.dark,
-          primary: AppColors.googleBlueDark,
+          primary: AppColors.accentLight,
           surface: AppColors.surfaceDark,
+          onSurface: AppColors.onSurfaceDark,
+          error: AppColors.danger,
         ),
         scaffoldBackgroundColor: AppColors.backgroundDark,
         appBarTheme: const AppBarTheme(
@@ -139,10 +174,36 @@ abstract class AppTheme {
           ),
           unselectedLabelStyle: TextStyle(fontSize: 12),
         ),
+        // M3 NavigationBar — active item in the Figma accent blue (light tint).
+        navigationBarTheme: NavigationBarThemeData(
+          backgroundColor: AppColors.surfaceDark,
+          indicatorColor: AppColors.accentLight.withValues(alpha: 0.20),
+          elevation: 3,
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+          iconTheme: WidgetStateProperty.resolveWith(
+            (states) => IconThemeData(
+              size: 24,
+              color: states.contains(WidgetState.selected)
+                  ? AppColors.accentLight
+                  : AppColors.onSurfaceDarkDim,
+            ),
+          ),
+          labelTextStyle: WidgetStateProperty.resolveWith(
+            (states) => TextStyle(
+              fontSize: 12,
+              fontWeight: states.contains(WidgetState.selected)
+                  ? FontWeight.w600
+                  : FontWeight.w400,
+              color: states.contains(WidgetState.selected)
+                  ? AppColors.accentLight
+                  : AppColors.onSurfaceDarkDim,
+            ),
+          ),
+        ),
         floatingActionButtonTheme: const FloatingActionButtonThemeData(
-          backgroundColor: AppColors.callAnswerGreen,
+          backgroundColor: AppColors.accent,
           foregroundColor: Colors.white,
-          elevation: 4,
+          elevation: 3,
         ),
         cardTheme: CardThemeData(
           color: AppColors.cardDark,
