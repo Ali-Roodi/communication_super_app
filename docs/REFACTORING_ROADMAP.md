@@ -1,0 +1,105 @@
+# REFACTORING ROADMAP
+
+This file records refactors **done in this pass** and the prioritized backlog of
+**remaining** work, with risk levels. Risk is about regression likelihood given
+the near-zero automated test coverage.
+
+## ✅ Done in this pass
+
+| Change | Files | Risk taken | Verification |
+|--------|-------|------------|--------------|
+| Deleted the dead **notes** feature | `lib/features/notes/**`, removed `NoteBloc` from `AppBlocProviders` | Low (feature was unreachable — `NotesListScreen` had 0 references) | `flutter analyze` clean |
+| Removed unused dependencies | `pubspec.yaml`: `go_router`, `shimmer` | None (never imported) | `flutter pub get` + analyze |
+| Deleted dead route file + empty dir | `lib/core/routes/app_routes.dart`, empty `lib/core/router/` | None (self-referential only) | analyze |
+| Extracted chat leaf widgets | `conversation_screen.dart` → `screens/widgets/message_bubble.dart` (`MessageBubble`, `MessageSendButton`) | Low (presentation-only, no logic moved) | analyze |
+| Extracted dialer leaf widgets (656→160 lines) | `dialer_screen.dart` → `widgets/dialer_widgets.dart` | Low (presentation-only) | analyze |
+| Fixed 2 lint infos surfaced by `dart format` | `permission_service.dart`, `conversation_screen.dart` (`curly_braces_in_flow_control_structures`) | None | analyze |
+| Fixed call-log contact-matching bug (K1) | `call_log_service.dart` — unified phone normalization, removed dead isolate field | Low (correctness fix, no intended-behaviour change) | analyze |
+| Decomposed `messages_list_screen` (640→571) | extracted `widgets/message_list_states.dart` (`MessagesEmptyState`, `MessagesNoResults`, `MessagesErrorState`, `ThreadSwipeBackground`) | Low (presentation-only) | analyze |
+| Decomposed `add_edit_contact_screen` (630→579) | extracted `models/contact_form_entries.dart` (`PhoneEntry`/`EmailEntry`/label maps) + `widgets/contact_form_fields.dart` (`ContactFormField`/`AddMoreButton`) | Low (presentation/data extraction) | analyze |
+| Constructor-injected dependencies into `MessageBloc` + `CallLogBloc` | both BLoCs now accept optional repos/services (default to real impls) | Low (backward-compatible) | analyze + tests |
+| Added BLoC unit tests | `dialer_bloc_test.dart` (7), `message_bloc_test.dart` (4), `call_log_bloc_test.dart` (3), `favorites_bloc_test.dart` (4), `settings_bloc_test.dart` (5) | None | `flutter test` |
+| Added widget tests | `test/widget/message_widgets_test.dart` (7: `MessageBubble` states + list state widgets) | None | `flutter test` |
+| Added repository tests on a real in-memory schema | `test/unit/repositories_test.dart` (favorites, blocked, messages dedup/soft-delete/order, drafts + categories) via `sqflite_common_ffi`; added `@visibleForTesting` `databasePathOverride` + `resetForTesting()` hooks to `DatabaseHelper` | Low (test-only hooks) | `flutter test` |
+| Added BLoC tests for the remaining BLoCs | `auth_bloc_test.dart` (5), `blocked_numbers_bloc_test.dart` (4), `contact_bloc_test.dart` (4) | None | `flutter test` |
+| Fixed missing unique message-content index on fresh installs (K10) | `database_helper.dart` `_createDB` now creates `idx_messages_content_unique` (was migration-only) — surfaced by the new dedup test | Low (aligns fresh installs with the documented invariant) | `flutter test` |
+| Added call-log repository, native channel-wrapper, and `ConversationScreen` widget tests | `repositories_test.dart` (call-logs), `native_services_test.dart`, `conversation_screen_test.dart` | None | `flutter test` |
+| `dart format` across `lib/` + `test/` | all | None | — |
+
+Result: **`flutter analyze` → No issues found.** · **`flutter test` → 91/91 passing** (was 22).
+
+## 🔜 Backlog (prioritized)
+
+### P1 — High value, low/medium risk — ✅ DONE this pass
+1. ✅ **Decomposed `messages_list_screen.dart`** (640→571) — empty/error/
+   no-results states + swipe background extracted to
+   `screens/widgets/message_list_states.dart`. The app bars + options sheet
+   remain in `State` (heavily search/selection-coupled) — see "Remaining" below.
+2. ✅ **Decomposed `add_edit_contact_screen.dart`** (630→579) — `PhoneEntry`/
+   `EmailEntry` + label maps → `models/contact_form_entries.dart`; the reusable
+   field + add-more button → `screens/widgets/contact_form_fields.dart`.
+3. ✅ **Constructor-injected `MessageBloc` + `CallLogBloc`.** Both now accept
+   optional dependencies (default to real impls), matching `DialerBloc`.
+
+### P2 — Correctness / consistency
+4. ~~Unify phone normalization in `CallLogService`.~~ ✅ **DONE** — see
+   KNOWN_ISSUES K1.
+5. **Introduce a localization layer (`l10n`).** ⚠️ **Not recommended at current
+   size.** The app is single-locale (Persian); a full ARB layer adds indirection
+   with no second language to justify it (cuts against the project's "no
+   unnecessary abstraction" rule). Revisit only if a second locale is planned.
+   If pursued anyway, it's low-risk but high-effort and mechanical.
+
+### P3 — Dependency health — ⛔ BLOCKED in this environment
+> Both items require fetching packages from pub.dev, which is restricted here to
+> already-cached packages (`flutter pub add`/`upgrade` fail with an authorization
+> error). They must be done in an environment with full pub.dev access. See
+> KNOWN_ISSUES K5/K6 for the exact commands.
+
+6. **Replace the discontinued `telephony` plugin** with the API-compatible fork
+   **`another_telephony`** (single import change in `sms_service.dart`). *Risk:
+   low if the fork stays API-compatible; verify with a device build.*
+7. **Upgrade outdated packages** (`flutter_contacts` 1.x→2.x,
+   `flutter_local_notifications` 18→22, `local_auth`, `flutter_secure_storage`).
+   Several are major bumps with API changes. *Risk: medium; one PR each, with a
+   device build.*
+
+### P4 — Test coverage (enabler for everything above) — 🟡 IN PROGRESS
+8. ✅ **BLoC unit tests** — covered: `DialerBloc` keypad + call lifecycle;
+   `MessageBloc` `_onReceiveMessage` guards + `_onLoadThreads` no-flash guard;
+   `CallLogBloc` pagination; `FavoritesBloc` load/add/remove + empty-number
+   no-op; `SettingsBloc` defaults, bool toggle, the caller-ID→spam-filter
+   dependency, and quick-reply bounds; `AuthBloc`, `BlockedNumbersBloc`,
+   `ContactBloc`. Plus **repository tests** (favorites, blocked, messages,
+   drafts, call-logs) on a real in-memory `sqflite_common_ffi` schema, and
+   **native channel-wrapper tests** (`NativeCallService`,
+   `NativeSmsService.sendSms`) via a mock `MethodChannel`. (91 tests total — the
+   dedup test surfaced and fixed K10.)
+   **Still to add:** `ContactRepository` reads (wrap `flutter_contacts` behind a
+   seam first) and the full SMS receive/import pipeline (needs device or a
+   refactor to expose the dedup window).
+9. ✅ **Widget tests** — extracted presentation widgets (`MessageBubble`
+   states, `MessagesEmptyState/NoResults/ErrorState` incl. retry) **and**
+   `ConversationScreen` (one bubble per message, empty placeholder, day-separator
+   chips) in `test/widget/`.
+   **Still to add:** `MainNavigation` unread badge — needs the IndexedStack tab
+   screens stubbed (they hit repositories/plugins at mount), so defer until those
+   screens take injectable data or are split from the shell.
+
+### Remaining screen decomposition (deferred, medium risk)
+- `messages_list_screen.dart` — the three app bars (`_buildAppBar`,
+  `_searchAppBar`, `_selectionAppBar`) and the thread-options bottom sheet are
+  still in `State` because they are tightly coupled to search + multi-select
+  state. Extract once widget tests exist to catch regressions.
+- `conversation_screen.dart` — the composer + sticker panel + attachment sheet
+  remain in `State` for the same reason.
+
+## Refactoring rules for this repo
+
+- **No business-logic change without a documented reason** (see the user
+  constraints and `DESIGN_DECISIONS.md`).
+- Extract **presentation** first; defer `State`-coupled logic until tests exist.
+- Run `flutter analyze` after every extraction; keep it at **zero issues**.
+- Keep files focused; prefer many small `widgets/` files over one God file, but
+  do **not** create abstraction layers (interfaces/use-cases) the app size
+  doesn't justify.
