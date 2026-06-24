@@ -11,6 +11,8 @@ import 'package:communication_super_app/features/messages/repositories/message_r
 import 'package:communication_super_app/features/messages/models/draft_model.dart';
 import 'package:communication_super_app/features/messages/models/message_category_model.dart';
 import 'package:communication_super_app/features/messages/repositories/draft_repository.dart';
+import 'package:communication_super_app/features/call_history/models/call_log_model.dart';
+import 'package:communication_super_app/features/call_history/repositories/call_log_repository.dart';
 
 FavoriteModel _fav(String id, String number) => FavoriteModel(
   id: id,
@@ -39,6 +41,13 @@ MessageModel _message(
   body: body,
   type: type,
   status: MessageStatus.delivered,
+  timestamp: DateTime(2026, 1, 1, 12, minute),
+);
+
+CallLogModel _call(String id, {int minute = 0}) => CallLogModel(
+  id: id,
+  phoneNumber: '0912000$id',
+  callType: CallType.incoming,
   timestamp: DateTime(2026, 1, 1, 12, minute),
 );
 
@@ -197,6 +206,53 @@ void main() {
       expect(await repo.getCategories(), isEmpty);
       final uncategorized = await repo.getDrafts(uncategorized: true);
       expect(uncategorized.map((d) => d.id), ['d1']);
+    });
+  });
+
+  group('CallLogRepository', () {
+    test('saveCallLogsBatch persists all rows in one transaction', () async {
+      final repo = CallLogRepository();
+      await repo.saveCallLogsBatch([_call('1'), _call('2'), _call('3')]);
+
+      expect(await repo.getAllCallLogs(), hasLength(3));
+    });
+
+    test(
+      'getAllCallLogs returns newest first and honors limit/offset',
+      () async {
+        final repo = CallLogRepository();
+        await repo.saveCallLogsBatch([
+          _call('1', minute: 0),
+          _call('2', minute: 10),
+          _call('3', minute: 20),
+        ]);
+
+        final firstPage = await repo.getAllCallLogs(limit: 2, offset: 0);
+        expect(firstPage.map((c) => c.id), ['3', '2']); // DESC by timestamp
+
+        final secondPage = await repo.getAllCallLogs(limit: 2, offset: 2);
+        expect(secondPage.map((c) => c.id), ['1']);
+      },
+    );
+
+    test('saveCallLog replaces a row with the same id', () async {
+      final repo = CallLogRepository();
+      await repo.saveCallLog(_call('1'));
+      await repo.saveCallLog(_call('1', minute: 30));
+
+      final all = await repo.getAllCallLogs();
+      expect(all, hasLength(1));
+      expect(all.single.timestamp.minute, 30);
+    });
+
+    test('deleteCallLog removes only the targeted row', () async {
+      final repo = CallLogRepository();
+      await repo.saveCallLogsBatch([_call('1'), _call('2')]);
+
+      await repo.deleteCallLog('1');
+
+      final remaining = await repo.getAllCallLogs();
+      expect(remaining.map((c) => c.id), ['2']);
     });
   });
 }
