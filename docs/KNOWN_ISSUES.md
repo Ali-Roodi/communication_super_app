@@ -110,7 +110,7 @@ widget tests for the extracted message widgets, and repository tests against the
 real schema on an in-memory `sqflite_common_ffi` database — enabled by the K9
 constructor-injection fix and the `DatabaseHelper` testing hooks. Now covers all
 stateful BLoCs and the favorites/blocked/messages/drafts repositories. Total:
-**102 passing** — and the suite already paid for itself by surfacing K10. Still
+**105 passing** — and the suite already paid for itself by surfacing K10. Still
 missing: the SMS/call-log pipelines and full-screen widget tests
 (`ConversationScreen`, `MainNavigation`).
 **Fix:** continue Roadmap P4.

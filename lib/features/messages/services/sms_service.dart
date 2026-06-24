@@ -403,6 +403,13 @@ class SmsService {
     return '$normalizedPhone:$body:$timestamp';
   }
 
+  /// Test seam for the in-memory duplicate-SMS window. Returns true the *second*
+  /// time the same (normalized address, body, timestamp) is seen within the
+  /// dedup window. See [_isDuplicateSms].
+  @visibleForTesting
+  bool isDuplicateForTest(String address, String body, int timestamp) =>
+      _isDuplicateSms(address, body, timestamp);
+
   /// Check if SMS is a duplicate and mark it as processed if not
   bool _isDuplicateSms(String address, String body, int timestamp) {
     final hash = _generateSmsHash(address, body, timestamp);
