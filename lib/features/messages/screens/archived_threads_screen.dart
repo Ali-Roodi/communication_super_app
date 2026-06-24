@@ -48,10 +48,13 @@ class _ArchivedThreadsScreenState extends State<ArchivedThreadsScreen> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.archive_outlined,
-                        size: 56,
-                        color: theme.textTheme.bodyMedium?.color
-                            ?.withValues(alpha: 0.5)),
+                    Icon(
+                      Icons.archive_outlined,
+                      size: 56,
+                      color: theme.textTheme.bodyMedium?.color?.withValues(
+                        alpha: 0.5,
+                      ),
+                    ),
                     const SizedBox(height: 12),
                     const Text('گفتگوی بایگانی‌شده‌ای نیست'),
                   ],
@@ -60,8 +63,7 @@ class _ArchivedThreadsScreenState extends State<ArchivedThreadsScreen> {
             }
             return ListView.builder(
               itemCount: state.threads.length,
-              itemBuilder: (context, i) =>
-                  _buildRow(context, state.threads[i]),
+              itemBuilder: (context, i) => _buildRow(context, state.threads[i]),
             );
           },
         ),
@@ -108,14 +110,10 @@ class _ArchivedThreadsScreenState extends State<ArchivedThreadsScreen> {
 
   void _unarchive(BuildContext context, MessageThread thread) {
     context.read<MessageBloc>().add(
-          ArchiveThreads(
-            [thread.threadId],
-            archive: false,
-            fromArchivedView: true,
-          ),
-        );
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('از بایگانی خارج شد')),
+      ArchiveThreads([thread.threadId], archive: false, fromArchivedView: true),
     );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('از بایگانی خارج شد')));
   }
 }

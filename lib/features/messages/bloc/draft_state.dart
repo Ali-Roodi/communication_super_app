@@ -40,13 +40,13 @@ class DraftsLoaded extends DraftState {
 
   @override
   List<Object?> get props => [
-        drafts,
-        categories,
-        totalCount,
-        uncategorizedCount,
-        filterCategoryId,
-        filterUncategorized,
-      ];
+    drafts,
+    categories,
+    totalCount,
+    uncategorizedCount,
+    filterCategoryId,
+    filterUncategorized,
+  ];
 }
 
 class DraftError extends DraftState {

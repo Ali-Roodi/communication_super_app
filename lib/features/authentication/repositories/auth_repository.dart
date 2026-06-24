@@ -69,5 +69,3 @@ class AuthRepository {
     await _storage.delete(key: AppConstants.isAuthenticatedKey);
   }
 }
-
-

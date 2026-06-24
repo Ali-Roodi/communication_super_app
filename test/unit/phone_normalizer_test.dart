@@ -77,11 +77,17 @@ void main() {
     });
 
     test('E.164 vs national → true', () {
-      expect(PhoneNormalizer.sameNumber('+989120000000', '09120000000'), isTrue);
+      expect(
+        PhoneNormalizer.sameNumber('+989120000000', '09120000000'),
+        isTrue,
+      );
     });
 
     test('00-prefix vs national → true', () {
-      expect(PhoneNormalizer.sameNumber('00989120000000', '09120000000'), isTrue);
+      expect(
+        PhoneNormalizer.sameNumber('00989120000000', '09120000000'),
+        isTrue,
+      );
     });
 
     test('country-code vs national → true', () {
@@ -101,8 +107,10 @@ void main() {
   group('PhoneNormalizer.normalize', () {
     test('alias of toNational', () {
       const number = '+989190961805';
-      expect(PhoneNormalizer.normalize(number),
-          equals(PhoneNormalizer.toNational(number)));
+      expect(
+        PhoneNormalizer.normalize(number),
+        equals(PhoneNormalizer.toNational(number)),
+      );
     });
   });
 }

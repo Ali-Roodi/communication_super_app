@@ -12,11 +12,7 @@ class IncomingCallScreen extends StatelessWidget {
   final String phone;
   final String? contactName;
 
-  const IncomingCallScreen({
-    super.key,
-    required this.phone,
-    this.contactName,
-  });
+  const IncomingCallScreen({super.key, required this.phone, this.contactName});
 
   @override
   Widget build(BuildContext context) {
@@ -41,14 +37,19 @@ class IncomingCallScreen extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: AppColors.googleBlue.withValues(alpha: 0.2),
                     shape: BoxShape.circle,
-                    border:
-                        Border.all(color: AppColors.googleBlue, width: 2),
+                    border: Border.all(color: AppColors.googleBlue, width: 2),
                   ),
-                  child: const Icon(Icons.person, size: 56, color: Colors.white70),
+                  child: const Icon(
+                    Icons.person,
+                    size: 56,
+                    color: Colors.white70,
+                  ),
                 ),
                 const SizedBox(height: 24),
-                const Text('تماس ورودی',
-                    style: TextStyle(color: Colors.white38, fontSize: 14)),
+                const Text(
+                  'تماس ورودی',
+                  style: TextStyle(color: Colors.white38, fontSize: 14),
+                ),
                 const SizedBox(height: 12),
                 Text(
                   contactName ?? PersianUtils.toPersianNumber(phone),
@@ -61,9 +62,10 @@ class IncomingCallScreen extends StatelessWidget {
                 ),
                 if (contactName != null) ...[
                   const SizedBox(height: 8),
-                  Text(PersianUtils.toPersianNumber(phone),
-                      style:
-                          const TextStyle(color: Colors.white54, fontSize: 16)),
+                  Text(
+                    PersianUtils.toPersianNumber(phone),
+                    style: const TextStyle(color: Colors.white54, fontSize: 16),
+                  ),
                 ],
                 const Spacer(flex: 3),
                 // Secondary options: remind me · reply with message
@@ -74,7 +76,9 @@ class IncomingCallScreen extends StatelessWidget {
                       icon: Icons.schedule,
                       label: 'یادآوری',
                       onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('یادآوری به‌زودی فعال می‌شود')),
+                        const SnackBar(
+                          content: Text('یادآوری به‌زودی فعال می‌شود'),
+                        ),
                       ),
                     ),
                     _TextOption(
@@ -217,8 +221,10 @@ class _TextOption extends StatelessWidget {
           children: [
             Icon(icon, color: Colors.white70, size: 24),
             const SizedBox(height: 6),
-            Text(label,
-                style: const TextStyle(color: Colors.white70, fontSize: 12)),
+            Text(
+              label,
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
           ],
         ),
       ),
@@ -256,7 +262,10 @@ class _CallActionButton extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+        Text(
+          label,
+          style: const TextStyle(color: Colors.white70, fontSize: 13),
+        ),
       ],
     );
   }
@@ -299,8 +308,11 @@ class _AnswerButtonState extends State<_AnswerButton>
         // Upward chevron hint that gently pulses (swipe-up to answer).
         FadeTransition(
           opacity: Tween<double>(begin: 0.3, end: 1.0).animate(_ctrl),
-          child: const Icon(Icons.keyboard_arrow_up,
-              color: Colors.white54, size: 22),
+          child: const Icon(
+            Icons.keyboard_arrow_up,
+            color: Colors.white54,
+            size: 22,
+          ),
         ),
         GestureDetector(
           onTap: widget.onAnswer,
@@ -318,8 +330,10 @@ class _AnswerButtonState extends State<_AnswerButton>
           ),
         ),
         const SizedBox(height: 12),
-        const Text('پاسخ',
-            style: TextStyle(color: Colors.white70, fontSize: 13)),
+        const Text(
+          'پاسخ',
+          style: TextStyle(color: Colors.white70, fontSize: 13),
+        ),
       ],
     );
   }

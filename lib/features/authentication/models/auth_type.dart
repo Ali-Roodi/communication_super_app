@@ -1,8 +1,4 @@
-enum AuthType {
-  pin,
-  pattern,
-  none,
-}
+enum AuthType { pin, pattern, none }
 
 extension AuthTypeExtension on AuthType {
   String get value {
@@ -27,29 +23,3 @@ extension AuthTypeExtension on AuthType {
     }
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

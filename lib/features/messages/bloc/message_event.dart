@@ -36,11 +36,7 @@ class LoadMessages extends MessageEvent {
   final int limit;
   final int offset;
 
-  const LoadMessages(
-    this.threadId, {
-    this.limit = 50,
-    this.offset = 0,
-  });
+  const LoadMessages(this.threadId, {this.limit = 50, this.offset = 0});
 
   @override
   List<Object?> get props => [threadId, limit, offset];
@@ -59,10 +55,7 @@ class SendMessage extends MessageEvent {
   final String phoneNumber;
   final String body;
 
-  const SendMessage({
-    required this.phoneNumber,
-    required this.body,
-  });
+  const SendMessage({required this.phoneNumber, required this.body});
 
   @override
   List<Object?> get props => [phoneNumber, body];
@@ -154,13 +147,3 @@ class SetThreadRead extends MessageEvent {
   @override
   List<Object?> get props => [threadIds, read];
 }
-
-
-
-
-
-
-
-
-
-

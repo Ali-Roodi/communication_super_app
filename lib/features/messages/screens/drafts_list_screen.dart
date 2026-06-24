@@ -47,12 +47,14 @@ class _DraftsListScreenState extends State<DraftsListScreen> {
               tooltip: 'دسته‌بندی‌ها',
               onPressed: () {
                 final bloc = context.read<DraftBloc>();
-                Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => BlocProvider.value(
-                    value: bloc,
-                    child: const MessageCategoriesScreen(),
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => BlocProvider.value(
+                      value: bloc,
+                      child: const MessageCategoriesScreen(),
+                    ),
                   ),
-                ));
+                );
               },
             ),
           ],
@@ -75,10 +77,11 @@ class _DraftsListScreenState extends State<DraftsListScreen> {
                         ? _emptyState(context)
                         : ListView.builder(
                             padding: const EdgeInsets.fromLTRB(
-                                AppDimensions.paddingMd,
-                                AppDimensions.paddingSm,
-                                AppDimensions.paddingMd,
-                                96),
+                              AppDimensions.paddingMd,
+                              AppDimensions.paddingSm,
+                              AppDimensions.paddingMd,
+                              96,
+                            ),
                             itemCount: state.drafts.length,
                             itemBuilder: (_, i) => _DraftCard(
                               draft: state.drafts[i],
@@ -86,9 +89,9 @@ class _DraftsListScreenState extends State<DraftsListScreen> {
                                   _onDraftTap(context, state.drafts[i]),
                               onDelete: pickMode
                                   ? null
-                                  : () => context
-                                      .read<DraftBloc>()
-                                      .add(DeleteDraft(state.drafts[i].id)),
+                                  : () => context.read<DraftBloc>().add(
+                                      DeleteDraft(state.drafts[i].id),
+                                    ),
                             ),
                           ),
                   ),
@@ -109,12 +112,14 @@ class _DraftsListScreenState extends State<DraftsListScreen> {
                   final categoryId = state is DraftsLoaded
                       ? state.filterCategoryId
                       : null;
-                  Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => BlocProvider.value(
-                      value: bloc,
-                      child: DraftEditorScreen(initialCategoryId: categoryId),
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => BlocProvider.value(
+                        value: bloc,
+                        child: DraftEditorScreen(initialCategoryId: categoryId),
+                      ),
                     ),
-                  ));
+                  );
                 },
                 child: const Icon(Icons.add),
               ),
@@ -139,12 +144,14 @@ class _DraftsListScreenState extends State<DraftsListScreen> {
       return;
     }
     final bloc = context.read<DraftBloc>();
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => BlocProvider.value(
-        value: bloc,
-        child: DraftEditorScreen(draft: draft),
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => BlocProvider.value(
+          value: bloc,
+          child: DraftEditorScreen(draft: draft),
+        ),
       ),
-    ));
+    );
   }
 
   Widget _emptyState(BuildContext context) {
@@ -158,9 +165,11 @@ class _DraftsListScreenState extends State<DraftsListScreen> {
           const SizedBox(height: AppDimensions.paddingMd),
           Text('پیش‌نویسی وجود ندارد', style: theme.textTheme.titleMedium),
           const SizedBox(height: AppDimensions.paddingSm),
-          Text('پیش‌نویس‌های ذخیره‌شده اینجا نمایش داده می‌شوند',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(color: dim)),
+          Text(
+            'پیش‌نویس‌های ذخیره‌شده اینجا نمایش داده می‌شوند',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyMedium?.copyWith(color: dim),
+          ),
         ],
       ),
     );
@@ -177,7 +186,11 @@ class _FilterChip extends StatelessWidget {
       alignment: AlignmentDirectional.centerStart,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(
-            AppDimensions.paddingMd, AppDimensions.paddingSm, 0, 0),
+          AppDimensions.paddingMd,
+          AppDimensions.paddingSm,
+          0,
+          0,
+        ),
         child: Chip(
           label: Text('دسته‌بندی: $label'),
           backgroundColor: AppColors.accent.withValues(alpha: 0.12),
@@ -221,7 +234,9 @@ class _DraftCard extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                              fontSize: 15, fontWeight: FontWeight.w700),
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                         const SizedBox(height: 4),
                       ],

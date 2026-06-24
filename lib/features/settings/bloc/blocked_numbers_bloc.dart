@@ -63,8 +63,7 @@ class BlockedNumbersBloc
   final BlockedNumbersRepository _repository;
   static const _uuid = Uuid();
 
-  BlockedNumbersBloc(this._repository)
-      : super(const BlockedNumbersLoading()) {
+  BlockedNumbersBloc(this._repository) : super(const BlockedNumbersLoading()) {
     on<LoadBlocked>(_onLoad);
     on<BlockNumber>(_onBlock);
     on<UnblockNumber>(_onUnblock);
@@ -89,12 +88,14 @@ class BlockedNumbersBloc
     try {
       final normalized = BlockedNumberModel.normalize(event.phoneNumber);
       if (normalized.isEmpty) return;
-      await _repository.block(BlockedNumberModel(
-        id: _uuid.v4(),
-        phoneNumber: event.phoneNumber,
-        normalized: normalized,
-        createdAt: DateTime.now(),
-      ));
+      await _repository.block(
+        BlockedNumberModel(
+          id: _uuid.v4(),
+          phoneNumber: event.phoneNumber,
+          normalized: normalized,
+          createdAt: DateTime.now(),
+        ),
+      );
       emit(BlockedNumbersLoaded(await _repository.getBlocked()));
     } catch (e) {
       emit(BlockedNumbersError(e.toString()));

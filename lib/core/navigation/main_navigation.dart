@@ -19,10 +19,7 @@ import 'package:communication_super_app/features/settings/screens/settings_scree
 class MainNavigation extends StatefulWidget {
   final int initialIndex;
 
-  const MainNavigation({
-    super.key,
-    this.initialIndex = 0,
-  });
+  const MainNavigation({super.key, this.initialIndex = 0});
 
   @override
   State<MainNavigation> createState() => _MainNavigationState();
@@ -104,9 +101,9 @@ class _MainNavigationState extends State<MainNavigation> {
                 title: _titles[_currentIndex],
                 showSearch: true,
                 showLock: false,
-                onSearchPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const SearchScreen()),
-                ),
+                onSearchPressed: () => Navigator.of(
+                  context,
+                ).push(MaterialPageRoute(builder: (_) => const SearchScreen())),
                 actions: [
                   // 3-dot overflow menu (Google Phone style) → Settings.
                   PopupMenuButton<String>(
@@ -226,8 +223,11 @@ class _FadeIndexedStack extends StatefulWidget {
 
 class _FadeIndexedStackState extends State<_FadeIndexedStack>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _controller =
-      AnimationController(vsync: this, duration: widget.duration, value: 1);
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: widget.duration,
+    value: 1,
+  );
 
   @override
   void didUpdateWidget(_FadeIndexedStack oldWidget) {
@@ -247,10 +247,7 @@ class _FadeIndexedStackState extends State<_FadeIndexedStack>
   Widget build(BuildContext context) {
     return FadeTransition(
       opacity: _controller,
-      child: IndexedStack(
-        index: widget.index,
-        children: widget.children,
-      ),
+      child: IndexedStack(index: widget.index, children: widget.children),
     );
   }
 }
@@ -268,9 +265,7 @@ class _MessageNavIcon extends StatelessWidget {
     return Badge(
       isLabelVisible: unread > 0,
       label: Text(unread > 99 ? '99+' : '$unread'),
-      child: Icon(
-        filled ? Icons.chat_bubble : Icons.chat_bubble_outline,
-      ),
+      child: Icon(filled ? Icons.chat_bubble : Icons.chat_bubble_outline),
     );
   }
 }

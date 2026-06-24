@@ -19,21 +19,20 @@ class Draft extends Equatable {
   });
 
   Map<String, dynamic> toMap() => {
-        'id': id,
-        'title': title,
-        'body': body,
-        'category_id': categoryId,
-        'updated_at': updatedAt.millisecondsSinceEpoch,
-      };
+    'id': id,
+    'title': title,
+    'body': body,
+    'category_id': categoryId,
+    'updated_at': updatedAt.millisecondsSinceEpoch,
+  };
 
   factory Draft.fromMap(Map<String, dynamic> map) => Draft(
-        id: map['id'] as String,
-        title: map['title'] as String?,
-        body: map['body'] as String,
-        categoryId: map['category_id'] as String?,
-        updatedAt:
-            DateTime.fromMillisecondsSinceEpoch(map['updated_at'] as int),
-      );
+    id: map['id'] as String,
+    title: map['title'] as String?,
+    body: map['body'] as String,
+    categoryId: map['category_id'] as String?,
+    updatedAt: DateTime.fromMillisecondsSinceEpoch(map['updated_at'] as int),
+  );
 
   Draft copyWith({
     String? title,
@@ -41,14 +40,13 @@ class Draft extends Equatable {
     String? categoryId,
     bool clearCategory = false,
     DateTime? updatedAt,
-  }) =>
-      Draft(
-        id: id,
-        title: title ?? this.title,
-        body: body ?? this.body,
-        categoryId: clearCategory ? null : (categoryId ?? this.categoryId),
-        updatedAt: updatedAt ?? this.updatedAt,
-      );
+  }) => Draft(
+    id: id,
+    title: title ?? this.title,
+    body: body ?? this.body,
+    categoryId: clearCategory ? null : (categoryId ?? this.categoryId),
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
 
   @override
   List<Object?> get props => [id, title, body, categoryId, updatedAt];

@@ -77,10 +77,14 @@ class ThemeBloc extends Bloc<ThemeEvent, ThemeState> {
     final prefs = await SharedPreferences.getInstance();
     final stored = prefs.getString(_modeKey);
     if (stored != null) {
-      emit(ThemeState(AppThemeMode.values.firstWhere(
-        (m) => m.name == stored,
-        orElse: () => AppThemeMode.light,
-      )));
+      emit(
+        ThemeState(
+          AppThemeMode.values.firstWhere(
+            (m) => m.name == stored,
+            orElse: () => AppThemeMode.light,
+          ),
+        ),
+      );
       return;
     }
     // Migrate from the legacy bool key.

@@ -14,15 +14,15 @@ abstract class AppDimensions {
   static const double listItemGap = 12;
 
   // ── Corner Radius ───────────────────────────────────────
-  static const double radiusSm   = 8;
-  static const double radiusMd   = 12;
-  static const double radiusLg   = 16;
-  static const double radiusXl   = 24;
+  static const double radiusSm = 8;
+  static const double radiusMd = 12;
+  static const double radiusLg = 16;
+  static const double radiusXl = 24;
   static const double radiusPill = 32; // دکمه‌های قرص‌شکل (تماس، کلیدها)
 
   // ── Elevation / Shadow ──────────────────────────────────
   /// Drop Shadow-Black فایل Figma: rgba(0,0,0,0.05) · blur 15 · spread -5
-  static const double shadowBlur   = 15;
+  static const double shadowBlur = 15;
   static const double shadowSpread = -5;
   static const double shadowOpacity = 0.05;
 

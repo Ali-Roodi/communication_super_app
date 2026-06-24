@@ -17,7 +17,7 @@ class LockButton extends StatelessWidget {
         lockService.lock();
         final authBloc = context.read<AuthBloc>();
         authBloc.add(const LockApp());
-        
+
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (context) => const AppLockScreen(),
@@ -28,4 +28,3 @@ class LockButton extends StatelessWidget {
     );
   }
 }
-

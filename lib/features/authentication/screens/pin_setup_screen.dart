@@ -77,9 +77,9 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -95,9 +95,7 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
         }
       },
       child: Scaffold(
-        appBar: RtlAppBar(
-          title: 'Setup PIN',
-        ),
+        appBar: RtlAppBar(title: 'Setup PIN'),
         body: SafeArea(
           child: Column(
             children: [
@@ -142,17 +140,29 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: ['1', '2', '3'].map((number) => _buildKey(number)).toList(),
+            children: [
+              '1',
+              '2',
+              '3',
+            ].map((number) => _buildKey(number)).toList(),
           ),
           const SizedBox(height: 16),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: ['4', '5', '6'].map((number) => _buildKey(number)).toList(),
+            children: [
+              '4',
+              '5',
+              '6',
+            ].map((number) => _buildKey(number)).toList(),
           ),
           const SizedBox(height: 16),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: ['7', '8', '9'].map((number) => _buildKey(number)).toList(),
+            children: [
+              '7',
+              '8',
+              '9',
+            ].map((number) => _buildKey(number)).toList(),
           ),
           const SizedBox(height: 16),
           Row(
@@ -205,5 +215,3 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
     );
   }
 }
-
-

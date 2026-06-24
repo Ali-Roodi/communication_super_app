@@ -15,11 +15,7 @@ class InCallScreen extends StatefulWidget {
   final String phone;
   final String? contactName;
 
-  const InCallScreen({
-    super.key,
-    required this.phone,
-    this.contactName,
-  });
+  const InCallScreen({super.key, required this.phone, this.contactName});
 
   @override
   State<InCallScreen> createState() => _InCallScreenState();
@@ -63,8 +59,10 @@ class _InCallScreenState extends State<InCallScreen> {
                 children: [
                   const Spacer(flex: 2),
                   // Carrier / SIM line (no carrier data available → generic).
-                  const Text('سیم‌کارت',
-                      style: TextStyle(color: Colors.white38, fontSize: 13)),
+                  const Text(
+                    'سیم‌کارت',
+                    style: TextStyle(color: Colors.white38, fontSize: 13),
+                  ),
                   const SizedBox(height: 24),
                   _buildAvatar(),
                   const SizedBox(height: 20),
@@ -81,9 +79,13 @@ class _InCallScreenState extends State<InCallScreen> {
                   const SizedBox(height: 10),
                   onHold
                       ? const _PulsingText('در انتظار')
-                      : Text(_formattedTime,
+                      : Text(
+                          _formattedTime,
                           style: const TextStyle(
-                              color: Colors.white70, fontSize: 16)),
+                            color: Colors.white70,
+                            fontSize: 16,
+                          ),
+                        ),
                   const Spacer(flex: 3),
                   _buildControlGrid(context, state),
                   const SizedBox(height: 32),
@@ -190,7 +192,10 @@ class _InCallScreenState extends State<InCallScreen> {
                         child: Text(
                           PersianUtils.toPersianNumber(entered.toString()),
                           style: const TextStyle(
-                              color: Colors.white, fontSize: 28, letterSpacing: 2),
+                            color: Colors.white,
+                            fontSize: 28,
+                            letterSpacing: 2,
+                          ),
                         ),
                       ),
                     ),
@@ -278,10 +283,26 @@ class _InCallScreenState extends State<InCallScreen> {
   }
 
   static const List<List<List<String>>> _dtmfRows = [
-    [['۱', '1'], ['۲', '2'], ['۳', '3']],
-    [['۴', '4'], ['۵', '5'], ['۶', '6']],
-    [['۷', '7'], ['۸', '8'], ['۹', '9']],
-    [['*', '*'], ['۰', '0'], ['#', '#']],
+    [
+      ['۱', '1'],
+      ['۲', '2'],
+      ['۳', '3'],
+    ],
+    [
+      ['۴', '4'],
+      ['۵', '5'],
+      ['۶', '6'],
+    ],
+    [
+      ['۷', '7'],
+      ['۸', '8'],
+      ['۹', '9'],
+    ],
+    [
+      ['*', '*'],
+      ['۰', '0'],
+      ['#', '#'],
+    ],
   ];
 }
 
@@ -318,8 +339,10 @@ class _PulsingTextState extends State<_PulsingText>
   Widget build(BuildContext context) {
     return FadeTransition(
       opacity: Tween<double>(begin: 0.4, end: 1.0).animate(_ctrl),
-      child: Text(widget.text,
-          style: const TextStyle(color: _kActiveTint, fontSize: 16)),
+      child: Text(
+        widget.text,
+        style: const TextStyle(color: _kActiveTint, fontSize: 16),
+      ),
     );
   }
 }
@@ -357,16 +380,14 @@ class _ControlButton extends StatelessWidget {
                 color: active ? _kActiveTint : Colors.white12,
                 shape: BoxShape.circle,
               ),
-              child: Icon(
-                icon,
-                color: active ? _kBg : Colors.white,
-                size: 26,
-              ),
+              child: Icon(icon, color: active ? _kBg : Colors.white, size: 26),
             ),
             const SizedBox(height: 8),
-            Text(label,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white70, fontSize: 12)),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
           ],
         ),
       ),
@@ -393,13 +414,14 @@ class _EndCallButton extends StatelessWidget {
                 color: AppColors.callRejectRed,
                 shape: BoxShape.circle,
               ),
-              child:
-                  const Icon(Icons.call_end, color: Colors.white, size: 30),
+              child: const Icon(Icons.call_end, color: Colors.white, size: 30),
             ),
           ),
           const SizedBox(height: 8),
-          const Text('پایان',
-              style: TextStyle(color: Colors.white70, fontSize: 12)),
+          const Text(
+            'پایان',
+            style: TextStyle(color: Colors.white70, fontSize: 12),
+          ),
         ],
       ),
     );
@@ -426,8 +448,10 @@ class _DtmfKey extends StatelessWidget {
           width: 64,
           height: 56,
           child: Center(
-            child: Text(display,
-                style: const TextStyle(color: Colors.white, fontSize: 26)),
+            child: Text(
+              display,
+              style: const TextStyle(color: Colors.white, fontSize: 26),
+            ),
           ),
         ),
       ),

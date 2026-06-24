@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../constants/app_constants.dart';
@@ -5,6 +6,19 @@ import '../constants/app_constants.dart';
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
   static Database? _database;
+
+  /// When set, the database is opened at this exact path instead of the default
+  /// app location. Tests point it at an in-memory database.
+  @visibleForTesting
+  static String? databasePathOverride;
+
+  /// Closes and clears the cached handle so the next access re-opens a fresh
+  /// database. Used between tests for isolation.
+  @visibleForTesting
+  static Future<void> resetForTesting() async {
+    await _database?.close();
+    _database = null;
+  }
 
   DatabaseHelper._init();
 
@@ -20,8 +34,8 @@ class DatabaseHelper {
 
   Future<Database> _initDB(String filePath) async {
     try {
-      final dbPath = await getDatabasesPath();
-      final path = join(dbPath, filePath);
+      final path =
+          databasePathOverride ?? join(await getDatabasesPath(), filePath);
 
       return await openDatabase(
         path,
@@ -41,14 +55,14 @@ class DatabaseHelper {
         ALTER TABLE ${AppConstants.messagesTable} 
         ADD COLUMN is_read INTEGER DEFAULT 0
       ''');
-      
+
       // Mark all sent messages as read by default
       await db.execute('''
         UPDATE ${AppConstants.messagesTable} 
         SET is_read = 1 
         WHERE type = 'sent'
       ''');
-      
+
       // Create index for faster unread queries
       await db.execute('''
         CREATE INDEX idx_messages_is_read ON ${AppConstants.messagesTable}(is_read)
@@ -297,13 +311,3 @@ class DatabaseHelper {
     }
   }
 }
-
-
-
-
-
-
-
-
-
-

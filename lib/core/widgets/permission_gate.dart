@@ -48,8 +48,8 @@ class _PermissionGateState extends State<PermissionGate> {
 
   Future<void> _checkInitial() async {
     try {
-      final allGranted =
-          await PermissionService.instance.hasAllRequiredPermissions();
+      final allGranted = await PermissionService.instance
+          .hasAllRequiredPermissions();
       if (!mounted) return;
       setState(() {
         _phase = allGranted ? _GatePhase.done : _GatePhase.needsRequest;
@@ -64,8 +64,7 @@ class _PermissionGateState extends State<PermissionGate> {
     if (_isRequesting) return;
     setState(() => _isRequesting = true);
     try {
-      final results =
-          await PermissionService.instance.requestAllPermissions();
+      final results = await PermissionService.instance.requestAllPermissions();
       if (!mounted) return;
       setState(() {
         _results = results;
@@ -84,9 +83,7 @@ class _PermissionGateState extends State<PermissionGate> {
   Widget build(BuildContext context) {
     switch (_phase) {
       case _GatePhase.checking:
-        return const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        );
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
       case _GatePhase.done:
         return widget.child;
@@ -157,10 +154,7 @@ class _PermissionRequestScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 32),
                 ...PermissionService.requiredPermissions.map(
-                  (p) => _PermissionRow(
-                    permission: p,
-                    status: results[p],
-                  ),
+                  (p) => _PermissionRow(permission: p, status: results[p]),
                 ),
                 const SizedBox(height: 32),
                 if (_hasDeniedPermanently) ...[
@@ -209,8 +203,9 @@ class _PermissionRequestScreen extends StatelessWidget {
                   child: Text(
                     'ادامه بدون دسترسی',
                     style: TextStyle(
-                      color: theme.textTheme.bodyMedium?.color
-                          ?.withValues(alpha: 0.6),
+                      color: theme.textTheme.bodyMedium?.color?.withValues(
+                        alpha: 0.6,
+                      ),
                     ),
                   ),
                 ),

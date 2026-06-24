@@ -60,9 +60,11 @@ class ThreadTile extends StatelessWidget {
                         if (thread.isPinned)
                           Padding(
                             padding: const EdgeInsets.only(left: 4),
-                            child: Icon(Icons.push_pin,
-                                size: 14,
-                                color: theme.textTheme.bodyMedium?.color),
+                            child: Icon(
+                              Icons.push_pin,
+                              size: 14,
+                              color: theme.textTheme.bodyMedium?.color,
+                            ),
                           ),
                         Expanded(
                           child: Text(
@@ -71,8 +73,9 @@ class ThreadTile extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: 16,
-                              fontWeight:
-                                  unread ? FontWeight.w700 : FontWeight.w500,
+                              fontWeight: unread
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
                               color: theme.textTheme.bodyLarge?.color,
                             ),
                           ),
@@ -82,8 +85,9 @@ class ThreadTile extends StatelessWidget {
                           DateFormatter.formatDate(thread.lastMessageTime),
                           style: TextStyle(
                             fontSize: 12,
-                            fontWeight:
-                                unread ? FontWeight.w600 : FontWeight.w400,
+                            fontWeight: unread
+                                ? FontWeight.w600
+                                : FontWeight.w400,
                             color: unread
                                 ? cs.primary
                                 : theme.textTheme.bodySmall?.color,
@@ -101,8 +105,9 @@ class ThreadTile extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: 14,
-                              fontWeight:
-                                  unread ? FontWeight.w600 : FontWeight.w400,
+                              fontWeight: unread
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
                               color: unread
                                   ? theme.textTheme.bodyLarge?.color
                                   : theme.textTheme.bodyMedium?.color,
@@ -114,7 +119,9 @@ class ThreadTile extends StatelessWidget {
                           Container(
                             constraints: const BoxConstraints(minWidth: 20),
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
                             decoration: BoxDecoration(
                               color: cs.primary,
                               borderRadius: BorderRadius.circular(10),
@@ -123,7 +130,9 @@ class ThreadTile extends StatelessWidget {
                               '${thread.unreadCount}',
                               textAlign: TextAlign.center,
                               style: const TextStyle(
-                                  color: Colors.white, fontSize: 12),
+                                color: Colors.white,
+                                fontSize: 12,
+                              ),
                             ),
                           ),
                         ],

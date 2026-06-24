@@ -15,11 +15,9 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
   List<ContactModel> _allContacts = [];
   StreamSubscription<CallInfo>? _callSub;
 
-  DialerBloc(
-    this._contactRepository, {
-    NativeCallService? callService,
-  })  : _callService = callService ?? NativeCallService.instance,
-        super(const DialerState()) {
+  DialerBloc(this._contactRepository, {NativeCallService? callService})
+    : _callService = callService ?? NativeCallService.instance,
+      super(const DialerState()) {
     // ── Keypad handlers ─────────────────────────────────────
     on<DialerLoadContacts>(_onLoadContacts);
     on<DialerNumberPressed>(_onNumberPressed);
@@ -66,52 +64,51 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     }
   }
 
-  void _onNumberPressed(
-    DialerNumberPressed event,
-    Emitter<DialerState> emit,
-  ) {
+  void _onNumberPressed(DialerNumberPressed event, Emitter<DialerState> emit) {
     final newNumber = state.dialedNumber + event.number;
     _debounceTimer?.cancel();
-    emit(state.copyWith(
-      dialedNumber: newNumber,
-      isLoadingContacts: true,
-      clearError: true,
-    ));
+    emit(
+      state.copyWith(
+        dialedNumber: newNumber,
+        isLoadingContacts: true,
+        clearError: true,
+      ),
+    );
     _debounceTimer = Timer(const Duration(milliseconds: 300), () {
       add(DialerFilterContacts(newNumber));
     });
   }
 
-  void _onNumberCleared(
-    DialerNumberCleared event,
-    Emitter<DialerState> emit,
-  ) {
+  void _onNumberCleared(DialerNumberCleared event, Emitter<DialerState> emit) {
     _debounceTimer?.cancel();
-    emit(state.copyWith(
-      dialedNumber: '',
-      matchingContacts: [],
-      isNumberInContacts: false,
-      isLoadingContacts: false,
-      clearError: true,
-    ));
-  }
-
-  void _onNumberDeleted(
-    DialerNumberDeleted event,
-    Emitter<DialerState> emit,
-  ) {
-    if (state.dialedNumber.isEmpty) return;
-    final newNumber = state.dialedNumber
-        .substring(0, state.dialedNumber.length - 1);
-    _debounceTimer?.cancel();
-
-    if (newNumber.isEmpty) {
-      emit(state.copyWith(
+    emit(
+      state.copyWith(
         dialedNumber: '',
         matchingContacts: [],
         isNumberInContacts: false,
         isLoadingContacts: false,
-      ));
+        clearError: true,
+      ),
+    );
+  }
+
+  void _onNumberDeleted(DialerNumberDeleted event, Emitter<DialerState> emit) {
+    if (state.dialedNumber.isEmpty) return;
+    final newNumber = state.dialedNumber.substring(
+      0,
+      state.dialedNumber.length - 1,
+    );
+    _debounceTimer?.cancel();
+
+    if (newNumber.isEmpty) {
+      emit(
+        state.copyWith(
+          dialedNumber: '',
+          matchingContacts: [],
+          isNumberInContacts: false,
+          isLoadingContacts: false,
+        ),
+      );
     } else {
       emit(state.copyWith(dialedNumber: newNumber, isLoadingContacts: true));
       _debounceTimer = Timer(const Duration(milliseconds: 300), () {
@@ -125,11 +122,13 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     Emitter<DialerState> emit,
   ) async {
     if (event.query.isEmpty) {
-      emit(state.copyWith(
-        matchingContacts: [],
-        isNumberInContacts: false,
-        isLoadingContacts: false,
-      ));
+      emit(
+        state.copyWith(
+          matchingContacts: [],
+          isNumberInContacts: false,
+          isLoadingContacts: false,
+        ),
+      );
       return;
     }
     try {
@@ -142,11 +141,13 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
           (p) => _digitsOnly(p) == _digitsOnly(event.query),
         ),
       );
-      emit(state.copyWith(
-        matchingContacts: matches,
-        isNumberInContacts: inContacts,
-        isLoadingContacts: false,
-      ));
+      emit(
+        state.copyWith(
+          matchingContacts: matches,
+          isNumberInContacts: inContacts,
+          isLoadingContacts: false,
+        ),
+      );
     } catch (e) {
       emit(state.copyWith(isLoadingContacts: false, error: e.toString()));
     }
@@ -160,12 +161,14 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
       // Option A: native system dialer opens and manages the full call lifecycle.
       // Clear the keypad so the dialer is ready when the user returns.
       await _callService.makeCall(state.dialedNumber);
-      emit(state.copyWith(
-        dialedNumber: '',
-        matchingContacts: [],
-        isNumberInContacts: false,
-        clearError: true,
-      ));
+      emit(
+        state.copyWith(
+          dialedNumber: '',
+          matchingContacts: [],
+          isNumberInContacts: false,
+          clearError: true,
+        ),
+      );
     } catch (e) {
       emit(state.copyWith(error: e.toString()));
     }
@@ -175,10 +178,12 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     final info = event.callInfo;
     switch (info.event) {
       case NativeCallEvent.incoming:
-        emit(state.copyWith(
-          callStatus: CallStatus.incoming,
-          activePhone: info.phone,
-        ));
+        emit(
+          state.copyWith(
+            callStatus: CallStatus.incoming,
+            activePhone: info.phone,
+          ),
+        );
       case NativeCallEvent.ringing:
         emit(state.copyWith(callStatus: CallStatus.ringing));
       case NativeCallEvent.active:
@@ -187,30 +192,35 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
         emit(state.copyWith(callStatus: CallStatus.onHold));
       case NativeCallEvent.disconnected:
         // reset call state — keypad و dialedNumber را حفظ کن
-        emit(state.copyWith(
-          callStatus: CallStatus.idle,
-          activePhone: '',
-          isMuted: false,
-          isSpeakerOn: false,
-          clearError: true,
-        ));
+        emit(
+          state.copyWith(
+            callStatus: CallStatus.idle,
+            activePhone: '',
+            isMuted: false,
+            isSpeakerOn: false,
+            clearError: true,
+          ),
+        );
       case NativeCallEvent.callFailed:
-        emit(state.copyWith(
-          callStatus: CallStatus.idle,
-          error: 'تماس برقرار نشد',
-        ));
+        emit(
+          state.copyWith(callStatus: CallStatus.idle, error: 'تماس برقرار نشد'),
+        );
     }
   }
 
   Future<void> _onToggleMute(
-      ToggleMute event, Emitter<DialerState> emit) async {
+    ToggleMute event,
+    Emitter<DialerState> emit,
+  ) async {
     final muted = !state.isMuted;
     await _callService.muteCall(muted: muted);
     emit(state.copyWith(isMuted: muted));
   }
 
   Future<void> _onToggleSpeaker(
-      ToggleSpeaker event, Emitter<DialerState> emit) async {
+    ToggleSpeaker event,
+    Emitter<DialerState> emit,
+  ) async {
     final on = !state.isSpeakerOn;
     await _callService.setSpeakerphone(on: on);
     emit(state.copyWith(isSpeakerOn: on));
@@ -220,13 +230,15 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     // Reset the call UI IMMEDIATELY so the in-call screen dismisses without
     // waiting for the native round-trip. The actual teardown is fired and
     // forgotten; the DISCONNECTED stream event will arrive as a no-op.
-    emit(state.copyWith(
-      callStatus: CallStatus.idle,
-      activePhone: '',
-      isMuted: false,
-      isSpeakerOn: false,
-      clearError: true,
-    ));
+    emit(
+      state.copyWith(
+        callStatus: CallStatus.idle,
+        activePhone: '',
+        isMuted: false,
+        isSpeakerOn: false,
+        clearError: true,
+      ),
+    );
     unawaited(() async {
       try {
         await _callService.endCall();

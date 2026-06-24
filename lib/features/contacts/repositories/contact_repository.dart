@@ -7,21 +7,33 @@ import 'package:flutter_contacts/flutter_contacts.dart' as device_contacts;
 import '../models/contact_model.dart';
 
 /// Top-level function for isolate: maps serialized contact maps to output maps (with avatar_base64).
-List<Map<String, dynamic>> _mapContactsInIsolate(List<Map<String, dynamic>> serialized) {
-  return serialized.map((m) {
-    final phones = (m['phones'] as List<dynamic>?)?.map((e) => e as String).where((p) => p.isNotEmpty).toList() ?? [];
-    final primary = phones.isNotEmpty ? phones.first : '';
-    if (primary.isEmpty) return null;
-    final name = (m['name'] as String?)?.isNotEmpty == true ? m['name']! : 'بدون نام';
-    return <String, dynamic>{
-      'id': m['id'] as String? ?? '',
-      'name': name,
-      'phone_number': primary,
-      'phone_numbers': phones,
-      'email': m['email'] as String?,
-      'avatar_base64': m['avatar_base64'] as String?,
-    };
-  }).whereType<Map<String, dynamic>>().toList();
+List<Map<String, dynamic>> _mapContactsInIsolate(
+  List<Map<String, dynamic>> serialized,
+) {
+  return serialized
+      .map((m) {
+        final phones =
+            (m['phones'] as List<dynamic>?)
+                ?.map((e) => e as String)
+                .where((p) => p.isNotEmpty)
+                .toList() ??
+            [];
+        final primary = phones.isNotEmpty ? phones.first : '';
+        if (primary.isEmpty) return null;
+        final name = (m['name'] as String?)?.isNotEmpty == true
+            ? m['name']!
+            : 'بدون نام';
+        return <String, dynamic>{
+          'id': m['id'] as String? ?? '',
+          'name': name,
+          'phone_number': primary,
+          'phone_numbers': phones,
+          'email': m['email'] as String?,
+          'avatar_base64': m['avatar_base64'] as String?,
+        };
+      })
+      .whereType<Map<String, dynamic>>()
+      .toList();
 }
 
 class ContactRepository {
@@ -64,7 +76,10 @@ class ContactRepository {
       // Serialize for isolate (minimal data; photos as base64)
       final serialized = <Map<String, dynamic>>[];
       for (final c in contacts) {
-        final phones = c.phones.map((p) => p.number).where((p) => p.isNotEmpty).toList();
+        final phones = c.phones
+            .map((p) => p.number)
+            .where((p) => p.isNotEmpty)
+            .toList();
         if (phones.isEmpty) continue;
         serialized.add({
           'id': c.id,
@@ -81,16 +96,18 @@ class ContactRepository {
       // Quick pass on main thread: build ContactModels (decode base64)
       final now = DateTime.now();
       _cache = mapped
-          .map((m) => ContactModel(
-                id: m['id'] as String,
-                name: m['name'] as String,
-                phoneNumber: m['phone_number'] as String,
-                phoneNumbers: List<String>.from(m['phone_numbers'] as List),
-                email: m['email'] as String?,
-                createdAt: now,
-                updatedAt: now,
-                avatar: _decodeAvatar(m['avatar_base64'] as String?),
-              ))
+          .map(
+            (m) => ContactModel(
+              id: m['id'] as String,
+              name: m['name'] as String,
+              phoneNumber: m['phone_number'] as String,
+              phoneNumbers: List<String>.from(m['phone_numbers'] as List),
+              email: m['email'] as String?,
+              createdAt: now,
+              updatedAt: now,
+              avatar: _decodeAvatar(m['avatar_base64'] as String?),
+            ),
+          )
           .toList();
       return _cache!;
     } finally {
@@ -169,9 +186,11 @@ class ContactRepository {
     final contacts = await getDeviceContacts();
     final lower = query.toLowerCase();
     return contacts
-        .where((c) =>
-            c.name.toLowerCase().contains(lower) ||
-            c.phoneNumbers.any((p) => p.toLowerCase().contains(lower)))
+        .where(
+          (c) =>
+              c.name.toLowerCase().contains(lower) ||
+              c.phoneNumbers.any((p) => p.toLowerCase().contains(lower)),
+        )
         .toList();
   }
 
@@ -197,4 +216,3 @@ class ContactRepository {
     }).toList();
   }
 }
-

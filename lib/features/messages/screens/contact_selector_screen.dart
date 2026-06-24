@@ -84,11 +84,9 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Scaffold(
-      appBar: const RtlAppBar(
-        title: 'انتخاب مخاطب',
-      ),
+      appBar: const RtlAppBar(title: 'انتخاب مخاطب'),
       body: Directionality(
         textDirection: TextDirection.rtl,
         child: Column(
@@ -103,7 +101,9 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
                   hintText: 'نام، شماره تلفن یا ایمیل را انتخاب کنید',
                   hintStyle: TextStyle(
                     fontSize: 14,
-                    color: theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.6),
+                    color: theme.textTheme.bodyMedium?.color?.withValues(
+                      alpha: 0.6,
+                    ),
                   ),
                   prefixIcon: const Icon(Icons.search),
                   filled: true,
@@ -126,7 +126,7 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
                 },
               ),
             ),
-            
+
             // Create group button
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -196,7 +196,7 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
 
                   if (state is ContactsLoaded) {
                     final filteredContacts = _filterContacts(state.contacts);
-                    
+
                     if (filteredContacts.isEmpty) {
                       return const Center(
                         child: Text(
@@ -258,7 +258,11 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
     );
   }
 
-  Widget _buildContactItem(BuildContext context, ContactModel contact, ThemeData theme) {
+  Widget _buildContactItem(
+    BuildContext context,
+    ContactModel contact,
+    ThemeData theme,
+  ) {
     // The threadId must use the same normalization as SmsService._normalizePhoneNumber
     // (pure digits) so that LoadMessages(threadId) finds the message that was just saved.
     final threadId = PhoneNormalizer.toThreadId(contact.phoneNumber);
@@ -338,5 +342,3 @@ class _ContactListRow {
   _ContactListRow({this.letter, this.contact});
   bool get isHeader => letter != null;
 }
-
-

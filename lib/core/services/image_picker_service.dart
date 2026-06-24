@@ -6,8 +6,9 @@ class ImagePickerService {
   ImagePickerService._();
   static final ImagePickerService instance = ImagePickerService._();
 
-  static const _channel =
-      MethodChannel('com.example.communication_super_app/media');
+  static const _channel = MethodChannel(
+    'com.example.communication_super_app/media',
+  );
 
   Future<Uint8List?> pickImage() async {
     final result = await _channel.invokeMethod<Uint8List>('pickImage');

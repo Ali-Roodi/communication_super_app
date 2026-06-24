@@ -134,17 +134,17 @@ class SettingsState extends Equatable {
 
   @override
   List<Object?> get props => [
-        showDialpadOnStart,
-        sortByLastName,
-        nameFormatLastFirst,
-        alsoVibrate,
-        keypadTones,
-        dialpadTones,
-        hearingAids,
-        noiseReduction,
-        callerIdSpam,
-        filterSpam,
-        ttyMode,
-        quickReplies,
-      ];
+    showDialpadOnStart,
+    sortByLastName,
+    nameFormatLastFirst,
+    alsoVibrate,
+    keypadTones,
+    dialpadTones,
+    hearingAids,
+    noiseReduction,
+    callerIdSpam,
+    filterSpam,
+    ttyMode,
+    quickReplies,
+  ];
 }

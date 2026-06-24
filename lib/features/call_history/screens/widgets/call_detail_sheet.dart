@@ -73,8 +73,9 @@ class _CallDetailSheet extends StatelessWidget {
                     child: Text(
                       PersianUtils.toPersianNumber(log.phoneNumber),
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.textTheme.bodyMedium?.color
-                            ?.withValues(alpha: 0.7),
+                        color: theme.textTheme.bodyMedium?.color?.withValues(
+                          alpha: 0.7,
+                        ),
                       ),
                     ),
                   ),
@@ -100,16 +101,18 @@ class _CallDetailSheet extends StatelessWidget {
                   },
                 ),
                 ListTile(
-                  leading:
-                      const Icon(Icons.block, color: AppColors.callRejectRed),
+                  leading: const Icon(
+                    Icons.block,
+                    color: AppColors.callRejectRed,
+                  ),
                   title: const Text(
                     'مسدود کردن شماره',
                     style: TextStyle(color: AppColors.callRejectRed),
                   ),
                   onTap: () {
-                    context
-                        .read<BlockedNumbersBloc>()
-                        .add(BlockNumber(log.phoneNumber));
+                    context.read<BlockedNumbersBloc>().add(
+                      BlockNumber(log.phoneNumber),
+                    );
                     Navigator.of(context).pop();
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('شماره مسدود شد')),
@@ -173,27 +176,27 @@ class _ActionChips extends StatelessWidget {
               icon: hasName ? Icons.person : Icons.person_add_alt,
               label: hasName ? 'مخاطب' : 'افزودن',
               onTap: () async {
-            if (hasName) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('به‌زودی')),
-              );
-            } else {
-              // Capture the bloc before the sheet's context is torn down so we
-              // can refresh the recents list once the contact is saved (its
-              // name then resolves in the log).
-              final callLogBloc = context.read<CallLogBloc>();
-              final navigator = Navigator.of(context);
-              navigator.pop();
-              final saved = await navigator.push<bool>(
-                MaterialPageRoute(
-                  builder: (_) =>
-                      AddEditContactScreen(initialPhone: log.phoneNumber),
-                ),
-              );
-              if (saved == true) {
-                callLogBloc.add(const RefreshCallLogs());
-              }
-            }
+                if (hasName) {
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(const SnackBar(content: Text('به‌زودی')));
+                } else {
+                  // Capture the bloc before the sheet's context is torn down so we
+                  // can refresh the recents list once the contact is saved (its
+                  // name then resolves in the log).
+                  final callLogBloc = context.read<CallLogBloc>();
+                  final navigator = Navigator.of(context);
+                  navigator.pop();
+                  final saved = await navigator.push<bool>(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          AddEditContactScreen(initialPhone: log.phoneNumber),
+                    ),
+                  );
+                  if (saved == true) {
+                    callLogBloc.add(const RefreshCallLogs());
+                  }
+                }
               },
             ),
           ),
@@ -259,10 +262,15 @@ class _CallRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       dense: true,
-      leading: Icon(_callIcon(call.callType),
-          color: _callColor(call.callType), size: 20),
-      title: Text(_callLabel(call.callType),
-          style: const TextStyle(fontSize: 14)),
+      leading: Icon(
+        _callIcon(call.callType),
+        color: _callColor(call.callType),
+        size: 20,
+      ),
+      title: Text(
+        _callLabel(call.callType),
+        style: const TextStyle(fontSize: 14),
+      ),
       subtitle: Text(_dateTime(call.timestamp)),
       trailing: Text(
         _duration(call),

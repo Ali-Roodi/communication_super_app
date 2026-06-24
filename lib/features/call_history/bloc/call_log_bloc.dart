@@ -7,11 +7,16 @@ import '../repositories/call_log_repository.dart';
 const int _callLogPageSize = 50;
 
 class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
-  final CallLogService _service = CallLogService();
-  final CallLogRepository _repository = CallLogRepository();
+  final CallLogService _service;
+  final CallLogRepository _repository;
   bool _isLoadingMore = false;
 
-  CallLogBloc() : super(const CallLogInitial()) {
+  /// Dependencies default to real implementations so production callers can use
+  /// `CallLogBloc()`; tests can inject fakes/mocks.
+  CallLogBloc({CallLogService? service, CallLogRepository? repository})
+    : _service = service ?? CallLogService(),
+      _repository = repository ?? CallLogRepository(),
+      super(const CallLogInitial()) {
     on<LoadCallLogs>(_onLoadCallLogs);
     on<RefreshCallLogs>(_onRefreshCallLogs);
     on<LoadMoreCallLogs>(_onLoadMoreCallLogs);
@@ -29,10 +34,9 @@ class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
         limit: _callLogPageSize,
         offset: 0,
       );
-      emit(CallLogsLoaded(
-        callLogs,
-        hasMore: callLogs.length >= _callLogPageSize,
-      ));
+      emit(
+        CallLogsLoaded(callLogs, hasMore: callLogs.length >= _callLogPageSize),
+      );
     } catch (e) {
       emit(CallLogError(e.toString()));
     }
@@ -49,10 +53,9 @@ class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
         limit: _callLogPageSize,
         offset: 0,
       );
-      emit(CallLogsLoaded(
-        callLogs,
-        hasMore: callLogs.length >= _callLogPageSize,
-      ));
+      emit(
+        CallLogsLoaded(callLogs, hasMore: callLogs.length >= _callLogPageSize),
+      );
     } catch (e) {
       emit(CallLogError(e.toString()));
     }
@@ -75,10 +78,12 @@ class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
         emit(CallLogsLoaded(current.callLogs, hasMore: false));
         return;
       }
-      emit(CallLogsLoaded(
-        [...current.callLogs, ...more],
-        hasMore: more.length >= _callLogPageSize,
-      ));
+      emit(
+        CallLogsLoaded([
+          ...current.callLogs,
+          ...more,
+        ], hasMore: more.length >= _callLogPageSize),
+      );
     } catch (_) {
       emit(CallLogsLoaded(current.callLogs, hasMore: false));
     } finally {
@@ -96,19 +101,11 @@ class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
         limit: _callLogPageSize,
         offset: 0,
       );
-      emit(CallLogsLoaded(
-        callLogs,
-        hasMore: callLogs.length >= _callLogPageSize,
-      ));
+      emit(
+        CallLogsLoaded(callLogs, hasMore: callLogs.length >= _callLogPageSize),
+      );
     } catch (e) {
       emit(CallLogError(e.toString()));
     }
   }
 }
-
-
-
-
-
-
-

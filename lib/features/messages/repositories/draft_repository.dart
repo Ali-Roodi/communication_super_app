@@ -46,11 +46,7 @@ class DraftRepository {
 
   Future<void> deleteDraft(String id) async {
     final db = await _dbHelper.database;
-    await db.delete(
-      AppConstants.draftsTable,
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await db.delete(AppConstants.draftsTable, where: 'id = ?', whereArgs: [id]);
   }
 
   // ── Categories ──────────────────────────────────────────────────────────--
@@ -72,10 +68,12 @@ class DraftRepository {
   /// virtual rows on the categories screen.
   Future<({int total, int uncategorized})> getDraftCounts() async {
     final db = await _dbHelper.database;
-    final totalRows = await db
-        .rawQuery('SELECT COUNT(*) AS c FROM ${AppConstants.draftsTable}');
+    final totalRows = await db.rawQuery(
+      'SELECT COUNT(*) AS c FROM ${AppConstants.draftsTable}',
+    );
     final uncatRows = await db.rawQuery(
-        'SELECT COUNT(*) AS c FROM ${AppConstants.draftsTable} WHERE category_id IS NULL');
+      'SELECT COUNT(*) AS c FROM ${AppConstants.draftsTable} WHERE category_id IS NULL',
+    );
     final total = Sqflite.firstIntValue(totalRows) ?? 0;
     final uncategorized = Sqflite.firstIntValue(uncatRows) ?? 0;
     return (total: total, uncategorized: uncategorized);

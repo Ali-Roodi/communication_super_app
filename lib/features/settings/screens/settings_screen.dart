@@ -32,8 +32,9 @@ class SettingsScreen extends StatelessWidget {
                 SwitchListTile(
                   title: const Text('نمایش صفحه‌کلید هنگام شروع'),
                   value: s.showDialpadOnStart,
-                  onChanged: (v) => bloc
-                      .add(SetBoolSetting(BoolSetting.showDialpadOnStart, v)),
+                  onChanged: (v) => bloc.add(
+                    SetBoolSetting(BoolSetting.showDialpadOnStart, v),
+                  ),
                 ),
                 _ChoiceTile<bool>(
                   title: 'مرتب‌سازی بر اساس',
@@ -49,8 +50,9 @@ class SettingsScreen extends StatelessWidget {
                     false: 'نام، نام خانوادگی',
                     true: 'نام خانوادگی، نام',
                   },
-                  onSelected: (v) => bloc
-                      .add(SetBoolSetting(BoolSetting.nameFormatLastFirst, v)),
+                  onSelected: (v) => bloc.add(
+                    SetBoolSetting(BoolSetting.nameFormatLastFirst, v),
+                  ),
                 ),
                 BlocBuilder<ThemeBloc, ThemeState>(
                   builder: (context, t) => _ChoiceTile<AppThemeMode>(
@@ -100,7 +102,8 @@ class SettingsScreen extends StatelessWidget {
                   ListTile(
                     leading: const Icon(Icons.message_outlined),
                     title: Text(s.quickReplies[i]),
-                    onTap: () => _editQuickReply(context, bloc, i, s.quickReplies[i]),
+                    onTap: () =>
+                        _editQuickReply(context, bloc, i, s.quickReplies[i]),
                   ),
                 const _Divider(),
 
@@ -144,7 +147,8 @@ class SettingsScreen extends StatelessWidget {
                   subtitle: const Text('نیازمند فعال بودن شناسه تماس‌گیرنده'),
                   value: s.filterSpam,
                   onChanged: s.callerIdSpam
-                      ? (v) => bloc.add(SetBoolSetting(BoolSetting.filterSpam, v))
+                      ? (v) =>
+                            bloc.add(SetBoolSetting(BoolSetting.filterSpam, v))
                       : null,
                 ),
                 const _Divider(),
@@ -242,27 +246,38 @@ class SettingsScreen extends StatelessWidget {
   Widget _buildSecurity(BuildContext context) {
     return BlocBuilder<AuthBloc, AuthState>(
       builder: (context, authState) {
-        final authType =
-            authState is AuthSet ? authState.authType : AuthType.none;
+        final authType = authState is AuthSet
+            ? authState.authType
+            : AuthType.none;
         final hasPin = authType == AuthType.pin;
         return Column(
           children: [
             ListTile(
-              leading: Icon(Icons.pin_outlined,
-                  color: hasPin ? Theme.of(context).colorScheme.primary : null),
-              title: Text(hasPin ? 'تغییر رمز عبور (PIN)' : 'تنظیم رمز عبور (PIN)'),
-              subtitle: Text(hasPin ? 'رمز عبور PIN فعال است' : 'بدون رمز عبور'),
-              trailing: const Icon(Icons.chevron_left),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const PinSetupScreen()),
+              leading: Icon(
+                Icons.pin_outlined,
+                color: hasPin ? Theme.of(context).colorScheme.primary : null,
               ),
+              title: Text(
+                hasPin ? 'تغییر رمز عبور (PIN)' : 'تنظیم رمز عبور (PIN)',
+              ),
+              subtitle: Text(
+                hasPin ? 'رمز عبور PIN فعال است' : 'بدون رمز عبور',
+              ),
+              trailing: const Icon(Icons.chevron_left),
+              onTap: () => Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const PinSetupScreen())),
             ),
             if (authState is AuthAuthenticated || authState is AuthSet)
               ListTile(
-                leading: const Icon(Icons.no_encryption_outlined,
-                    color: AppColors.danger),
-                title: const Text('حذف قفل برنامه',
-                    style: TextStyle(color: AppColors.danger)),
+                leading: const Icon(
+                  Icons.no_encryption_outlined,
+                  color: AppColors.danger,
+                ),
+                title: const Text(
+                  'حذف قفل برنامه',
+                  style: TextStyle(color: AppColors.danger),
+                ),
                 subtitle: const Text('بدون قفل وارد برنامه می‌شوید'),
                 onTap: () => _confirmClearAuth(context),
               ),
@@ -298,9 +313,9 @@ class SettingsScreen extends StatelessWidget {
     ).then((confirmed) {
       if (confirmed == true && context.mounted) {
         context.read<AuthBloc>().add(const ClearAuth());
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('قفل برنامه حذف شد')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('قفل برنامه حذف شد')));
       }
     });
   }
@@ -344,10 +359,12 @@ class _ChoiceTile<T> extends StatelessWidget {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: options.entries
-                        .map((e) => RadioListTile<T>(
-                              value: e.key,
-                              title: Text(e.value),
-                            ))
+                        .map(
+                          (e) => RadioListTile<T>(
+                            value: e.key,
+                            title: Text(e.value),
+                          ),
+                        )
                         .toList(),
                   ),
                 ),

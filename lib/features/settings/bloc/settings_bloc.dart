@@ -33,20 +33,22 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     final replies =
         prefs.getStringList(_quickKey) ?? SettingsState.defaultQuickReplies;
 
-    emit(SettingsState(
-      showDialpadOnStart: b(BoolSetting.showDialpadOnStart),
-      sortByLastName: b(BoolSetting.sortByLastName),
-      nameFormatLastFirst: b(BoolSetting.nameFormatLastFirst),
-      alsoVibrate: b(BoolSetting.alsoVibrate),
-      keypadTones: b(BoolSetting.keypadTones),
-      dialpadTones: b(BoolSetting.dialpadTones),
-      hearingAids: b(BoolSetting.hearingAids),
-      noiseReduction: b(BoolSetting.noiseReduction),
-      callerIdSpam: b(BoolSetting.callerIdSpam),
-      filterSpam: b(BoolSetting.filterSpam),
-      ttyMode: tty,
-      quickReplies: replies,
-    ));
+    emit(
+      SettingsState(
+        showDialpadOnStart: b(BoolSetting.showDialpadOnStart),
+        sortByLastName: b(BoolSetting.sortByLastName),
+        nameFormatLastFirst: b(BoolSetting.nameFormatLastFirst),
+        alsoVibrate: b(BoolSetting.alsoVibrate),
+        keypadTones: b(BoolSetting.keypadTones),
+        dialpadTones: b(BoolSetting.dialpadTones),
+        hearingAids: b(BoolSetting.hearingAids),
+        noiseReduction: b(BoolSetting.noiseReduction),
+        callerIdSpam: b(BoolSetting.callerIdSpam),
+        filterSpam: b(BoolSetting.filterSpam),
+        ttyMode: tty,
+        quickReplies: replies,
+      ),
+    );
   }
 
   Future<void> _onSetBool(

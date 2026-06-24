@@ -24,8 +24,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen>
   /// "Missed" tab includes missed and rejected calls.
   bool _matchesFilter(CallLogModel log) {
     if (_filter == _CallFilter.all) return true;
-    return log.callType == CallType.missed ||
-        log.callType == CallType.rejected;
+    return log.callType == CallType.missed || log.callType == CallType.rejected;
   }
 
   // Memoize the display item list (day headers + grouped rows) so grouping
@@ -148,33 +147,36 @@ class _CallHistoryScreenState extends State<CallHistoryScreen>
                   Expanded(
                     child: RefreshIndicator(
                       onRefresh: () async {
-                        context
-                            .read<CallLogBloc>()
-                            .add(const RefreshCallLogs());
+                        context.read<CallLogBloc>().add(
+                          const RefreshCallLogs(),
+                        );
                       },
                       child: items.isEmpty
                           ? ListView(
                               children: [
                                 const SizedBox(height: 80),
                                 Center(
-                                  child: Text('تماس بی‌پاسخی نیست',
-                                      style: theme.textTheme.titleMedium),
+                                  child: Text(
+                                    'تماس بی‌پاسخی نیست',
+                                    style: theme.textTheme.titleMedium,
+                                  ),
                                 ),
                               ],
                             )
                           : ListView.builder(
                               controller: _scrollController,
-                              padding:
-                                  const EdgeInsets.only(top: 4, bottom: 96),
-                              itemCount:
-                                  items.length + (state.hasMore ? 1 : 0),
+                              padding: const EdgeInsets.only(
+                                top: 4,
+                                bottom: 96,
+                              ),
+                              itemCount: items.length + (state.hasMore ? 1 : 0),
                               itemBuilder: (context, index) {
-                                if (state.hasMore &&
-                                    index == items.length) {
+                                if (state.hasMore && index == items.length) {
                                   return const Padding(
                                     padding: EdgeInsets.all(16),
                                     child: Center(
-                                        child: CircularProgressIndicator()),
+                                      child: CircularProgressIndicator(),
+                                    ),
                                   );
                                 }
                                 final item = items[index];

@@ -33,4 +33,3 @@ class PersianUtils {
     return Color(AppConstants.avatarColors[index]);
   }
 }
-

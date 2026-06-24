@@ -39,10 +39,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     }
   }
 
-  Future<void> _onSetPin(
-    SetPin event,
-    Emitter<AuthState> emit,
-  ) async {
+  Future<void> _onSetPin(SetPin event, Emitter<AuthState> emit) async {
     emit(const AuthLoading());
     try {
       await _repository.setPin(event.pin);
@@ -68,10 +65,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     }
   }
 
-  Future<void> _onSetPattern(
-    SetPattern event,
-    Emitter<AuthState> emit,
-  ) async {
+  Future<void> _onSetPattern(SetPattern event, Emitter<AuthState> emit) async {
     emit(const AuthLoading());
     try {
       await _repository.setPattern(event.pattern);
@@ -110,31 +104,20 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     }
   }
 
-  Future<void> _onLogout(
-    Logout event,
-    Emitter<AuthState> emit,
-  ) async {
+  Future<void> _onLogout(Logout event, Emitter<AuthState> emit) async {
     await _repository.setAuthenticated(false);
     final authType = await _repository.getAuthType();
     emit(AuthSet(authType));
   }
 
-  Future<void> _onClearAuth(
-    ClearAuth event,
-    Emitter<AuthState> emit,
-  ) async {
+  Future<void> _onClearAuth(ClearAuth event, Emitter<AuthState> emit) async {
     await _repository.clearAuth();
     emit(const AuthNotSet());
   }
 
-  Future<void> _onLockApp(
-    LockApp event,
-    Emitter<AuthState> emit,
-  ) async {
+  Future<void> _onLockApp(LockApp event, Emitter<AuthState> emit) async {
     await _lockService.lock();
     await _repository.setAuthenticated(false);
     emit(const AuthUnauthenticated());
   }
 }
-
-

@@ -37,9 +37,9 @@ class _AppLockScreenState extends State<AppLockScreen> {
       setState(() {
         _isAuthenticating = true;
       });
-      
+
       final success = await _lockService.authenticateWithBiometric();
-      
+
       if (success) {
         await _lockService.unlock();
         if (!mounted) return;
@@ -82,7 +82,7 @@ class _AppLockScreenState extends State<AppLockScreen> {
     });
 
     final isValid = await _lockService.authenticateWithPin(_pin);
-    
+
     if (isValid) {
       await _lockService.unlock();
       if (!mounted) return;
@@ -96,7 +96,7 @@ class _AppLockScreenState extends State<AppLockScreen> {
         _pin = '';
         _isAuthenticating = false;
       });
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -117,11 +117,7 @@ class _AppLockScreenState extends State<AppLockScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(
-                Icons.lock,
-                size: 64,
-                color: Colors.grey,
-              ),
+              const Icon(Icons.lock, size: 64, color: Colors.grey),
               const SizedBox(height: 24),
               Text(
                 'برنامه قفل شده است',
@@ -179,17 +175,29 @@ class _AppLockScreenState extends State<AppLockScreen> {
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: ['1', '2', '3'].map((number) => _buildKey(number)).toList(),
+            children: [
+              '1',
+              '2',
+              '3',
+            ].map((number) => _buildKey(number)).toList(),
           ),
           const SizedBox(height: 16),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: ['4', '5', '6'].map((number) => _buildKey(number)).toList(),
+            children: [
+              '4',
+              '5',
+              '6',
+            ].map((number) => _buildKey(number)).toList(),
           ),
           const SizedBox(height: 16),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: ['7', '8', '9'].map((number) => _buildKey(number)).toList(),
+            children: [
+              '7',
+              '8',
+              '9',
+            ].map((number) => _buildKey(number)).toList(),
           ),
           const SizedBox(height: 16),
           Row(
@@ -242,4 +250,3 @@ class _AppLockScreenState extends State<AppLockScreen> {
     );
   }
 }
-

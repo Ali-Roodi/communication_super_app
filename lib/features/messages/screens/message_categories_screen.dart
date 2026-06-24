@@ -29,13 +29,15 @@ class MessageCategoriesScreen extends StatelessWidget {
             }
             return ListView(
               padding: const EdgeInsets.symmetric(
-                  horizontal: AppDimensions.paddingMd,
-                  vertical: AppDimensions.paddingSm),
+                horizontal: AppDimensions.paddingMd,
+                vertical: AppDimensions.paddingSm,
+              ),
               children: [
                 _CategoryCard(
                   label: 'همه',
                   count: state.totalCount,
-                  selected: state.filterCategoryId == null &&
+                  selected:
+                      state.filterCategoryId == null &&
                       !state.filterUncategorized,
                   onTap: () => _select(context, const LoadDrafts()),
                 ),
@@ -51,8 +53,7 @@ class MessageCategoriesScreen extends StatelessWidget {
                     label: c.name,
                     count: c.draftCount,
                     selected: state.filterCategoryId == c.id,
-                    onTap: () =>
-                        _select(context, LoadDrafts(categoryId: c.id)),
+                    onTap: () => _select(context, LoadDrafts(categoryId: c.id)),
                     onLongPress: () => _categoryOptions(context, c),
                   ),
               ],
@@ -97,19 +98,28 @@ class MessageCategoriesScreen extends StatelessWidget {
                 title: const Text('تغییر نام'),
                 onTap: () async {
                   Navigator.pop(sheetCtx);
-                  final name = await _nameDialog(context,
-                      title: 'تغییر نام دسته‌بندی', initial: category.name);
+                  final name = await _nameDialog(
+                    context,
+                    title: 'تغییر نام دسته‌بندی',
+                    initial: category.name,
+                  );
                   if (name != null && name.trim().isNotEmpty) {
                     bloc.add(RenameCategory(category.id, name.trim()));
                   }
                 },
               ),
               ListTile(
-                leading:
-                    const Icon(Icons.delete_outline, color: AppColors.danger),
-                title: const Text('حذف',
-                    style: TextStyle(color: AppColors.danger)),
-                subtitle: const Text('پیش‌نویس‌ها به «بدون دسته‌بندی» منتقل می‌شوند'),
+                leading: const Icon(
+                  Icons.delete_outline,
+                  color: AppColors.danger,
+                ),
+                title: const Text(
+                  'حذف',
+                  style: TextStyle(color: AppColors.danger),
+                ),
+                subtitle: const Text(
+                  'پیش‌نویس‌ها به «بدون دسته‌بندی» منتقل می‌شوند',
+                ),
                 onTap: () {
                   bloc.add(DeleteCategory(category.id));
                   Navigator.pop(sheetCtx);
@@ -122,8 +132,11 @@ class MessageCategoriesScreen extends StatelessWidget {
     );
   }
 
-  Future<String?> _nameDialog(BuildContext context,
-      {required String title, String? initial}) {
+  Future<String?> _nameDialog(
+    BuildContext context, {
+    required String title,
+    String? initial,
+  }) {
     final controller = TextEditingController(text: initial ?? '');
     return showDialog<String>(
       context: context,
@@ -184,7 +197,9 @@ class _CategoryCard extends StatelessWidget {
           onLongPress: onLongPress,
           child: Padding(
             padding: const EdgeInsets.symmetric(
-                horizontal: AppDimensions.paddingMd, vertical: 18),
+              horizontal: AppDimensions.paddingMd,
+              vertical: 18,
+            ),
             child: Row(
               children: [
                 Expanded(

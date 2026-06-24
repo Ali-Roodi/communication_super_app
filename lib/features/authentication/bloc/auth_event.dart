@@ -62,5 +62,3 @@ class ClearAuth extends AuthEvent {
 class LockApp extends AuthEvent {
   const LockApp();
 }
-
-

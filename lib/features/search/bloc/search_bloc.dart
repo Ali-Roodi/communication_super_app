@@ -11,7 +11,7 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
   final CallLogRepository _callLogRepository;
 
   SearchBloc(this._contactRepository, this._callLogRepository)
-      : super(const SearchIdle()) {
+    : super(const SearchIdle()) {
     on<SearchQueryChanged>(_onQueryChanged);
     on<ClearSearch>((_, emit) => emit(const SearchIdle()));
   }
@@ -31,7 +31,8 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
     final contacts = await _contactRepository.getAllContacts();
     final matchedContacts = contacts.where((c) {
       final nameHit = c.name.toLowerCase().contains(lower);
-      final phoneHit = digits.isNotEmpty &&
+      final phoneHit =
+          digits.isNotEmpty &&
           c.phoneNumbers.any((p) => _digits(p).contains(digits));
       return nameHit || phoneHit;
     }).toList();
@@ -55,25 +56,25 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
       if (!nameHit && !phoneHit) continue;
       // De-duplicate by number — keep the most recent (logs are DESC sorted).
       if (!seen.add(norm)) continue;
-      matchedLogs.add(name == null
-          ? log
-          : CallLogModel(
-              id: log.id,
-              contactId: log.contactId,
-              contactName: name,
-              phoneNumber: log.phoneNumber,
-              callType: log.callType,
-              duration: log.duration,
-              timestamp: log.timestamp,
-              simSlot: log.simSlot,
-            ));
+      matchedLogs.add(
+        name == null
+            ? log
+            : CallLogModel(
+                id: log.id,
+                contactId: log.contactId,
+                contactName: name,
+                phoneNumber: log.phoneNumber,
+                callType: log.callType,
+                duration: log.duration,
+                timestamp: log.timestamp,
+                simSlot: log.simSlot,
+              ),
+      );
     }
 
-    emit(SearchResults(
-      query: q,
-      contacts: matchedContacts,
-      callLogs: matchedLogs,
-    ));
+    emit(
+      SearchResults(query: q, contacts: matchedContacts, callLogs: matchedLogs),
+    );
   }
 
   static String _digits(String s) => s.replaceAll(RegExp(r'[^\d]'), '');

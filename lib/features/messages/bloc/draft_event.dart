@@ -26,12 +26,7 @@ class SaveDraft extends DraftEvent {
   final String body;
   final String? categoryId;
 
-  const SaveDraft({
-    this.id,
-    this.title,
-    required this.body,
-    this.categoryId,
-  });
+  const SaveDraft({this.id, this.title, required this.body, this.categoryId});
 
   @override
   List<Object?> get props => [id, title, body, categoryId];
