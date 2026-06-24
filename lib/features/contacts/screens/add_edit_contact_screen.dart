@@ -7,7 +7,9 @@ import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/core/services/image_picker_service.dart';
 import '../bloc/contact_bloc.dart';
 import '../bloc/contact_event.dart';
+import '../models/contact_form_entries.dart';
 import '../repositories/contact_repository.dart';
+import 'widgets/contact_form_fields.dart';
 
 /// Full-screen Add / Edit contact form. Writes to the **device** contacts
 /// (flutter_contacts) so changes appear everywhere (list, favorites, dialer).
@@ -18,11 +20,7 @@ class AddEditContactScreen extends StatefulWidget {
   final String? contactId;
   final String? initialPhone;
 
-  const AddEditContactScreen({
-    super.key,
-    this.contactId,
-    this.initialPhone,
-  });
+  const AddEditContactScreen({super.key, this.contactId, this.initialPhone});
 
   @override
   State<AddEditContactScreen> createState() => _AddEditContactScreenState();
@@ -39,8 +37,8 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
   final _nickname = TextEditingController();
   final _website = TextEditingController();
 
-  final List<_PhoneEntry> _phones = [];
-  final List<_EmailEntry> _emails = [];
+  final List<PhoneEntry> _phones = [];
+  final List<EmailEntry> _emails = [];
   DateTime? _birthday;
 
   Contact? _editing; // populated in edit mode
@@ -57,7 +55,7 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
     if (_isEdit) {
       _loadContact();
     } else {
-      _phones.add(_PhoneEntry(text: widget.initialPhone ?? ''));
+      _phones.add(PhoneEntry(text: widget.initialPhone ?? ''));
     }
   }
 
@@ -98,15 +96,17 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
     _nickname.text = c.name.nickname;
     for (final p in c.phones) {
       // Coerce labels outside our dropdown set so DropdownButton has a match.
-      final label =
-          _phoneLabels.containsKey(p.label) ? p.label : PhoneLabel.other;
-      _phones.add(_PhoneEntry(text: p.number, label: label));
+      final label = kPhoneLabels.containsKey(p.label)
+          ? p.label
+          : PhoneLabel.other;
+      _phones.add(PhoneEntry(text: p.number, label: label));
     }
-    if (_phones.isEmpty) _phones.add(_PhoneEntry());
+    if (_phones.isEmpty) _phones.add(PhoneEntry());
     for (final e in c.emails) {
-      final label =
-          _emailLabels.containsKey(e.label) ? e.label : EmailLabel.other;
-      _emails.add(_EmailEntry(text: e.address, label: label));
+      final label = kEmailLabels.containsKey(e.label)
+          ? e.label
+          : EmailLabel.other;
+      _emails.add(EmailEntry(text: e.address, label: label));
     }
     if (c.addresses.isNotEmpty) _address.text = c.addresses.first.address;
     if (c.organizations.isNotEmpty) {
@@ -155,10 +155,12 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
       contact.organizations = _company.text.trim().isEmpty
           ? []
           : [Organization(company: _company.text.trim())];
-      contact.notes =
-          _notes.text.trim().isEmpty ? [] : [Note(_notes.text.trim())];
-      contact.websites =
-          _website.text.trim().isEmpty ? [] : [Website(_website.text.trim())];
+      contact.notes = _notes.text.trim().isEmpty
+          ? []
+          : [Note(_notes.text.trim())];
+      contact.websites = _website.text.trim().isEmpty
+          ? []
+          : [Website(_website.text.trim())];
       contact.events = _birthday == null
           ? []
           : [
@@ -167,7 +169,7 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
                 month: _birthday!.month,
                 day: _birthday!.day,
                 label: EventLabel.birthday,
-              )
+              ),
             ];
 
       if (_isEdit) {
@@ -201,8 +203,10 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
             ),
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('حذف',
-                  style: TextStyle(color: AppColors.callRejectRed)),
+              child: const Text(
+                'حذف',
+                style: TextStyle(color: AppColors.callRejectRed),
+              ),
             ),
           ],
         ),
@@ -220,8 +224,8 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
     }
   }
 
-  void _snack(String msg) => ScaffoldMessenger.of(context)
-      .showSnackBar(SnackBar(content: Text(msg)));
+  void _snack(String msg) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
 
   // ── UI ──────────────────────────────────────────────────────────────────
 
@@ -265,18 +269,18 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
                     const Divider(height: 24),
                     _buildEmailSection(theme),
                     const Divider(height: 24),
-                    _field(
+                    ContactFormField(
                       controller: _address,
                       icon: Icons.home_outlined,
                       label: 'نشانی',
                       maxLines: 3,
                     ),
-                    _field(
+                    ContactFormField(
                       controller: _company,
                       icon: Icons.business_outlined,
                       label: 'شرکت',
                     ),
-                    _field(
+                    ContactFormField(
                       controller: _notes,
                       icon: Icons.notes_outlined,
                       label: 'یادداشت',
@@ -303,9 +307,14 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
         child: Stack(
           children: [
             _photo != null
-                ? CircleAvatar(radius: 60, backgroundImage: MemoryImage(_photo!))
+                ? CircleAvatar(
+                    radius: 60,
+                    backgroundImage: MemoryImage(_photo!),
+                  )
                 : AvatarWidget(
-                    name: name.isEmpty ? 'مخاطب جدید' : name, size: 120),
+                    name: name.isEmpty ? 'مخاطب جدید' : name,
+                    size: 120,
+                  ),
             Positioned(
               bottom: 0,
               right: 0,
@@ -317,8 +326,11 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
                   onTap: _pickPhoto,
                   child: const Padding(
                     padding: EdgeInsets.all(8),
-                    child: Icon(Icons.photo_camera,
-                        color: Colors.white, size: 20),
+                    child: Icon(
+                      Icons.photo_camera,
+                      color: Colors.white,
+                      size: 20,
+                    ),
                   ),
                 ),
               ),
@@ -335,8 +347,11 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
                     onTap: () => setState(() => _photo = null),
                     child: const Padding(
                       padding: EdgeInsets.all(8),
-                      child: Icon(Icons.delete_outline,
-                          color: Colors.white, size: 20),
+                      child: Icon(
+                        Icons.delete_outline,
+                        color: Colors.white,
+                        size: 20,
+                      ),
                     ),
                   ),
                 ),
@@ -359,7 +374,7 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
   Widget _buildNameSection() {
     return Column(
       children: [
-        _field(
+        ContactFormField(
           controller: _firstName,
           icon: Icons.person_outline,
           label: 'نام',
@@ -372,7 +387,7 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
             return null;
           },
         ),
-        _field(
+        ContactFormField(
           controller: _lastName,
           icon: null,
           label: 'نام خانوادگی',
@@ -385,11 +400,10 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
   Widget _buildPhoneSection(ThemeData theme) {
     return Column(
       children: [
-        for (var i = 0; i < _phones.length; i++)
-          _buildPhoneRow(i, theme),
-        _addMoreButton(
-          'افزودن شماره',
-          () => setState(() => _phones.add(_PhoneEntry())),
+        for (var i = 0; i < _phones.length; i++) _buildPhoneRow(i, theme),
+        AddMoreButton(
+          label: 'افزودن شماره',
+          onTap: () => setState(() => _phones.add(PhoneEntry())),
         ),
       ],
     );
@@ -402,8 +416,10 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          Icon(i == 0 ? Icons.phone_outlined : null,
-              color: theme.iconTheme.color?.withValues(alpha: 0.7)),
+          Icon(
+            i == 0 ? Icons.phone_outlined : null,
+            color: theme.iconTheme.color?.withValues(alpha: 0.7),
+          ),
           const SizedBox(width: 16),
           Expanded(
             child: TextFormField(
@@ -416,8 +432,10 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
           DropdownButton<PhoneLabel>(
             value: entry.label,
             underline: const SizedBox.shrink(),
-            items: _phoneLabels.entries
-                .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
+            items: kPhoneLabels.entries
+                .map(
+                  (e) => DropdownMenuItem(value: e.key, child: Text(e.value)),
+                )
                 .toList(),
             onChanged: (v) => setState(() => entry.label = v ?? entry.label),
           ),
@@ -435,11 +453,10 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
   Widget _buildEmailSection(ThemeData theme) {
     return Column(
       children: [
-        for (var i = 0; i < _emails.length; i++)
-          _buildEmailRow(i, theme),
-        _addMoreButton(
-          'افزودن ایمیل',
-          () => setState(() => _emails.add(_EmailEntry())),
+        for (var i = 0; i < _emails.length; i++) _buildEmailRow(i, theme),
+        AddMoreButton(
+          label: 'افزودن ایمیل',
+          onTap: () => setState(() => _emails.add(EmailEntry())),
         ),
       ],
     );
@@ -452,8 +469,10 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          Icon(i == 0 ? Icons.email_outlined : null,
-              color: theme.iconTheme.color?.withValues(alpha: 0.7)),
+          Icon(
+            i == 0 ? Icons.email_outlined : null,
+            color: theme.iconTheme.color?.withValues(alpha: 0.7),
+          ),
           const SizedBox(width: 16),
           Expanded(
             child: TextFormField(
@@ -466,8 +485,10 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
           DropdownButton<EmailLabel>(
             value: entry.label,
             underline: const SizedBox.shrink(),
-            items: _emailLabels.entries
-                .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
+            items: kEmailLabels.entries
+                .map(
+                  (e) => DropdownMenuItem(value: e.key, child: Text(e.value)),
+                )
                 .toList(),
             onChanged: (v) => setState(() => entry.label = v ?? entry.label),
           ),
@@ -494,12 +515,12 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
     return Column(
       children: [
         const Divider(height: 24),
-        _field(
+        ContactFormField(
           controller: _nickname,
           icon: Icons.badge_outlined,
           label: 'نام مستعار',
         ),
-        _field(
+        ContactFormField(
           controller: _website,
           icon: Icons.language_outlined,
           label: 'وب‌سایت',
@@ -507,9 +528,11 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
         ListTile(
           leading: const Icon(Icons.cake_outlined),
           title: const Text('تاریخ تولد'),
-          subtitle: Text(_birthday == null
-              ? 'تعیین نشده'
-              : '${_birthday!.year}/${_birthday!.month}/${_birthday!.day}'),
+          subtitle: Text(
+            _birthday == null
+                ? 'تعیین نشده'
+                : '${_birthday!.year}/${_birthday!.month}/${_birthday!.day}',
+          ),
           trailing: _birthday == null
               ? null
               : IconButton(
@@ -540,91 +563,16 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
         alignment: AlignmentDirectional.centerStart,
         child: TextButton.icon(
           onPressed: _delete,
-          icon: const Icon(Icons.delete_outline,
-              color: AppColors.callRejectRed),
-          label: const Text('حذف مخاطب',
-              style: TextStyle(color: AppColors.callRejectRed)),
+          icon: const Icon(
+            Icons.delete_outline,
+            color: AppColors.callRejectRed,
+          ),
+          label: const Text(
+            'حذف مخاطب',
+            style: TextStyle(color: AppColors.callRejectRed),
+          ),
         ),
       ),
     );
   }
-
-  // ── Reusable underline field with leading icon ────────────────────────────
-
-  Widget _field({
-    required TextEditingController controller,
-    required IconData? icon,
-    required String label,
-    int maxLines = 1,
-    TextInputType? keyboardType,
-    void Function(String)? onChanged,
-    String? Function(String?)? validator,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 24,
-            child: icon == null
-                ? null
-                : Padding(
-                    padding: const EdgeInsets.only(top: 16),
-                    child: Icon(icon),
-                  ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: TextFormField(
-              controller: controller,
-              maxLines: maxLines,
-              keyboardType: keyboardType,
-              onChanged: onChanged,
-              validator: validator,
-              decoration: InputDecoration(labelText: label),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _addMoreButton(String label, VoidCallback onTap) {
-    return Align(
-      alignment: AlignmentDirectional.centerStart,
-      child: TextButton.icon(
-        onPressed: onTap,
-        icon: const Icon(Icons.add),
-        label: Text(label),
-      ),
-    );
-  }
-
-  static const Map<PhoneLabel, String> _phoneLabels = {
-    PhoneLabel.mobile: 'موبایل',
-    PhoneLabel.home: 'منزل',
-    PhoneLabel.work: 'محل کار',
-    PhoneLabel.other: 'سایر',
-  };
-
-  static const Map<EmailLabel, String> _emailLabels = {
-    EmailLabel.home: 'شخصی',
-    EmailLabel.work: 'محل کار',
-    EmailLabel.other: 'سایر',
-  };
-}
-
-class _PhoneEntry {
-  final TextEditingController controller;
-  PhoneLabel label;
-  _PhoneEntry({String text = '', this.label = PhoneLabel.mobile})
-      : controller = TextEditingController(text: text);
-}
-
-class _EmailEntry {
-  final TextEditingController controller;
-  EmailLabel label;
-  _EmailEntry({String text = '', this.label = EmailLabel.home})
-      : controller = TextEditingController(text: text);
 }

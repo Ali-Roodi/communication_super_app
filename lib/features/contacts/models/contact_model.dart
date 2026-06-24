@@ -60,8 +60,14 @@ class ContactModel extends Equatable {
       } catch (_) {}
     }
     final now = DateTime.now();
-    final phones = (map['phone_numbers'] as List<dynamic>?)?.map((e) => e as String).toList() ?? [];
-    final primary = phones.isNotEmpty ? phones.first : (map['phone_number'] as String? ?? '');
+    final phones =
+        (map['phone_numbers'] as List<dynamic>?)
+            ?.map((e) => e as String)
+            .toList() ??
+        [];
+    final primary = phones.isNotEmpty
+        ? phones.first
+        : (map['phone_number'] as String? ?? '');
     return ContactModel(
       id: map['id'] as String,
       name: map['name'] as String,
@@ -98,17 +104,13 @@ class ContactModel extends Equatable {
 
   @override
   List<Object?> get props => [
-        id,
-        name,
-        phoneNumber,
-        phoneNumbers,
-        email,
-        createdAt,
-        updatedAt,
-        avatar,
-      ];
+    id,
+    name,
+    phoneNumber,
+    phoneNumbers,
+    email,
+    createdAt,
+    updatedAt,
+    avatar,
+  ];
 }
-
-
-
-

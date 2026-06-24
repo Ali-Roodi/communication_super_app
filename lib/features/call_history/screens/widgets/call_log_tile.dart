@@ -56,8 +56,8 @@ class CallLogTile extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w500,
-                            color: titleColor ??
-                                theme.textTheme.bodyLarge?.color,
+                            color:
+                                titleColor ?? theme.textTheme.bodyLarge?.color,
                           ),
                         ),
                       ),
@@ -68,7 +68,8 @@ class CallLogTile extends StatelessWidget {
                             '(${PersianUtils.toPersianNumber('$count')})',
                             style: TextStyle(
                               fontSize: 14,
-                              color: titleColor ??
+                              color:
+                                  titleColor ??
                                   theme.textTheme.bodyMedium?.color,
                             ),
                           ),
@@ -111,14 +112,16 @@ class CallLogTile extends StatelessWidget {
                 onTap: () {
                   Clipboard.setData(ClipboardData(text: log.phoneNumber));
                   Navigator.of(sheetContext).pop();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('شماره کپی شد')),
-                  );
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(const SnackBar(content: Text('شماره کپی شد')));
                 },
               ),
               ListTile(
-                leading:
-                    const Icon(Icons.block, color: AppColors.callRejectRed),
+                leading: const Icon(
+                  Icons.block,
+                  color: AppColors.callRejectRed,
+                ),
                 title: const Text('مسدود کردن'),
                 onTap: () {
                   blockedBloc.add(BlockNumber(log.phoneNumber));
@@ -129,8 +132,10 @@ class CallLogTile extends StatelessWidget {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.delete_outline,
-                    color: AppColors.callRejectRed),
+                leading: const Icon(
+                  Icons.delete_outline,
+                  color: AppColors.callRejectRed,
+                ),
                 title: const Text('حذف'),
                 onTap: () {
                   bloc.add(DeleteCallLog(log.id));
@@ -156,15 +161,19 @@ class _Subtitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = theme.textTheme.bodyMedium?.color;
-    final text = '${_callLabel(log.callType)} · ${_relativeTime(log.timestamp)}';
+    final text =
+        '${_callLabel(log.callType)} · ${_relativeTime(log.timestamp)}';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Icon(_callIcon(log.callType),
-                size: 16, color: _callColor(log.callType)),
+            Icon(
+              _callIcon(log.callType),
+              size: 16,
+              color: _callColor(log.callType),
+            ),
             const SizedBox(width: 6),
             Flexible(
               child: Text(

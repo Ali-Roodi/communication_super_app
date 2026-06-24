@@ -81,14 +81,20 @@ class PhoneNormalizer {
     if (!s.contains(RegExp(r'[۰-۹٠-٩]'))) return s;
 
     const persian = '۰۱۲۳۴۵۶۷۸۹';
-    const arabic  = '٠١٢٣٤٥٦٧٨٩';
+    const arabic = '٠١٢٣٤٥٦٧٨٩';
     final buf = StringBuffer();
     for (final rune in s.runes) {
       final ch = String.fromCharCode(rune);
       final pi = persian.indexOf(ch);
-      if (pi >= 0) { buf.write(pi.toString()); continue; }
+      if (pi >= 0) {
+        buf.write(pi.toString());
+        continue;
+      }
       final ai = arabic.indexOf(ch);
-      if (ai >= 0) { buf.write(ai.toString()); continue; }
+      if (ai >= 0) {
+        buf.write(ai.toString());
+        continue;
+      }
       buf.write(ch);
     }
     return buf.toString();

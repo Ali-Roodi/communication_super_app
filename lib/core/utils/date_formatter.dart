@@ -53,27 +53,3 @@ class DateFormatter {
     return '';
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

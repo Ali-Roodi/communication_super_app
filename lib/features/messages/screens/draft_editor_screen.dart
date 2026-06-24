@@ -52,12 +52,14 @@ class _DraftEditorScreenState extends State<DraftEditorScreen> {
       );
       return;
     }
-    context.read<DraftBloc>().add(SaveDraft(
-          id: widget.draft?.id,
-          title: _titleController.text,
-          body: body,
-          categoryId: _categoryId,
-        ));
+    context.read<DraftBloc>().add(
+      SaveDraft(
+        id: widget.draft?.id,
+        title: _titleController.text,
+        body: body,
+        categoryId: _categoryId,
+      ),
+    );
     Navigator.of(context).pop();
   }
 
@@ -76,11 +78,10 @@ class _DraftEditorScreenState extends State<DraftEditorScreen> {
           actions: [
             Padding(
               padding: const EdgeInsets.symmetric(
-                  horizontal: AppDimensions.paddingSm, vertical: 8),
-              child: FilledButton(
-                onPressed: _save,
-                child: const Text('ذخیره'),
+                horizontal: AppDimensions.paddingSm,
+                vertical: 8,
               ),
+              child: FilledButton(onPressed: _save, child: const Text('ذخیره')),
             ),
           ],
         ),
@@ -131,8 +132,7 @@ class _CategoryDropdown extends StatelessWidget {
           : const [],
     );
     // Guard against a stale value (category deleted while editing).
-    final safeValue =
-        categories.any((c) => c.id == value) ? value : null;
+    final safeValue = categories.any((c) => c.id == value) ? value : null;
 
     return DropdownButtonFormField<String?>(
       initialValue: safeValue,

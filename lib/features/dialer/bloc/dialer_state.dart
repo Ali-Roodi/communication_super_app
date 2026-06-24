@@ -64,14 +64,14 @@ class DialerState extends Equatable {
 
   @override
   List<Object?> get props => [
-        dialedNumber,
-        matchingContacts,
-        isNumberInContacts,
-        isLoadingContacts,
-        callStatus,
-        activePhone,
-        isMuted,
-        isSpeakerOn,
-        error,
-      ];
+    dialedNumber,
+    matchingContacts,
+    isNumberInContacts,
+    isLoadingContacts,
+    callStatus,
+    activePhone,
+    isMuted,
+    isSpeakerOn,
+    error,
+  ];
 }

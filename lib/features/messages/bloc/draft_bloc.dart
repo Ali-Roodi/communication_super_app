@@ -39,14 +39,16 @@ class DraftBloc extends Bloc<DraftEvent, DraftState> {
       );
       final categories = await _repository.getCategories();
       final counts = await _repository.getDraftCounts();
-      emit(DraftsLoaded(
-        drafts: drafts,
-        categories: categories,
-        totalCount: counts.total,
-        uncategorizedCount: counts.uncategorized,
-        filterCategoryId: _filterCategoryId,
-        filterUncategorized: _filterUncategorized,
-      ));
+      emit(
+        DraftsLoaded(
+          drafts: drafts,
+          categories: categories,
+          totalCount: counts.total,
+          uncategorizedCount: counts.uncategorized,
+          filterCategoryId: _filterCategoryId,
+          filterUncategorized: _filterUncategorized,
+        ),
+      );
     } catch (e) {
       emit(DraftError(e.toString()));
     }
@@ -55,13 +57,17 @@ class DraftBloc extends Bloc<DraftEvent, DraftState> {
   Future<void> _onSave(SaveDraft event, Emitter<DraftState> emit) async {
     try {
       if (event.body.trim().isEmpty) return;
-      await _repository.upsertDraft(Draft(
-        id: event.id ?? _uuid.v4(),
-        title: (event.title?.trim().isEmpty ?? true) ? null : event.title!.trim(),
-        body: event.body.trim(),
-        categoryId: event.categoryId,
-        updatedAt: DateTime.now(),
-      ));
+      await _repository.upsertDraft(
+        Draft(
+          id: event.id ?? _uuid.v4(),
+          title: (event.title?.trim().isEmpty ?? true)
+              ? null
+              : event.title!.trim(),
+          body: event.body.trim(),
+          categoryId: event.categoryId,
+          updatedAt: DateTime.now(),
+        ),
+      );
       await _emitLoaded(emit);
     } catch (e) {
       emit(DraftError(e.toString()));
@@ -78,15 +84,15 @@ class DraftBloc extends Bloc<DraftEvent, DraftState> {
   }
 
   Future<void> _onAddCategory(
-      AddCategory event, Emitter<DraftState> emit) async {
+    AddCategory event,
+    Emitter<DraftState> emit,
+  ) async {
     try {
       final name = event.name.trim();
       if (name.isEmpty) return;
-      await _repository.addCategory(MessageCategory(
-        id: _uuid.v4(),
-        name: name,
-        createdAt: DateTime.now(),
-      ));
+      await _repository.addCategory(
+        MessageCategory(id: _uuid.v4(), name: name, createdAt: DateTime.now()),
+      );
       await _emitLoaded(emit);
     } catch (e) {
       emit(DraftError(e.toString()));
@@ -94,7 +100,9 @@ class DraftBloc extends Bloc<DraftEvent, DraftState> {
   }
 
   Future<void> _onRenameCategory(
-      RenameCategory event, Emitter<DraftState> emit) async {
+    RenameCategory event,
+    Emitter<DraftState> emit,
+  ) async {
     try {
       final name = event.name.trim();
       if (name.isEmpty) return;
@@ -106,7 +114,9 @@ class DraftBloc extends Bloc<DraftEvent, DraftState> {
   }
 
   Future<void> _onDeleteCategory(
-      DeleteCategory event, Emitter<DraftState> emit) async {
+    DeleteCategory event,
+    Emitter<DraftState> emit,
+  ) async {
     try {
       // If we were filtering by the deleted category, fall back to «همه».
       if (_filterCategoryId == event.id) {

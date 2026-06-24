@@ -26,7 +26,8 @@ class SmsServiceResult {
 
   const SmsServiceResult._({required this.success, this.errorCode});
   const SmsServiceResult.ok() : this._(success: true);
-  const SmsServiceResult.fail(String code) : this._(success: false, errorCode: code);
+  const SmsServiceResult.fail(String code)
+    : this._(success: false, errorCode: code);
 }
 
 class SmsService {
@@ -42,7 +43,7 @@ class SmsService {
   // Guard: SMS listener should be set up exactly once per app session.
   bool _listening = false;
   bool get isListening => _listening;
-  
+
   // Deduplication: Track recently processed SMS to prevent duplicates
   final Set<String> _recentSmsHashes = {};
   static const int _deduplicationWindowMs = 5000; // 5 second window
@@ -55,8 +56,12 @@ class SmsService {
     if (smsStatus.isGranted && phoneStatus.isGranted) return true;
 
     // Request only what is missing (sequential, one dialog at a time).
-    final sms = smsStatus.isGranted ? smsStatus : await Permission.sms.request();
-    final phone = phoneStatus.isGranted ? phoneStatus : await Permission.phone.request();
+    final sms = smsStatus.isGranted
+        ? smsStatus
+        : await Permission.sms.request();
+    final phone = phoneStatus.isGranted
+        ? phoneStatus
+        : await Permission.phone.request();
     return sms.isGranted && phone.isGranted;
   }
 
@@ -121,62 +126,68 @@ class SmsService {
     try {
       // Initialize notifications
       _notificationService.initialize();
-      
+
       // Initialize native SMS service for receiving
-      _nativeSmsService.initialize().then((_) {
-        // Listen to native SMS events
-        _nativeSmsSubscription = _nativeSmsService.onSmsReceived.listen(
-          (SmsReceivedEvent event) async {
-            final phoneNumber = event.address;
-            final body = event.body;
-            
-            // Check for duplicates
-            if (_isDuplicateSms(phoneNumber, body, event.timestamp)) {
-              return; // Skip duplicate
-            }
-            
-            final normalized = _normalizePhoneNumber(phoneNumber);
-            final threadId = normalized.isNotEmpty ? normalized : phoneNumber;
+      _nativeSmsService
+          .initialize()
+          .then((_) {
+            // Listen to native SMS events
+            _nativeSmsSubscription = _nativeSmsService.onSmsReceived.listen(
+              (SmsReceivedEvent event) async {
+                final phoneNumber = event.address;
+                final body = event.body;
 
-            final contact = await _contactRepository.getContactByPhoneNumber(
-              phoneNumber,
-            );
+                // Check for duplicates
+                if (_isDuplicateSms(phoneNumber, body, event.timestamp)) {
+                  return; // Skip duplicate
+                }
 
-            final messageModel = MessageModel(
-              id: const Uuid().v4(),
-              threadId: threadId,
-              contactId: contact?.id,
-              phoneNumber: phoneNumber,
-              body: body,
-              type: MessageType.received,
-              status: MessageStatus.delivered,
-              timestamp: DateTime.fromMillisecondsSinceEpoch(event.timestamp),
-              isRead: false, // New received messages are unread
-            );
+                final normalized = _normalizePhoneNumber(phoneNumber);
+                final threadId = normalized.isNotEmpty
+                    ? normalized
+                    : phoneNumber;
 
-            await _messageRepository.createMessage(messageModel);
-            
-            // Show notification
-            await _notificationService.showSmsNotification(
-              contactName: contact?.name ?? '',
-              phoneNumber: phoneNumber,
-              message: body,
-              threadId: threadId,
+                final contact = await _contactRepository
+                    .getContactByPhoneNumber(phoneNumber);
+
+                final messageModel = MessageModel(
+                  id: const Uuid().v4(),
+                  threadId: threadId,
+                  contactId: contact?.id,
+                  phoneNumber: phoneNumber,
+                  body: body,
+                  type: MessageType.received,
+                  status: MessageStatus.delivered,
+                  timestamp: DateTime.fromMillisecondsSinceEpoch(
+                    event.timestamp,
+                  ),
+                  isRead: false, // New received messages are unread
+                );
+
+                await _messageRepository.createMessage(messageModel);
+
+                // Show notification
+                await _notificationService.showSmsNotification(
+                  contactName: contact?.name ?? '',
+                  phoneNumber: phoneNumber,
+                  message: body,
+                  threadId: threadId,
+                );
+
+                onMessageReceived?.call(messageModel);
+              },
+              onError: (error) {
+                debugPrint('Error receiving SMS via native service: $error');
+              },
+              cancelOnError: false,
             );
-            
-            onMessageReceived?.call(messageModel);
-          },
-          onError: (error) {
-            debugPrint('Error receiving SMS via native service: $error');
-          },
-          cancelOnError: false,
-        );
-        _listening = true;
-      }).catchError((error) {
-        debugPrint('Failed to initialize native SMS service: $error');
-        // Fallback to telephony plugin
-        _useTelephonyFallback();
-      });
+            _listening = true;
+          })
+          .catchError((error) {
+            debugPrint('Failed to initialize native SMS service: $error');
+            // Fallback to telephony plugin
+            _useTelephonyFallback();
+          });
     } catch (e) {
       // Silently handle errors (e.g., permission denied)
       // SMS listening will be retried when permissions are granted
@@ -311,7 +322,9 @@ class SmsService {
       final batch = <MessageModel>[];
 
       for (final message in inboxList) {
-        batch.add(_createMessageModel(message, MessageType.received, contactMap));
+        batch.add(
+          _createMessageModel(message, MessageType.received, contactMap),
+        );
         if (batch.length >= batchSize) {
           await _messageRepository.createMessagesBatch(batch);
           batch.clear();
@@ -352,7 +365,9 @@ class SmsService {
     final normalized = _normalizePhoneNumber(phone);
     final threadId = normalized.isNotEmpty ? normalized : phone;
     final contact = contactMap[normalized];
-    final status = type == MessageType.sent ? MessageStatus.sent : MessageStatus.delivered;
+    final status = type == MessageType.sent
+        ? MessageStatus.sent
+        : MessageStatus.delivered;
 
     return MessageModel(
       id: (smsMessage.id ?? const Uuid().v4()).toString(),
@@ -391,20 +406,20 @@ class SmsService {
   /// Check if SMS is a duplicate and mark it as processed if not
   bool _isDuplicateSms(String address, String body, int timestamp) {
     final hash = _generateSmsHash(address, body, timestamp);
-    
+
     if (_recentSmsHashes.contains(hash)) {
       debugPrint('Duplicate SMS detected and ignored: $hash');
       return true;
     }
-    
+
     // Add to recent set
     _recentSmsHashes.add(hash);
-    
+
     // Clean up old hashes after deduplication window
     Future.delayed(const Duration(milliseconds: _deduplicationWindowMs), () {
       _recentSmsHashes.remove(hash);
     });
-    
+
     return false;
   }
 
@@ -416,5 +431,3 @@ class SmsService {
     _nativeSmsService.dispose();
   }
 }
-
-

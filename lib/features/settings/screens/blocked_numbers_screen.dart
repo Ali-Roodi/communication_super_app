@@ -49,12 +49,16 @@ class _BlockedNumbersScreenState extends State<BlockedNumbersScreen> {
             Container(
               width: double.infinity,
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-              color: theme.colorScheme.surfaceContainerHighest
-                  .withValues(alpha: 0.4),
+              color: theme.colorScheme.surfaceContainerHighest.withValues(
+                alpha: 0.4,
+              ),
               child: Row(
                 children: [
-                  Icon(Icons.info_outline,
-                      size: 20, color: theme.colorScheme.primary),
+                  Icon(
+                    Icons.info_outline,
+                    size: 20,
+                    color: theme.colorScheme.primary,
+                  ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
@@ -79,7 +83,8 @@ class _BlockedNumbersScreenState extends State<BlockedNumbersScreen> {
                         textAlign: TextAlign.right,
                         inputFormatters: [
                           FilteringTextInputFormatter.allow(
-                              RegExp(r'[\d+\-\s()]')),
+                            RegExp(r'[\d+\-\s()]'),
+                          ),
                         ],
                         onSubmitted: (_) => _block(),
                         decoration: const InputDecoration(
@@ -151,9 +156,9 @@ class _BlockedTile extends StatelessWidget {
         ),
       ),
       trailing: TextButton(
-        onPressed: () => context
-            .read<BlockedNumbersBloc>()
-            .add(UnblockNumber(number.normalized)),
+        onPressed: () => context.read<BlockedNumbersBloc>().add(
+          UnblockNumber(number.normalized),
+        ),
         child: const Text('رفع مسدودی'),
       ),
     );

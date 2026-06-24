@@ -11,10 +11,7 @@ import 'add_edit_contact_screen.dart';
 class ContactDetailScreen extends StatelessWidget {
   final String contactId;
 
-  const ContactDetailScreen({
-    super.key,
-    required this.contactId,
-  });
+  const ContactDetailScreen({super.key, required this.contactId});
 
   @override
   Widget build(BuildContext context) {
@@ -35,9 +32,8 @@ class ContactDetailScreen extends StatelessWidget {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => AddEditContactScreen(
-                    contactId: contactId,
-                  ),
+                  builder: (context) =>
+                      AddEditContactScreen(contactId: contactId),
                 ),
               );
             },
@@ -216,14 +212,9 @@ class ContactDetailScreen extends StatelessWidget {
           const SizedBox(width: 16),
           Text(label),
           const Spacer(),
-          Text(
-            date,
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
+          Text(date, style: Theme.of(context).textTheme.bodyMedium),
         ],
       ),
     );
   }
 }
-
-

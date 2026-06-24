@@ -34,17 +34,11 @@ class AuthWrapperScreen extends StatelessWidget {
           // multiple screens (IndexedStack) simultaneously requesting
           // permissions and kicking off heavy data-loads right after the
           // last dialog is dismissed.
-          return const PermissionGate(
-            child: MainNavigation(),
-          );
+          return const PermissionGate(child: MainNavigation());
         }
 
-        return const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        );
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
       },
     );
   }
 }
-
-

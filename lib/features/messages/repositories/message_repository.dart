@@ -66,7 +66,8 @@ class MessageRepository {
         : 'm.thread_id NOT IN (SELECT thread_id FROM ${AppConstants.archivedThreadsTable})';
 
     // Pinned threads (only relevant in the non-archived inbox) float to the top.
-    String query = '''
+    String query =
+        '''
       SELECT
         m.thread_id,
         m.phone_number,
@@ -105,18 +106,20 @@ class MessageRepository {
 
     final threads = <MessageThread>[];
     for (var map in maps) {
-      threads.add(MessageThread(
-        threadId: map['thread_id'] as String,
-        phoneNumber: map['phone_number'] as String,
-        contactId: map['contact_id'] as String?,
-        contactName: map['contact_name'] as String?,
-        lastMessage: map['last_message'] as String,
-        lastMessageTime: DateTime.fromMillisecondsSinceEpoch(
-          map['last_message_time'] as int,
+      threads.add(
+        MessageThread(
+          threadId: map['thread_id'] as String,
+          phoneNumber: map['phone_number'] as String,
+          contactId: map['contact_id'] as String?,
+          contactName: map['contact_name'] as String?,
+          lastMessage: map['last_message'] as String,
+          lastMessageTime: DateTime.fromMillisecondsSinceEpoch(
+            map['last_message_time'] as int,
+          ),
+          unreadCount: (map['unread_count'] as int?) ?? 0,
+          isPinned: map['pinned_id'] != null,
         ),
-        unreadCount: (map['unread_count'] as int?) ?? 0,
-        isPinned: map['pinned_id'] != null,
-      ));
+      );
     }
     return threads;
   }
@@ -200,7 +203,10 @@ class MessageRepository {
     final db = await _dbHelper.database;
     await db.insert(
       AppConstants.archivedThreadsTable,
-      {'thread_id': threadId, 'archived_at': DateTime.now().millisecondsSinceEpoch},
+      {
+        'thread_id': threadId,
+        'archived_at': DateTime.now().millisecondsSinceEpoch,
+      },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
@@ -230,7 +236,10 @@ class MessageRepository {
     final db = await _dbHelper.database;
     await db.insert(
       AppConstants.pinnedThreadsTable,
-      {'thread_id': threadId, 'pinned_at': DateTime.now().millisecondsSinceEpoch},
+      {
+        'thread_id': threadId,
+        'pinned_at': DateTime.now().millisecondsSinceEpoch,
+      },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
@@ -255,5 +264,3 @@ class MessageRepository {
     return rows.isNotEmpty;
   }
 }
-
-

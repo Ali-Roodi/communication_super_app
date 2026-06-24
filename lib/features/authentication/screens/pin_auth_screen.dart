@@ -38,9 +38,9 @@ class _PinAuthScreenState extends State<PinAuthScreen> {
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
         if (state is AuthValidationFailure) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(state.error)),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(state.error)));
           setState(() {
             _pin = '';
           });
@@ -91,17 +91,29 @@ class _PinAuthScreenState extends State<PinAuthScreen> {
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: ['1', '2', '3'].map((number) => _buildKey(number)).toList(),
+            children: [
+              '1',
+              '2',
+              '3',
+            ].map((number) => _buildKey(number)).toList(),
           ),
           const SizedBox(height: 16),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: ['4', '5', '6'].map((number) => _buildKey(number)).toList(),
+            children: [
+              '4',
+              '5',
+              '6',
+            ].map((number) => _buildKey(number)).toList(),
           ),
           const SizedBox(height: 16),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: ['7', '8', '9'].map((number) => _buildKey(number)).toList(),
+            children: [
+              '7',
+              '8',
+              '9',
+            ].map((number) => _buildKey(number)).toList(),
           ),
           const SizedBox(height: 16),
           Row(
@@ -154,5 +166,3 @@ class _PinAuthScreenState extends State<PinAuthScreen> {
     );
   }
 }
-
-

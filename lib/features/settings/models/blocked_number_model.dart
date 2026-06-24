@@ -18,19 +18,20 @@ class BlockedNumberModel extends Equatable {
       phone.replaceAll(RegExp(r'[^\d]'), '');
 
   Map<String, dynamic> toMap() => {
-        'id': id,
-        'phone_number': phoneNumber,
-        'normalized': normalized,
-        'created_at': createdAt.millisecondsSinceEpoch,
-      };
+    'id': id,
+    'phone_number': phoneNumber,
+    'normalized': normalized,
+    'created_at': createdAt.millisecondsSinceEpoch,
+  };
 
   factory BlockedNumberModel.fromMap(Map<String, dynamic> map) =>
       BlockedNumberModel(
         id: map['id'] as String,
         phoneNumber: map['phone_number'] as String,
         normalized: map['normalized'] as String,
-        createdAt:
-            DateTime.fromMillisecondsSinceEpoch(map['created_at'] as int),
+        createdAt: DateTime.fromMillisecondsSinceEpoch(
+          map['created_at'] as int,
+        ),
       );
 
   @override

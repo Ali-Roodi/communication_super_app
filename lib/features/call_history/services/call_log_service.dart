@@ -55,7 +55,8 @@ class CallLogService {
         contactMap[normalized] = {'id': c.id, 'name': c.name};
       }
 
-      final Iterable<call_log.CallLogEntry> entries = await call_log.CallLog.get();
+      final Iterable<call_log.CallLogEntry> entries =
+          await call_log.CallLog.get();
 
       // Serialize entries to make isolate-friendly data
       final serialized = entries.map((e) {
@@ -73,7 +74,6 @@ class CallLogService {
       final mapped = await Isolate.run<List<Map<String, dynamic>>>(() {
         return serialized.map((data) {
           final phoneNumber = data['number'] as String;
-          final normalized = phoneNumber.replaceAll(RegExp(r'[^\d]'), '');
 
           CallType callType;
           final ct = data['callType'] as String;
@@ -93,31 +93,40 @@ class CallLogService {
           return {
             'id': data['id'] as String? ?? '',
             'phoneNumber': phoneNumber,
-            'normalized': normalized,
             'callType': callType.index,
             'duration': data['duration'] as int?,
-            'timestamp': (data['timestamp'] as int?) ?? DateTime.now().millisecondsSinceEpoch,
+            'timestamp':
+                (data['timestamp'] as int?) ??
+                DateTime.now().millisecondsSinceEpoch,
             'simDisplayName': data['simDisplayName'],
           };
-        }).toList()
-          ..sort((a, b) => (b['timestamp'] as int).compareTo(a['timestamp'] as int));
+        }).toList()..sort(
+          (a, b) => (b['timestamp'] as int).compareTo(a['timestamp'] as int),
+        );
       });
 
-      // Enrich with contact info on main isolate
+      // Enrich with contact info on main isolate.
+      // Key the lookup with the SAME canonical normalization used to build
+      // `contactMap` (national 09xxxxxxxxx); the isolate's raw digit-only
+      // `normalized` field would otherwise miss numbers stored as +98…/98….
       final enriched = mapped.map((data) {
-        final normalized = data['normalized'] as String;
+        final normalized = _normalizePhoneNumber(data['phoneNumber'] as String);
         final contact = contactMap[normalized];
         final callTypeIndex = data['callType'] as int;
         final callType = CallType.values[callTypeIndex];
-        
+
         return CallLogModel(
-          id: (data['id'] as String).isEmpty ? const Uuid().v4() : data['id'] as String,
+          id: (data['id'] as String).isEmpty
+              ? const Uuid().v4()
+              : data['id'] as String,
           contactId: contact?['id'],
           contactName: contact?['name'],
           phoneNumber: data['phoneNumber'] as String,
           callType: callType,
           duration: data['duration'] as int?,
-          timestamp: DateTime.fromMillisecondsSinceEpoch(data['timestamp'] as int),
+          timestamp: DateTime.fromMillisecondsSinceEpoch(
+            data['timestamp'] as int,
+          ),
           simSlot: data['simDisplayName'] != null ? 1 : null,
         );
       }).toList();
@@ -141,4 +150,3 @@ class CallLogService {
   static String _normalizePhoneNumber(String phone) =>
       PhoneNormalizer.toThreadId(phone);
 }
-

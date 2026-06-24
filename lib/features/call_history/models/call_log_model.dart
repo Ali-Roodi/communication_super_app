@@ -1,12 +1,6 @@
 import 'package:equatable/equatable.dart';
 
-enum CallType {
-  incoming,
-  outgoing,
-  missed,
-  rejected,
-  blocked,
-}
+enum CallType { incoming, outgoing, missed, rejected, blocked }
 
 class CallLogModel extends Equatable {
   final String id;
@@ -58,37 +52,13 @@ class CallLogModel extends Equatable {
 
   @override
   List<Object?> get props => [
-        id,
-        contactId,
-        contactName,
-        phoneNumber,
-        callType,
-        duration,
-        timestamp,
-        simSlot,
-      ];
+    id,
+    contactId,
+    contactName,
+    phoneNumber,
+    callType,
+    duration,
+    timestamp,
+    simSlot,
+  ];
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

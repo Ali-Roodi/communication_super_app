@@ -12,6 +12,7 @@ import 'contact_selector_screen.dart';
 import 'archived_threads_screen.dart';
 import 'drafts_list_screen.dart';
 import 'widgets/thread_tile.dart';
+import 'widgets/message_list_states.dart';
 
 /// Inbox of conversations — Google Messages style.
 ///
@@ -102,8 +103,6 @@ class _MessagesListScreenState extends State<MessagesListScreen>
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
@@ -123,7 +122,12 @@ class _MessagesListScreenState extends State<MessagesListScreen>
               return const Center(child: CircularProgressIndicator());
             }
             if (state is MessageError) {
-              return _buildErrorState(context, state.message, theme);
+              return MessagesErrorState(
+                message: state.message,
+                onRetry: () => context.read<MessageBloc>().add(
+                  const LoadThreads(forceRefresh: true),
+                ),
+              );
             }
             if (state is ThreadsLoaded) {
               // The archived view is shown on its own screen; ignore that state
@@ -134,8 +138,8 @@ class _MessagesListScreenState extends State<MessagesListScreen>
               final threads = _visibleThreads(state.threads);
               if (threads.isEmpty) {
                 return _query.isEmpty
-                    ? _buildEmptyState(theme)
-                    : _buildNoResults(theme);
+                    ? const MessagesEmptyState()
+                    : const MessagesNoResults();
               }
               return ListView.builder(
                 controller: _scrollController,
@@ -162,7 +166,8 @@ class _MessagesListScreenState extends State<MessagesListScreen>
                 onPressed: () => Navigator.push(
                   context,
                   MaterialPageRoute(
-                      builder: (_) => const ContactSelectorScreen()),
+                    builder: (_) => const ContactSelectorScreen(),
+                  ),
                 ),
                 icon: const Icon(Icons.edit_outlined),
                 label: const Text('پیام جدید'),
@@ -192,7 +197,8 @@ class _MessagesListScreenState extends State<MessagesListScreen>
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                      builder: (_) => const ArchivedThreadsScreen()),
+                    builder: (_) => const ArchivedThreadsScreen(),
+                  ),
                 ).then((_) {
                   if (mounted) bloc.add(const LoadThreads());
                 });
@@ -265,9 +271,9 @@ class _MessagesListScreenState extends State<MessagesListScreen>
           icon: const Icon(Icons.mark_chat_read_outlined),
           tooltip: 'علامت‌گذاری خوانده‌شده',
           onPressed: () {
-            context
-                .read<MessageBloc>()
-                .add(SetThreadRead(_selected.toList(), read: true));
+            context.read<MessageBloc>().add(
+              SetThreadRead(_selected.toList(), read: true),
+            );
             _clearSelection();
           },
         ),
@@ -275,9 +281,9 @@ class _MessagesListScreenState extends State<MessagesListScreen>
           icon: const Icon(Icons.archive_outlined),
           tooltip: 'بایگانی',
           onPressed: () {
-            context
-                .read<MessageBloc>()
-                .add(ArchiveThreads(_selected.toList(), archive: true));
+            context.read<MessageBloc>().add(
+              ArchiveThreads(_selected.toList(), archive: true),
+            );
             _clearSelection();
           },
         ),
@@ -289,7 +295,9 @@ class _MessagesListScreenState extends State<MessagesListScreen>
         PopupMenuButton<String>(
           onSelected: (v) {
             final state = context.read<MessageBloc>().state;
-            final all = state is ThreadsLoaded ? state.threads : const <MessageThread>[];
+            final all = state is ThreadsLoaded
+                ? state.threads
+                : const <MessageThread>[];
             switch (v) {
               case 'select_all':
                 setState(() {
@@ -298,13 +306,15 @@ class _MessagesListScreenState extends State<MessagesListScreen>
                     ..addAll(_visibleThreads(all).map((t) => t.threadId));
                 });
               case 'mark_unread':
-                context
-                    .read<MessageBloc>()
-                    .add(SetThreadRead(_selected.toList(), read: false));
+                context.read<MessageBloc>().add(
+                  SetThreadRead(_selected.toList(), read: false),
+                );
                 _clearSelection();
               case 'block':
                 final blockedBloc = context.read<BlockedNumbersBloc>();
-                for (final t in all.where((t) => _selected.contains(t.threadId))) {
+                for (final t in all.where(
+                  (t) => _selected.contains(t.threadId),
+                )) {
                   blockedBloc.add(BlockNumber(t.phoneNumber));
                 }
                 _clearSelection();
@@ -315,7 +325,10 @@ class _MessagesListScreenState extends State<MessagesListScreen>
           },
           itemBuilder: (_) => const [
             PopupMenuItem(value: 'select_all', child: Text('انتخاب همه')),
-            PopupMenuItem(value: 'mark_unread', child: Text('علامت‌گذاری نخوانده')),
+            PopupMenuItem(
+              value: 'mark_unread',
+              child: Text('علامت‌گذاری نخوانده'),
+            ),
             PopupMenuItem(value: 'block', child: Text('مسدود کردن')),
           ],
         ),
@@ -338,18 +351,18 @@ class _MessagesListScreenState extends State<MessagesListScreen>
           _archiveWithUndo(context, thread);
         } else {
           context.read<MessageBloc>().add(
-                SetThreadRead([thread.threadId], read: thread.hasUnread),
-              );
+            SetThreadRead([thread.threadId], read: thread.hasUnread),
+          );
         }
         return false;
       },
-      background: _swipeBg(
+      background: ThreadSwipeBackground(
         color: cs.primary,
         icon: Icons.archive_outlined,
         label: 'بایگانی',
         alignStart: true,
       ),
-      secondaryBackground: _swipeBg(
+      secondaryBackground: ThreadSwipeBackground(
         color: cs.tertiary,
         icon: thread.hasUnread
             ? Icons.mark_chat_read_outlined
@@ -379,31 +392,10 @@ class _MessagesListScreenState extends State<MessagesListScreen>
     );
   }
 
-  Widget _swipeBg({
-    required Color color,
-    required IconData icon,
-    required String label,
-    required bool alignStart,
-  }) {
-    return Container(
-      color: color.withValues(alpha: 0.85),
-      alignment: alignStart
-          ? AlignmentDirectional.centerStart
-          : AlignmentDirectional.centerEnd,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: Colors.white),
-          const SizedBox(width: 8),
-          Text(label, style: const TextStyle(color: Colors.white)),
-        ],
-      ),
-    );
-  }
-
   Future<void> _openConversation(
-      BuildContext context, MessageThread thread) async {
+    BuildContext context,
+    MessageThread thread,
+  ) async {
     final messageBloc = context.read<MessageBloc>();
     await Navigator.push(
       context,
@@ -451,7 +443,8 @@ class _MessagesListScreenState extends State<MessagesListScreen>
             children: [
               ListTile(
                 leading: Icon(
-                    thread.isPinned ? Icons.push_pin : Icons.push_pin_outlined),
+                  thread.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                ),
                 title: Text(thread.isPinned ? 'برداشتن سنجاق' : 'سنجاق کردن'),
                 onTap: () {
                   bloc.add(PinThread(thread.threadId, pin: !thread.isPinned));
@@ -459,15 +452,20 @@ class _MessagesListScreenState extends State<MessagesListScreen>
                 },
               ),
               ListTile(
-                leading: Icon(thread.hasUnread
-                    ? Icons.mark_chat_read_outlined
-                    : Icons.mark_chat_unread_outlined),
-                title: Text(thread.hasUnread
-                    ? 'علامت‌گذاری خوانده‌شده'
-                    : 'علامت‌گذاری نخوانده'),
+                leading: Icon(
+                  thread.hasUnread
+                      ? Icons.mark_chat_read_outlined
+                      : Icons.mark_chat_unread_outlined,
+                ),
+                title: Text(
+                  thread.hasUnread
+                      ? 'علامت‌گذاری خوانده‌شده'
+                      : 'علامت‌گذاری نخوانده',
+                ),
                 onTap: () {
-                  bloc.add(SetThreadRead([thread.threadId],
-                      read: thread.hasUnread));
+                  bloc.add(
+                    SetThreadRead([thread.threadId], read: thread.hasUnread),
+                  );
                   Navigator.pop(sheetCtx);
                 },
               ),
@@ -499,9 +497,14 @@ class _MessagesListScreenState extends State<MessagesListScreen>
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.delete_outline, color: AppColors.danger),
-                title: const Text('حذف گفتگو',
-                    style: TextStyle(color: AppColors.danger)),
+                leading: const Icon(
+                  Icons.delete_outline,
+                  color: AppColors.danger,
+                ),
+                title: const Text(
+                  'حذف گفتگو',
+                  style: TextStyle(color: AppColors.danger),
+                ),
                 onTap: () {
                   Navigator.pop(sheetCtx);
                   _confirmDeleteThread(context, thread);
@@ -515,7 +518,9 @@ class _MessagesListScreenState extends State<MessagesListScreen>
   }
 
   Future<void> _confirmDeleteThread(
-      BuildContext context, MessageThread thread) async {
+    BuildContext context,
+    MessageThread thread,
+  ) async {
     final bloc = context.read<MessageBloc>();
     final ok = await _confirmDialog(
       context,
@@ -551,90 +556,15 @@ class _MessagesListScreenState extends State<MessagesListScreen>
             ),
             TextButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('حذف', style: TextStyle(color: AppColors.danger)),
+              child: const Text(
+                'حذف',
+                style: TextStyle(color: AppColors.danger),
+              ),
             ),
           ],
         ),
       ),
     );
     return res ?? false;
-  }
-
-  // ── Empty / error / no-results states ──────────────────────────────────────
-
-  Widget _buildNoResults(ThemeData theme) => Center(
-        child: Text('نتیجه‌ای یافت نشد',
-            style: TextStyle(color: theme.textTheme.bodyMedium?.color)),
-      );
-
-  Widget _buildErrorState(
-      BuildContext context, String errorMessage, ThemeData theme) {
-    return Container(
-      color: theme.scaffoldBackgroundColor,
-      padding: const EdgeInsets.all(24),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.error_outline, size: 64, color: theme.colorScheme.error),
-            const SizedBox(height: 16),
-            Text(
-              'خطا در بارگذاری پیام‌ها',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: theme.textTheme.bodyLarge?.color,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 12),
-            Text(errorMessage,
-                style: TextStyle(
-                    fontSize: 14, color: theme.textTheme.bodyMedium?.color),
-                textAlign: TextAlign.center),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: () => context
-                  .read<MessageBloc>()
-                  .add(const LoadThreads(forceRefresh: true)),
-              icon: const Icon(Icons.refresh),
-              label: const Text('تلاش مجدد'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEmptyState(ThemeData theme) {
-    return Container(
-      color: theme.scaffoldBackgroundColor,
-      padding: const EdgeInsets.all(24),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.chat_bubble_outline,
-                size: 64,
-                color: theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.5)),
-            const SizedBox(height: 16),
-            Text(
-              'هیچ پیامکی موجود نیست',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w500,
-                color: theme.textTheme.bodyLarge?.color,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text('پیام‌های شما در اینجا نمایش داده خواهند شد',
-                style: TextStyle(
-                    fontSize: 14, color: theme.textTheme.bodyMedium?.color),
-                textAlign: TextAlign.center),
-          ],
-        ),
-      ),
-    );
   }
 }

@@ -26,22 +26,22 @@ class RtlAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.showLock = false,
     this.onSearchPressed,
     this.onLockPressed,
-  }) : assert(title == null || titleWidget == null, 'Cannot provide both title and titleWidget');
+  }) : assert(
+         title == null || titleWidget == null,
+         'Cannot provide both title and titleWidget',
+       );
 
   @override
   Widget build(BuildContext context) {
     // Build the actions list
     final List<Widget> appBarActions = [];
-    
+
     if (showSearch && onSearchPressed != null) {
       appBarActions.add(
-        IconButton(
-          icon: const Icon(Icons.search),
-          onPressed: onSearchPressed,
-        ),
+        IconButton(icon: const Icon(Icons.search), onPressed: onSearchPressed),
       );
     }
-    
+
     if (showLock && onLockPressed != null) {
       appBarActions.add(
         IconButton(
@@ -50,7 +50,7 @@ class RtlAppBar extends StatelessWidget implements PreferredSizeWidget {
         ),
       );
     }
-    
+
     // Add any custom actions if provided
     if (actions != null) {
       appBarActions.addAll(actions!);
@@ -61,16 +61,18 @@ class RtlAppBar extends StatelessWidget implements PreferredSizeWidget {
       child: AppBar(
         title: titleWidget ?? (title != null ? Text(title!) : null),
         actions: appBarActions.isNotEmpty ? appBarActions : null,
-        leading: leading ?? (showDrawer 
-          ? Builder(
-              builder: (context) => IconButton(
-                icon: const Icon(Icons.menu),
-                onPressed: () {
-                  Scaffold.of(context).openDrawer();
-                },
-              ),
-            )
-          : (automaticallyImplyLeading ? null : const SizedBox.shrink())),
+        leading:
+            leading ??
+            (showDrawer
+                ? Builder(
+                    builder: (context) => IconButton(
+                      icon: const Icon(Icons.menu),
+                      onPressed: () {
+                        Scaffold.of(context).openDrawer();
+                      },
+                    ),
+                  )
+                : (automaticallyImplyLeading ? null : const SizedBox.shrink())),
         automaticallyImplyLeading: !showDrawer && automaticallyImplyLeading,
         bottom: bottom,
       ),
@@ -82,24 +84,3 @@ class RtlAppBar extends StatelessWidget implements PreferredSizeWidget {
     return AppBar().preferredSize;
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

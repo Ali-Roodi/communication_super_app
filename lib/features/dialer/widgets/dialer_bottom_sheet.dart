@@ -19,10 +19,8 @@ Future<void> showDialerBottomSheet(BuildContext context) {
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => BlocProvider.value(
-      value: dialerBloc,
-      child: const _DialerSheet(),
-    ),
+    builder: (_) =>
+        BlocProvider.value(value: dialerBloc, child: const _DialerSheet()),
   );
 }
 

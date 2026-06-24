@@ -45,13 +45,13 @@ class NativeCallService {
       final eventName = (map['event'] as String).toLowerCase();
 
       final event = switch (eventName) {
-        'incoming'     => NativeCallEvent.incoming,
-        'ringing'      => NativeCallEvent.ringing,
-        'active'       => NativeCallEvent.active,
-        'on_hold'      => NativeCallEvent.onHold,
+        'incoming' => NativeCallEvent.incoming,
+        'ringing' => NativeCallEvent.ringing,
+        'active' => NativeCallEvent.active,
+        'on_hold' => NativeCallEvent.onHold,
         'disconnected' => NativeCallEvent.disconnected,
-        'call_failed'  => NativeCallEvent.callFailed,
-        _              => NativeCallEvent.disconnected,
+        'call_failed' => NativeCallEvent.callFailed,
+        _ => NativeCallEvent.disconnected,
       };
 
       return CallInfo(

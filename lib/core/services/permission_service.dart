@@ -42,9 +42,7 @@ class PermissionService {
     for (final p in requiredPermissions) {
       try {
         results[p] = await p.request();
-        debugPrint(
-          'PermissionService: ${p.toString()} → ${results[p]}',
-        );
+        debugPrint('PermissionService: ${p.toString()} → ${results[p]}');
       } catch (e) {
         debugPrint('PermissionService: error requesting $p: $e');
         results[p] = PermissionStatus.denied;
@@ -62,7 +60,9 @@ class PermissionService {
     if (permission == Permission.sms) return 'پیامک (خواندن و ارسال)';
     if (permission == Permission.phone) return 'تلفن (شناسه خط)';
     if (permission == Permission.contacts) return 'مخاطبین (مشاهده فهرست)';
-    if (permission == Permission.notification) return 'نوتیفیکیشن (نمایش اعلان‌ها)';
+    if (permission == Permission.notification) {
+      return 'نوتیفیکیشن (نمایش اعلان‌ها)';
+    }
     return permission.toString();
   }
 }

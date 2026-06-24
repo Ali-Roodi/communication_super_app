@@ -23,7 +23,11 @@ class ThreadsLoaded extends MessageState {
   /// Whether these are archived conversations (archived view) or the inbox.
   final bool archived;
 
-  const ThreadsLoaded(this.threads, {this.hasMore = false, this.archived = false});
+  const ThreadsLoaded(
+    this.threads, {
+    this.hasMore = false,
+    this.archived = false,
+  });
 
   @override
   List<Object?> get props => [threads, hasMore, archived];
@@ -32,10 +36,15 @@ class ThreadsLoaded extends MessageState {
 class MessagesLoaded extends MessageState {
   final List<MessageModel> messages;
   final bool hasMore;
+
   /// Thread id for the open conversation (needed to append incoming messages in-place).
   final String threadId;
 
-  const MessagesLoaded(this.messages, {this.hasMore = false, required this.threadId});
+  const MessagesLoaded(
+    this.messages, {
+    this.hasMore = false,
+    required this.threadId,
+  });
 
   @override
   List<Object?> get props => [threadId, messages, hasMore];
@@ -66,27 +75,3 @@ class MessageError extends MessageState {
   @override
   List<Object?> get props => [message];
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

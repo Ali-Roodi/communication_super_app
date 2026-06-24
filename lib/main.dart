@@ -10,7 +10,7 @@ import 'features/messages/services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   // Initialize notification service (with error handling)
   try {
     await NotificationService().initialize();
@@ -18,7 +18,7 @@ void main() async {
     // Log error but don't crash - notifications can be initialized later
     debugPrint('Failed to initialize notifications: $e');
   }
-  
+
   // Set preferred orientations
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
@@ -44,9 +44,7 @@ class MyApp extends StatelessWidget {
             darkTheme: AppTheme.dark,
             themeMode: themeState.themeMode,
             builder: (context, child) {
-              return AppLockWrapper(
-                child: child ?? const AuthWrapperScreen(),
-              );
+              return AppLockWrapper(child: child ?? const AuthWrapperScreen());
             },
             home: const AuthWrapperScreen(),
           );

@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 
 /// High-performance native SMS service that bridges to Android/iOS native code
-/// 
+///
 /// Features:
 /// - Asynchronous SMS sending via MethodChannel
 /// - Real-time SMS receiving via EventChannel
@@ -12,10 +12,12 @@ import 'package:flutter/foundation.dart';
 /// - Background-safe reception
 /// - No memory leaks or stale references
 class NativeSmsService {
-  static const MethodChannel _methodChannel =
-      MethodChannel('com.example.communication_super_app/sms');
-  static const EventChannel _eventChannel =
-      EventChannel('com.example.communication_super_app/sms_events');
+  static const MethodChannel _methodChannel = MethodChannel(
+    'com.example.communication_super_app/sms',
+  );
+  static const EventChannel _eventChannel = EventChannel(
+    'com.example.communication_super_app/sms_events',
+  );
 
   StreamSubscription<dynamic>? _smsSubscription;
   final StreamController<SmsReceivedEvent> _smsController =
@@ -77,13 +79,13 @@ class NativeSmsService {
   }
 
   /// Send SMS to a phone number
-  /// 
+  ///
   /// [phoneNumber] - recipient phone number
   /// [message] - message body
   /// [subscriptionId] - (optional) SIM card subscription ID for dual-SIM devices
-  /// 
+  ///
   /// Returns a [SmsSendResult] with success status and metadata
-  /// 
+  ///
   /// Throws [PlatformException] if:
   /// - SMS permission is denied
   /// - No SIM card is available
@@ -109,7 +111,7 @@ class NativeSmsService {
       };
 
       final result = await _methodChannel.invokeMethod<Map>('sendSms', params);
-      
+
       if (result != null) {
         return SmsSendResult.fromMap(Map<String, dynamic>.from(result));
       } else {
@@ -128,7 +130,7 @@ class NativeSmsService {
   }
 
   /// Get available SIM subscriptions (for dual-SIM devices)
-  /// 
+  ///
   /// Returns a list of [SimSubscription] objects
   /// Returns empty list if:
   /// - Device doesn't support dual-SIM
@@ -186,7 +188,8 @@ class SmsReceivedEvent {
     return SmsReceivedEvent(
       address: map['address'] as String? ?? '',
       body: map['body'] as String? ?? '',
-      timestamp: map['timestamp'] as int? ?? DateTime.now().millisecondsSinceEpoch,
+      timestamp:
+          map['timestamp'] as int? ?? DateTime.now().millisecondsSinceEpoch,
       subscriptionId: map['subscriptionId'] as int? ?? -1,
     );
   }
@@ -231,7 +234,8 @@ class SmsSendResult {
       messageLength: map['messageLength'] as int? ?? 0,
       parts: map['parts'] as int? ?? 1,
       subscriptionId: map['subscriptionId'] as int? ?? -1,
-      timestamp: map['timestamp'] as int? ?? DateTime.now().millisecondsSinceEpoch,
+      timestamp:
+          map['timestamp'] as int? ?? DateTime.now().millisecondsSinceEpoch,
     );
   }
 
@@ -289,6 +293,3 @@ class SimSubscription {
     return 'SimSubscription(id: $subscriptionId, name: $displayName, carrier: $carrierName, slot: $slotIndex)';
   }
 }
-
-
-

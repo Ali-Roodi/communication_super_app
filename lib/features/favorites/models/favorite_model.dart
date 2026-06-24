@@ -27,25 +27,30 @@ class FavoriteModel extends Equatable {
       phone.replaceAll(RegExp(r'[^\d]'), '');
 
   Map<String, dynamic> toMap() => {
-        'id': id,
-        'phone_number': phoneNumber,
-        'normalized': normalized,
-        'name': name,
-        'contact_id': contactId,
-        'created_at': createdAt.millisecondsSinceEpoch,
-      };
+    'id': id,
+    'phone_number': phoneNumber,
+    'normalized': normalized,
+    'name': name,
+    'contact_id': contactId,
+    'created_at': createdAt.millisecondsSinceEpoch,
+  };
 
   factory FavoriteModel.fromMap(Map<String, dynamic> map) => FavoriteModel(
-        id: map['id'] as String,
-        phoneNumber: map['phone_number'] as String,
-        normalized: map['normalized'] as String,
-        name: map['name'] as String?,
-        contactId: map['contact_id'] as String?,
-        createdAt:
-            DateTime.fromMillisecondsSinceEpoch(map['created_at'] as int),
-      );
+    id: map['id'] as String,
+    phoneNumber: map['phone_number'] as String,
+    normalized: map['normalized'] as String,
+    name: map['name'] as String?,
+    contactId: map['contact_id'] as String?,
+    createdAt: DateTime.fromMillisecondsSinceEpoch(map['created_at'] as int),
+  );
 
   @override
-  List<Object?> get props =>
-      [id, phoneNumber, normalized, name, contactId, createdAt];
+  List<Object?> get props => [
+    id,
+    phoneNumber,
+    normalized,
+    name,
+    contactId,
+    createdAt,
+  ];
 }

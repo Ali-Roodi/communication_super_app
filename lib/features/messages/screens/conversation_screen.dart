@@ -15,6 +15,7 @@ import 'package:communication_super_app/features/settings/bloc/blocked_numbers_b
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
 import 'drafts_list_screen.dart';
 import 'template_picker_screen.dart';
+import 'widgets/message_bubble.dart';
 
 /// Google Messages style chat screen.
 ///
@@ -40,8 +41,8 @@ class ConversationScreen extends StatefulWidget {
     this.phoneNumber, {
     super.key,
     String? contactName,
-  })  : threadId = PhoneNormalizer.toThreadId(phoneNumber),
-        contactName = (contactName?.isNotEmpty ?? false) ? contactName : null;
+  }) : threadId = PhoneNormalizer.toThreadId(phoneNumber),
+       contactName = (contactName?.isNotEmpty ?? false) ? contactName : null;
 
   @override
   State<ConversationScreen> createState() => _ConversationScreenState();
@@ -136,7 +137,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (_scrollController.hasClients && !_showScrollToBottom) {
                   _scrollController.jumpTo(
-                      _scrollController.position.maxScrollExtent);
+                    _scrollController.position.maxScrollExtent,
+                  );
                 }
               });
             } else if (state is MessageSent) {
@@ -194,10 +196,12 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(_title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 17)),
+                  Text(
+                    _title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 17),
+                  ),
                   if (_hasName)
                     Text(
                       PhoneNormalizer.toNational(widget.phoneNumber),
@@ -223,9 +227,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
               const PopupMenuItem(value: 'view', child: Text('مشاهده مخاطب'))
             else
               const PopupMenuItem(
-                  value: 'add', child: Text('افزودن به مخاطبین')),
+                value: 'add',
+                child: Text('افزودن به مخاطبین'),
+              ),
             const PopupMenuItem(
-                value: 'block', child: Text('مسدود کردن و گزارش هرزنامه')),
+              value: 'block',
+              child: Text('مسدود کردن و گزارش هرزنامه'),
+            ),
             const PopupMenuItem(value: 'delete', child: Text('حذف گفتگو')),
           ],
         ),
@@ -260,15 +268,17 @@ class _ConversationScreenState extends State<ConversationScreen> {
       case 'view':
         _openContact();
       case 'add':
-        Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) =>
-              AddEditContactScreen(initialPhone: widget.phoneNumber),
-        ));
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) =>
+                AddEditContactScreen(initialPhone: widget.phoneNumber),
+          ),
+        );
       case 'block':
         context.read<BlockedNumbersBloc>().add(BlockNumber(widget.phoneNumber));
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('شماره مسدود شد')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('شماره مسدود شد')));
       case 'delete':
         _confirmDeleteConversation();
     }
@@ -276,14 +286,16 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   void _openContact() {
     if (!_hasName) {
-      Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) =>
-            AddEditContactScreen(initialPhone: widget.phoneNumber),
-      ));
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('به‌زودی')),
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) =>
+              AddEditContactScreen(initialPhone: widget.phoneNumber),
+        ),
       );
+    } else {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('به‌زودی')));
     }
   }
 
@@ -291,8 +303,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   Widget _buildMessageList() {
     return BlocBuilder<MessageBloc, MessageState>(
-      buildWhen: (_, curr) =>
-          curr is MessageLoading || curr is MessagesLoaded,
+      buildWhen: (_, curr) => curr is MessageLoading || curr is MessagesLoaded,
       builder: (context, state) {
         if (state is MessageLoading) {
           return const Center(child: CircularProgressIndicator());
@@ -322,25 +333,31 @@ class _ConversationScreenState extends State<ConversationScreen> {
   bool _sameGroup(MessageModel a, MessageModel b) {
     if (a.type != b.type) return false;
     final gap = (a.timestamp.difference(b.timestamp)).abs();
-    return gap <= const Duration(minutes: 2) && _sameDay(a.timestamp, b.timestamp);
+    return gap <= const Duration(minutes: 2) &&
+        _sameDay(a.timestamp, b.timestamp);
   }
 
   bool _sameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
   Widget _buildMessageItem(
-      MessageModel msg, MessageModel? prev, MessageModel? next) {
-    final showDateSep = prev == null || !_sameDay(prev.timestamp, msg.timestamp);
+    MessageModel msg,
+    MessageModel? prev,
+    MessageModel? next,
+  ) {
+    final showDateSep =
+        prev == null || !_sameDay(prev.timestamp, msg.timestamp);
     final isLastInGroup = next == null || !_sameGroup(msg, next);
     final gapToNext = next?.timestamp.difference(msg.timestamp);
-    final showTimestamp = isLastInGroup ||
+    final showTimestamp =
+        isLastInGroup ||
         (gapToNext != null && gapToNext > const Duration(minutes: 10));
     final selected = _selected.contains(msg.id);
 
     return Column(
       children: [
         if (showDateSep) _dateSeparator(msg.timestamp),
-        _MessageBubble(
+        MessageBubble(
           message: msg,
           isLastInGroup: isLastInGroup,
           showTimestamp: showTimestamp,
@@ -357,8 +374,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
             }
           },
           onRetry: msg.status == MessageStatus.failed
-              ? () => _messageBloc.add(SendMessage(
-                  phoneNumber: widget.phoneNumber, body: msg.body))
+              ? () => _messageBloc.add(
+                  SendMessage(phoneNumber: widget.phoneNumber, body: msg.body),
+                )
               : null,
         ),
       ],
@@ -376,8 +394,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
     } else if (diff == 1) {
       label = 'دیروز';
     } else {
-      label = DateFormatter.formatDatePersian(dt).replaceAll(
-          RegExp(r' \d{2}:\d{2}$'), '');
+      label = DateFormatter.formatDatePersian(
+        dt,
+      ).replaceAll(RegExp(r' \d{2}:\d{2}$'), '');
     }
     final theme = Theme.of(context);
     return Padding(
@@ -422,9 +441,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 onTap: () {
                   Clipboard.setData(ClipboardData(text: msg.body));
                   Navigator.pop(sheetCtx);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('کپی شد')),
-                  );
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(const SnackBar(content: Text('کپی شد')));
                 },
               ),
               ListTile(
@@ -432,9 +451,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 title: const Text('هدایت'),
                 onTap: () {
                   Navigator.pop(sheetCtx);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('به‌زودی')),
-                  );
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(const SnackBar(content: Text('به‌زودی')));
                 },
               ),
               ListTile(
@@ -454,9 +473,14 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.delete_outline, color: AppColors.danger),
-                title:
-                    const Text('حذف', style: TextStyle(color: AppColors.danger)),
+                leading: const Icon(
+                  Icons.delete_outline,
+                  color: AppColors.danger,
+                ),
+                title: const Text(
+                  'حذف',
+                  style: TextStyle(color: AppColors.danger),
+                ),
                 onTap: () {
                   Navigator.pop(sheetCtx);
                   _confirmDeleteMessages([msg.id]);
@@ -511,9 +535,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
         .join('\n');
     Clipboard.setData(ClipboardData(text: texts));
     setState(_selected.clear);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('کپی شد')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('کپی شد')));
   }
 
   Future<void> _confirmDeleteMessages(List<String> ids) async {
@@ -522,15 +546,21 @@ class _ConversationScreenState extends State<ConversationScreen> {
       builder: (ctx) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
-          content: Text(ids.length == 1 ? 'این پیام حذف شود؟' : 'حذف ${ids.length} پیام؟'),
+          content: Text(
+            ids.length == 1 ? 'این پیام حذف شود؟' : 'حذف ${ids.length} پیام؟',
+          ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('لغو')),
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('لغو'),
+            ),
             TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child:
-                    const Text('حذف', style: TextStyle(color: AppColors.danger))),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text(
+                'حذف',
+                style: TextStyle(color: AppColors.danger),
+              ),
+            ),
           ],
         ),
       ),
@@ -550,12 +580,16 @@ class _ConversationScreenState extends State<ConversationScreen> {
           content: const Text('حذف این گفتگو؟ این عمل قابل بازگشت نیست.'),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('لغو')),
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('لغو'),
+            ),
             TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child:
-                    const Text('حذف', style: TextStyle(color: AppColors.danger))),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text(
+                'حذف',
+                style: TextStyle(color: AppColors.danger),
+              ),
+            ),
           ],
         ),
       ),
@@ -592,14 +626,17 @@ class _ConversationScreenState extends State<ConversationScreen> {
                       Container(
                         margin: const EdgeInsets.only(left: 8),
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 1),
+                          horizontal: 6,
+                          vertical: 1,
+                        ),
                         decoration: BoxDecoration(
                           color: theme.colorScheme.tertiary,
                           borderRadius: BorderRadius.circular(6),
                         ),
-                        child: const Text('MMS',
-                            style:
-                                TextStyle(color: Colors.white, fontSize: 11)),
+                        child: const Text(
+                          'MMS',
+                          style: TextStyle(color: Colors.white, fontSize: 11),
+                        ),
                       ),
                     Text(
                       '$len / $segments SMS',
@@ -637,18 +674,23 @@ class _ConversationScreenState extends State<ConversationScreen> {
                             decoration: const InputDecoration(
                               hintText: 'پیام',
                               border: InputBorder.none,
-                              contentPadding:
-                                  EdgeInsets.symmetric(vertical: 10),
+                              contentPadding: EdgeInsets.symmetric(
+                                vertical: 10,
+                              ),
                             ),
                           ),
                         ),
                         IconButton(
-                          icon: Icon(_showStickers
-                              ? Icons.keyboard
-                              : Icons.emoji_emotions_outlined),
+                          icon: Icon(
+                            _showStickers
+                                ? Icons.keyboard
+                                : Icons.emoji_emotions_outlined,
+                          ),
                           tooltip: 'استیکر',
                           onPressed: () {
-                            if (!_showStickers) FocusScope.of(context).unfocus();
+                            if (!_showStickers) {
+                              FocusScope.of(context).unfocus();
+                            }
                             setState(() => _showStickers = !_showStickers);
                           },
                         ),
@@ -657,7 +699,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                   ),
                 ),
                 const SizedBox(width: 4),
-                _SendButton(enabled: hasText, onSend: _sendMessage),
+                MessageSendButton(enabled: hasText, onSend: _sendMessage),
               ],
             ),
             if (_showStickers) _buildStickerPanel(theme),
@@ -670,10 +712,38 @@ class _ConversationScreenState extends State<ConversationScreen> {
   /// Emoji "sticker" picker. Tapping a sticker sends it immediately as a
   /// message (no image assets needed).
   static const List<String> _stickers = [
-    '😀', '😂', '😍', '😎', '😭', '😡', '👍', '👎',
-    '🙏', '👏', '🎉', '❤️', '🔥', '💯', '😴', '🤔',
-    '😅', '😉', '😘', '🥳', '😱', '🤩', '💀', '✨',
-    '🌹', '☕', '🍕', '⚽', '🎂', '🚗', '📱', '✅',
+    '😀',
+    '😂',
+    '😍',
+    '😎',
+    '😭',
+    '😡',
+    '👍',
+    '👎',
+    '🙏',
+    '👏',
+    '🎉',
+    '❤️',
+    '🔥',
+    '💯',
+    '😴',
+    '🤔',
+    '😅',
+    '😉',
+    '😘',
+    '🥳',
+    '😱',
+    '🤩',
+    '💀',
+    '✨',
+    '🌹',
+    '☕',
+    '🍕',
+    '⚽',
+    '🎂',
+    '🚗',
+    '📱',
+    '✅',
   ];
 
   Widget _buildStickerPanel(ThemeData theme) {
@@ -702,7 +772,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
   }
 
   void _sendSticker(String sticker) {
-    _messageBloc.add(SendMessage(phoneNumber: widget.phoneNumber, body: sticker));
+    _messageBloc.add(
+      SendMessage(phoneNumber: widget.phoneNumber, body: sticker),
+    );
   }
 
   void _showAttachmentSheet() {
@@ -743,9 +815,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
                   title: Text(item.$2),
                   onTap: () {
                     Navigator.pop(sheetCtx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('به‌زودی')),
-                    );
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(const SnackBar(content: Text('به‌زودی')));
                   },
                 ),
             ],
@@ -759,181 +831,24 @@ class _ConversationScreenState extends State<ConversationScreen> {
   /// composer (appending to any existing text).
   Future<void> _insertDraft() async {
     final body = await Navigator.of(context).push<String>(
-      MaterialPageRoute(
-        builder: (_) => const DraftsListScreen(pickMode: true),
-      ),
+      MaterialPageRoute(builder: (_) => const DraftsListScreen(pickMode: true)),
     );
     if (body != null && body.isNotEmpty) _appendToComposer(body);
   }
 
   Future<void> _insertTemplate() async {
-    final text = await showTemplatePicker(context, contactName: widget.contactName);
+    final text = await showTemplatePicker(
+      context,
+      contactName: widget.contactName,
+    );
     if (text != null && text.isNotEmpty) _appendToComposer(text);
   }
 
   void _appendToComposer(String text) {
     final existing = _messageController.text;
-    _messageController.text =
-        existing.isEmpty ? text : '$existing\n$text';
+    _messageController.text = existing.isEmpty ? text : '$existing\n$text';
     _messageController.selection = TextSelection.fromPosition(
       TextPosition(offset: _messageController.text.length),
-    );
-  }
-}
-
-// ── Message bubble ────────────────────────────────────────────────────────────
-
-class _MessageBubble extends StatelessWidget {
-  final MessageModel message;
-  final bool isLastInGroup;
-  final bool showTimestamp;
-  final bool selected;
-  final bool selectionMode;
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
-  final VoidCallback? onRetry;
-
-  const _MessageBubble({
-    required this.message,
-    required this.isLastInGroup,
-    required this.showTimestamp,
-    required this.selected,
-    required this.selectionMode,
-    required this.onTap,
-    required this.onLongPress,
-    this.onRetry,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final isSent = message.type == MessageType.sent;
-
-    final bubbleColor =
-        isSent ? cs.primary : cs.surfaceContainerHighest;
-    final textColor = isSent ? cs.onPrimary : cs.onSurface;
-
-    const r = Radius.circular(20);
-    const tail = Radius.circular(4);
-    final radius = BorderRadius.only(
-      topLeft: r,
-      topRight: r,
-      bottomLeft: isSent ? r : (isLastInGroup ? tail : r),
-      bottomRight: isSent ? (isLastInGroup ? tail : r) : r,
-    );
-
-    return GestureDetector(
-      onTap: onTap,
-      onLongPress: onLongPress,
-      child: Container(
-        color: selected ? cs.primary.withValues(alpha: 0.12) : null,
-        padding: EdgeInsets.only(
-          top: 1,
-          bottom: isLastInGroup ? 4 : 1,
-          left: 8,
-          right: 8,
-        ),
-        child: Column(
-          crossAxisAlignment:
-              isSent ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment:
-                  isSent ? MainAxisAlignment.end : MainAxisAlignment.start,
-              children: [
-                if (selectionMode)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 4, left: 4),
-                    child: Icon(
-                      selected
-                          ? Icons.check_circle
-                          : Icons.circle_outlined,
-                      size: 18,
-                      color: selected ? cs.primary : theme.dividerColor,
-                    ),
-                  ),
-                Flexible(
-                  child: Container(
-                    constraints: BoxConstraints(
-                      maxWidth: MediaQuery.of(context).size.width * 0.75,
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 10),
-                    decoration:
-                        BoxDecoration(color: bubbleColor, borderRadius: radius),
-                    child: Text(message.body, style: TextStyle(color: textColor)),
-                  ),
-                ),
-              ],
-            ),
-            if (showTimestamp || message.status == MessageStatus.failed)
-              Padding(
-                padding: const EdgeInsets.only(top: 2, left: 4, right: 4),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      DateFormatter.formatTime(message.timestamp),
-                      style: theme.textTheme.bodySmall?.copyWith(fontSize: 11),
-                    ),
-                    if (isSent) ...[
-                      const SizedBox(width: 4),
-                      _statusIcon(context),
-                    ],
-                  ],
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _statusIcon(BuildContext context) {
-    final theme = Theme.of(context);
-    switch (message.status) {
-      case MessageStatus.pending:
-        return Icon(Icons.schedule,
-            size: 13, color: theme.textTheme.bodySmall?.color);
-      case MessageStatus.sent:
-        return Icon(Icons.check,
-            size: 13, color: theme.textTheme.bodySmall?.color);
-      case MessageStatus.delivered:
-        return Icon(Icons.done_all,
-            size: 13, color: theme.textTheme.bodySmall?.color);
-      case MessageStatus.failed:
-        return GestureDetector(
-          onTap: onRetry,
-          child: const Icon(Icons.error_outline,
-              size: 14, color: AppColors.danger),
-        );
-    }
-  }
-}
-
-// ── Send / mic toggle button ────────────────────────────────────────────────────
-
-class _SendButton extends StatelessWidget {
-  final bool enabled;
-  final VoidCallback onSend;
-
-  const _SendButton({required this.enabled, required this.onSend});
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Material(
-      color: enabled ? cs.primary : cs.primary.withValues(alpha: 0.4),
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: enabled ? onSend : null,
-        child: Padding(
-          padding: const EdgeInsets.all(10),
-          child: Icon(Icons.send, color: cs.onPrimary, size: 24),
-        ),
-      ),
     );
   }
 }

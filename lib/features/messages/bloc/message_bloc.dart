@@ -7,9 +7,9 @@ import 'package:communication_super_app/features/contacts/repositories/contact_r
 import '../models/message_model.dart';
 
 class MessageBloc extends Bloc<MessageEvent, MessageState> {
-  final MessageRepository _repository = MessageRepository();
-  final SmsService _smsService = SmsService();
-  final ContactRepository _contactRepository = ContactRepository();
+  final MessageRepository _repository;
+  final SmsService _smsService;
+  final ContactRepository _contactRepository;
   static bool _hasImported = false;
 
   /// One-per-session cache of the digits-only → contact name lookup table.
@@ -20,7 +20,16 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   /// (e.g., on app resume, on tab switch, after sending a message).
   Map<String, String>? _cachedPhoneToName;
 
-  MessageBloc() : super(const MessageInitial()) {
+  /// Dependencies default to real implementations so production callers can use
+  /// `MessageBloc()`; tests can inject fakes/mocks.
+  MessageBloc({
+    MessageRepository? repository,
+    SmsService? smsService,
+    ContactRepository? contactRepository,
+  }) : _repository = repository ?? MessageRepository(),
+       _smsService = smsService ?? SmsService(),
+       _contactRepository = contactRepository ?? ContactRepository(),
+       super(const MessageInitial()) {
     on<LoadThreads>(_onLoadThreads);
     on<LoadMoreThreads>(_onLoadMoreThreads);
     on<LoadMessages>(_onLoadMessages);
@@ -39,7 +48,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     _smsService.onMessageReceived = (message) {
       add(ReceiveMessage(message));
     };
-    
+
     // NOTE: SMS listening will be initialized only after permissions are granted
     // and when LoadThreads event is first triggered (in _onLoadThreads)
   }
@@ -54,12 +63,14 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     if (state is! ThreadsLoaded && state is! MessagesLoaded) {
       emit(const MessageLoading());
     }
-    
+
     try {
       // Import device messages only once per app session (or on explicit force)
       if (!_hasImported || event.forceRefresh) {
         try {
-          await _smsService.importDeviceMessages(forceRefresh: event.forceRefresh);
+          await _smsService.importDeviceMessages(
+            forceRefresh: event.forceRefresh,
+          );
           _hasImported = true;
 
           // Start the SMS listener only once: the SmsService._listening guard
@@ -78,7 +89,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
           // but emit error if there are no local messages
           final threads = await _repository.getAllThreads(limit: 50, offset: 0);
           if (threads.isEmpty) {
-            emit(MessageError('دسترسی به پیام‌ها رد شد. لطفاً مجوزهای لازم را بررسی کنید.'));
+            emit(
+              MessageError(
+                'دسترسی به پیام‌ها رد شد. لطفاً مجوزهای لازم را بررسی کنید.',
+              ),
+            );
             return;
           }
         }
@@ -92,13 +107,15 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         archived: event.archived,
       );
       final threads = await _resolveContactNames(rawThreads);
-      emit(ThreadsLoaded(
-        threads,
-        hasMore: threads.length >= limit,
-        archived: event.archived,
-      ));
+      emit(
+        ThreadsLoaded(
+          threads,
+          hasMore: threads.length >= limit,
+          archived: event.archived,
+        ),
+      );
     } catch (e) {
-      final errorMessage = e.toString().contains('Permission') 
+      final errorMessage = e.toString().contains('Permission')
           ? 'دسترسی به پیام‌ها رد شد. لطفاً مجوزهای لازم را بررسی کنید.'
           : 'خطا در بارگذاری پیام‌ها: ${e.toString()}';
       emit(MessageError(errorMessage));
@@ -122,11 +139,13 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         orderDesc: true,
       );
       final chronological = messages.reversed.toList();
-      emit(MessagesLoaded(
-        chronological,
-        hasMore: messages.length >= event.limit,
-        threadId: event.threadId,
-      ));
+      emit(
+        MessagesLoaded(
+          chronological,
+          hasMore: messages.length >= event.limit,
+          threadId: event.threadId,
+        ),
+      );
     } catch (e) {
       emit(MessageError(e.toString()));
     }
@@ -145,19 +164,31 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         archived: current.archived,
       );
       if (more.isEmpty) {
-        emit(ThreadsLoaded(current.threads,
-            hasMore: false, archived: current.archived));
+        emit(
+          ThreadsLoaded(
+            current.threads,
+            hasMore: false,
+            archived: current.archived,
+          ),
+        );
         return;
       }
       final resolved = await _resolveContactNames(more);
-      emit(ThreadsLoaded(
-        [...current.threads, ...resolved],
-        hasMore: more.length >= 50,
-        archived: current.archived,
-      ));
+      emit(
+        ThreadsLoaded(
+          [...current.threads, ...resolved],
+          hasMore: more.length >= 50,
+          archived: current.archived,
+        ),
+      );
     } catch (_) {
-      emit(ThreadsLoaded(current.threads,
-          hasMore: false, archived: current.archived));
+      emit(
+        ThreadsLoaded(
+          current.threads,
+          hasMore: false,
+          archived: current.archived,
+        ),
+      );
     }
   }
 
@@ -175,17 +206,31 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         orderDesc: true,
       );
       if (older.isEmpty) {
-        emit(MessagesLoaded(current.messages, hasMore: false, threadId: current.threadId));
+        emit(
+          MessagesLoaded(
+            current.messages,
+            hasMore: false,
+            threadId: current.threadId,
+          ),
+        );
         return;
       }
       final chronologicalOlder = older.reversed.toList();
-      emit(MessagesLoaded(
-        [...chronologicalOlder, ...current.messages],
-        hasMore: older.length >= 50,
-        threadId: current.threadId,
-      ));
+      emit(
+        MessagesLoaded(
+          [...chronologicalOlder, ...current.messages],
+          hasMore: older.length >= 50,
+          threadId: current.threadId,
+        ),
+      );
     } catch (_) {
-      emit(MessagesLoaded(current.messages, hasMore: false, threadId: current.threadId));
+      emit(
+        MessagesLoaded(
+          current.messages,
+          hasMore: false,
+          threadId: current.threadId,
+        ),
+      );
     }
   }
 
@@ -194,24 +239,25 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     Emitter<MessageState> emit,
   ) async {
     try {
-      final result = await _smsService.sendSms(
-        event.phoneNumber,
-        event.body,
-      );
+      final result = await _smsService.sendSms(event.phoneNumber, event.body);
       if (result.success) {
         emit(const MessageSent());
         // Let the UI screens decide what to reload based on their context.
       } else {
-        emit(MessageSendFailed(
-          errorCode: result.errorCode ?? 'SMS_SEND_FAILED',
-          userMessage: _localizedSendError(result.errorCode),
-        ));
+        emit(
+          MessageSendFailed(
+            errorCode: result.errorCode ?? 'SMS_SEND_FAILED',
+            userMessage: _localizedSendError(result.errorCode),
+          ),
+        );
       }
     } catch (e) {
-      emit(MessageSendFailed(
-        errorCode: 'SMS_SEND_FAILED',
-        userMessage: _localizedSendError(null),
-      ));
+      emit(
+        MessageSendFailed(
+          errorCode: 'SMS_SEND_FAILED',
+          userMessage: _localizedSendError(null),
+        ),
+      );
     }
   }
 
@@ -285,17 +331,21 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       if (current is MessagesLoaded) {
         if (current.threadId == event.message.threadId) {
           // Dedupe: avoid appending if this message is already in the list (e.g. duplicate event).
-          final alreadyPresent = current.messages.any((m) =>
-              m.id == event.message.id ||
-              (m.body == event.message.body &&
-                  m.timestamp == event.message.timestamp &&
-                  m.phoneNumber == event.message.phoneNumber));
+          final alreadyPresent = current.messages.any(
+            (m) =>
+                m.id == event.message.id ||
+                (m.body == event.message.body &&
+                    m.timestamp == event.message.timestamp &&
+                    m.phoneNumber == event.message.phoneNumber),
+          );
           if (!alreadyPresent) {
-            emit(MessagesLoaded(
-              [...current.messages, event.message],
-              hasMore: current.hasMore,
-              threadId: current.threadId,
-            ));
+            emit(
+              MessagesLoaded(
+                [...current.messages, event.message],
+                hasMore: current.hasMore,
+                threadId: current.threadId,
+              ),
+            );
           }
         }
         // Else: different thread; do not dispatch LoadThreads so we don't replace state with ThreadsLoaded.
@@ -340,7 +390,8 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       for (final id in event.threadIds) {
         await _repository.deleteThread(id);
       }
-      final archived = state is ThreadsLoaded && (state as ThreadsLoaded).archived;
+      final archived =
+          state is ThreadsLoaded && (state as ThreadsLoaded).archived;
       add(LoadThreads(archived: archived));
     } catch (e) {
       emit(MessageError(e.toString()));
@@ -378,17 +429,15 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     }
   }
 
-  Future<void> _onPinThread(
-    PinThread event,
-    Emitter<MessageState> emit,
-  ) async {
+  Future<void> _onPinThread(PinThread event, Emitter<MessageState> emit) async {
     try {
       if (event.pin) {
         await _repository.pinThread(event.threadId);
       } else {
         await _repository.unpinThread(event.threadId);
       }
-      final archived = state is ThreadsLoaded && (state as ThreadsLoaded).archived;
+      final archived =
+          state is ThreadsLoaded && (state as ThreadsLoaded).archived;
       add(LoadThreads(archived: archived));
     } catch (e) {
       emit(MessageError(e.toString()));
@@ -407,12 +456,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
           await _repository.markThreadAsUnread(id);
         }
       }
-      final archived = state is ThreadsLoaded && (state as ThreadsLoaded).archived;
+      final archived =
+          state is ThreadsLoaded && (state as ThreadsLoaded).archived;
       add(LoadThreads(archived: archived));
     } catch (e) {
       emit(MessageError(e.toString()));
     }
   }
 }
-
-

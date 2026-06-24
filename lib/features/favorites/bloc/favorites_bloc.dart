@@ -31,14 +31,16 @@ class FavoritesBloc extends Bloc<FavoritesEvent, FavoritesState> {
     try {
       final normalized = FavoriteModel.normalize(event.phoneNumber);
       if (normalized.isEmpty) return;
-      await _repository.addFavorite(FavoriteModel(
-        id: _uuid.v4(),
-        phoneNumber: event.phoneNumber,
-        normalized: normalized,
-        name: event.name,
-        contactId: event.contactId,
-        createdAt: DateTime.now(),
-      ));
+      await _repository.addFavorite(
+        FavoriteModel(
+          id: _uuid.v4(),
+          phoneNumber: event.phoneNumber,
+          normalized: normalized,
+          name: event.name,
+          contactId: event.contactId,
+          createdAt: DateTime.now(),
+        ),
+      );
       emit(FavoritesLoaded(await _repository.getFavorites()));
     } catch (e) {
       emit(FavoritesError(e.toString()));

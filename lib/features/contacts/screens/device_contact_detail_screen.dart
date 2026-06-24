@@ -119,7 +119,8 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
       actions: [
         BlocBuilder<FavoritesBloc, FavoritesState>(
           builder: (context, state) {
-            final isFav = state is FavoritesLoaded &&
+            final isFav =
+                state is FavoritesLoaded &&
                 state.favorites.any((f) => f.normalized == norm);
             return IconButton(
               icon: Icon(isFav ? Icons.star : Icons.star_border),
@@ -130,11 +131,13 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
                 if (isFav) {
                   bloc.add(RemoveFavorite(norm));
                 } else {
-                  bloc.add(AddFavorite(
-                    phoneNumber: _primaryPhone,
-                    name: _name,
-                    contactId: widget.contact.id,
-                  ));
+                  bloc.add(
+                    AddFavorite(
+                      phoneNumber: _primaryPhone,
+                      name: _name,
+                      contactId: widget.contact.id,
+                    ),
+                  );
                 }
               },
             );
@@ -143,8 +146,10 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
       ],
       flexibleSpace: FlexibleSpaceBar(
         collapseMode: CollapseMode.parallax,
-        title: Text(_name,
-            style: const TextStyle(color: Colors.white, fontSize: 18)),
+        title: Text(
+          _name,
+          style: const TextStyle(color: Colors.white, fontSize: 18),
+        ),
         background: photo != null
             ? Stack(
                 fit: StackFit.expand,
@@ -183,7 +188,9 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
   Widget _buildActionRow(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(
-          horizontal: AppDimensions.paddingMd, vertical: AppDimensions.paddingMd),
+        horizontal: AppDimensions.paddingMd,
+        vertical: AppDimensions.paddingMd,
+      ),
       child: Row(
         children: [
           Expanded(
@@ -249,20 +256,24 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
     if (addresses.isNotEmpty) {
       widgets.add(_sectionHeader('نشانی'));
       for (final a in addresses) {
-        widgets.add(ListTile(
-          leading: const Icon(Icons.location_on_outlined),
-          title: Text(a.address),
-        ));
+        widgets.add(
+          ListTile(
+            leading: const Icon(Icons.location_on_outlined),
+            title: Text(a.address),
+          ),
+        );
       }
     }
 
     if (notes.isNotEmpty) {
       widgets.add(_sectionHeader('یادداشت'));
       for (final n in notes) {
-        widgets.add(ListTile(
-          leading: const Icon(Icons.notes_outlined),
-          title: Text(n.note),
-        ));
+        widgets.add(
+          ListTile(
+            leading: const Icon(Icons.notes_outlined),
+            title: Text(n.note),
+          ),
+        );
       }
     }
 
@@ -290,8 +301,10 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
       leading: const Icon(Icons.phone_outlined),
       title: Directionality(
         textDirection: TextDirection.ltr,
-        child: Text(PersianUtils.toPersianNumber(number),
-            textAlign: TextAlign.right),
+        child: Text(
+          PersianUtils.toPersianNumber(number),
+          textAlign: TextAlign.right,
+        ),
       ),
       subtitle: Text(label),
       trailing: Row(
@@ -407,12 +420,14 @@ class _ActionButton extends StatelessWidget {
             children: [
               Icon(icon, color: theme.colorScheme.primary, size: 24),
               const SizedBox(height: 6),
-              Text(label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                    color: theme.colorScheme.primary,
-                  )),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
             ],
           ),
         ),

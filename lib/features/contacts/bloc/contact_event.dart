@@ -56,27 +56,3 @@ class GetContactById extends ContactEvent {
   @override
   List<Object?> get props => [id];
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

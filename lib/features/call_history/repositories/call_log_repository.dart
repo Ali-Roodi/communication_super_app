@@ -46,7 +46,11 @@ class CallLogRepository {
     return maps.map((map) => CallLogModel.fromMap(map)).toList();
   }
 
-  Future<List<CallLogModel>> getCallLogsByContact(String contactId, {int? limit, int? offset}) async {
+  Future<List<CallLogModel>> getCallLogsByContact(
+    String contactId, {
+    int? limit,
+    int? offset,
+  }) async {
     final db = await _dbHelper.database;
     final maps = await db.query(
       AppConstants.callLogsTable,
@@ -68,5 +72,3 @@ class CallLogRepository {
     );
   }
 }
-
-

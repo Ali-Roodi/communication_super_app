@@ -113,13 +113,3 @@ class ContactBloc extends Bloc<ContactEvent, ContactState> {
     }
   }
 }
-
-
-
-
-
-
-
-
-
-

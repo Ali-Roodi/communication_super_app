@@ -16,11 +16,7 @@ class AddFavorite extends FavoritesEvent {
   final String? name;
   final String? contactId;
 
-  const AddFavorite({
-    required this.phoneNumber,
-    this.name,
-    this.contactId,
-  });
+  const AddFavorite({required this.phoneNumber, this.name, this.contactId});
 
   @override
   List<Object?> get props => [phoneNumber, name, contactId];

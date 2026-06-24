@@ -29,8 +29,9 @@ class FavoritesScreen extends StatelessWidget {
           if (state is FavoritesError) {
             return Center(child: Text('خطا: ${state.message}'));
           }
-          final favorites =
-              state is FavoritesLoaded ? state.favorites : const <FavoriteModel>[];
+          final favorites = state is FavoritesLoaded
+              ? state.favorites
+              : const <FavoriteModel>[];
 
           if (favorites.isEmpty) {
             return _EmptyState(onAdd: () => _openPicker(context));
@@ -83,8 +84,7 @@ class _FavoriteCard extends StatelessWidget {
           ? AppColors.keypadDark
           : AppColors.keypadLight,
       child: InkWell(
-        onTap: () =>
-            NativeCallService.instance.makeCall(favorite.phoneNumber),
+        onTap: () => NativeCallService.instance.makeCall(favorite.phoneNumber),
         onLongPress: () => _confirmRemove(context),
         child: Padding(
           padding: const EdgeInsets.all(12),
@@ -104,8 +104,11 @@ class _FavoriteCard extends StatelessWidget {
                         shape: BoxShape.circle,
                         border: Border.all(color: theme.cardColor, width: 2),
                       ),
-                      child: const Icon(Icons.phone,
-                          color: Colors.white, size: 12),
+                      child: const Icon(
+                        Icons.phone,
+                        color: Colors.white,
+                        size: 12,
+                      ),
                     ),
                   ),
                 ],
@@ -117,7 +120,9 @@ class _FavoriteCard extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.w500),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ],
           ),
@@ -146,8 +151,10 @@ class _FavoriteCard extends StatelessWidget {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.star_outline,
-                    color: AppColors.callRejectRed),
+                leading: const Icon(
+                  Icons.star_outline,
+                  color: AppColors.callRejectRed,
+                ),
                 title: const Text(
                   'حذف از موردعلاقه‌ها',
                   style: TextStyle(color: AppColors.callRejectRed),
@@ -189,8 +196,10 @@ class _AddCard extends StatelessWidget {
           children: [
             Icon(Icons.add, size: 32, color: theme.colorScheme.primary),
             const SizedBox(height: 8),
-            Text('افزودن موردعلاقه',
-                style: TextStyle(color: theme.colorScheme.primary)),
+            Text(
+              'افزودن موردعلاقه',
+              style: TextStyle(color: theme.colorScheme.primary),
+            ),
           ],
         ),
       ),
@@ -214,17 +223,23 @@ class _EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.star_outline,
-                size: 96,
-                color: theme.colorScheme.primary.withValues(alpha: 0.5)),
+            Icon(
+              Icons.star_outline,
+              size: 96,
+              color: theme.colorScheme.primary.withValues(alpha: 0.5),
+            ),
             const SizedBox(height: 24),
-            Text('مخاطبین موردعلاقه شما اینجا نمایش داده می‌شوند',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.titleMedium),
+            Text(
+              'مخاطبین موردعلاقه شما اینجا نمایش داده می‌شوند',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleMedium,
+            ),
             const SizedBox(height: 8),
-            Text('برای دسترسی سریع، مخاطبین پرتماس را به موردعلاقه‌ها اضافه کنید',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodyMedium?.copyWith(color: dim)),
+            Text(
+              'برای دسترسی سریع، مخاطبین پرتماس را به موردعلاقه‌ها اضافه کنید',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(color: dim),
+            ),
             const SizedBox(height: 24),
             FilledButton.tonalIcon(
               onPressed: onAdd,
@@ -298,10 +313,12 @@ class _FavoritePickerSheetState extends State<_FavoritePickerSheet> {
                     final contacts = q.isEmpty
                         ? snapshot.data!
                         : snapshot.data!
-                            .where((c) =>
-                                c.name.toLowerCase().contains(q) ||
-                                c.phoneNumbers.any((p) => p.contains(q)))
-                            .toList();
+                              .where(
+                                (c) =>
+                                    c.name.toLowerCase().contains(q) ||
+                                    c.phoneNumbers.any((p) => p.contains(q)),
+                              )
+                              .toList();
                     if (contacts.isEmpty) {
                       return const Center(child: Text('مخاطبی یافت نشد'));
                     }
@@ -315,7 +332,8 @@ class _FavoritePickerSheetState extends State<_FavoritePickerSheet> {
                         return ListTile(
                           leading: c.avatar != null
                               ? CircleAvatar(
-                                  backgroundImage: MemoryImage(c.avatar!))
+                                  backgroundImage: MemoryImage(c.avatar!),
+                                )
                               : AvatarWidget(name: c.name, size: 40),
                           title: Text(c.name),
                           subtitle: Directionality(
@@ -324,15 +342,18 @@ class _FavoritePickerSheetState extends State<_FavoritePickerSheet> {
                               PersianUtils.toPersianNumber(phone),
                               textAlign: TextAlign.right,
                               style: TextStyle(
-                                  color: theme.textTheme.bodyMedium?.color),
+                                color: theme.textTheme.bodyMedium?.color,
+                              ),
                             ),
                           ),
                           onTap: () {
-                            widget.favoritesBloc.add(AddFavorite(
-                              phoneNumber: phone,
-                              name: c.name,
-                              contactId: c.id,
-                            ));
+                            widget.favoritesBloc.add(
+                              AddFavorite(
+                                phoneNumber: phone,
+                                name: c.name,
+                                contactId: c.id,
+                              ),
+                            );
                             Navigator.of(context).pop();
                           },
                         );

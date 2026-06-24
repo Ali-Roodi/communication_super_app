@@ -80,7 +80,9 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
                     }
                     return _query.trim().isEmpty
                         ? _buildSectionedList(
-                            _getOrBuildSections(state.contacts), theme)
+                            _getOrBuildSections(state.contacts),
+                            theme,
+                          )
                         : _buildSearchResults(state.contacts, theme);
                   }
                   return const SizedBox.shrink();
@@ -138,14 +140,18 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
   Widget _buildSearchResults(List<ContactModel> contacts, ThemeData theme) {
     final q = _query.trim().toLowerCase();
     final results = contacts
-        .where((c) =>
-            c.name.toLowerCase().contains(q) ||
-            c.phoneNumbers.any((p) => p.contains(q)))
+        .where(
+          (c) =>
+              c.name.toLowerCase().contains(q) ||
+              c.phoneNumbers.any((p) => p.contains(q)),
+        )
         .toList();
     if (results.isEmpty) {
       return Center(
-        child: Text('نتیجه‌ای برای «$_query» یافت نشد',
-            style: theme.textTheme.bodyMedium),
+        child: Text(
+          'نتیجه‌ای برای «$_query» یافت نشد',
+          style: theme.textTheme.bodyMedium,
+        ),
       );
     }
     return ListView.builder(
@@ -160,17 +166,21 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
   Widget _buildSectionedList(List<_Section> sections, ThemeData theme) {
     final slivers = <Widget>[];
     for (final s in sections) {
-      slivers.add(SliverPersistentHeader(
-        pinned: true,
-        delegate: _SectionHeaderDelegate(s.letter),
-      ));
-      slivers.add(SliverFixedExtentList(
-        itemExtent: _kRowHeight,
-        delegate: SliverChildBuilderDelegate(
-          (_, i) => _ContactRow(contact: s.contacts[i]),
-          childCount: s.contacts.length,
+      slivers.add(
+        SliverPersistentHeader(
+          pinned: true,
+          delegate: _SectionHeaderDelegate(s.letter),
         ),
-      ));
+      );
+      slivers.add(
+        SliverFixedExtentList(
+          itemExtent: _kRowHeight,
+          delegate: SliverChildBuilderDelegate(
+            (_, i) => _ContactRow(contact: s.contacts[i]),
+            childCount: s.contacts.length,
+          ),
+        ),
+      );
     }
 
     return Stack(
@@ -224,7 +234,8 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
     final ch = name[0];
     final code = ch.codeUnitAt(0);
     // Group digits / symbols under '#'.
-    final isLetter = (code >= 65 && code <= 90) ||
+    final isLetter =
+        (code >= 65 && code <= 90) ||
         (code >= 97 && code <= 122) ||
         code > 0x600; // Arabic/Persian block and beyond
     return isLetter ? ch.toUpperCase() : '#';
@@ -265,7 +276,11 @@ class _SectionHeaderDelegate extends SliverPersistentHeaderDelegate {
   double get maxExtent => _kHeaderHeight;
 
   @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
     final theme = Theme.of(context);
     return Container(
       height: _kHeaderHeight,
@@ -312,7 +327,9 @@ class _ContactRow extends StatelessWidget {
           children: [
             contact.avatar != null
                 ? CircleAvatar(
-                    radius: 24, backgroundImage: MemoryImage(contact.avatar!))
+                    radius: 24,
+                    backgroundImage: MemoryImage(contact.avatar!),
+                  )
                 : AvatarWidget(name: contact.name, size: 48),
             const SizedBox(width: 16),
             // Name-only rows per Figma 627:4074 (number shows on the detail).
@@ -353,9 +370,10 @@ class _AlphabetBar extends StatelessWidget {
         void handle(Offset local) {
           final h = constraints.maxHeight;
           if (h <= 0) return;
-          final i = (local.dy / h * letters.length)
-              .floor()
-              .clamp(0, letters.length - 1);
+          final i = (local.dy / h * letters.length).floor().clamp(
+            0,
+            letters.length - 1,
+          );
           onSelect(letters[i]);
         }
 

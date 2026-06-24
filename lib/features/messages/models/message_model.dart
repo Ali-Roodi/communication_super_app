@@ -1,16 +1,8 @@
 import 'package:equatable/equatable.dart';
 
-enum MessageType {
-  sent,
-  received,
-}
+enum MessageType { sent, received }
 
-enum MessageStatus {
-  pending,
-  sent,
-  delivered,
-  failed,
-}
+enum MessageStatus { pending, sent, delivered, failed }
 
 class MessageModel extends Equatable {
   final String id;
@@ -71,16 +63,16 @@ class MessageModel extends Equatable {
 
   @override
   List<Object?> get props => [
-        id,
-        threadId,
-        contactId,
-        phoneNumber,
-        body,
-        type,
-        status,
-        timestamp,
-        isRead,
-      ];
+    id,
+    threadId,
+    contactId,
+    phoneNumber,
+    body,
+    type,
+    status,
+    timestamp,
+    isRead,
+  ];
 }
 
 class MessageThread extends Equatable {
@@ -130,37 +122,13 @@ class MessageThread extends Equatable {
 
   @override
   List<Object?> get props => [
-        threadId,
-        phoneNumber,
-        contactId,
-        contactName,
-        lastMessage,
-        lastMessageTime,
-        unreadCount,
-        isPinned,
-      ];
+    threadId,
+    phoneNumber,
+    contactId,
+    contactName,
+    lastMessage,
+    lastMessageTime,
+    unreadCount,
+    isPinned,
+  ];
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

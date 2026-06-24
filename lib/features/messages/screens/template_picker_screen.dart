@@ -5,8 +5,10 @@ import 'package:communication_super_app/core/theme/app_dimensions.dart';
 /// Opens the template picker (Figma «انتخاب قالب») and returns the generated
 /// message text, or null if cancelled. [contactName] is offered to templates
 /// that can personalise the text (e.g. the meeting invitation).
-Future<String?> showTemplatePicker(BuildContext context,
-    {String? contactName}) {
+Future<String?> showTemplatePicker(
+  BuildContext context, {
+  String? contactName,
+}) {
   return Navigator.of(context).push<String>(
     MaterialPageRoute(
       builder: (_) => _TemplatePickerScreen(contactName: contactName),
@@ -16,22 +18,17 @@ Future<String?> showTemplatePicker(BuildContext context,
 
 /// Built-in quick templates that insert a fixed body with no further input.
 const _quickTemplates = <({String title, String body})>[
-  (
-    title: 'تشکر',
-    body: 'با سلام، از پیگیری و همراهی شما سپاسگزارم.'
-  ),
+  (title: 'تشکر', body: 'با سلام، از پیگیری و همراهی شما سپاسگزارم.'),
   (
     title: 'پیگیری',
-    body: 'با سلام، جهت پیگیری موضوع مطرح‌شده مزاحم شدم. ممنون می‌شوم در صورت امکان پاسخ بفرمایید.'
+    body:
+        'با سلام، جهت پیگیری موضوع مطرح‌شده مزاحم شدم. ممنون می‌شوم در صورت امکان پاسخ بفرمایید.',
   ),
   (
     title: 'هماهنگی تماس',
-    body: 'با سلام، چه زمانی برای یک تماس کوتاه در دسترس هستید؟'
+    body: 'با سلام، چه زمانی برای یک تماس کوتاه در دسترس هستید؟',
   ),
-  (
-    title: 'عذرخواهی',
-    body: 'با سلام، بابت تأخیر پیش‌آمده پوزش می‌خواهم.'
-  ),
+  (title: 'عذرخواهی', body: 'با سلام، بابت تأخیر پیش‌آمده پوزش می‌خواهم.'),
 ];
 
 class _TemplatePickerScreen extends StatelessWidget {
@@ -65,12 +62,14 @@ class _TemplatePickerScreen extends StatelessWidget {
               },
             ),
             const SizedBox(height: AppDimensions.paddingSm),
-            ..._quickTemplates.map((t) => _TemplateCard(
-                  icon: Icons.notes_outlined,
-                  title: t.title,
-                  subtitle: t.body,
-                  onTap: () => Navigator.of(context).pop(t.body),
-                )),
+            ..._quickTemplates.map(
+              (t) => _TemplateCard(
+                icon: Icons.notes_outlined,
+                title: t.title,
+                subtitle: t.body,
+                onTap: () => Navigator.of(context).pop(t.body),
+              ),
+            ),
           ],
         ),
       ),
@@ -112,14 +111,20 @@ class _TemplateCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(title,
-                          style: const TextStyle(
-                              fontSize: 15, fontWeight: FontWeight.w700)),
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                       const SizedBox(height: 2),
-                      Text(subtitle,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall),
+                      Text(
+                        subtitle,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall,
+                      ),
                     ],
                   ),
                 ),
@@ -201,7 +206,9 @@ class _MeetingTemplateScreenState extends State<MeetingTemplateScreen> {
           actions: [
             Padding(
               padding: const EdgeInsets.symmetric(
-                  horizontal: AppDimensions.paddingSm, vertical: 8),
+                horizontal: AppDimensions.paddingSm,
+                vertical: 8,
+              ),
               child: FilledButton(
                 onPressed: () => Navigator.of(context).pop(_build()),
                 child: const Text('درج'),

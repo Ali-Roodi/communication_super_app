@@ -61,12 +61,8 @@ dependencies:
   path_provider: ^2.1.5
   flutter_local_notifications: ^18.0.1
 
-  # ✦ جدید — اضافه شده در Step 0
+  # Persistence for lightweight key/value flags (theme, settings, sms-import).
   shared_preferences: ^2.3.2
-  go_router: ^14.2.7
-  shimmer: ^3.0.0
-  # fast_contacts: ^3.0.1   # PHASE-2: اضافه شود بعد از رفع مشکل شبکه
-  # shamsi_date: ^1.1.1     # PHASE-2: اضافه شود بعد از رفع مشکل شبکه
 
 dev_dependencies:
   flutter_test:
@@ -79,9 +75,10 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
 
-  # ✦ جدید — اضافه شده در Step 0
+  # Testing
   bloc_test: ^10.0.0
   mocktail: ^1.0.4
+  sqflite_common_ffi: ^2.3.3 # in-memory sqflite for repository unit tests
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
