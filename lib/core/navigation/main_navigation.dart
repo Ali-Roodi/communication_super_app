@@ -15,6 +15,7 @@ import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/features/search/screens/search_screen.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/features/settings/screens/settings_screen.dart';
+import 'widgets/message_nav_icon.dart';
 
 class MainNavigation extends StatefulWidget {
   final int initialIndex;
@@ -182,8 +183,8 @@ class _MainNavigationState extends State<MainNavigation> {
                     label: 'مخاطبین',
                   ),
                   NavigationDestination(
-                    icon: _MessageNavIcon(unread: unread, filled: false),
-                    selectedIcon: _MessageNavIcon(unread: unread, filled: true),
+                    icon: MessageNavIcon(unread: unread, filled: false),
+                    selectedIcon: MessageNavIcon(unread: unread, filled: true),
                     label: 'پیام‌ها',
                   ),
                 ],
@@ -248,24 +249,6 @@ class _FadeIndexedStackState extends State<_FadeIndexedStack>
     return FadeTransition(
       opacity: _controller,
       child: IndexedStack(index: widget.index, children: widget.children),
-    );
-  }
-}
-
-// ── Message nav icon with unread badge ───────────────────────────────────────
-
-class _MessageNavIcon extends StatelessWidget {
-  final int unread;
-  final bool filled;
-
-  const _MessageNavIcon({required this.unread, required this.filled});
-
-  @override
-  Widget build(BuildContext context) {
-    return Badge(
-      isLabelVisible: unread > 0,
-      label: Text(unread > 99 ? '99+' : '$unread'),
-      child: Icon(filled ? Icons.chat_bubble : Icons.chat_bubble_outline),
     );
   }
 }

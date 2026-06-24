@@ -24,9 +24,10 @@ the near-zero automated test coverage.
 | Added BLoC tests for the remaining BLoCs | `auth_bloc_test.dart` (5), `blocked_numbers_bloc_test.dart` (4), `contact_bloc_test.dart` (4) | None | `flutter test` |
 | Fixed missing unique message-content index on fresh installs (K10) | `database_helper.dart` `_createDB` now creates `idx_messages_content_unique` (was migration-only) — surfaced by the new dedup test | Low (aligns fresh installs with the documented invariant) | `flutter test` |
 | Added call-log repository, native channel-wrapper, and `ConversationScreen` widget tests | `repositories_test.dart` (call-logs), `native_services_test.dart`, `conversation_screen_test.dart` | None | `flutter test` |
+| Added `ContactRepository` tests + extracted `MessageNavIcon` for the unread badge | `repositories_test.dart` (contacts CRUD + pure `filterContactsByPhoneDigits`); `core/navigation/widgets/message_nav_icon.dart` + `message_nav_icon_test.dart` | Low (presentation extraction) | `flutter test` |
 | `dart format` across `lib/` + `test/` | all | None | — |
 
-Result: **`flutter analyze` → No issues found.** · **`flutter test` → 91/91 passing** (was 22).
+Result: **`flutter analyze` → No issues found.** · **`flutter test` → 102/102 passing** (was 22).
 
 ## 🔜 Backlog (prioritized)
 
@@ -73,18 +74,20 @@ Result: **`flutter analyze` → No issues found.** · **`flutter test` → 91/91
    `ContactBloc`. Plus **repository tests** (favorites, blocked, messages,
    drafts, call-logs) on a real in-memory `sqflite_common_ffi` schema, and
    **native channel-wrapper tests** (`NativeCallService`,
-   `NativeSmsService.sendSms`) via a mock `MethodChannel`. (91 tests total — the
-   dedup test surfaced and fixed K10.)
-   **Still to add:** `ContactRepository` reads (wrap `flutter_contacts` behind a
-   seam first) and the full SMS receive/import pipeline (needs device or a
-   refactor to expose the dedup window).
+   `NativeSmsService.sendSms`) via a mock `MethodChannel`; plus
+   `ContactRepository` local-table CRUD and the pure
+   `filterContactsByPhoneDigits`. (102 tests total — the dedup test surfaced and
+   fixed K10.)
+   **Still to add:** the full SMS receive/import pipeline (needs a device or a
+   refactor to expose the in-memory dedup window); `ContactRepository`'s
+   device-contact path (`getDeviceContacts`) needs a `flutter_contacts` seam.
 9. ✅ **Widget tests** — extracted presentation widgets (`MessageBubble`
-   states, `MessagesEmptyState/NoResults/ErrorState` incl. retry) **and**
+   states, `MessagesEmptyState/NoResults/ErrorState` incl. retry),
    `ConversationScreen` (one bubble per message, empty placeholder, day-separator
-   chips) in `test/widget/`.
-   **Still to add:** `MainNavigation` unread badge — needs the IndexedStack tab
-   screens stubbed (they hit repositories/plugins at mount), so defer until those
-   screens take injectable data or are split from the shell.
+   chips), and the `MainNavigation` unread badge via the extracted
+   `MessageNavIcon` (count, "99+" cap, filled/outline icon).
+   **Still avoided:** full-shell `MainNavigation` pumping — its IndexedStack
+   mounts every tab screen, which hits repositories/plugins at mount.
 
 ### Remaining screen decomposition (deferred, medium risk)
 - `messages_list_screen.dart` — the three app bars (`_buildAppBar`,
