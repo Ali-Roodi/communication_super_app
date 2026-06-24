@@ -253,6 +253,16 @@ class DatabaseHelper {
         CREATE INDEX idx_messages_is_read ON ${AppConstants.messagesTable}(is_read)
       ''');
 
+      // Unique content index — keeps fresh installs in sync with databases
+      // upgraded through the v2→v3 migration. Prevents duplicate rows when a
+      // message is first inserted by the live receiver and then re-imported
+      // from the device inbox (different id, same content). All batch inserts
+      // rely on this with ConflictAlgorithm.ignore.
+      await db.execute('''
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_content_unique
+        ON ${AppConstants.messagesTable}(phone_number, body, timestamp, type)
+      ''');
+
       // Notes table
       await db.execute('''
         CREATE TABLE ${AppConstants.notesTable} (

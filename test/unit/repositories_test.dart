@@ -6,6 +6,11 @@ import 'package:communication_super_app/features/favorites/models/favorite_model
 import 'package:communication_super_app/features/favorites/repositories/favorites_repository.dart';
 import 'package:communication_super_app/features/settings/models/blocked_number_model.dart';
 import 'package:communication_super_app/features/settings/repositories/blocked_numbers_repository.dart';
+import 'package:communication_super_app/features/messages/models/message_model.dart';
+import 'package:communication_super_app/features/messages/repositories/message_repository.dart';
+import 'package:communication_super_app/features/messages/models/draft_model.dart';
+import 'package:communication_super_app/features/messages/models/message_category_model.dart';
+import 'package:communication_super_app/features/messages/repositories/draft_repository.dart';
 
 FavoriteModel _fav(String id, String number) => FavoriteModel(
   id: id,
@@ -19,6 +24,22 @@ BlockedNumberModel _blocked(String id, String number) => BlockedNumberModel(
   phoneNumber: number,
   normalized: BlockedNumberModel.normalize(number),
   createdAt: DateTime(2026, 1, 1),
+);
+
+MessageModel _message(
+  String id, {
+  String threadId = '09120000000',
+  String body = 'سلام',
+  int minute = 0,
+  MessageType type = MessageType.received,
+}) => MessageModel(
+  id: id,
+  threadId: threadId,
+  phoneNumber: threadId,
+  body: body,
+  type: type,
+  status: MessageStatus.delivered,
+  timestamp: DateTime(2026, 1, 1, 12, minute),
 );
 
 void main() {
@@ -89,6 +110,93 @@ void main() {
 
       expect(await favorites.getFavorites(), hasLength(1));
       expect(await blocked.getBlocked(), hasLength(1));
+    });
+  });
+
+  group('MessageRepository', () {
+    test(
+      'getMessagesByThread returns messages in chronological order',
+      () async {
+        final repo = MessageRepository();
+        await repo.createMessage(_message('m1', minute: 0, body: 'اول'));
+        await repo.createMessage(_message('m2', minute: 5, body: 'دوم'));
+
+        final msgs = await repo.getMessagesByThread('09120000000');
+        expect(msgs.map((m) => m.body), ['اول', 'دوم']);
+      },
+    );
+
+    test('duplicate content (phone, body, timestamp, type) is ignored (DB-v3 '
+        'unique index)', () async {
+      final repo = MessageRepository();
+      // Same content, different id — mimics live-received vs. later-imported.
+      await repo.createMessage(_message('live-uuid', body: 'تکراری'));
+      await repo.createMessage(_message('imported-99', body: 'تکراری'));
+
+      expect(await repo.getMessagesByThread('09120000000'), hasLength(1));
+    });
+
+    test('softDeleteMessages hides messages from the thread query', () async {
+      final repo = MessageRepository();
+      await repo.createMessage(_message('m1', minute: 0));
+      await repo.createMessage(_message('m2', minute: 5));
+
+      await repo.softDeleteMessages(['m1']);
+
+      final remaining = await repo.getMessagesByThread('09120000000');
+      expect(remaining.map((m) => m.id), ['m2']);
+    });
+  });
+
+  group('DraftRepository', () {
+    test('upsert then read returns the draft', () async {
+      final repo = DraftRepository();
+      await repo.upsertDraft(
+        Draft(id: 'd1', body: 'پیش‌نویس', updatedAt: DateTime(2026, 1, 1)),
+      );
+
+      final drafts = await repo.getDrafts();
+      expect(drafts, hasLength(1));
+      expect(drafts.single.body, 'پیش‌نویس');
+    });
+
+    test('upsert with the same id replaces the existing draft', () async {
+      final repo = DraftRepository();
+      await repo.upsertDraft(
+        Draft(id: 'd1', body: 'نسخه ۱', updatedAt: DateTime(2026, 1, 1)),
+      );
+      await repo.upsertDraft(
+        Draft(id: 'd1', body: 'نسخه ۲', updatedAt: DateTime(2026, 1, 2)),
+      );
+
+      final drafts = await repo.getDrafts();
+      expect(drafts, hasLength(1));
+      expect(drafts.single.body, 'نسخه ۲');
+    });
+
+    test('deleting a category leaves its drafts uncategorized', () async {
+      final repo = DraftRepository();
+      await repo.addCategory(
+        MessageCategory(
+          id: 'c1',
+          name: 'تولد',
+          createdAt: DateTime(2026, 1, 1),
+        ),
+      );
+      await repo.upsertDraft(
+        Draft(
+          id: 'd1',
+          body: 'تبریک',
+          categoryId: 'c1',
+          updatedAt: DateTime(2026, 1, 1),
+        ),
+      );
+
+      await repo.deleteCategory('c1');
+
+      expect(await repo.getCategories(), isEmpty);
+      final uncategorized = await repo.getDrafts(uncategorized: true);
+      expect(uncategorized.map((d) => d.id), ['d1']);
     });
   });
 }
