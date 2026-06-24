@@ -112,6 +112,10 @@ app.*.symbols
 
 # MD files
 *.md
+# ...but keep the project documentation under docs/ and the root guides.
+!docs/*.md
+!CLAUDE.md
+!README.md
 
 # Exceptions to above rules.
 !**/ios/**/default.mode1v3
