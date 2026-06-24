@@ -25,9 +25,10 @@ the near-zero automated test coverage.
 | Fixed missing unique message-content index on fresh installs (K10) | `database_helper.dart` `_createDB` now creates `idx_messages_content_unique` (was migration-only) — surfaced by the new dedup test | Low (aligns fresh installs with the documented invariant) | `flutter test` |
 | Added call-log repository, native channel-wrapper, and `ConversationScreen` widget tests | `repositories_test.dart` (call-logs), `native_services_test.dart`, `conversation_screen_test.dart` | None | `flutter test` |
 | Added `ContactRepository` tests + extracted `MessageNavIcon` for the unread badge | `repositories_test.dart` (contacts CRUD + pure `filterContactsByPhoneDigits`); `core/navigation/widgets/message_nav_icon.dart` + `message_nav_icon_test.dart` | Low (presentation extraction) | `flutter test` |
+| Added SMS dedup-window test via a `@visibleForTesting` seam on `SmsService` | `sms_service_dedup_test.dart` (covers DESIGN_DECISIONS D4) | Low (test-only seam) | `flutter test` |
 | `dart format` across `lib/` + `test/` | all | None | — |
 
-Result: **`flutter analyze` → No issues found.** · **`flutter test` → 102/102 passing** (was 22).
+Result: **`flutter analyze` → No issues found.** · **`flutter test` → 105/105 passing** (was 22).
 
 ## 🔜 Backlog (prioritized)
 
@@ -76,10 +77,11 @@ Result: **`flutter analyze` → No issues found.** · **`flutter test` → 102/1
    **native channel-wrapper tests** (`NativeCallService`,
    `NativeSmsService.sendSms`) via a mock `MethodChannel`; plus
    `ContactRepository` local-table CRUD and the pure
-   `filterContactsByPhoneDigits`. (102 tests total — the dedup test surfaced and
-   fixed K10.)
-   **Still to add:** the full SMS receive/import pipeline (needs a device or a
-   refactor to expose the in-memory dedup window); `ContactRepository`'s
+   `filterContactsByPhoneDigits`; and the `SmsService` in-memory dedup window
+   (via a `@visibleForTesting` seam). (105 tests total — the dedup test surfaced
+   and fixed K10.)
+   **Still to add:** the SMS receive/import *wiring* (BroadcastReceiver →
+   EventChannel → persist) needs a device/integration test; `ContactRepository`'s
    device-contact path (`getDeviceContacts`) needs a `flutter_contacts` seam.
 9. ✅ **Widget tests** — extracted presentation widgets (`MessageBubble`
    states, `MessagesEmptyState/NoResults/ErrorState` incl. retry),
