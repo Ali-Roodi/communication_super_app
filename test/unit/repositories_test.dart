@@ -13,6 +13,8 @@ import 'package:communication_super_app/features/messages/models/message_categor
 import 'package:communication_super_app/features/messages/repositories/draft_repository.dart';
 import 'package:communication_super_app/features/call_history/models/call_log_model.dart';
 import 'package:communication_super_app/features/call_history/repositories/call_log_repository.dart';
+import 'package:communication_super_app/features/contacts/models/contact_model.dart';
+import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 
 FavoriteModel _fav(String id, String number) => FavoriteModel(
   id: id,
@@ -49,6 +51,19 @@ CallLogModel _call(String id, {int minute = 0}) => CallLogModel(
   phoneNumber: '0912000$id',
   callType: CallType.incoming,
   timestamp: DateTime(2026, 1, 1, 12, minute),
+);
+
+ContactModel _contact(
+  String id, {
+  String name = 'علی',
+  String phone = '09120000000',
+}) => ContactModel(
+  id: id,
+  name: name,
+  phoneNumber: phone,
+  phoneNumbers: [phone],
+  createdAt: DateTime(2026, 1, 1),
+  updatedAt: DateTime(2026, 1, 1),
 );
 
 void main() {
@@ -253,6 +268,72 @@ void main() {
 
       final remaining = await repo.getAllCallLogs();
       expect(remaining.map((c) => c.id), ['2']);
+    });
+  });
+
+  group('ContactRepository (local contacts table)', () {
+    test('create then read by id round-trips name and phone', () async {
+      final repo = ContactRepository();
+      await repo.createContact(
+        _contact('c1', name: 'مریم', phone: '09120001122'),
+      );
+
+      final fetched = await repo.getContactById('c1');
+      expect(fetched, isNotNull);
+      expect(fetched!.name, 'مریم');
+      expect(fetched.phoneNumber, '09120001122');
+    });
+
+    test('getContactByPhoneNumber finds the matching contact', () async {
+      final repo = ContactRepository();
+      await repo.createContact(_contact('c1', phone: '09125556677'));
+
+      final fetched = await repo.getContactByPhoneNumber('09125556677');
+      expect(fetched?.id, 'c1');
+      expect(await repo.getContactByPhoneNumber('00000000000'), isNull);
+    });
+
+    test('updateContact persists the new name', () async {
+      final repo = ContactRepository();
+      await repo.createContact(_contact('c1', name: 'علی'));
+
+      await repo.updateContact(_contact('c1', name: 'علی رضایی'));
+
+      expect((await repo.getContactById('c1'))!.name, 'علی رضایی');
+    });
+
+    test('deleteContact removes the row', () async {
+      final repo = ContactRepository();
+      await repo.createContact(_contact('c1'));
+
+      await repo.deleteContact('c1');
+
+      expect(await repo.getContactById('c1'), isNull);
+    });
+  });
+
+  group('ContactRepository.filterContactsByPhoneDigits (pure)', () {
+    final repo = ContactRepository();
+    final contacts = [
+      _contact('a', name: 'آرش', phone: '09121112233'),
+      _contact('b', name: 'بهار', phone: '09354445566'),
+    ];
+
+    test('matches by a digit subsequence, ignoring formatting', () {
+      final matches = repo.filterContactsByPhoneDigits(contacts, '0912 111');
+      expect(matches.map((c) => c.id), ['a']);
+    });
+
+    test('returns empty for an empty / digit-less query', () {
+      expect(repo.filterContactsByPhoneDigits(contacts, ''), isEmpty);
+      expect(repo.filterContactsByPhoneDigits(contacts, 'abc'), isEmpty);
+    });
+
+    test('returns all contacts that contain the digits', () {
+      expect(repo.filterContactsByPhoneDigits(contacts, '0').map((c) => c.id), [
+        'a',
+        'b',
+      ]);
     });
   });
 }
