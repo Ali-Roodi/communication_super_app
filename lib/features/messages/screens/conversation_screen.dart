@@ -6,7 +6,6 @@ import '../bloc/message_event.dart';
 import '../bloc/message_state.dart';
 import '../models/message_model.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
-import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
@@ -16,6 +15,9 @@ import 'package:communication_super_app/features/contacts/screens/add_edit_conta
 import 'drafts_list_screen.dart';
 import 'template_picker_screen.dart';
 import 'widgets/message_bubble.dart';
+import 'widgets/conversation_app_bars.dart';
+import 'widgets/conversation_sheets.dart';
+import 'widgets/message_composer.dart';
 
 /// Google Messages style chat screen.
 ///
@@ -182,84 +184,22 @@ class _ConversationScreenState extends State<ConversationScreen> {
   // ── App bars ──────────────────────────────────────────────────────────────
 
   PreferredSizeWidget _normalAppBar() {
-    final theme = Theme.of(context);
-    return AppBar(
-      titleSpacing: 0,
-      title: InkWell(
-        onTap: _openContact,
-        child: Row(
-          children: [
-            AvatarWidget(name: _title, size: 36),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    _title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 17),
-                  ),
-                  if (_hasName)
-                    Text(
-                      PhoneNormalizer.toNational(widget.phoneNumber),
-                      style: theme.textTheme.bodySmall,
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.call_outlined),
-          tooltip: 'تماس',
-          onPressed: () =>
-              NativeCallService.instance.makeCall(widget.phoneNumber),
-        ),
-        PopupMenuButton<String>(
-          onSelected: _onMenu,
-          itemBuilder: (_) => [
-            if (_hasName)
-              const PopupMenuItem(value: 'view', child: Text('مشاهده مخاطب'))
-            else
-              const PopupMenuItem(
-                value: 'add',
-                child: Text('افزودن به مخاطبین'),
-              ),
-            const PopupMenuItem(
-              value: 'block',
-              child: Text('مسدود کردن و گزارش هرزنامه'),
-            ),
-            const PopupMenuItem(value: 'delete', child: Text('حذف گفتگو')),
-          ],
-        ),
-      ],
+    return ConversationAppBar(
+      title: _title,
+      phoneNumber: widget.phoneNumber,
+      hasName: _hasName,
+      onOpenContact: _openContact,
+      onCall: () => NativeCallService.instance.makeCall(widget.phoneNumber),
+      onMenuSelected: _onMenu,
     );
   }
 
   PreferredSizeWidget _selectionAppBar() {
-    return AppBar(
-      leading: IconButton(
-        icon: const Icon(Icons.close),
-        onPressed: () => setState(_selected.clear),
-      ),
-      title: Text('${_selected.length}'),
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.copy_outlined),
-          tooltip: 'کپی',
-          onPressed: _copySelected,
-        ),
-        IconButton(
-          icon: const Icon(Icons.delete_outline),
-          tooltip: 'حذف',
-          onPressed: () => _confirmDeleteMessages(_selected.toList()),
-        ),
-      ],
+    return ConversationSelectionAppBar(
+      selectedCount: _selected.length,
+      onClear: () => setState(_selected.clear),
+      onCopy: _copySelected,
+      onDelete: () => _confirmDeleteMessages(_selected.toList()),
     );
   }
 
@@ -426,71 +366,23 @@ class _ConversationScreenState extends State<ConversationScreen> {
   // ── Message long-press options ─────────────────────────────────────────────
 
   void _showMessageOptions(MessageModel msg) {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetCtx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.copy_outlined),
-                title: const Text('کپی'),
-                onTap: () {
-                  Clipboard.setData(ClipboardData(text: msg.body));
-                  Navigator.pop(sheetCtx);
-                  ScaffoldMessenger.of(
-                    context,
-                  ).showSnackBar(const SnackBar(content: Text('کپی شد')));
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.forward_outlined),
-                title: const Text('هدایت'),
-                onTap: () {
-                  Navigator.pop(sheetCtx);
-                  ScaffoldMessenger.of(
-                    context,
-                  ).showSnackBar(const SnackBar(content: Text('به‌زودی')));
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.info_outline),
-                title: const Text('اطلاعات'),
-                onTap: () {
-                  Navigator.pop(sheetCtx);
-                  _showMessageInfo(msg);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.checklist),
-                title: const Text('انتخاب'),
-                onTap: () {
-                  Navigator.pop(sheetCtx);
-                  _toggleSelect(msg.id);
-                },
-              ),
-              ListTile(
-                leading: const Icon(
-                  Icons.delete_outline,
-                  color: AppColors.danger,
-                ),
-                title: const Text(
-                  'حذف',
-                  style: TextStyle(color: AppColors.danger),
-                ),
-                onTap: () {
-                  Navigator.pop(sheetCtx);
-                  _confirmDeleteMessages([msg.id]);
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
+    showMessageOptionsSheet(
+      context,
+      onCopy: () => _copyMessage(msg),
+      onForward: () => ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('به‌زودی'))),
+      onInfo: () => _showMessageInfo(msg),
+      onSelect: () => _toggleSelect(msg.id),
+      onDelete: () => _confirmDeleteMessages([msg.id]),
     );
+  }
+
+  void _copyMessage(MessageModel msg) {
+    Clipboard.setData(ClipboardData(text: msg.body));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('کپی شد')));
   }
 
   void _showMessageInfo(MessageModel msg) {
@@ -603,171 +495,16 @@ class _ConversationScreenState extends State<ConversationScreen> {
   // ── Composer ────────────────────────────────────────────────────────────────
 
   Widget _buildComposer() {
-    final theme = Theme.of(context);
-    final text = _messageController.text;
-    final hasText = text.trim().isNotEmpty;
-    final len = text.length;
-    final segments = len == 0 ? 0 : (len / 160).ceil();
-
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (len > 140)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4, right: 16, left: 16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    if (len > 160)
-                      Container(
-                        margin: const EdgeInsets.only(left: 8),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 1,
-                        ),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.tertiary,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: const Text(
-                          'MMS',
-                          style: TextStyle(color: Colors.white, fontSize: 11),
-                        ),
-                      ),
-                    Text(
-                      '$len / $segments SMS',
-                      style: theme.textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.add_circle_outline),
-                  tooltip: 'پیوست',
-                  onPressed: _showAttachmentSheet,
-                ),
-                Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: theme.brightness == Brightness.dark
-                          ? theme.colorScheme.surfaceContainerHighest
-                          : Colors.grey[200],
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _messageController,
-                            minLines: 1,
-                            maxLines: 4,
-                            textInputAction: TextInputAction.newline,
-                            decoration: const InputDecoration(
-                              hintText: 'پیام',
-                              border: InputBorder.none,
-                              contentPadding: EdgeInsets.symmetric(
-                                vertical: 10,
-                              ),
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          icon: Icon(
-                            _showStickers
-                                ? Icons.keyboard
-                                : Icons.emoji_emotions_outlined,
-                          ),
-                          tooltip: 'استیکر',
-                          onPressed: () {
-                            if (!_showStickers) {
-                              FocusScope.of(context).unfocus();
-                            }
-                            setState(() => _showStickers = !_showStickers);
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 4),
-                MessageSendButton(enabled: hasText, onSend: _sendMessage),
-              ],
-            ),
-            if (_showStickers) _buildStickerPanel(theme),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Emoji "sticker" picker. Tapping a sticker sends it immediately as a
-  /// message (no image assets needed).
-  static const List<String> _stickers = [
-    '😀',
-    '😂',
-    '😍',
-    '😎',
-    '😭',
-    '😡',
-    '👍',
-    '👎',
-    '🙏',
-    '👏',
-    '🎉',
-    '❤️',
-    '🔥',
-    '💯',
-    '😴',
-    '🤔',
-    '😅',
-    '😉',
-    '😘',
-    '🥳',
-    '😱',
-    '🤩',
-    '💀',
-    '✨',
-    '🌹',
-    '☕',
-    '🍕',
-    '⚽',
-    '🎂',
-    '🚗',
-    '📱',
-    '✅',
-  ];
-
-  Widget _buildStickerPanel(ThemeData theme) {
-    return Container(
-      height: 220,
-      margin: const EdgeInsets.only(top: 4),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: GridView.count(
-        crossAxisCount: 6,
-        padding: const EdgeInsets.all(8),
-        children: [
-          for (final s in _stickers)
-            InkWell(
-              borderRadius: BorderRadius.circular(12),
-              onTap: () => _sendSticker(s),
-              child: Center(
-                child: Text(s, style: const TextStyle(fontSize: 30)),
-              ),
-            ),
-        ],
-      ),
+    return MessageComposer(
+      controller: _messageController,
+      showStickers: _showStickers,
+      onToggleStickers: () {
+        if (!_showStickers) FocusScope.of(context).unfocus();
+        setState(() => _showStickers = !_showStickers);
+      },
+      onAttach: _showAttachmentSheet,
+      onSend: _sendMessage,
+      onStickerSelected: _sendSticker,
     );
   }
 
@@ -778,52 +515,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
   }
 
   void _showAttachmentSheet() {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetCtx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: SafeArea(
-          child: Wrap(
-            children: [
-              // Functional: insert a saved draft or a generated template.
-              ListTile(
-                leading: const Icon(Icons.edit_note_outlined),
-                title: const Text('پیش‌نویس'),
-                onTap: () {
-                  Navigator.pop(sheetCtx);
-                  _insertDraft();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.description_outlined),
-                title: const Text('قالب آماده'),
-                onTap: () {
-                  Navigator.pop(sheetCtx);
-                  _insertTemplate();
-                },
-              ),
-              const Divider(height: 1),
-              for (final item in const [
-                (Icons.photo_camera_outlined, 'دوربین'),
-                (Icons.photo_library_outlined, 'گالری'),
-                (Icons.mic_none_outlined, 'صدا'),
-                (Icons.location_on_outlined, 'موقعیت'),
-              ])
-                ListTile(
-                  leading: Icon(item.$1),
-                  title: Text(item.$2),
-                  onTap: () {
-                    Navigator.pop(sheetCtx);
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(const SnackBar(content: Text('به‌زودی')));
-                  },
-                ),
-            ],
-          ),
-        ),
-      ),
+    showAttachmentSheet(
+      context,
+      onInsertDraft: _insertDraft,
+      onInsertTemplate: _insertTemplate,
+      onComingSoon: () => ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('به‌زودی'))),
     );
   }
 

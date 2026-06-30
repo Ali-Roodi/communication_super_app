@@ -93,4 +93,4 @@ implementations), so they can be unit-tested with mocks — e.g.
 `MessageBloc(repository: …, smsService: …, contactRepository: …)`. `SettingsBloc`
 is tested with `SharedPreferences.setMockInitialValues`. Repository tests run the
 real schema on an in-memory `sqflite_common_ffi` database (see
-`CONTRIBUTING.md`). Current suite: **105 tests**.
+`CONTRIBUTING.md`). Current suite: **113 tests**.
