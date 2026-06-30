@@ -12,7 +12,7 @@ of three local sources:
 1. **SQLite** (`sqflite`) — the app's own database (`communication_app.db`).
 2. **Android platform channels** — native Kotlin code for SMS send/receive and
    the call lifecycle (`MethodChannel` + `EventChannel`).
-3. **Device plugins** — `flutter_contacts`, `call_log`, `telephony`,
+3. **Device plugins** — `flutter_contacts`, `call_log`, `another_telephony`,
    `permission_handler`, `local_auth`, `flutter_secure_storage`.
 
 State is managed exclusively with **BLoC** (`flutter_bloc`). All BLoCs are
@@ -87,7 +87,7 @@ BLoC event. A BLoC never builds UI. A repository never imports `flutter_bloc`.
 - **Send:** `SmsService.sendSms` → `NativeSmsService` → `MethodChannel`
   (`…/sms`) → `SmsHandler.sendSms` (pre-flight SIM/service checks).
 - **Fallback:** if the native receiver fails to initialize, `SmsService` falls
-  back to the `telephony` plugin (foreground-only, see code comments).
+  back to the `another_telephony` plugin (foreground-only, see code comments).
 
 ### 5.2 Call bridge (`dialer/services`)
 - `NativeCallService` is a singleton wrapping a `MethodChannel` (`…/call`) and an
