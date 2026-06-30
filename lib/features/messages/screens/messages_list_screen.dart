@@ -13,6 +13,8 @@ import 'archived_threads_screen.dart';
 import 'drafts_list_screen.dart';
 import 'widgets/thread_tile.dart';
 import 'widgets/message_list_states.dart';
+import 'widgets/messages_app_bars.dart';
+import 'widgets/thread_options_sheet.dart';
 
 /// Inbox of conversations — Google Messages style.
 ///
@@ -179,161 +181,99 @@ class _MessagesListScreenState extends State<MessagesListScreen>
   // ── App bars ───────────────────────────────────────────────────────────
 
   PreferredSizeWidget _buildAppBar(BuildContext context) {
-    if (_selectionMode) return _selectionAppBar(context);
-    if (_searching) return _searchAppBar(context);
-    return AppBar(
-      title: const Text('پیام‌ها'),
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.search),
-          tooltip: 'جستجو',
-          onPressed: () => setState(() => _searching = true),
-        ),
-        PopupMenuButton<String>(
-          onSelected: (v) {
-            switch (v) {
-              case 'archived':
-                final bloc = context.read<MessageBloc>();
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const ArchivedThreadsScreen(),
-                  ),
-                ).then((_) {
-                  if (mounted) bloc.add(const LoadThreads());
-                });
-              case 'drafts':
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const DraftsListScreen()),
-                );
-              case 'settings':
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
-                );
-            }
-          },
-          itemBuilder: (_) => const [
-            PopupMenuItem(value: 'archived', child: Text('بایگانی')),
-            PopupMenuItem(value: 'drafts', child: Text('پیش‌نویس‌ها')),
-            PopupMenuItem(value: 'settings', child: Text('تنظیمات')),
-          ],
-        ),
-      ],
-    );
-  }
-
-  PreferredSizeWidget _searchAppBar(BuildContext context) {
-    return AppBar(
-      leading: IconButton(
-        icon: const Icon(Icons.arrow_forward),
-        onPressed: () {
-          setState(() {
-            _searching = false;
-            _query = '';
-            _searchController.clear();
-          });
-        },
-      ),
-      title: TextField(
+    if (_selectionMode) {
+      return MessagesSelectionAppBar(
+        selectedCount: _selected.length,
+        onClear: _clearSelection,
+        onMarkRead: () => _setSelectedRead(read: true),
+        onArchive: _archiveSelected,
+        onDelete: () => _confirmDeleteSelected(context),
+        onSelectAll: _selectAllVisible,
+        onMarkUnread: () => _setSelectedRead(read: false),
+        onBlock: _blockSelected,
+      );
+    }
+    if (_searching) {
+      return MessagesSearchAppBar(
         controller: _searchController,
-        autofocus: true,
-        textInputAction: TextInputAction.search,
-        decoration: const InputDecoration(
-          hintText: 'جستجو در پیام‌ها',
-          border: InputBorder.none,
-        ),
+        showClear: _query.isNotEmpty,
+        onBack: () => setState(() {
+          _searching = false;
+          _query = '';
+          _searchController.clear();
+        }),
+        onClear: () => setState(() {
+          _query = '';
+          _searchController.clear();
+        }),
         onChanged: (v) => setState(() => _query = v),
+      );
+    }
+    return MessagesDefaultAppBar(
+      onSearch: () => setState(() => _searching = true),
+      onOpenArchived: _openArchived,
+      onOpenDrafts: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const DraftsListScreen()),
       ),
-      actions: [
-        if (_query.isNotEmpty)
-          IconButton(
-            icon: const Icon(Icons.close),
-            onPressed: () => setState(() {
-              _query = '';
-              _searchController.clear();
-            }),
-          ),
-      ],
+      onOpenSettings: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const SettingsScreen()),
+      ),
     );
   }
 
-  PreferredSizeWidget _selectionAppBar(BuildContext context) {
-    return AppBar(
-      leading: IconButton(
-        icon: const Icon(Icons.close),
-        onPressed: _clearSelection,
-      ),
-      title: Text('${_selected.length}'),
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.mark_chat_read_outlined),
-          tooltip: 'علامت‌گذاری خوانده‌شده',
-          onPressed: () {
-            context.read<MessageBloc>().add(
-              SetThreadRead(_selected.toList(), read: true),
-            );
-            _clearSelection();
-          },
-        ),
-        IconButton(
-          icon: const Icon(Icons.archive_outlined),
-          tooltip: 'بایگانی',
-          onPressed: () {
-            context.read<MessageBloc>().add(
-              ArchiveThreads(_selected.toList(), archive: true),
-            );
-            _clearSelection();
-          },
-        ),
-        IconButton(
-          icon: const Icon(Icons.delete_outline),
-          tooltip: 'حذف',
-          onPressed: () => _confirmDeleteSelected(context),
-        ),
-        PopupMenuButton<String>(
-          onSelected: (v) {
-            final state = context.read<MessageBloc>().state;
-            final all = state is ThreadsLoaded
-                ? state.threads
-                : const <MessageThread>[];
-            switch (v) {
-              case 'select_all':
-                setState(() {
-                  _selected
-                    ..clear()
-                    ..addAll(_visibleThreads(all).map((t) => t.threadId));
-                });
-              case 'mark_unread':
-                context.read<MessageBloc>().add(
-                  SetThreadRead(_selected.toList(), read: false),
-                );
-                _clearSelection();
-              case 'block':
-                final blockedBloc = context.read<BlockedNumbersBloc>();
-                for (final t in all.where(
-                  (t) => _selected.contains(t.threadId),
-                )) {
-                  blockedBloc.add(BlockNumber(t.phoneNumber));
-                }
-                _clearSelection();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('شماره‌ها مسدود شدند')),
-                );
-            }
-          },
-          itemBuilder: (_) => const [
-            PopupMenuItem(value: 'select_all', child: Text('انتخاب همه')),
-            PopupMenuItem(
-              value: 'mark_unread',
-              child: Text('علامت‌گذاری نخوانده'),
-            ),
-            PopupMenuItem(value: 'block', child: Text('مسدود کردن')),
-          ],
-        ),
-      ],
+  // ── Selection actions (wired to the selection app bar) ───────────────────
+
+  void _setSelectedRead({required bool read}) {
+    context.read<MessageBloc>().add(
+      SetThreadRead(_selected.toList(), read: read),
     );
+    _clearSelection();
+  }
+
+  void _archiveSelected() {
+    context.read<MessageBloc>().add(
+      ArchiveThreads(_selected.toList(), archive: true),
+    );
+    _clearSelection();
+  }
+
+  void _selectAllVisible() {
+    final state = context.read<MessageBloc>().state;
+    final all = state is ThreadsLoaded
+        ? state.threads
+        : const <MessageThread>[];
+    setState(() {
+      _selected
+        ..clear()
+        ..addAll(_visibleThreads(all).map((t) => t.threadId));
+    });
+  }
+
+  void _blockSelected() {
+    final state = context.read<MessageBloc>().state;
+    final all = state is ThreadsLoaded
+        ? state.threads
+        : const <MessageThread>[];
+    final blockedBloc = context.read<BlockedNumbersBloc>();
+    for (final t in all.where((t) => _selected.contains(t.threadId))) {
+      blockedBloc.add(BlockNumber(t.phoneNumber));
+    }
+    _clearSelection();
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('شماره‌ها مسدود شدند')));
+  }
+
+  void _openArchived() {
+    final bloc = context.read<MessageBloc>();
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ArchivedThreadsScreen()),
+    ).then((_) {
+      if (mounted) bloc.add(const LoadThreads());
+    });
   }
 
   // ── Thread row (swipe + tile) ────────────────────────────────────────────
@@ -432,88 +372,22 @@ class _MessagesListScreenState extends State<MessagesListScreen>
   void _showThreadOptions(BuildContext context, MessageThread thread) {
     final bloc = context.read<MessageBloc>();
     final blockedBloc = context.read<BlockedNumbersBloc>();
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetCtx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: Icon(
-                  thread.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
-                ),
-                title: Text(thread.isPinned ? 'برداشتن سنجاق' : 'سنجاق کردن'),
-                onTap: () {
-                  bloc.add(PinThread(thread.threadId, pin: !thread.isPinned));
-                  Navigator.pop(sheetCtx);
-                },
-              ),
-              ListTile(
-                leading: Icon(
-                  thread.hasUnread
-                      ? Icons.mark_chat_read_outlined
-                      : Icons.mark_chat_unread_outlined,
-                ),
-                title: Text(
-                  thread.hasUnread
-                      ? 'علامت‌گذاری خوانده‌شده'
-                      : 'علامت‌گذاری نخوانده',
-                ),
-                onTap: () {
-                  bloc.add(
-                    SetThreadRead([thread.threadId], read: thread.hasUnread),
-                  );
-                  Navigator.pop(sheetCtx);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.archive_outlined),
-                title: const Text('بایگانی'),
-                onTap: () {
-                  Navigator.pop(sheetCtx);
-                  _archiveWithUndo(context, thread);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.block),
-                title: const Text('مسدود کردن و گزارش هرزنامه'),
-                onTap: () {
-                  blockedBloc.add(BlockNumber(thread.phoneNumber));
-                  Navigator.pop(sheetCtx);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('شماره مسدود شد')),
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.checklist),
-                title: const Text('انتخاب'),
-                onTap: () {
-                  Navigator.pop(sheetCtx);
-                  _toggleSelect(thread.threadId);
-                },
-              ),
-              ListTile(
-                leading: const Icon(
-                  Icons.delete_outline,
-                  color: AppColors.danger,
-                ),
-                title: const Text(
-                  'حذف گفتگو',
-                  style: TextStyle(color: AppColors.danger),
-                ),
-                onTap: () {
-                  Navigator.pop(sheetCtx);
-                  _confirmDeleteThread(context, thread);
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
+    showThreadOptionsSheet(
+      context,
+      thread: thread,
+      onTogglePin: () =>
+          bloc.add(PinThread(thread.threadId, pin: !thread.isPinned)),
+      onToggleRead: () =>
+          bloc.add(SetThreadRead([thread.threadId], read: thread.hasUnread)),
+      onArchive: () => _archiveWithUndo(context, thread),
+      onBlock: () {
+        blockedBloc.add(BlockNumber(thread.phoneNumber));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('شماره مسدود شد')));
+      },
+      onSelect: () => _toggleSelect(thread.threadId),
+      onDelete: () => _confirmDeleteThread(context, thread),
     );
   }
 

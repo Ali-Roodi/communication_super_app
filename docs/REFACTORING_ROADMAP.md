@@ -26,9 +26,10 @@ the near-zero automated test coverage.
 | Added call-log repository, native channel-wrapper, and `ConversationScreen` widget tests | `repositories_test.dart` (call-logs), `native_services_test.dart`, `conversation_screen_test.dart` | None | `flutter test` |
 | Added `ContactRepository` tests + extracted `MessageNavIcon` for the unread badge | `repositories_test.dart` (contacts CRUD + pure `filterContactsByPhoneDigits`); `core/navigation/widgets/message_nav_icon.dart` + `message_nav_icon_test.dart` | Low (presentation extraction) | `flutter test` |
 | Added SMS dedup-window test via a `@visibleForTesting` seam on `SmsService` | `sms_service_dedup_test.dart` (covers DESIGN_DECISIONS D4) | Low (test-only seam) | `flutter test` |
+| Decomposed the two remaining God screens | `messages_list_screen.dart` (571→444): app bars → `widgets/messages_app_bars.dart`, options sheet → `widgets/thread_options_sheet.dart`. `conversation_screen.dart` (854→552): app bars → `widgets/conversation_app_bars.dart`, composer + sticker panel → `widgets/message_composer.dart`, message-options + attachment sheets → `widgets/conversation_sheets.dart` | Low (presentation-only, callback-wired; the search/selection state stays in `State`) | analyze + `test/widget/decomposed_message_widgets_test.dart` (8) |
 | `dart format` across `lib/` + `test/` | all | None | — |
 
-Result: **`flutter analyze` → No issues found.** · **`flutter test` → 105/105 passing** (was 22).
+Result: **`flutter analyze` → No issues found.** · **`flutter test` → 113/113 passing** (was 22).
 
 ## 🔜 Backlog (prioritized)
 
@@ -78,7 +79,7 @@ Result: **`flutter analyze` → No issues found.** · **`flutter test` → 105/1
    `NativeSmsService.sendSms`) via a mock `MethodChannel`; plus
    `ContactRepository` local-table CRUD and the pure
    `filterContactsByPhoneDigits`; and the `SmsService` in-memory dedup window
-   (via a `@visibleForTesting` seam). (105 tests total — the dedup test surfaced
+   (via a `@visibleForTesting` seam). (105 tests at that point — the dedup test surfaced
    and fixed K10.)
    **Still to add:** the SMS receive/import *wiring* (BroadcastReceiver →
    EventChannel → persist) needs a device/integration test; `ContactRepository`'s
@@ -91,13 +92,19 @@ Result: **`flutter analyze` → No issues found.** · **`flutter test` → 105/1
    **Still avoided:** full-shell `MainNavigation` pumping — its IndexedStack
    mounts every tab screen, which hits repositories/plugins at mount.
 
-### Remaining screen decomposition (deferred, medium risk)
-- `messages_list_screen.dart` — the three app bars (`_buildAppBar`,
-  `_searchAppBar`, `_selectionAppBar`) and the thread-options bottom sheet are
-  still in `State` because they are tightly coupled to search + multi-select
-  state. Extract once widget tests exist to catch regressions.
-- `conversation_screen.dart` — the composer + sticker panel + attachment sheet
-  remain in `State` for the same reason.
+### Remaining screen decomposition — ✅ DONE this pass
+- `messages_list_screen.dart` — the three app bars and the thread-options bottom
+  sheet were extracted to `widgets/messages_app_bars.dart` (three
+  `PreferredSizeWidget`s) and `widgets/thread_options_sheet.dart`. The screen
+  keeps the search/multi-select `State` and passes callbacks down (571→444).
+- `conversation_screen.dart` — the two app bars, the composer + sticker panel,
+  and the message-options/attachment sheets were extracted to
+  `widgets/conversation_app_bars.dart`, `widgets/message_composer.dart`, and
+  `widgets/conversation_sheets.dart`. The composer is stateless and reads the
+  parent-owned controller, so behaviour is unchanged (854→552).
+- Covered by `test/widget/decomposed_message_widgets_test.dart` (composer
+  send/segment-counter/stickers, the selection & conversation app bars, and the
+  two option sheets).
 
 ## Refactoring rules for this repo
 

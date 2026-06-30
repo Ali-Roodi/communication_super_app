@@ -109,10 +109,11 @@ added BLoC tests for `DialerBloc`, `MessageBloc` (`_onReceiveMessage` +
 widget tests for the extracted message widgets, and repository tests against the
 real schema on an in-memory `sqflite_common_ffi` database — enabled by the K9
 constructor-injection fix and the `DatabaseHelper` testing hooks. Now covers all
-stateful BLoCs and the favorites/blocked/messages/drafts repositories. Total:
-**105 passing** — and the suite already paid for itself by surfacing K10. Still
-missing: the SMS/call-log pipelines and full-screen widget tests
-(`ConversationScreen`, `MainNavigation`).
+stateful BLoCs and the favorites/blocked/messages/drafts repositories, plus the
+presentation widgets extracted from the messages screens (app bars, composer,
+option sheets). Total: **113 passing** — and the suite already paid for itself by
+surfacing K10. Still missing: the SMS/call-log pipelines and full-shell widget
+tests (`MainNavigation`).
 **Fix:** continue Roadmap P4.
 
 ---

@@ -56,7 +56,9 @@ features/
   authentication/    PIN/pattern setup + entry + app-lock screens
   messages/          SMS threads, conversation, drafts, templates, categories
     services/        native_sms_service · sms_service · notification_service
-    screens/widgets/ message_bubble.dart · thread_tile.dart
+    screens/widgets/ message_bubble · thread_tile · message_list_states ·
+                     messages_app_bars · thread_options_sheet ·
+                     conversation_app_bars · message_composer · conversation_sheets
   contacts/          device-contact list, add/edit, detail screens
   dialer/            keypad + call lifecycle
     services/        native_call_service
