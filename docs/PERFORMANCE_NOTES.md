@@ -25,7 +25,7 @@ SMS / call-log / contact rows) on the main isolate.
 - **Main-isolate DB work.** Repositories run on the main isolate. Bulk reads
   (full thread list, full contacts) are fine at current caps but will degrade if
   caps are raised — keep pagination and the 500-row import cap.
-- **`telephony` import payload.** The plugin marshals all matching rows through
+- **`another_telephony` import payload.** The plugin marshals all matching rows through
   one MethodChannel call. The 500-cap exists to stay under the ~1 MB Binder
   transaction limit; **do not remove it** without moving import to native.
 - **Contact fetch cost.** `flutter_contacts.getAllContacts()` is slow on large

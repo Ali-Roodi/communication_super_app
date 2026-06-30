@@ -53,19 +53,19 @@ Result: **`flutter analyze` → No issues found.** · **`flutter test` → 113/1
    unnecessary abstraction" rule). Revisit only if a second locale is planned.
    If pursued anyway, it's low-risk but high-effort and mechanical.
 
-### P3 — Dependency health — ⛔ BLOCKED in this environment
-> Both items require fetching packages from pub.dev, which is restricted here to
-> already-cached packages (`flutter pub add`/`upgrade` fail with an authorization
-> error). They must be done in an environment with full pub.dev access. See
-> KNOWN_ISSUES K5/K6 for the exact commands.
+### P3 — Dependency health
 
-6. **Replace the discontinued `telephony` plugin** with the API-compatible fork
-   **`another_telephony`** (single import change in `sms_service.dart`). *Risk:
-   low if the fork stays API-compatible; verify with a device build.*
+6. ✅ **Replaced the discontinued `telephony` plugin** with the API-compatible
+   fork **`another_telephony` `^0.4.0`** (two-line change: `pubspec.yaml` + the
+   import in `sms_service.dart`). Verified: analyze clean, 113 tests pass, debug
+   APK builds and runs on a physical device. See KNOWN_ISSUES K5. *Note:
+   `flutter pub add` fails under this environment's restricted pub.dev access,
+   but editing `pubspec.yaml` and running `flutter pub get` resolves fine.*
 7. **Upgrade outdated packages** (`flutter_contacts` 1.x→2.x,
    `flutter_local_notifications` 18→22, `local_auth`, `flutter_secure_storage`).
    Several are major bumps with API changes. *Risk: medium; one PR each, with a
-   device build.*
+   device build.* Still pending — these are major-version bumps that need code
+   changes and per-package device verification, not just a dependency swap.
 
 ### P4 — Test coverage (enabler for everything above) — 🟡 IN PROGRESS
 8. ✅ **BLoC unit tests** — covered: `DialerBloc` keypad + call lifecycle;
