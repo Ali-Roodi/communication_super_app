@@ -62,10 +62,17 @@ Result: **`flutter analyze` → No issues found.** · **`flutter test` → 113/1
 6. **Replace the discontinued `telephony` plugin** with the API-compatible fork
    **`another_telephony`** (single import change in `sms_service.dart`). *Risk:
    low if the fork stays API-compatible; verify with a device build.*
-7. **Upgrade outdated packages** (`flutter_contacts` 1.x→2.x,
-   `flutter_local_notifications` 18→22, `local_auth`, `flutter_secure_storage`).
-   Several are major bumps with API changes. *Risk: medium; one PR each, with a
-   device build.*
+7. **Upgrade outdated packages** — 🟡 partially done (one branch per package;
+   see KNOWN_ISSUES K6 for detail):
+   - ✅ `local_auth` 3.0.0→3.0.1 (branch `chore/upgrade-local-auth`; native side
+     unchanged, analyze clean, 113 tests pass).
+   - ⛔ `flutter_secure_storage` 9→10 and `flutter_local_notifications` 18→22 —
+     blocked here: their newer transitive platform packages
+     (`flutter_secure_storage_windows`, `timezone`) aren't cached and can't be
+     fetched.
+   - ⏸️ `flutter_contacts` 1→2.2.2 — resolves, but v2 is a full API rewrite;
+     deferred (contacts CRUD can't be device-verified here and 1.1.9 isn't
+     discontinued). Do it on its own branch with manual QA.
 
 ### P4 — Test coverage (enabler for everything above) — 🟡 IN PROGRESS
 8. ✅ **BLoC unit tests** — covered: `DialerBloc` keypad + call lifecycle;
