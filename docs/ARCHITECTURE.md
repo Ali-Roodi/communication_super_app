@@ -97,6 +97,24 @@ BLoC event. A BLoC never builds UI. A repository never imports `flutter_bloc`.
   for cellular calls, so the in-app `IncomingCallScreen`/`InCallScreen` are
   effectively a **PHASE-2 VoIP path** that is wired but dormant.
 
+### 5.3 Android permissions & manifest
+
+`android/app/src/main/AndroidManifest.xml` declares every permission the native
+bridges rely on. Runtime-dangerous ones are batch-requested by `PermissionGate`
+before `MainNavigation` is built (see §3); the rest are install-time grants.
+
+| Group         | Permissions |
+| ------------- | ----------- |
+| SMS           | `SEND_SMS`, `RECEIVE_SMS`, `READ_SMS` |
+| Phone / calls | `CALL_PHONE`, `READ_PHONE_STATE`, `READ_CALL_LOG`, `WRITE_CALL_LOG`, `MANAGE_OWN_CALLS`, `PROCESS_OUTGOING_CALLS` |
+| Contacts      | `READ_CONTACTS`, `WRITE_CONTACTS` |
+| System        | `POST_NOTIFICATIONS`, `RECORD_AUDIO`, `VIBRATE`, `RECEIVE_BOOT_COMPLETED` |
+
+`SmsHandler` registers the `SMS_RECEIVED` `BroadcastReceiver`, and the
+ConnectionService call stack relies on `MANAGE_OWN_CALLS` / `RECORD_AUDIO` for
+the dormant PHASE-2 VoIP path (§5.2). When adding a native capability, declare
+its permission here and add it to `PermissionService` if it is runtime-dangerous.
+
 ## 6. Key architectural decisions (see `DESIGN_DECISIONS.md`)
 
 - **Global BLoC provisioning** — no per-screen providers; `context.read` only.
