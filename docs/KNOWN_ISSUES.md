@@ -87,17 +87,37 @@ The fork is API-compatible, so no further code changes are expected.
 
 ---
 
-### K6 — Several dependencies are major versions behind ⛔ FIX BLOCKED (offline env)
+### K6 — Several dependencies are major versions behind 🟡 PARTIALLY DONE
 **Severity:** Low–Medium.
-**Detail:** `flutter_contacts` (1.x vs 2.2.x), `flutter_local_notifications`
-(18 vs 22), `local_auth`, `flutter_secure_storage`. Newer versions have API
-changes and security/Android-13+ fixes.
-**Why not done here:** the same restricted pub.dev access (see K5) prevents
-fetching newer package versions — `flutter pub upgrade --major-versions` cannot
-download anything not already cached. These must be upgraded **one at a time,
-with a device build**, in an environment with full pub.dev access. The major
-bumps (`flutter_contacts` 2.x, `flutter_local_notifications` 22) carry API
-changes and should each be their own PR (Roadmap P3-7).
+**Detail / status (probed 2026-06-30, one branch per package):**
+
+- **`local_auth` 3.0.0 → 3.0.1** ✅ **done** (branch `chore/upgrade-local-auth`).
+  Patch bump; the native `local_auth_android` is unchanged, so it's a pure
+  Dart-wrapper update. analyze clean, 113 tests pass.
+- **`flutter_secure_storage` 9.2.4 → 10.3.1** ⛔ **blocked.** v10 depends on a
+  newer `flutter_secure_storage_windows` that is **not in the local pub cache**;
+  fetching it fails with the pub.dev authorization error. (Editing `pubspec.yaml`
+  by hand and running `pub get` instead of `pub add` only works when the *entire*
+  transitive closure is already cacheable, which it isn't here.)
+- **`flutter_local_notifications` 18 → 22** ⛔ **blocked.** v21+ pulls a newer
+  `timezone` that is likewise uncached → same pub.dev auth failure.
+- **`flutter_contacts` 1.1.9 → 2.2.2** ⏸️ **deferred (resolves, but a full API
+  rewrite).** v2 is a ground-up rewrite by a new maintainer: `Contact` is
+  immutable (build via one named constructor, not setters), the statics moved
+  (`getContact`→`FlutterContacts.get`, `getContacts`→`getAll`,
+  `contact.insert()`→`FlutterContacts.create`), labels are wrapped in
+  `Label<T>`, `customLabel` is gone, and bool flags became a
+  `Set<ContactProperty>`. ~35 compile errors across `contact_repository.dart`,
+  `add_edit_contact_screen.dart`, `device_contact_detail_screen.dart`. Deferred
+  because contacts CRUD **cannot be verified in this environment** (the app is
+  PIN-locked and the contact-edit UI can't be driven headlessly), and 1.1.9 is
+  **not** discontinued — so there is no urgency to ship an unverified rewrite.
+  When tackled: do it on its own branch and manually QA add/edit/delete on a
+  device before merging.
+
+**Why the blocked ones can't proceed even with internet:** this environment's
+pub.dev access rejects fetching any package version (incl. transitive platform
+packages) not already in the local cache, regardless of connectivity.
 
 ---
 
