@@ -65,25 +65,22 @@ translated, and duplicates exist (e.g. several `'به‌زودی'`, `'حذف'`).
 
 ---
 
-### K5 — Discontinued dependency: `telephony` 0.2.0 ⛔ FIX BLOCKED (offline env)
+### K5 — Discontinued dependency: `telephony` 0.2.0 ✅ FIXED
 **Severity:** Medium (supply-chain / future Android compatibility).
-**Detail:** `flutter pub get` reports `telephony` as **discontinued**. It powers
-SMS import and the receive fallback. It will not receive fixes for future
-Android API levels.
-**Recommended fix:** swap to the maintained API-compatible fork
-**`another_telephony`** — only the import path changes
+**Detail:** the discontinued `telephony` plugin powered SMS import and the
+receive fallback; it would not receive fixes for future Android API levels.
+**Fix (applied):** swapped to the maintained, API-compatible fork
+**`another_telephony` `^0.4.0`**. The change is exactly two lines — the
+`pubspec.yaml` dependency and the single import in
+`lib/features/messages/services/sms_service.dart`
 (`package:telephony/telephony.dart` → `package:another_telephony/telephony.dart`).
-**Why not done here:** this environment's pub.dev access is restricted to
-already-cached packages; `flutter pub add another_telephony` fails with
-"Insufficient permissions to the resource at https://pub.dev". Run these where
-pub.dev is reachable:
-```bash
-flutter pub remove telephony
-flutter pub add another_telephony
-# then update the single import in lib/features/messages/services/sms_service.dart
-flutter analyze && flutter test
-```
-The fork is API-compatible, so no further code changes are expected.
+The fork is API-compatible (`Telephony`, `SmsMessage`, `SmsColumn`, `OrderBy`,
+`Sort` are unchanged), so no other code changed.
+**Verified:** `flutter pub get` resolves it (note: `flutter pub add` does a
+broader pub.dev pre-scan that fails under this environment's restricted access —
+editing `pubspec.yaml` directly and running `pub get` is the working path);
+`flutter analyze` clean; 113 tests pass; **debug APK builds and runs on a
+physical device (Samsung A33, Android 16) without crashing**.
 
 ---
 
@@ -91,7 +88,7 @@ The fork is API-compatible, so no further code changes are expected.
 **Severity:** Low–Medium.
 **Detail / status (probed 2026-06-30, one branch per package):**
 
-- **`local_auth` 3.0.0 → 3.0.1** ✅ **done** (branch `chore/upgrade-local-auth`).
+- **`local_auth` 3.0.0 → 3.0.1** ✅ **done** (merged to main).
   Patch bump; the native `local_auth_android` is unchanged, so it's a pure
   Dart-wrapper update. analyze clean, 113 tests pass.
 - **`flutter_secure_storage` 9.2.4 → 10.3.1** ⛔ **blocked.** v10 depends on a

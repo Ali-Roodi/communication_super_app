@@ -54,7 +54,7 @@ together.
 ### Boundary C — Device plugins
 | Plugin | Used by | Notes |
 |--------|---------|-------|
-| `telephony` (**discontinued**) | `SmsService.importDeviceMessages` + receive fallback | Import is capped at 500 inbox + 500 sent to stay under the Binder transaction limit. |
+| `another_telephony` | `SmsService.importDeviceMessages` + receive fallback | Maintained fork of the discontinued `telephony`. Import is capped at 500 inbox + 500 sent to stay under the Binder transaction limit. |
 | `call_log` | `CallLogService` | Read device call history; mapping runs on a background `Isolate`. |
 | `flutter_contacts` | `ContactRepository` | Device contacts (the real contact store; the `contacts` SQLite table is largely vestigial). |
 | `permission_handler` | `PermissionService` | Batched at `PermissionGate`. |
@@ -72,7 +72,7 @@ together.
 - **Graceful permission denial:** `MessageBloc` shows local messages (or a
   localized error if empty) when SMS import fails.
 - **Native→plugin fallback:** if the native SMS receiver can't initialize,
-  `SmsService` falls back to the `telephony` listener (foreground-only).
+  `SmsService` falls back to the `another_telephony` listener (foreground-only).
 - **De-duplication windows:** a 5-second in-memory hash set drops duplicate
   incoming SMS in addition to the DB unique index.
 
