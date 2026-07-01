@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:communication_super_app/core/database/database_helper.dart';
 import 'package:communication_super_app/core/constants/app_constants.dart';
 import 'package:flutter_contacts/flutter_contacts.dart' as device_contacts;
+import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import '../models/contact_model.dart';
 
 /// Top-level function for isolate: maps serialized contact maps to output maps (with avatar_base64).
@@ -50,7 +51,8 @@ class ContactRepository {
     return device_contacts.FlutterContacts.requestPermission();
   }
 
-  Future<List<ContactModel>> getDeviceContacts() async {
+  Future<List<ContactModel>> getDeviceContacts({bool forceRefresh = false}) async {
+    if (forceRefresh) _cache = null;
     if (_cache != null) return _cache!;
 
     if (_isLoading) {
@@ -124,8 +126,8 @@ class ContactRepository {
     }
   }
 
-  Future<List<ContactModel>> getAllContacts() async {
-    return getDeviceContacts();
+  Future<List<ContactModel>> getAllContacts({bool forceRefresh = false}) async {
+    return getDeviceContacts(forceRefresh: forceRefresh);
   }
 
   Future<ContactModel?> getContactById(String id) async {
@@ -137,6 +139,22 @@ class ContactRepository {
     );
     if (maps.isEmpty) return null;
     return ContactModel.fromMap(maps.first);
+  }
+
+  /// Resolves a device-contact display name for [phoneNumber] (E.164 or local
+  /// format), matching on the normalized national number so `+98…` and `09…`
+  /// both hit a contact saved either way. Returns null if no match.
+  Future<String?> getDeviceContactName(String phoneNumber) async {
+    final target = PhoneNormalizer.toThreadId(phoneNumber);
+    if (target.isEmpty) return null;
+    final contacts = await getDeviceContacts();
+    for (final c in contacts) {
+      if (c.name.isEmpty) continue;
+      for (final p in [...c.phoneNumbers, c.phoneNumber]) {
+        if (PhoneNormalizer.toThreadId(p) == target) return c.name;
+      }
+    }
+    return null;
   }
 
   Future<ContactModel?> getContactByPhoneNumber(String phoneNumber) async {
