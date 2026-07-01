@@ -157,19 +157,29 @@ unchanged while tests can inject mocks — see `test/unit/message_bloc_test.dart
 
 ---
 
-### K11 — Scheduled send delivers only in the foreground (PHASE 2 deferred)
-**Severity:** Medium (functional limitation, by design).
-**Where:** `ScheduledMessageBloc` (`features/messages/bloc/scheduled_bloc.dart`).
-**Detail:** the scheduled-send feature (زمان‌بندی ارسال — model, repository, rich
-scheduling UI, recurrence/end-conditions, list screen) is built and delivers due
-messages via a periodic in-bloc `Timer` while the app is running. **When the app
-is killed, nothing sends until it is reopened.** True background delivery needs a
-native Android **AlarmManager/WorkManager** that wakes a headless isolate and
-calls the existing SMS `MethodChannel` (`SmsHandler.kt`). That is a Kotlin +
-on-device task that cannot be verified in this environment, so it is deliberately
-deferred. The `jitter` window (رأس ساعت / ۱۰/۳۰/۶۰ دقیقه) is persisted and shown
-in the UI but is **only applied by that future native sender** — foreground
-delivery fires as soon as a message is due.
-**Fix (PHASE 2):** add the AlarmManager/WorkManager scheduling on `SaveScheduled`,
-a headless entrypoint that runs the same due-query + send loop, and apply the
-jitter offset there. Verify on a device with the app closed.
+### K11 — Scheduled send: background delivery ✅ IMPLEMENTED (PHASE 2, pending device QA)
+**Severity:** Medium (functional).
+**Where:** `android/.../scheduled/` (Kotlin) + `NativeScheduledSmsService` +
+`ScheduledMessageBloc`.
+**Phase 1 (foreground):** while the app runs, a periodic in-bloc `Timer` fires
+`DeliverDueScheduled`, which sends due messages via `SmsService`.
+**Phase 2 (background, added):** a native **AlarmManager** alarm is armed for the
+soonest pending message (`ScheduledSmsScheduler`). When it fires — even with the
+app killed — `ScheduledSmsAlarmReceiver` runs `ScheduledSmsWorker`, which opens
+the `sqflite` DB **directly** (no Flutter engine), sends every due message with
+`SmsManager`, advances/completes the row (recurrence logic mirrored in Kotlin),
+and re-arms the alarm. `BootReceiver` re-arms after reboot / app update. The Dart
+side calls `NativeScheduledSmsService.reschedule()` (MethodChannel
+`…/scheduled_sms`) after every schedule change and on app start.
+**Sync invariant:** the table/column names, enum string values, and recurrence
+math are duplicated in `ScheduledSmsWorker.kt` — keep them in lock-step with
+`scheduled_message_model.dart` when either changes.
+**Still to do:**
+- The **jitter** window is persisted/shown but **not yet applied** by the native
+  sender (it sends at the exact due time). Apply a random offset within the
+  window in `ScheduledSmsWorker.processDue` if desired.
+- Exact alarms use `USE_EXACT_ALARM`/`SCHEDULE_EXACT_ALARM`; on Android 12 if the
+  user denies exact-alarm permission the scheduler falls back to an inexact
+  (best-effort) alarm.
+- **Device QA:** schedule a message ~2 min out, kill the app, confirm it sends;
+  test a recurring one and a reboot.

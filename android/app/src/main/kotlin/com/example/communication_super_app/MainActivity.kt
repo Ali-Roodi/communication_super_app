@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Bundle
 import com.example.communication_super_app.call.CallHandler
+import com.example.communication_super_app.scheduled.ScheduledSmsScheduler
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -23,6 +24,7 @@ class MainActivity : FlutterActivity() {
         private const val CHANNEL_SMS_METHOD = "com.example.communication_super_app/sms"
         private const val CHANNEL_SMS_EVENTS = "com.example.communication_super_app/sms_events"
         private const val CHANNEL_MEDIA = "com.example.communication_super_app/media"
+        private const val CHANNEL_SCHEDULED = "com.example.communication_super_app/scheduled_sms"
         private const val REQUEST_PICK_IMAGE = 9001
         private const val MAX_DIMEN = 512
     }
@@ -51,6 +53,22 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "pickImage" -> pickImage(result)
+                    else -> result.notImplemented()
+                }
+            }
+
+        // ── Scheduled SMS (زمان‌بندی ارسال — تحویل پس‌زمینه) ─────────────
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL_SCHEDULED)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "reschedule" -> {
+                        ScheduledSmsScheduler.reschedule(applicationContext)
+                        result.success(true)
+                    }
+                    "cancel" -> {
+                        ScheduledSmsScheduler.cancel(applicationContext)
+                        result.success(true)
+                    }
                     else -> result.notImplemented()
                 }
             }

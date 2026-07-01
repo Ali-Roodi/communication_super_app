@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 import '../models/scheduled_message_model.dart';
 import '../repositories/scheduled_message_repository.dart';
 import '../services/sms_service.dart';
+import '../services/native_scheduled_sms_service.dart';
 import 'scheduled_event.dart';
 import 'scheduled_state.dart';
 
@@ -17,16 +18,19 @@ import 'scheduled_state.dart';
 class ScheduledMessageBloc extends Bloc<ScheduledEvent, ScheduledState> {
   final ScheduledMessageRepository _repository;
   final SmsService _smsService;
+  final NativeScheduledSmsService _nativeScheduler;
   static const _uuid = Uuid();
   Timer? _timer;
 
   ScheduledMessageBloc({
     ScheduledMessageRepository? repository,
     SmsService? smsService,
+    NativeScheduledSmsService? nativeScheduler,
     bool autoDeliver = true,
     Duration deliverInterval = const Duration(seconds: 30),
   }) : _repository = repository ?? ScheduledMessageRepository(),
        _smsService = smsService ?? SmsService(),
+       _nativeScheduler = nativeScheduler ?? NativeScheduledSmsService(),
        super(const ScheduledInitial()) {
     on<LoadScheduled>(_onLoad);
     on<SaveScheduled>(_onSave);
@@ -55,6 +59,8 @@ class ScheduledMessageBloc extends Bloc<ScheduledEvent, ScheduledState> {
   ) async {
     if (state is! ScheduledLoaded) emit(const ScheduledLoading());
     await _emitLoaded(emit);
+    // Arm the native alarm on app start for whatever is already pending.
+    await _nativeScheduler.reschedule();
   }
 
   Future<void> _emitLoaded(Emitter<ScheduledState> emit) async {
@@ -92,6 +98,7 @@ class ScheduledMessageBloc extends Bloc<ScheduledEvent, ScheduledState> {
         ),
       );
       await _emitLoaded(emit);
+      await _nativeScheduler.reschedule();
     } catch (e) {
       emit(ScheduledError(e.toString()));
     }
@@ -104,6 +111,7 @@ class ScheduledMessageBloc extends Bloc<ScheduledEvent, ScheduledState> {
     try {
       await _repository.cancel(event.id);
       await _emitLoaded(emit);
+      await _nativeScheduler.reschedule();
     } catch (e) {
       emit(ScheduledError(e.toString()));
     }
@@ -116,6 +124,7 @@ class ScheduledMessageBloc extends Bloc<ScheduledEvent, ScheduledState> {
     try {
       await _repository.delete(event.id);
       await _emitLoaded(emit);
+      await _nativeScheduler.reschedule();
     } catch (e) {
       emit(ScheduledError(e.toString()));
     }
@@ -141,6 +150,8 @@ class ScheduledMessageBloc extends Bloc<ScheduledEvent, ScheduledState> {
         }
       }
       await _emitLoaded(emit);
+      // Delivering changed the earliest-pending time; re-arm the native alarm.
+      await _nativeScheduler.reschedule();
     } catch (e) {
       emit(ScheduledError(e.toString()));
     }
