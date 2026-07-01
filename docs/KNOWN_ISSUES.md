@@ -185,3 +185,33 @@ per-message. Foreground delivery still ignores jitter (sends as soon as due).
   (best-effort) alarm.
 - **Device QA:** schedule a message ~2 min out, kill the app, confirm it sends;
   test a recurring one and a reboot.
+
+---
+
+### K12 — SMS send/receive broken on Android 13/14+ ✅ FIXED
+**Severity:** High (core feature) — found via on-device logcat on Android 16.
+**Three independent platform-API regressions in `SmsHandler.kt` / manifest:**
+
+1. **Receive silently dropped.** The dynamic `SMS_RECEIVED` receiver was
+   registered with `Context.RECEIVER_NOT_EXPORTED` on Android 13+ (TIRAMISU).
+   `SMS_RECEIVED` is a *system* broadcast (different UID), so `NOT_EXPORTED`
+   blocks it — no persist, no notification, no UI refresh. **Fix:** register that
+   receiver `RECEIVER_EXPORTED`. (The sent/delivered receivers listen for the
+   app's own actions and stay `NOT_EXPORTED`.)
+2. **Send threw on Android 14+.** The sent/delivered status `PendingIntent`s were
+   built from an *implicit* `Intent(ACTION)` + `FLAG_MUTABLE`. Android 14 (U /
+   API 34)+ forbids that combination → `IllegalArgumentException` → the whole send
+   failed with `SMS_SEND_FAILED`. **Fix:** use `FLAG_IMMUTABLE` and make the
+   intents explicit via `setPackage(context.packageName)`.
+3. **Stale manifest receiver.** The manifest still hardcoded
+   `com.shounakmulay.telephony.sms.IncomingSmsReceiver`, which no longer exists
+   after the `telephony` → `another_telephony` swap → `ClassNotFoundException`
+   when the system delivered SMS to it. **Fix:** removed the dead entry (native
+   `SmsHandler` + the plugin's auto-merged receiver cover reception).
+
+**Also fixed (`message_bloc.dart`):** incoming-SMS threads showed the raw number
+instead of the contact name because `_resolveContactNames` matched on raw digits
+— an incoming E.164 address (`+989…`) never matched a contact saved as `09…`.
+Now both sides are normalized with `PhoneNormalizer.toThreadId` (national `09…`).
+**Verified on device (Android 16):** logcat shows `SMS sent successfully`,
+`SMS delivered successfully`, and `SMS received from: +98…`.

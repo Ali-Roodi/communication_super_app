@@ -151,12 +151,16 @@ class SmsHandler(
         }
 
         try {
-            // Register SMS receiver
+            // Register SMS receiver.
+            // SMS_RECEIVED is a SYSTEM broadcast (sent from a different UID), so
+            // the dynamic receiver MUST be EXPORTED on Android 13+. Registering it
+            // NOT_EXPORTED silently drops system broadcasts — the app would never
+            // see incoming SMS (no persist, no notification, no UI refresh).
             val smsFilter = IntentFilter("android.provider.Telephony.SMS_RECEIVED").apply {
                 priority = 999 // High priority
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.registerReceiver(smsReceiver, smsFilter, Context.RECEIVER_NOT_EXPORTED)
+                context.registerReceiver(smsReceiver, smsFilter, Context.RECEIVER_EXPORTED)
             } else {
                 context.registerReceiver(smsReceiver, smsFilter)
             }
@@ -227,19 +231,26 @@ class SmsHandler(
             }
 
             val smsManager = getSmsManager(subscriptionId)
-            
-            // Create pending intents for sent/delivered status
-            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+
+            // Create pending intents for sent/delivered status.
+            // Android 14 (U / API 34)+ forbids a PendingIntent built from an
+            // IMPLICIT Intent together with FLAG_MUTABLE — it throws and the whole
+            // send fails. These status intents don't need to be mutable (the
+            // result is delivered via the broadcast result code), so use
+            // FLAG_IMMUTABLE and make them explicit by scoping to our package.
+            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             } else {
                 PendingIntent.FLAG_UPDATE_CURRENT
             }
 
             val sentIntent = PendingIntent.getBroadcast(
-                context, 0, Intent(SMS_SENT_ACTION), flags
+                context, 0,
+                Intent(SMS_SENT_ACTION).setPackage(context.packageName), flags
             )
             val deliveredIntent = PendingIntent.getBroadcast(
-                context, 0, Intent(SMS_DELIVERED_ACTION), flags
+                context, 0,
+                Intent(SMS_DELIVERED_ACTION).setPackage(context.packageName), flags
             )
 
             // Handle multipart messages
