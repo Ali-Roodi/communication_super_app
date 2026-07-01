@@ -47,7 +47,7 @@ All state is BLoC (`flutter_bloc`). BLoCs are provided globally in `AppBlocProvi
 
 ### Database
 
-Single SQLite database (`communication_app.db`, version 3) managed by `DatabaseHelper` singleton (`lib/core/database/`). Tables: `contacts`, `messages`, `notes`, `call_logs`. Constants in `AppConstants`.
+Single SQLite database (`communication_app.db`, version 8) managed by `DatabaseHelper` singleton (`lib/core/database/`). Tables: `contacts`, `messages`, `notes`, `call_logs`, `favorites`, `blocked_numbers`, `archived_threads`, `pinned_threads`, `message_categories`, `drafts`, `scheduled_messages`. Constants in `AppConstants`.
 
 **Schema invariants:**
 - `messages.thread_id` is the digits-only normalized phone number.

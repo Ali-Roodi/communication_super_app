@@ -11,6 +11,7 @@ import 'conversation_screen.dart';
 import 'contact_selector_screen.dart';
 import 'archived_threads_screen.dart';
 import 'drafts_list_screen.dart';
+import 'scheduled_messages_screen.dart';
 import 'widgets/thread_tile.dart';
 import 'widgets/message_list_states.dart';
 import 'widgets/messages_app_bars.dart';
@@ -215,6 +216,10 @@ class _MessagesListScreenState extends State<MessagesListScreen>
       onOpenDrafts: () => Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => const DraftsListScreen()),
+      ),
+      onOpenScheduled: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const ScheduledMessagesScreen()),
       ),
       onOpenSettings: () => Navigator.push(
         context,

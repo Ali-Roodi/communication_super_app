@@ -8,6 +8,8 @@ import 'package:communication_super_app/features/contacts/repositories/contact_r
 import 'package:communication_super_app/features/messages/bloc/message_bloc.dart';
 import 'package:communication_super_app/features/messages/bloc/draft_bloc.dart';
 import 'package:communication_super_app/features/messages/repositories/draft_repository.dart';
+import 'package:communication_super_app/features/messages/bloc/scheduled_bloc.dart';
+import 'package:communication_super_app/features/messages/bloc/scheduled_event.dart';
 import 'package:communication_super_app/features/call_history/bloc/call_log_bloc.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_bloc.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_bloc.dart';
@@ -38,6 +40,10 @@ class AppBlocProviders extends StatelessWidget {
         BlocProvider(create: (context) => ContactBloc(ContactRepository())),
         BlocProvider(create: (context) => MessageBloc()),
         BlocProvider(create: (context) => DraftBloc(DraftRepository())),
+        BlocProvider(
+          create: (context) =>
+              ScheduledMessageBloc()..add(const LoadScheduled()),
+        ),
         BlocProvider(create: (context) => CallLogBloc()),
         BlocProvider(create: (context) => DialerBloc(ContactRepository())),
         BlocProvider(

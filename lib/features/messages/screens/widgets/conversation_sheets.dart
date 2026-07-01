@@ -79,6 +79,7 @@ Future<void> showAttachmentSheet(
   BuildContext context, {
   required VoidCallback onInsertDraft,
   required VoidCallback onInsertTemplate,
+  required VoidCallback onSchedule,
   required VoidCallback onComingSoon,
 }) {
   return showModalBottomSheet<void>(
@@ -103,6 +104,14 @@ Future<void> showAttachmentSheet(
               onTap: () {
                 Navigator.pop(sheetCtx);
                 onInsertTemplate();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.schedule_send_outlined),
+              title: const Text('زمان‌بندی ارسال'),
+              onTap: () {
+                Navigator.pop(sheetCtx);
+                onSchedule();
               },
             ),
             const Divider(height: 1),
