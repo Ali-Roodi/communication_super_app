@@ -138,6 +138,14 @@ class DatabaseHelper {
       await _createMessageCategoriesTable(db);
       await _createDraftsTable(db);
     }
+
+    // Migration from version 7 to 8:
+    // - scheduled_messages: queued outgoing SMS with an optional recurrence and
+    //   end condition. `scheduled_at` is the next nominal fire time (the column
+    //   the "due" query filters on); recurrence advances it after each send.
+    if (oldVersion < 8) {
+      await _createScheduledMessagesTable(db);
+    }
   }
 
   Future<void> _createFavoritesTable(Database db) async {
@@ -202,6 +210,33 @@ class DatabaseHelper {
         updated_at INTEGER NOT NULL,
         FOREIGN KEY (category_id) REFERENCES ${AppConstants.messageCategoriesTable}(id) ON DELETE SET NULL
       )
+    ''');
+  }
+
+  Future<void> _createScheduledMessagesTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE ${AppConstants.scheduledMessagesTable} (
+        id TEXT PRIMARY KEY,
+        phone_number TEXT NOT NULL,
+        contact_name TEXT,
+        body TEXT NOT NULL,
+        scheduled_at INTEGER NOT NULL,
+        repeat TEXT NOT NULL DEFAULT 'none',
+        repeat_every INTEGER NOT NULL DEFAULT 1,
+        weekdays TEXT,
+        jitter TEXT NOT NULL DEFAULT 'none',
+        end_type TEXT NOT NULL DEFAULT 'never',
+        end_date INTEGER,
+        max_occurrences INTEGER,
+        occurrence_count INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at INTEGER NOT NULL
+      )
+    ''');
+    // The delivery worker filters on (status, scheduled_at); index it.
+    await db.execute('''
+      CREATE INDEX idx_scheduled_due
+      ON ${AppConstants.scheduledMessagesTable}(status, scheduled_at)
     ''');
   }
 
@@ -306,6 +341,9 @@ class DatabaseHelper {
       // Message categories + drafts (Messages "pro" suite)
       await _createMessageCategoriesTable(db);
       await _createDraftsTable(db);
+
+      // Scheduled outgoing messages
+      await _createScheduledMessagesTable(db);
     } catch (e) {
       throw Exception('Failed to create database tables: $e');
     }

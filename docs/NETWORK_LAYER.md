@@ -26,7 +26,7 @@ substitute for a network layer — and the contracts at each boundary.
 ```
 
 ### Boundary A — SQLite (`DatabaseHelper`)
-- Single database `communication_app.db`, version 7, opened lazily by a
+- Single database `communication_app.db`, version 8, opened lazily by a
   singleton.
 - Repositories own all SQL. Schema and migrations live in `DatabaseHelper`.
 - **Invariant:** every batch insert into `messages` uses

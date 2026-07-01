@@ -1,0 +1,290 @@
+import 'dart:math' as math;
+import 'package:equatable/equatable.dart';
+
+/// How a scheduled message repeats.
+enum ScheduleRepeat {
+  none('none'),
+  daily('daily'),
+  weekly('weekly'),
+  monthly('monthly');
+
+  const ScheduleRepeat(this.value);
+  final String value;
+
+  static ScheduleRepeat fromValue(String? v) => ScheduleRepeat.values
+      .firstWhere((e) => e.value == v, orElse: () => ScheduleRepeat.none);
+}
+
+/// Send-time jitter window. The exact send time is spread randomly within the
+/// window so a recurring batch doesn't fire at the exact same instant.
+///
+/// Persisted and shown in the UI; **applied only by the future native
+/// background sender (PHASE 2)**. Foreground delivery (PHASE 1) sends as soon as
+/// the message is due, so the value is informational there.
+enum JitterWindow {
+  none('none', 0),
+  tenMin('min10', 10),
+  thirtyMin('min30', 30),
+  sixtyMin('min60', 60);
+
+  const JitterWindow(this.value, this.minutes);
+  final String value;
+  final int minutes;
+
+  static JitterWindow fromValue(String? v) => JitterWindow.values.firstWhere(
+    (e) => e.value == v,
+    orElse: () => JitterWindow.none,
+  );
+}
+
+/// When a recurring schedule stops.
+enum ScheduleEnd {
+  never('never'),
+  onDate('onDate'),
+  afterCount('afterCount');
+
+  const ScheduleEnd(this.value);
+  final String value;
+
+  static ScheduleEnd fromValue(String? v) => ScheduleEnd.values.firstWhere(
+    (e) => e.value == v,
+    orElse: () => ScheduleEnd.never,
+  );
+}
+
+enum ScheduleStatus {
+  pending('pending'),
+  completed('completed'),
+  cancelled('cancelled'),
+  failed('failed');
+
+  const ScheduleStatus(this.value);
+  final String value;
+
+  static ScheduleStatus fromValue(String? v) => ScheduleStatus.values
+      .firstWhere((e) => e.value == v, orElse: () => ScheduleStatus.pending);
+}
+
+/// A queued outgoing SMS, optionally recurring.
+class ScheduledMessage extends Equatable {
+  final String id;
+  final String phoneNumber;
+  final String? contactName;
+  final String body;
+
+  /// Next nominal fire time. The delivery worker treats the message as due when
+  /// `now >= scheduledAt`; recurrence advances this after each send.
+  final DateTime scheduledAt;
+
+  final ScheduleRepeat repeat;
+
+  /// "Every N" units (e.g. every 2 weeks). Ignored for [ScheduleRepeat.none].
+  final int repeatEvery;
+
+  /// For weekly repeats: the selected weekdays (1 = Monday … 7 = Sunday). When
+  /// empty, weekly repeats fall on the same weekday as [scheduledAt].
+  final Set<int> weekdays;
+
+  final JitterWindow jitter;
+
+  final ScheduleEnd endType;
+  final DateTime? endDate;
+  final int? maxOccurrences;
+
+  /// How many times this schedule has already fired.
+  final int occurrenceCount;
+
+  final ScheduleStatus status;
+  final DateTime createdAt;
+
+  const ScheduledMessage({
+    required this.id,
+    required this.phoneNumber,
+    this.contactName,
+    required this.body,
+    required this.scheduledAt,
+    this.repeat = ScheduleRepeat.none,
+    this.repeatEvery = 1,
+    this.weekdays = const {},
+    this.jitter = JitterWindow.none,
+    this.endType = ScheduleEnd.never,
+    this.endDate,
+    this.maxOccurrences,
+    this.occurrenceCount = 0,
+    this.status = ScheduleStatus.pending,
+    required this.createdAt,
+  });
+
+  bool get isRecurring => repeat != ScheduleRepeat.none;
+
+  /// The next fire time strictly after [scheduledAt] per the repeat rule, or
+  /// null if this is a one-shot schedule.
+  DateTime? nextOccurrence() => _nextAfter(scheduledAt);
+
+  DateTime? _nextAfter(DateTime from) {
+    switch (repeat) {
+      case ScheduleRepeat.none:
+        return null;
+      case ScheduleRepeat.daily:
+        return from.add(Duration(days: repeatEvery));
+      case ScheduleRepeat.weekly:
+        if (weekdays.isEmpty) {
+          return from.add(Duration(days: 7 * repeatEvery));
+        }
+        // Walk forward to the next selected weekday after `from`.
+        for (var i = 1; i <= 7; i++) {
+          final cand = from.add(Duration(days: i));
+          if (weekdays.contains(cand.weekday)) {
+            return DateTime(
+              cand.year,
+              cand.month,
+              cand.day,
+              from.hour,
+              from.minute,
+            );
+          }
+        }
+        return null;
+      case ScheduleRepeat.monthly:
+        return _addMonths(from, repeatEvery);
+    }
+  }
+
+  static DateTime _addMonths(DateTime d, int months) {
+    final total = d.month - 1 + months;
+    final year = d.year + total ~/ 12;
+    final month = total % 12 + 1;
+    final day = math.min(d.day, _daysInMonth(year, month));
+    return DateTime(year, month, day, d.hour, d.minute);
+  }
+
+  static int _daysInMonth(int year, int month) {
+    final firstNext = (month == 12)
+        ? DateTime(year + 1, 1, 1)
+        : DateTime(year, month + 1, 1);
+    return firstNext.subtract(const Duration(days: 1)).day;
+  }
+
+  /// Returns this schedule advanced after a successful send: either the next
+  /// pending occurrence, or a completed schedule when the recurrence is
+  /// exhausted (non-recurring, end-date passed, or occurrence cap reached).
+  ScheduledMessage advanceAfterSend() {
+    final newCount = occurrenceCount + 1;
+    final next = _nextAfter(scheduledAt);
+
+    final exhausted =
+        next == null ||
+        (endType == ScheduleEnd.afterCount &&
+            maxOccurrences != null &&
+            newCount >= maxOccurrences!) ||
+        (endType == ScheduleEnd.onDate &&
+            endDate != null &&
+            next.isAfter(endDate!));
+
+    if (exhausted) {
+      return copyWith(
+        occurrenceCount: newCount,
+        status: ScheduleStatus.completed,
+      );
+    }
+    return copyWith(occurrenceCount: newCount, scheduledAt: next);
+  }
+
+  Map<String, dynamic> toMap() => {
+    'id': id,
+    'phone_number': phoneNumber,
+    'contact_name': contactName,
+    'body': body,
+    'scheduled_at': scheduledAt.millisecondsSinceEpoch,
+    'repeat': repeat.value,
+    'repeat_every': repeatEvery,
+    'weekdays': weekdays.isEmpty ? null : (weekdays.toList()..sort()).join(','),
+    'jitter': jitter.value,
+    'end_type': endType.value,
+    'end_date': endDate?.millisecondsSinceEpoch,
+    'max_occurrences': maxOccurrences,
+    'occurrence_count': occurrenceCount,
+    'status': status.value,
+    'created_at': createdAt.millisecondsSinceEpoch,
+  };
+
+  factory ScheduledMessage.fromMap(Map<String, dynamic> m) => ScheduledMessage(
+    id: m['id'] as String,
+    phoneNumber: m['phone_number'] as String,
+    contactName: m['contact_name'] as String?,
+    body: m['body'] as String,
+    scheduledAt: DateTime.fromMillisecondsSinceEpoch(m['scheduled_at'] as int),
+    repeat: ScheduleRepeat.fromValue(m['repeat'] as String?),
+    repeatEvery: (m['repeat_every'] as int?) ?? 1,
+    weekdays: _parseWeekdays(m['weekdays'] as String?),
+    jitter: JitterWindow.fromValue(m['jitter'] as String?),
+    endType: ScheduleEnd.fromValue(m['end_type'] as String?),
+    endDate: (m['end_date'] as int?) == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(m['end_date'] as int),
+    maxOccurrences: m['max_occurrences'] as int?,
+    occurrenceCount: (m['occurrence_count'] as int?) ?? 0,
+    status: ScheduleStatus.fromValue(m['status'] as String?),
+    createdAt: DateTime.fromMillisecondsSinceEpoch(m['created_at'] as int),
+  );
+
+  static Set<int> _parseWeekdays(String? csv) {
+    if (csv == null || csv.isEmpty) return const {};
+    return csv
+        .split(',')
+        .map((s) => int.tryParse(s.trim()))
+        .whereType<int>()
+        .toSet();
+  }
+
+  ScheduledMessage copyWith({
+    String? phoneNumber,
+    String? contactName,
+    String? body,
+    DateTime? scheduledAt,
+    ScheduleRepeat? repeat,
+    int? repeatEvery,
+    Set<int>? weekdays,
+    JitterWindow? jitter,
+    ScheduleEnd? endType,
+    DateTime? endDate,
+    int? maxOccurrences,
+    int? occurrenceCount,
+    ScheduleStatus? status,
+  }) => ScheduledMessage(
+    id: id,
+    phoneNumber: phoneNumber ?? this.phoneNumber,
+    contactName: contactName ?? this.contactName,
+    body: body ?? this.body,
+    scheduledAt: scheduledAt ?? this.scheduledAt,
+    repeat: repeat ?? this.repeat,
+    repeatEvery: repeatEvery ?? this.repeatEvery,
+    weekdays: weekdays ?? this.weekdays,
+    jitter: jitter ?? this.jitter,
+    endType: endType ?? this.endType,
+    endDate: endDate ?? this.endDate,
+    maxOccurrences: maxOccurrences ?? this.maxOccurrences,
+    occurrenceCount: occurrenceCount ?? this.occurrenceCount,
+    status: status ?? this.status,
+    createdAt: createdAt,
+  );
+
+  @override
+  List<Object?> get props => [
+    id,
+    phoneNumber,
+    contactName,
+    body,
+    scheduledAt,
+    repeat,
+    repeatEvery,
+    weekdays,
+    jitter,
+    endType,
+    endDate,
+    maxOccurrences,
+    occurrenceCount,
+    status,
+    createdAt,
+  ];
+}
