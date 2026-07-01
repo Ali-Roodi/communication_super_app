@@ -108,7 +108,7 @@ before `MainNavigation` is built (see §3); the rest are install-time grants.
 | SMS           | `SEND_SMS`, `RECEIVE_SMS`, `READ_SMS` |
 | Phone / calls | `CALL_PHONE`, `READ_PHONE_STATE`, `READ_CALL_LOG`, `WRITE_CALL_LOG`, `MANAGE_OWN_CALLS`, `PROCESS_OUTGOING_CALLS` |
 | Contacts      | `READ_CONTACTS`, `WRITE_CONTACTS` |
-| System        | `POST_NOTIFICATIONS`, `RECORD_AUDIO`, `VIBRATE`, `RECEIVE_BOOT_COMPLETED` |
+| System        | `POST_NOTIFICATIONS`, `RECORD_AUDIO`, `VIBRATE`, `RECEIVE_BOOT_COMPLETED`, `USE_EXACT_ALARM`, `SCHEDULE_EXACT_ALARM` (background scheduled-SMS delivery) |
 
 `SmsHandler` registers the `SMS_RECEIVED` `BroadcastReceiver`, and the
 ConnectionService call stack relies on `MANAGE_OWN_CALLS` / `RECORD_AUDIO` for

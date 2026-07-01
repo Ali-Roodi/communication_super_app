@@ -27,6 +27,14 @@ class LoadThreads extends MessageEvent {
   List<Object?> get props => [forceRefresh, limit, offset, archived];
 }
 
+/// Rebuild the phone→name cache from the (refreshed) device contacts and
+/// re-resolve names on the currently loaded threads. Dispatched when the device
+/// address book changes, so a newly-saved contact's name shows without a
+/// full reload.
+class RefreshContactNames extends MessageEvent {
+  const RefreshContactNames();
+}
+
 class LoadMoreThreads extends MessageEvent {
   const LoadMoreThreads();
 }

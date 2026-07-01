@@ -166,9 +166,16 @@ class SmsService {
 
                 await _messageRepository.createMessage(messageModel);
 
+                // Prefer the device-contact name (matched on the normalized
+                // number) so the notification shows the saved name, not the raw
+                // +98… address. Falls back to the local table / number.
+                final deviceName = await _contactRepository.getDeviceContactName(
+                  phoneNumber,
+                );
+
                 // Show notification
                 await _notificationService.showSmsNotification(
-                  contactName: contact?.name ?? '',
+                  contactName: deviceName ?? contact?.name ?? '',
                   phoneNumber: phoneNumber,
                   message: body,
                   threadId: threadId,

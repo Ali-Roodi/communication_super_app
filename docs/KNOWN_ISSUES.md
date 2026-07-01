@@ -157,19 +157,86 @@ unchanged while tests can inject mocks — see `test/unit/message_bloc_test.dart
 
 ---
 
-### K11 — Scheduled send delivers only in the foreground (PHASE 2 deferred)
-**Severity:** Medium (functional limitation, by design).
-**Where:** `ScheduledMessageBloc` (`features/messages/bloc/scheduled_bloc.dart`).
-**Detail:** the scheduled-send feature (زمان‌بندی ارسال — model, repository, rich
-scheduling UI, recurrence/end-conditions, list screen) is built and delivers due
-messages via a periodic in-bloc `Timer` while the app is running. **When the app
-is killed, nothing sends until it is reopened.** True background delivery needs a
-native Android **AlarmManager/WorkManager** that wakes a headless isolate and
-calls the existing SMS `MethodChannel` (`SmsHandler.kt`). That is a Kotlin +
-on-device task that cannot be verified in this environment, so it is deliberately
-deferred. The `jitter` window (رأس ساعت / ۱۰/۳۰/۶۰ دقیقه) is persisted and shown
-in the UI but is **only applied by that future native sender** — foreground
-delivery fires as soon as a message is due.
-**Fix (PHASE 2):** add the AlarmManager/WorkManager scheduling on `SaveScheduled`,
-a headless entrypoint that runs the same due-query + send loop, and apply the
-jitter offset there. Verify on a device with the app closed.
+### K11 — Scheduled send: background delivery ✅ IMPLEMENTED (PHASE 2, pending device QA)
+**Severity:** Medium (functional).
+**Where:** `android/.../scheduled/` (Kotlin) + `NativeScheduledSmsService` +
+`ScheduledMessageBloc`.
+**Phase 1 (foreground):** while the app runs, a periodic in-bloc `Timer` fires
+`DeliverDueScheduled`, which sends due messages via `SmsService`.
+**Phase 2 (background, added):** a native **AlarmManager** alarm is armed for the
+soonest pending message (`ScheduledSmsScheduler`). When it fires — even with the
+app killed — `ScheduledSmsAlarmReceiver` runs `ScheduledSmsWorker`, which opens
+the `sqflite` DB **directly** (no Flutter engine), sends every due message with
+`SmsManager`, advances/completes the row (recurrence logic mirrored in Kotlin),
+and re-arms the alarm. `BootReceiver` re-arms after reboot / app update. The Dart
+side calls `NativeScheduledSmsService.reschedule()` (MethodChannel
+`…/scheduled_sms`) after every schedule change and on app start.
+**Sync invariant:** the table/column names, enum string values, and recurrence
+math are duplicated in `ScheduledSmsWorker.kt` — keep them in lock-step with
+`scheduled_message_model.dart` when either changes.
+**Jitter:** applied at alarm-arm time — `ScheduledSmsScheduler` fires the alarm
+at a random point within the window *after* the nominal time, leaving
+`scheduled_at` (the recurrence base) untouched so recurring messages don't drift.
+It is per-alarm (based on the soonest pending message's window), not strictly
+per-message. Foreground delivery still ignores jitter (sends as soon as due).
+**Still to do:**
+- Exact alarms use `USE_EXACT_ALARM`/`SCHEDULE_EXACT_ALARM`; on Android 12 if the
+  user denies exact-alarm permission the scheduler falls back to an inexact
+  (best-effort) alarm.
+- **Device QA:** schedule a message ~2 min out, kill the app, confirm it sends;
+  test a recurring one and a reboot.
+
+---
+
+### K12 — SMS send/receive broken on Android 13/14+ ✅ FIXED
+**Severity:** High (core feature) — found via on-device logcat on Android 16.
+**Three independent platform-API regressions in `SmsHandler.kt` / manifest:**
+
+1. **Receive silently dropped.** The dynamic `SMS_RECEIVED` receiver was
+   registered with `Context.RECEIVER_NOT_EXPORTED` on Android 13+ (TIRAMISU).
+   `SMS_RECEIVED` is a *system* broadcast (different UID), so `NOT_EXPORTED`
+   blocks it — no persist, no notification, no UI refresh. **Fix:** register that
+   receiver `RECEIVER_EXPORTED`. (The sent/delivered receivers listen for the
+   app's own actions and stay `NOT_EXPORTED`.)
+2. **Send threw on Android 14+.** The sent/delivered status `PendingIntent`s were
+   built from an *implicit* `Intent(ACTION)` + `FLAG_MUTABLE`. Android 14 (U /
+   API 34)+ forbids that combination → `IllegalArgumentException` → the whole send
+   failed with `SMS_SEND_FAILED`. **Fix:** use `FLAG_IMMUTABLE` and make the
+   intents explicit via `setPackage(context.packageName)`.
+3. **Stale manifest receiver.** The manifest still hardcoded
+   `com.shounakmulay.telephony.sms.IncomingSmsReceiver`, which no longer exists
+   after the `telephony` → `another_telephony` swap → `ClassNotFoundException`
+   when the system delivered SMS to it. **Fix:** replaced it with the real
+   `.IncomingSmsReceiver` (see K13).
+
+**Also fixed (`message_bloc.dart`):** incoming-SMS threads showed the raw number
+instead of the contact name because `_resolveContactNames` matched on raw digits
+— an incoming E.164 address (`+989…`) never matched a contact saved as `09…`.
+Now both sides are normalized with `PhoneNormalizer.toThreadId` (national `09…`).
+**Verified on device (Android 16):** logcat shows `SMS sent successfully`,
+`SMS delivered successfully`, and `SMS received from: +98…`.
+
+---
+
+### K13 — Background SMS notifications + live contact refresh ✅ ADDED (pending device QA)
+**Notifications when the app is closed.** The live receive path
+(`SmsHandler` dynamic receiver → EventChannel → Flutter) only exists while the
+app process is alive, so a killed app posted nothing. Added a manifest-registered
+`IncomingSmsReceiver` that, **only on a cold start** (guarded by
+`SmsHandler.isDynamicReceiverActive` so it never double-handles a live app),
+persists the SMS straight into the sqflite DB (`INSERT OR IGNORE`, matching the
+Dart schema/enum strings + `PhoneNormalizer` thread-id) and posts a notification
+natively via `NotificationCompat` (contact name resolved through
+`ContactsContract.PhoneLookup`). *Verified: compiles, receiver registered
+(priority 999), app boots clean. Real closed-app delivery is on-device QA.*
+
+**Notification/thread contact name** now uses device contacts
+(`ContactRepository.getDeviceContactName`, normalized match) instead of the empty
+local table, so the saved name shows rather than `+98…`.
+
+**Live device-contact refresh.** `ContactRepository`'s static cache was only
+invalidated on the app's own CRUD, so a contact added in the phone's Contacts app
+didn't appear until restart. `MainNavigation` now registers
+`FlutterContacts.addListener` + an app-resume hook that force-refreshes the
+contact list (`ContactBloc.RefreshContacts`) and re-resolves thread names
+(`MessageBloc.RefreshContactNames`).
