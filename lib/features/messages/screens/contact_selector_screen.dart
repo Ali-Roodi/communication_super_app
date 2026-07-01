@@ -66,9 +66,7 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      color: theme.brightness == Brightness.dark
-          ? const Color(0xFF1A1A1A)
-          : const Color(0xFFF5F5F5),
+      color: theme.colorScheme.surfaceContainerHighest,
       child: Text(
         letter,
         style: TextStyle(
@@ -107,9 +105,7 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
                   ),
                   prefixIcon: const Icon(Icons.search),
                   filled: true,
-                  fillColor: theme.brightness == Brightness.dark
-                      ? const Color(0xFF2A2A2A)
-                      : const Color(0xFFF5F5F5),
+                  fillColor: theme.colorScheme.surfaceContainerHighest,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide.none,
@@ -131,13 +127,14 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: InkWell(
-                onTap: () {
-                  // PHASE-2: Group SMS creation
-                },
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('ارسال گروهی به‌زودی')),
+                ),
                 child: Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFE3F2FD),
+                    color: theme.colorScheme.primaryContainer,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Row(
@@ -145,24 +142,24 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
                       Container(
                         width: 48,
                         height: 48,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF2196F3),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primary,
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(
+                        child: Icon(
                           Icons.group_add,
-                          color: Colors.white,
+                          color: theme.colorScheme.onPrimary,
                           size: 24,
                         ),
                       ),
                       const SizedBox(width: 16),
-                      const Expanded(
+                      Expanded(
                         child: Text(
                           'ایجاد گروه',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w500,
-                            color: Color(0xFF01579B),
+                            color: theme.colorScheme.onPrimaryContainer,
                           ),
                           textAlign: TextAlign.right,
                         ),
@@ -236,9 +233,9 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
     if (digits.replaceAll('+', '').length < 4) return const SizedBox.shrink();
     final national = PhoneNormalizer.toNational(digits);
     return ListTile(
-      leading: const CircleAvatar(
-        backgroundColor: Color(0xFF2196F3),
-        child: Icon(Icons.send, color: Colors.white, size: 20),
+      leading: CircleAvatar(
+        backgroundColor: theme.colorScheme.primary,
+        child: Icon(Icons.send, color: theme.colorScheme.onPrimary, size: 20),
       ),
       title: Directionality(
         textDirection: TextDirection.ltr,

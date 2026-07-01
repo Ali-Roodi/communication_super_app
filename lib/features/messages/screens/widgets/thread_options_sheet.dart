@@ -16,6 +16,7 @@ Future<void> showThreadOptionsSheet(
   required VoidCallback onBlock,
   required VoidCallback onSelect,
   required VoidCallback onDelete,
+  VoidCallback? onDiscardDraft,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -76,6 +77,21 @@ Future<void> showThreadOptionsSheet(
                 onSelect();
               },
             ),
+            if (onDiscardDraft != null)
+              ListTile(
+                leading: const Icon(
+                  Icons.drafts_outlined,
+                  color: AppColors.danger,
+                ),
+                title: const Text(
+                  'حذف پیش‌نویس',
+                  style: TextStyle(color: AppColors.danger),
+                ),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  onDiscardDraft();
+                },
+              ),
             ListTile(
               leading: const Icon(
                 Icons.delete_outline,

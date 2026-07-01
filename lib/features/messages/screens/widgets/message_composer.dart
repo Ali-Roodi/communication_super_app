@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'message_bubble.dart';
 
 /// The chat composer: SMS-segment counter, attachment button, text field,
@@ -25,42 +26,32 @@ class MessageComposer extends StatelessWidget {
   final VoidCallback onSend;
   final ValueChanged<String> onStickerSelected;
 
-  /// Emoji "stickers" — tapping one sends it immediately as a message, so no
-  /// image assets are required.
+  /// Quick-pick emoji — tapping one inserts it at the cursor (so several can be
+  /// combined before sending). Full emoji and any keyboard sticker packs remain
+  /// available via the system keyboard.
   static const List<String> stickers = [
-    '😀',
-    '😂',
-    '😍',
-    '😎',
-    '😭',
-    '😡',
-    '👍',
-    '👎',
-    '🙏',
-    '👏',
-    '🎉',
-    '❤️',
-    '🔥',
-    '💯',
-    '😴',
-    '🤔',
-    '😅',
-    '😉',
-    '😘',
-    '🥳',
-    '😱',
-    '🤩',
-    '💀',
-    '✨',
-    '🌹',
-    '☕',
-    '🍕',
-    '⚽',
-    '🎂',
-    '🚗',
-    '📱',
-    '✅',
+    // Smileys & emotion
+    '😀', '😁', '😂', '🤣', '😊', '😇', '🙂', '😉', '😍', '🥰', '😘', '😋',
+    '😎', '🤩', '🥳', '😏', '😌', '😔', '😢', '😭', '😤', '😡', '🤬', '😱',
+    '😨', '😰', '😴', '🤔', '🤗', '🤭', '🙄', '😬', '🤒', '🤕', '🤢', '🥺',
+    '😅', '😐', '😶', '🙃', '🤨', '😆', '💀', '👻', '🤡', '🥱',
+    // Gestures & people
+    '👍', '👎', '👏', '🙏', '🙌', '👌', '✌️', '🤞', '🤝', '💪', '👋', '🤙',
+    '☝️', '✋', '🖐️', '👆', '👇', '👈', '👉', '💅',
+    // Hearts & symbols
+    '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '💔', '❤️‍🔥', '💯', '✨',
+    '🔥', '⭐', '🌟', '💫', '⚡', '✅', '❌', '❓', '❗', '💤',
+    // Nature & food
+    '🌹', '🌸', '🌻', '🌈', '☀️', '🌙', '☕', '🍵', '🍕', '🍔', '🍰', '🎂',
+    '🍎', '🍓', '🍇', '🥤',
+    // Activities & objects
+    '🎉', '🎈', '🎁', '⚽', '🏆', '🎵', '🎬', '📱', '💻', '📞', '✈️', '🚗',
+    '💰', '📌', '📝', '🔔',
   ];
+
+  /// GSM-7 messages fit 160 chars per single SMS (153 per part when
+  /// concatenated); Unicode (e.g. Persian) messages fit only 70 (67 per part).
+  static bool _isUnicode(String s) => s.runes.any((r) => r > 0x7F);
 
   @override
   Widget build(BuildContext context) {
@@ -68,7 +59,16 @@ class MessageComposer extends StatelessWidget {
     final text = controller.text;
     final hasText = text.trim().isNotEmpty;
     final len = text.length;
-    final segments = len == 0 ? 0 : (len / 160).ceil();
+
+    final unicode = _isUnicode(text);
+    final single = unicode ? 70 : 160;
+    final multi = unicode ? 67 : 153;
+    final segments = len == 0 ? 0 : (len <= single ? 1 : (len / multi).ceil());
+    // Surface the counter once the user nears the first-segment limit or the
+    // message will split into more than one SMS.
+    final showCounter = len > 0 && (segments > 1 || single - len <= 20);
+    final remaining =
+        (segments <= 1 ? single - len : segments * multi - len).clamp(0, single);
 
     return SafeArea(
       top: false,
@@ -77,30 +77,17 @@ class MessageComposer extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (len > 140)
+            if (showCounter)
               Padding(
                 padding: const EdgeInsets.only(bottom: 4, right: 16, left: 16),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    if (len > 160)
-                      Container(
-                        margin: const EdgeInsets.only(left: 8),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 1,
-                        ),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.tertiary,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: const Text(
-                          'MMS',
-                          style: TextStyle(color: Colors.white, fontSize: 11),
-                        ),
-                      ),
                     Text(
-                      '$len / $segments SMS',
+                      // «۱۲ باقی‌مانده · ۲ پیامک» — remaining chars in the
+                      // current segment and the total segment count.
+                      '${PersianUtils.toPersianNumber('$remaining')} باقی‌مانده'
+                      ' · ${PersianUtils.toPersianNumber('$segments')} پیامک',
                       style: theme.textTheme.bodySmall,
                     ),
                   ],

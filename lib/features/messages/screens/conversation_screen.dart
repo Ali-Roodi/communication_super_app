@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:communication_super_app/core/services/composer_draft_store.dart';
 import '../bloc/message_bloc.dart';
 import '../bloc/message_event.dart';
 import '../bloc/message_state.dart';
@@ -11,7 +12,10 @@ import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
+import 'package:communication_super_app/features/contacts/models/contact_model.dart';
+import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
+import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
 import '../bloc/scheduled_bloc.dart';
 import 'drafts_list_screen.dart';
 import 'template_picker_screen.dart';
@@ -59,6 +63,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
   bool _showScrollToBottom = false;
   bool _showStickers = false;
 
+  // Per-thread unsent composer text, so leaving the chat doesn't lose it and
+  // the inbox can surface it as a draft.
+  final ComposerDraftStore _draftStore = ComposerDraftStore();
+
   /// Selected message ids (message multi-select mode).
   final Set<String> _selected = {};
   bool get _selectionMode => _selected.isNotEmpty;
@@ -75,7 +83,42 @@ class _ConversationScreenState extends State<ConversationScreen> {
     _messageBloc = context.read<MessageBloc>();
     _messageBloc.add(LoadMessages(widget.threadId));
     _scrollController.addListener(_onScroll);
-    _messageController.addListener(() => setState(() {}));
+    _messageController.addListener(_onComposerChanged);
+    _restoreComposerDraft();
+  }
+
+  /// Keeps the send button in sync and caches the draft synchronously so the
+  /// inbox shows it the moment the chat is left (see [ComposerDraftStore]).
+  void _onComposerChanged() {
+    _draftStore.cacheSync(
+      threadId: widget.threadId,
+      text: _messageController.text,
+      phoneNumber: widget.phoneNumber,
+      contactName: widget.contactName,
+    );
+    setState(() {});
+  }
+
+  /// Restores any unsent text saved for this thread when re-entering the chat.
+  Future<void> _restoreComposerDraft() async {
+    final saved = await _draftStore.loadText(widget.threadId);
+    if (!mounted) return;
+    if (saved != null && saved.isNotEmpty && _messageController.text.isEmpty) {
+      _messageController.text = saved;
+      _messageController.selection = TextSelection.collapsed(
+        offset: saved.length,
+      );
+    }
+  }
+
+  /// Persists (or clears) the unsent composer text for this thread.
+  void _saveComposerDraft() {
+    _draftStore.save(
+      threadId: widget.threadId,
+      text: _messageController.text,
+      phoneNumber: widget.phoneNumber,
+      contactName: widget.contactName,
+    );
   }
 
   void _onScroll() {
@@ -97,6 +140,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   @override
   void dispose() {
+    _saveComposerDraft();
     _scrollController.removeListener(_onScroll);
     _messageController.dispose();
     _scrollController.dispose();
@@ -108,6 +152,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
     _messageController.clear();
+    _draftStore.remove(widget.threadId);
     _messageBloc.add(SendMessage(phoneNumber: widget.phoneNumber, body: text));
   }
 
@@ -226,7 +271,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     }
   }
 
-  void _openContact() {
+  Future<void> _openContact() async {
     if (!_hasName) {
       Navigator.of(context).push(
         MaterialPageRoute(
@@ -234,11 +279,28 @@ class _ConversationScreenState extends State<ConversationScreen> {
               AddEditContactScreen(initialPhone: widget.phoneNumber),
         ),
       );
-    } else {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('به‌زودی')));
+      return;
     }
+    // Known contact: resolve the saved ContactModel by normalized number and
+    // open its detail page; fall back to the add screen if it can't be found.
+    final target = PhoneNormalizer.toThreadId(widget.phoneNumber);
+    ContactModel? match;
+    for (final c in await ContactRepository().getDeviceContacts()) {
+      final hit = [...c.phoneNumbers, c.phoneNumber]
+          .any((p) => PhoneNormalizer.toThreadId(p) == target);
+      if (hit) {
+        match = c;
+        break;
+      }
+    }
+    if (!mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => match != null
+            ? DeviceContactDetailScreen(contact: match)
+            : AddEditContactScreen(initialPhone: widget.phoneNumber),
+      ),
+    );
   }
 
   // ── Message list with grouping + date separators ──────────────────────────
@@ -336,9 +398,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     } else if (diff == 1) {
       label = 'دیروز';
     } else {
-      label = DateFormatter.formatDatePersian(
-        dt,
-      ).replaceAll(RegExp(r' \d{2}:\d{2}$'), '');
+      label = DateFormatter.formatChatSeparator(dt);
     }
     final theme = Theme.of(context);
     return Padding(
@@ -441,7 +501,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
         textDirection: TextDirection.rtl,
         child: AlertDialog(
           content: Text(
-            ids.length == 1 ? 'این پیام حذف شود؟' : 'حذف ${ids.length} پیام؟',
+            ids.length == 1
+                ? 'این پیام حذف شود؟'
+                : 'حذف ${PersianUtils.toPersianNumber('${ids.length}')} پیام؟',
           ),
           actions: [
             TextButton(
@@ -506,13 +568,21 @@ class _ConversationScreenState extends State<ConversationScreen> {
       },
       onAttach: _showAttachmentSheet,
       onSend: _sendMessage,
-      onStickerSelected: _sendSticker,
+      onStickerSelected: _insertSticker,
     );
   }
 
-  void _sendSticker(String sticker) {
-    _messageBloc.add(
-      SendMessage(phoneNumber: widget.phoneNumber, body: sticker),
+  /// Inserts an emoji at the cursor so several can be picked before sending
+  /// (instead of each tap sending its own message).
+  void _insertSticker(String emoji) {
+    final text = _messageController.text;
+    final sel = _messageController.selection;
+    final start = sel.start >= 0 ? sel.start : text.length;
+    final end = sel.end >= 0 ? sel.end : text.length;
+    final newText = text.replaceRange(start, end, emoji);
+    _messageController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: start + emoji.length),
     );
   }
 

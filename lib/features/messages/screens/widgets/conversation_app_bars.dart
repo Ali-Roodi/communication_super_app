@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
+import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 
 /// The conversation header (avatar + name/number, call button, overflow menu).
@@ -112,7 +113,7 @@ class ConversationSelectionAppBar extends StatelessWidget
   Widget build(BuildContext context) {
     return AppBar(
       leading: IconButton(icon: const Icon(Icons.close), onPressed: onClear),
-      title: Text('$selectedCount'),
+      title: Text(PersianUtils.toPersianNumber('$selectedCount')),
       actions: [
         IconButton(
           icon: const Icon(Icons.copy_outlined),

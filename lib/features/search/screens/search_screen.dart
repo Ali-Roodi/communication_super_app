@@ -75,7 +75,7 @@ class _SearchScreenState extends State<SearchScreen> {
         body: BlocBuilder<SearchBloc, SearchState>(
           builder: (context, state) {
             if (state is! SearchResults) {
-              return const SizedBox.shrink();
+              return _SearchPrompt();
             }
             if (state.isEmpty) {
               return Center(
@@ -113,6 +113,30 @@ class _SearchScreenState extends State<SearchScreen> {
             color: Theme.of(context).colorScheme.primary,
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ── Empty prompt shown before the user types ──────────────────────────────────
+
+class _SearchPrompt extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final dim = Theme.of(
+      context,
+    ).textTheme.bodyMedium?.color?.withValues(alpha: 0.5);
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.search, size: 72, color: dim),
+          const SizedBox(height: 12),
+          Text(
+            'مخاطبین و تماس‌ها را جستجو کنید',
+            style: TextStyle(color: dim),
+          ),
+        ],
       ),
     );
   }

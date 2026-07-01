@@ -14,6 +14,7 @@ import 'package:communication_super_app/features/favorites/bloc/favorites_event.
 import 'package:communication_super_app/features/favorites/bloc/favorites_state.dart';
 import 'package:communication_super_app/features/favorites/models/favorite_model.dart';
 import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
+import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
 
 /// Contact detail with a collapsing toolbar, action row, and PHONE / EMAIL /
 /// ADDRESS / NOTES sections. Header data comes from the [ContactModel]; full
@@ -213,7 +214,7 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
             child: _ActionButton(
               icon: Icons.more_horiz,
               label: 'بیشتر',
-              onTap: () => _snack('به‌زودی'),
+              onTap: _showMoreSheet,
             ),
           ),
         ],
@@ -260,6 +261,14 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
           ListTile(
             leading: const Icon(Icons.location_on_outlined),
             title: Text(a.address),
+            trailing: IconButton(
+              icon: const Icon(Icons.copy_outlined),
+              tooltip: 'کپی',
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: a.address));
+                _snack('نشانی کپی شد');
+              },
+            ),
           ),
         );
       }
@@ -359,6 +368,45 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
 
   void _snack(String msg) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+
+  void _showMoreSheet() {
+    final blockedBloc = context.read<BlockedNumbersBloc>();
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetCtx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.copy_outlined),
+                title: const Text('کپی شماره'),
+                onTap: () {
+                  Navigator.of(sheetCtx).pop();
+                  Clipboard.setData(ClipboardData(text: _primaryPhone));
+                  _snack('شماره کپی شد');
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.block, color: AppColors.callRejectRed),
+                title: const Text(
+                  'مسدود کردن شماره',
+                  style: TextStyle(color: AppColors.callRejectRed),
+                ),
+                onTap: () {
+                  Navigator.of(sheetCtx).pop();
+                  blockedBloc.add(BlockNumber(_primaryPhone));
+                  _snack('شماره مسدود شد');
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   String _phoneLabelFa(Phone p) {
     if (p.label == PhoneLabel.custom && p.customLabel.isNotEmpty) {

@@ -89,8 +89,9 @@ class _DraftsListScreenState extends State<DraftsListScreen> {
                                   _onDraftTap(context, state.drafts[i]),
                               onDelete: pickMode
                                   ? null
-                                  : () => context.read<DraftBloc>().add(
-                                      DeleteDraft(state.drafts[i].id),
+                                  : () => _deleteWithUndo(
+                                      context,
+                                      state.drafts[i],
                                     ),
                             ),
                           ),
@@ -101,28 +102,28 @@ class _DraftsListScreenState extends State<DraftsListScreen> {
             return const SizedBox.shrink();
           },
         ),
-        floatingActionButton: pickMode
-            ? null
-            : FloatingActionButton(
-                heroTag: 'drafts_fab',
-                tooltip: 'پیش‌نویس جدید',
-                onPressed: () {
-                  final bloc = context.read<DraftBloc>();
-                  final state = bloc.state;
-                  final categoryId = state is DraftsLoaded
-                      ? state.filterCategoryId
-                      : null;
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => BlocProvider.value(
-                        value: bloc,
-                        child: DraftEditorScreen(initialCategoryId: categoryId),
-                      ),
-                    ),
-                  );
-                },
-                child: const Icon(Icons.add),
+        // Shown in pick mode too, so a draft can be created on the spot while
+        // choosing one to insert into a message.
+        floatingActionButton: FloatingActionButton(
+          heroTag: 'drafts_fab',
+          tooltip: 'پیش‌نویس جدید',
+          onPressed: () {
+            final bloc = context.read<DraftBloc>();
+            final state = bloc.state;
+            final categoryId = state is DraftsLoaded
+                ? state.filterCategoryId
+                : null;
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => BlocProvider.value(
+                  value: bloc,
+                  child: DraftEditorScreen(initialCategoryId: categoryId),
+                ),
               ),
+            );
+          },
+          child: const Icon(Icons.add),
+        ),
       ),
     );
   }
@@ -136,6 +137,29 @@ class _DraftsListScreenState extends State<DraftsListScreen> {
       return match.isNotEmpty ? match.first.name : null;
     }
     return null;
+  }
+
+  /// Deletes a draft with an undo option (re-saves its content if undone).
+  void _deleteWithUndo(BuildContext context, Draft draft) {
+    final bloc = context.read<DraftBloc>();
+    bloc.add(DeleteDraft(draft.id));
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: const Text('پیش‌نویس حذف شد'),
+          action: SnackBarAction(
+            label: 'واگرد',
+            onPressed: () => bloc.add(
+              SaveDraft(
+                title: draft.title,
+                body: draft.body,
+                categoryId: draft.categoryId,
+              ),
+            ),
+          ),
+        ),
+      );
   }
 
   void _onDraftTap(BuildContext context, Draft draft) {

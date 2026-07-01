@@ -12,6 +12,15 @@ import '../models/contact_model.dart';
 const double _kRowHeight = 64;
 const double _kHeaderHeight = 32;
 
+// Stock-phone style fast-scroll index: A–Z then '#' for everything else.
+const List<String> _kIndexLetters = [
+  'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', //
+  'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '#',
+];
+
+/// Ordering rank so '#' sorts after Z.
+int _indexRank(String letter) => letter == '#' ? 26 : letter.codeUnitAt(0) - 65;
+
 class ContactsListScreen extends StatefulWidget {
   const ContactsListScreen({super.key});
 
@@ -161,14 +170,17 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
     );
   }
 
-  // ── Sectioned list with sticky headers + fast-scroll bar ──────────────────
+  // ── Sectioned list with inline headers + fast-scroll bar ──────────────────
 
   Widget _buildSectionedList(List<_Section> sections, ThemeData theme) {
     final slivers = <Widget>[];
     for (final s in sections) {
       slivers.add(
+        // Not pinned: Flutter stacks *every* pinned persistent header at the top
+        // as you scroll, which piled the letters up and pushed the list off the
+        // screen. Fast navigation is handled by the alphabet bar instead.
         SliverPersistentHeader(
-          pinned: true,
+          pinned: false,
           delegate: _SectionHeaderDelegate(s.letter),
         ),
       );
@@ -185,19 +197,27 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
 
     return Stack(
       children: [
-        CustomScrollView(
-          controller: _scrollController,
-          slivers: [
-            ...slivers,
-            const SliverToBoxAdapter(child: SizedBox(height: 96)),
-          ],
+        // Reserve the alphabet-bar width at the (RTL) end edge so long contact
+        // names never run underneath the letters.
+        Padding(
+          padding: const EdgeInsetsDirectional.only(end: 24),
+          child: CustomScrollView(
+            controller: _scrollController,
+            slivers: [
+              ...slivers,
+              const SliverToBoxAdapter(child: SizedBox(height: 96)),
+            ],
+          ),
         ),
         Positioned(
           top: 0,
-          bottom: 0,
+          // Sit a little higher and clear the bottom FAB (which lands at the
+          // start/left edge in this RTL layout).
+          bottom: 88,
           left: 0, // mirrored to the left edge for the RTL layout
           child: _AlphabetBar(
-            letters: sections.map((s) => s.letter).toList(),
+            letters: _kIndexLetters,
+            available: sections.map((s) => s.letter).toSet(),
             onSelect: _jumpToLetter,
           ),
         ),
@@ -206,11 +226,20 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
   }
 
   void _jumpToLetter(String letter) {
+    // The bar always shows A–Z + #, but not every letter has a section. Jump to
+    // the first section at or after the tapped letter (stock-phone behavior).
+    final targetRank = _indexRank(letter);
+    var targetIndex = -1;
     var offset = 0.0;
-    for (final s in _sections) {
-      if (s.letter == letter) break;
-      offset += _kHeaderHeight + s.contacts.length * _kRowHeight;
+    var acc = 0.0;
+    for (var i = 0; i < _sections.length; i++) {
+      if (targetIndex == -1 && _indexRank(_sections[i].letter) >= targetRank) {
+        targetIndex = i;
+        offset = acc;
+      }
+      acc += _kHeaderHeight + _sections[i].contacts.length * _kRowHeight;
     }
+    if (targetIndex == -1) return; // nothing at/after the tapped letter
     if (!_scrollController.hasClients) return;
     final max = _scrollController.position.maxScrollExtent;
     _scrollController.animateTo(
@@ -225,20 +254,26 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
     for (final c in contacts) {
       grouped.putIfAbsent(_sectionLetter(c.name), () => []).add(c);
     }
-    final keys = grouped.keys.toList()..sort();
+    final keys = grouped.keys.toList()..sort(_compareLetters);
     return [for (final k in keys) _Section(k, grouped[k]!)];
   }
 
+  /// Latin initials become their uppercase letter; everything else (Persian,
+  /// digits, symbols) is grouped under '#' so the index bar can stay A–Z + #.
   static String _sectionLetter(String name) {
     if (name.isEmpty) return '#';
-    final ch = name[0];
-    final code = ch.codeUnitAt(0);
-    // Group digits / symbols under '#'.
-    final isLetter =
-        (code >= 65 && code <= 90) ||
-        (code >= 97 && code <= 122) ||
-        code > 0x600; // Arabic/Persian block and beyond
-    return isLetter ? ch.toUpperCase() : '#';
+    final code = name[0].codeUnitAt(0);
+    final isLatin =
+        (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+    return isLatin ? name[0].toUpperCase() : '#';
+  }
+
+  /// A–Z first, '#' always last.
+  static int _compareLetters(String a, String b) {
+    if (a == b) return 0;
+    if (a == '#') return 1;
+    if (b == '#') return -1;
+    return a.compareTo(b);
   }
 
   Widget _buildEmptyState(ThemeData theme) {
@@ -356,9 +391,16 @@ class _ContactRow extends StatelessWidget {
 
 class _AlphabetBar extends StatelessWidget {
   final List<String> letters;
+
+  /// Letters that actually have a section — the rest are shown dimmed.
+  final Set<String> available;
   final ValueChanged<String> onSelect;
 
-  const _AlphabetBar({required this.letters, required this.onSelect});
+  const _AlphabetBar({
+    required this.letters,
+    required this.available,
+    required this.onSelect,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -393,7 +435,9 @@ class _AlphabetBar extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
-                      color: theme.colorScheme.primary,
+                      color: available.contains(l)
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.primary.withValues(alpha: 0.3),
                     ),
                   ),
               ],

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
+import 'package:communication_super_app/core/widgets/jalali_date_picker.dart';
 import '../bloc/scheduled_bloc.dart';
 import '../bloc/scheduled_event.dart';
 import '../models/scheduled_message_model.dart';
@@ -92,7 +93,7 @@ class _ScheduleMessageScreenState extends State<ScheduleMessageScreen> {
   String _fa(String s) => PersianUtils.toPersianNumber(s);
 
   Future<void> _pickDate() async {
-    final picked = await showDatePicker(
+    final picked = await showJalaliDatePicker(
       context: context,
       initialDate: _scheduledAt,
       firstDate: DateTime.now().subtract(const Duration(days: 1)),
@@ -128,7 +129,7 @@ class _ScheduleMessageScreenState extends State<ScheduleMessageScreen> {
   }
 
   Future<void> _pickEndDate() async {
-    final picked = await showDatePicker(
+    final picked = await showJalaliDatePicker(
       context: context,
       initialDate: _endDate ?? _scheduledAt.add(const Duration(days: 30)),
       firstDate: _scheduledAt,

@@ -82,7 +82,7 @@ class ThreadTile extends StatelessWidget {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          DateFormatter.formatDate(thread.lastMessageTime),
+                          DateFormatter.formatRelative(thread.sortTime),
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: unread
@@ -99,20 +99,48 @@ class ThreadTile extends StatelessWidget {
                     Row(
                       children: [
                         Expanded(
-                          child: Text(
-                            thread.lastMessage,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: unread
-                                  ? FontWeight.w600
-                                  : FontWeight.w400,
-                              color: unread
-                                  ? theme.textTheme.bodyLarge?.color
-                                  : theme.textTheme.bodyMedium?.color,
-                            ),
-                          ),
+                          child: thread.hasDraft
+                              ? Text.rich(
+                                  TextSpan(
+                                    children: [
+                                      TextSpan(
+                                        text: 'پیش‌نویس: ',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                          color: cs.error,
+                                        ),
+                                      ),
+                                      TextSpan(
+                                        text: thread.draftText!.replaceAll(
+                                          '\n',
+                                          ' ',
+                                        ),
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color:
+                                              theme.textTheme.bodyMedium?.color,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                )
+                              : Text(
+                                  thread.lastMessage,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: unread
+                                        ? FontWeight.w600
+                                        : FontWeight.w400,
+                                    color: unread
+                                        ? theme.textTheme.bodyLarge?.color
+                                        : theme.textTheme.bodyMedium?.color,
+                                  ),
+                                ),
                         ),
                         if (unread) ...[
                           const SizedBox(width: 8),

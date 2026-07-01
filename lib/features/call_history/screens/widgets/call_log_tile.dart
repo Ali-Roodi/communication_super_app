@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
@@ -286,8 +287,5 @@ String _relativeTime(DateTime dt) {
     return '${PersianUtils.toPersianNumber('$dayDiff')} روز پیش';
   }
 
-  final y = PersianUtils.toPersianNumber('${dt.year}');
-  final m = PersianUtils.toPersianNumber(dt.month.toString().padLeft(2, '0'));
-  final d = PersianUtils.toPersianNumber(dt.day.toString().padLeft(2, '0'));
-  return '$y/$m/$d';
+  return DateFormatter.formatDate(dt);
 }

@@ -34,109 +34,26 @@ class CallLogService {
 
     _isLoading = true;
     try {
-      // 1) Try database cache first
+      // Source the raw logs: DB cache first, else read from the device.
+      // `contact_name` is NOT stored in the DB, so it is resolved fresh below
+      // from the current contacts on every load — this way a call shows the
+      // saved name even for cached rows and updates the moment a contact is
+      // added/renamed.
+      List<CallLogModel> logs;
       final cachedDbLogs = await _repository.getAllCallLogs();
       if (cachedDbLogs.isNotEmpty && !forceRefresh) {
-        _cache = cachedDbLogs;
-        return _cache!;
+        logs = cachedDbLogs;
+      } else {
+        final hasPermission = await requestPermissions();
+        if (!hasPermission) {
+          _cache = [];
+          return _cache!;
+        }
+        logs = await _fetchDeviceLogs();
+        await _repository.saveCallLogsBatch(logs);
       }
 
-      final hasPermission = await requestPermissions();
-      if (!hasPermission) {
-        _cache = [];
-        return _cache!;
-      }
-
-      // Preload contacts once to map numbers -> names/ids
-      final contacts = await _contactRepository.getAllContacts();
-      final contactMap = <String, Map<String, String>>{};
-      for (var c in contacts) {
-        final normalized = _normalizePhoneNumber(c.phoneNumber);
-        contactMap[normalized] = {'id': c.id, 'name': c.name};
-      }
-
-      final Iterable<call_log.CallLogEntry> entries =
-          await call_log.CallLog.get();
-
-      // Serialize entries to make isolate-friendly data
-      final serialized = entries.map((e) {
-        return {
-          'id': e.id?.toString(),
-          'number': e.number ?? '',
-          'callType': e.callType?.name ?? call_log.CallType.unknown.name,
-          'duration': e.duration,
-          'timestamp': e.timestamp,
-          'simDisplayName': e.simDisplayName,
-        };
-      }).toList();
-
-      // Map on a background isolate to avoid UI jank
-      final mapped = await Isolate.run<List<Map<String, dynamic>>>(() {
-        return serialized.map((data) {
-          final phoneNumber = data['number'] as String;
-
-          CallType callType;
-          final ct = data['callType'] as String;
-          if (ct == call_log.CallType.incoming.name) {
-            callType = CallType.incoming;
-          } else if (ct == call_log.CallType.outgoing.name) {
-            callType = CallType.outgoing;
-          } else if (ct == call_log.CallType.rejected.name) {
-            callType = CallType.rejected;
-          } else if (ct == call_log.CallType.blocked.name) {
-            callType = CallType.blocked;
-          } else {
-            // missed, voiceMail, answeredExternally, wifi*, unknown → missed
-            callType = CallType.missed;
-          }
-
-          return {
-            'id': data['id'] as String? ?? '',
-            'phoneNumber': phoneNumber,
-            'callType': callType.index,
-            'duration': data['duration'] as int?,
-            'timestamp':
-                (data['timestamp'] as int?) ??
-                DateTime.now().millisecondsSinceEpoch,
-            'simDisplayName': data['simDisplayName'],
-          };
-        }).toList()..sort(
-          (a, b) => (b['timestamp'] as int).compareTo(a['timestamp'] as int),
-        );
-      });
-
-      // Enrich with contact info on main isolate.
-      // Key the lookup with the SAME canonical normalization used to build
-      // `contactMap` (national 09xxxxxxxxx); the isolate's raw digit-only
-      // `normalized` field would otherwise miss numbers stored as +98…/98….
-      final enriched = mapped.map((data) {
-        final normalized = _normalizePhoneNumber(data['phoneNumber'] as String);
-        final contact = contactMap[normalized];
-        final callTypeIndex = data['callType'] as int;
-        final callType = CallType.values[callTypeIndex];
-
-        return CallLogModel(
-          id: (data['id'] as String).isEmpty
-              ? const Uuid().v4()
-              : data['id'] as String,
-          contactId: contact?['id'],
-          contactName: contact?['name'],
-          phoneNumber: data['phoneNumber'] as String,
-          callType: callType,
-          duration: data['duration'] as int?,
-          timestamp: DateTime.fromMillisecondsSinceEpoch(
-            data['timestamp'] as int,
-          ),
-          simSlot: data['simDisplayName'] != null ? 1 : null,
-        );
-      }).toList();
-
-      // Persist to DB in a single batch transaction instead of N individual
-      // writes, which previously caused multi-second freezes when the device
-      // call history contains thousands of entries.
-      await _repository.saveCallLogsBatch(enriched);
-
-      _cache = enriched;
+      _cache = await resolveContactNames(logs);
       return _cache!;
     } catch (e) {
       _cache = [];
@@ -144,6 +61,99 @@ class CallLogService {
     } finally {
       _isLoading = false;
     }
+  }
+
+  /// Overlays the current contact name/id onto each log, matching on the
+  /// canonical national number against **all** of a contact's phone numbers.
+  ///
+  /// Public so the bloc can enrich the paginated rows it reads back from the DB
+  /// (where `contact_name` is not stored).
+  Future<List<CallLogModel>> resolveContactNames(
+    List<CallLogModel> logs,
+  ) async {
+    final contacts = await _contactRepository.getAllContacts();
+    final contactMap = <String, Map<String, String>>{};
+    for (final c in contacts) {
+      for (final p in {...c.phoneNumbers, c.phoneNumber}) {
+        final normalized = _normalizePhoneNumber(p);
+        if (normalized.isEmpty) continue;
+        contactMap.putIfAbsent(normalized, () => {'id': c.id, 'name': c.name});
+      }
+    }
+    if (contactMap.isEmpty) return logs;
+    return [
+      for (final log in logs)
+        () {
+          final c = contactMap[_normalizePhoneNumber(log.phoneNumber)];
+          return c == null
+              ? log
+              : log.copyWith(contactId: c['id'], contactName: c['name']);
+        }(),
+    ];
+  }
+
+  /// Reads the device call log and maps it to models (contact fields left null;
+  /// they are filled by [_resolveContactNames]).
+  Future<List<CallLogModel>> _fetchDeviceLogs() async {
+    final Iterable<call_log.CallLogEntry> entries = await call_log.CallLog.get();
+
+    // Serialize entries to make isolate-friendly data.
+    final serialized = entries.map((e) {
+      return {
+        'id': e.id?.toString(),
+        'number': e.number ?? '',
+        'callType': e.callType?.name ?? call_log.CallType.unknown.name,
+        'duration': e.duration,
+        'timestamp': e.timestamp,
+        'simDisplayName': e.simDisplayName,
+      };
+    }).toList();
+
+    // Map on a background isolate to avoid UI jank.
+    final mapped = await Isolate.run<List<Map<String, dynamic>>>(() {
+      return serialized.map((data) {
+        CallType callType;
+        final ct = data['callType'] as String;
+        if (ct == call_log.CallType.incoming.name) {
+          callType = CallType.incoming;
+        } else if (ct == call_log.CallType.outgoing.name) {
+          callType = CallType.outgoing;
+        } else if (ct == call_log.CallType.rejected.name) {
+          callType = CallType.rejected;
+        } else if (ct == call_log.CallType.blocked.name) {
+          callType = CallType.blocked;
+        } else {
+          // missed, voiceMail, answeredExternally, wifi*, unknown → missed
+          callType = CallType.missed;
+        }
+
+        return {
+          'id': data['id'] as String? ?? '',
+          'phoneNumber': data['number'] as String,
+          'callType': callType.index,
+          'duration': data['duration'] as int?,
+          'timestamp':
+              (data['timestamp'] as int?) ??
+              DateTime.now().millisecondsSinceEpoch,
+          'simDisplayName': data['simDisplayName'],
+        };
+      }).toList()..sort(
+        (a, b) => (b['timestamp'] as int).compareTo(a['timestamp'] as int),
+      );
+    });
+
+    return mapped.map((data) {
+      return CallLogModel(
+        id: (data['id'] as String).isEmpty
+            ? const Uuid().v4()
+            : data['id'] as String,
+        phoneNumber: data['phoneNumber'] as String,
+        callType: CallType.values[data['callType'] as int],
+        duration: data['duration'] as int?,
+        timestamp: DateTime.fromMillisecondsSinceEpoch(data['timestamp'] as int),
+        simSlot: data['simDisplayName'] != null ? 1 : null,
+      );
+    }).toList();
   }
 
   /// Delegates to [PhoneNormalizer.toThreadId] — canonical national form.

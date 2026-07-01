@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
+import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
+import 'package:communication_super_app/core/widgets/jalali_date_picker.dart';
 import 'package:communication_super_app/core/services/image_picker_service.dart';
 import '../bloc/contact_bloc.dart';
 import '../bloc/contact_event.dart';
@@ -414,12 +416,9 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Icon(
-            i == 0 ? Icons.phone_outlined : null,
-            color: theme.iconTheme.color?.withValues(alpha: 0.7),
-          ),
+          ContactFieldLeading(icon: i == 0 ? Icons.phone_outlined : null),
           const SizedBox(width: 16),
           Expanded(
             child: TextFormField(
@@ -467,12 +466,9 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Icon(
-            i == 0 ? Icons.email_outlined : null,
-            color: theme.iconTheme.color?.withValues(alpha: 0.7),
-          ),
+          ContactFieldLeading(icon: i == 0 ? Icons.email_outlined : null),
           const SizedBox(width: 16),
           Expanded(
             child: TextFormField(
@@ -531,7 +527,7 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
           subtitle: Text(
             _birthday == null
                 ? 'تعیین نشده'
-                : '${_birthday!.year}/${_birthday!.month}/${_birthday!.day}',
+                : DateFormatter.formatDate(_birthday!),
           ),
           trailing: _birthday == null
               ? null
@@ -547,7 +543,7 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
 
   Future<void> _pickBirthday() async {
     final now = DateTime.now();
-    final picked = await showDatePicker(
+    final picked = await showJalaliDatePicker(
       context: context,
       initialDate: _birthday ?? DateTime(now.year - 20),
       firstDate: DateTime(1900),

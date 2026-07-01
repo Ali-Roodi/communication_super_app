@@ -23,6 +23,19 @@ class CallLogModel extends Equatable {
     this.simSlot,
   });
 
+  CallLogModel copyWith({String? contactId, String? contactName}) {
+    return CallLogModel(
+      id: id,
+      contactId: contactId ?? this.contactId,
+      contactName: contactName ?? this.contactName,
+      phoneNumber: phoneNumber,
+      callType: callType,
+      duration: duration,
+      timestamp: timestamp,
+      simSlot: simSlot,
+    );
+  }
+
   Map<String, dynamic> toMap() {
     return {
       'id': id,

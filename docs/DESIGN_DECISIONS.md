@@ -98,7 +98,9 @@ localization (l10n) layer — strings are inline Persian literals (see
 tables for removed features are **kept**, not dropped.
 **Why:** dropping tables/columns on a shipped DB risks data loss and complex
 down-migrations. Additive migrations are safe.
-**Trade-off:** vestigial tables linger (e.g. `notes`). Documented, low cost.
+**Trade-off:** vestigial tables may linger. Exception: the unused `notes` table
+(never written to) was dropped in the v8→v9 migration since removing it is
+data-loss-free (`DROP TABLE IF EXISTS notes`).
 
 ---
 

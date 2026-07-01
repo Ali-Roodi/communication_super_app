@@ -85,6 +85,11 @@ class MessageThread extends Equatable {
   final int unreadCount;
   final bool isPinned;
 
+  /// Unsent composer text for this thread (shown as a «پیش‌نویس» preview and
+  /// floats the row to the top). Null when there is no draft.
+  final String? draftText;
+  final DateTime? draftTime;
+
   const MessageThread({
     required this.threadId,
     required this.phoneNumber,
@@ -94,9 +99,19 @@ class MessageThread extends Equatable {
     required this.lastMessageTime,
     this.unreadCount = 0,
     this.isPinned = false,
+    this.draftText,
+    this.draftTime,
   });
 
   bool get hasUnread => unreadCount > 0;
+
+  bool get hasDraft => draftText != null && draftText!.trim().isNotEmpty;
+
+  /// Sort key: a fresh draft should lift the row above older messages.
+  DateTime get sortTime =>
+      (draftTime != null && draftTime!.isAfter(lastMessageTime))
+      ? draftTime!
+      : lastMessageTime;
 
   MessageThread copyWith({
     String? threadId,
@@ -107,6 +122,8 @@ class MessageThread extends Equatable {
     DateTime? lastMessageTime,
     int? unreadCount,
     bool? isPinned,
+    String? draftText,
+    DateTime? draftTime,
   }) {
     return MessageThread(
       threadId: threadId ?? this.threadId,
@@ -117,6 +134,8 @@ class MessageThread extends Equatable {
       lastMessageTime: lastMessageTime ?? this.lastMessageTime,
       unreadCount: unreadCount ?? this.unreadCount,
       isPinned: isPinned ?? this.isPinned,
+      draftText: draftText ?? this.draftText,
+      draftTime: draftTime ?? this.draftTime,
     );
   }
 
@@ -130,5 +149,7 @@ class MessageThread extends Equatable {
     lastMessageTime,
     unreadCount,
     isPinned,
+    draftText,
+    draftTime,
   ];
 }
