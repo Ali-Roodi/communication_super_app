@@ -15,6 +15,8 @@ import 'package:communication_super_app/features/call_history/models/call_log_mo
 import 'package:communication_super_app/features/call_history/repositories/call_log_repository.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
+import 'package:communication_super_app/features/messages/models/scheduled_message_model.dart';
+import 'package:communication_super_app/features/messages/repositories/scheduled_message_repository.dart';
 
 FavoriteModel _fav(String id, String number) => FavoriteModel(
   id: id,
@@ -51,6 +53,19 @@ CallLogModel _call(String id, {int minute = 0}) => CallLogModel(
   phoneNumber: '0912000$id',
   callType: CallType.incoming,
   timestamp: DateTime(2026, 1, 1, 12, minute),
+);
+
+ScheduledMessage _scheduled(
+  String id, {
+  required DateTime at,
+  ScheduleStatus status = ScheduleStatus.pending,
+}) => ScheduledMessage(
+  id: id,
+  phoneNumber: '0912000$id',
+  body: 'سلام',
+  scheduledAt: at,
+  status: status,
+  createdAt: DateTime(2026, 1, 1),
 );
 
 ContactModel _contact(
@@ -334,6 +349,67 @@ void main() {
         'a',
         'b',
       ]);
+    });
+  });
+
+  group('ScheduledMessageRepository', () {
+    test('upsert then getAll returns the schedule', () async {
+      final repo = ScheduledMessageRepository();
+      await repo.upsert(_scheduled('1', at: DateTime(2026, 6, 1, 9)));
+
+      final all = await repo.getAll();
+      expect(all, hasLength(1));
+      expect(all.single.id, '1');
+    });
+
+    test('getDue returns only pending rows whose time has passed', () async {
+      final repo = ScheduledMessageRepository();
+      final now = DateTime(2026, 6, 1, 12);
+      await repo.upsert(
+        _scheduled('past', at: now.subtract(const Duration(minutes: 5))),
+      );
+      await repo.upsert(
+        _scheduled('future', at: now.add(const Duration(hours: 1))),
+      );
+      await repo.upsert(
+        _scheduled(
+          'done',
+          at: now.subtract(const Duration(hours: 2)),
+          status: ScheduleStatus.completed,
+        ),
+      );
+
+      final due = await repo.getDue(now);
+      expect(due.map((m) => m.id), ['past']);
+    });
+
+    test('getAll orders by scheduled_at ascending', () async {
+      final repo = ScheduledMessageRepository();
+      await repo.upsert(_scheduled('late', at: DateTime(2026, 6, 3, 9)));
+      await repo.upsert(_scheduled('early', at: DateTime(2026, 6, 1, 9)));
+
+      final all = await repo.getAll();
+      expect(all.map((m) => m.id), ['early', 'late']);
+    });
+
+    test('cancel flips status to cancelled without deleting the row', () async {
+      final repo = ScheduledMessageRepository();
+      await repo.upsert(_scheduled('1', at: DateTime(2026, 6, 1, 9)));
+
+      await repo.cancel('1');
+
+      final all = await repo.getAll();
+      expect(all.single.status, ScheduleStatus.cancelled);
+      expect(await repo.getDue(DateTime(2026, 6, 2)), isEmpty);
+    });
+
+    test('delete removes the row', () async {
+      final repo = ScheduledMessageRepository();
+      await repo.upsert(_scheduled('1', at: DateTime(2026, 6, 1, 9)));
+
+      await repo.delete('1');
+
+      expect(await repo.getAll(), isEmpty);
     });
   });
 }

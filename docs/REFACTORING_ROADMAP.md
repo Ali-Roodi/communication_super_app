@@ -29,7 +29,7 @@ the near-zero automated test coverage.
 | Decomposed the two remaining God screens | `messages_list_screen.dart` (571→444): app bars → `widgets/messages_app_bars.dart`, options sheet → `widgets/thread_options_sheet.dart`. `conversation_screen.dart` (854→552): app bars → `widgets/conversation_app_bars.dart`, composer + sticker panel → `widgets/message_composer.dart`, message-options + attachment sheets → `widgets/conversation_sheets.dart` | Low (presentation-only, callback-wired; the search/selection state stays in `State`) | analyze + `test/widget/decomposed_message_widgets_test.dart` (8) |
 | `dart format` across `lib/` + `test/` | all | None | — |
 
-Result: **`flutter analyze` → No issues found.** · **`flutter test` → 113/113 passing** (was 22).
+Result: **`flutter analyze` → No issues found.** · **`flutter test` → 138/138 passing** (was 22).
 
 ## 🔜 Backlog (prioritized)
 
