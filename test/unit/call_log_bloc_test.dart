@@ -24,12 +24,18 @@ void main() {
   late _MockCallLogService service;
   late _MockCallLogRepository repo;
 
+  setUpAll(() => registerFallbackValue(<CallLogModel>[]));
+
   setUp(() {
     service = _MockCallLogService();
     repo = _MockCallLogRepository();
     when(
       () => service.getCallLogs(forceRefresh: any(named: 'forceRefresh')),
     ).thenAnswer((_) async => <CallLogModel>[]);
+    // Name resolution is a pass-through in tests (no contacts).
+    when(() => service.resolveContactNames(any())).thenAnswer(
+      (inv) async => inv.positionalArguments.first as List<CallLogModel>,
+    );
   });
 
   CallLogBloc build() => CallLogBloc(service: service, repository: repo);

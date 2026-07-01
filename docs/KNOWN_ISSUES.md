@@ -36,13 +36,13 @@ how the map is built; the now-unused isolate `normalized` field was removed.
 
 ---
 
-### K2 — `notes` feature removed; DB table retained
+### K2 — `notes` feature removed (resolved)
 **Severity:** Low (cosmetic / vestigial).
 **Detail:** the entire `notes` feature was unreachable dead code and has been
-deleted. The `notes` SQLite table (and `AppConstants.notesTable`) are **kept**
-to avoid a destructive migration on shipped databases (see DESIGN_DECISIONS D9).
-**Fix:** none required. If a notes feature is rebuilt later, the table is ready;
-otherwise drop it in a future migration only if data loss is acceptable.
+deleted, along with `AppConstants.notesTable` and its `CREATE TABLE`. The DB
+version was bumped 8→9 and the `notes` table is dropped for existing installs
+(`DROP TABLE IF EXISTS notes` in `_onUpgrade`).
+**Fix:** done.
 
 ---
 

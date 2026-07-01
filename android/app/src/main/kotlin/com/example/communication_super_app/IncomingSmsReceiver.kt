@@ -69,7 +69,11 @@ class IncomingSmsReceiver : BroadcastReceiver() {
         persist(context, address, body, timestamp, threadId)
 
         val name = lookupContactName(context, address)
-        notify(context, name ?: address, body, threadId)
+        // Unique id per message: reusing one id per thread makes Samsung treat
+        // rapid re-posts as a silent in-place update (no heads-up). A distinct
+        // id per message ensures each one alerts.
+        val notifId = (timestamp and 0x7FFFFFFF).toInt()
+        notify(context, notifId, name ?: address, body, threadId)
         Log.d(TAG, "Delivered background SMS from $address")
     }
 
@@ -146,12 +150,22 @@ class IncomingSmsReceiver : BroadcastReceiver() {
 
     // ── Notification ──────────────────────────────────────────────────────────
 
-    private fun notify(context: Context, title: String, body: String, threadId: String) {
+    private fun notify(
+        context: Context,
+        notifId: Int,
+        title: String,
+        body: String,
+        threadId: String,
+    ) {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID, "پیام‌های کوتاه", NotificationManager.IMPORTANCE_HIGH,
-            ).apply { description = "اعلان‌های پیام‌های کوتاه دریافتی" }
+            ).apply {
+                description = "اعلان‌های پیام‌های کوتاه دریافتی"
+                enableVibration(true)
+                enableLights(true)
+            }
             nm.createNotificationChannel(channel)
         }
 
@@ -176,11 +190,12 @@ class IncomingSmsReceiver : BroadcastReceiver() {
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setCategory(Notification.CATEGORY_MESSAGE)
             .setAutoCancel(true)
             .setContentIntent(contentIntent)
             .build()
 
-        nm.notify(threadId.hashCode(), notification)
+        nm.notify(notifId, notification)
     }
 }

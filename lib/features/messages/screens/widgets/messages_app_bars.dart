@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:communication_super_app/core/utils/persian_utils.dart';
 
 /// The default inbox app bar (title + search + overflow menu).
 ///
@@ -136,7 +137,7 @@ class MessagesSelectionAppBar extends StatelessWidget
   Widget build(BuildContext context) {
     return AppBar(
       leading: IconButton(icon: const Icon(Icons.close), onPressed: onClear),
-      title: Text('$selectedCount'),
+      title: Text(PersianUtils.toPersianNumber('$selectedCount')),
       actions: [
         IconButton(
           icon: const Icon(Icons.mark_chat_read_outlined),

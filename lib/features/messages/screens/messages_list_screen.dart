@@ -4,7 +4,10 @@ import '../bloc/message_bloc.dart';
 import '../bloc/message_event.dart';
 import '../bloc/message_state.dart';
 import '../models/message_model.dart';
+import 'package:communication_super_app/core/navigation/app_route_observer.dart';
+import 'package:communication_super_app/core/services/composer_draft_store.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
+import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
 import 'package:communication_super_app/features/settings/screens/settings_screen.dart';
 import 'conversation_screen.dart';
@@ -30,7 +33,7 @@ class MessagesListScreen extends StatefulWidget {
 }
 
 class _MessagesListScreenState extends State<MessagesListScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, RouteAware {
   bool _hasLoadedInitially = false;
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
@@ -38,6 +41,9 @@ class _MessagesListScreenState extends State<MessagesListScreen>
   bool _searching = false;
   String _query = '';
   final Set<String> _selected = {};
+
+  final ComposerDraftStore _draftStore = ComposerDraftStore();
+  Map<String, ComposerDraft> _drafts = {};
 
   bool get _selectionMode => _selected.isNotEmpty;
 
@@ -52,6 +58,29 @@ class _MessagesListScreenState extends State<MessagesListScreen>
     });
     WidgetsBinding.instance.addObserver(this);
     _scrollController.addListener(_onScroll);
+    _loadDrafts();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) appRouteObserver.subscribe(this, route);
+  }
+
+  /// Called when a route pushed above the inbox is popped (e.g. returning from a
+  /// conversation opened via the "new message" flow). Refresh threads + drafts.
+  @override
+  void didPopNext() {
+    if (!mounted) return;
+    context.read<MessageBloc>().add(const LoadThreads());
+    _loadDrafts();
+  }
+
+  /// Loads the per-thread composer drafts shown as «پیش‌نویس» rows on top.
+  Future<void> _loadDrafts() async {
+    final drafts = await _draftStore.loadAll();
+    if (mounted) setState(() => _drafts = drafts);
   }
 
   void _onScroll() {
@@ -66,6 +95,7 @@ class _MessagesListScreenState extends State<MessagesListScreen>
 
   @override
   void dispose() {
+    appRouteObserver.unsubscribe(this);
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _searchController.dispose();
@@ -78,7 +108,45 @@ class _MessagesListScreenState extends State<MessagesListScreen>
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.resumed && mounted && _hasLoadedInitially) {
       context.read<MessageBloc>().add(const LoadThreads());
+      _loadDrafts();
     }
+  }
+
+  /// Overlays composer drafts onto the thread list: existing threads get a draft
+  /// preview, drafts to new numbers become synthetic rows, and rows with a fresh
+  /// draft float to the top (pinned rows still lead).
+  List<MessageThread> _mergeDrafts(List<MessageThread> threads) {
+    if (_drafts.isEmpty) return threads;
+    final existing = {for (final t in threads) t.threadId};
+    final merged = <MessageThread>[
+      for (final t in threads)
+        _drafts.containsKey(t.threadId)
+            ? t.copyWith(
+                draftText: _drafts[t.threadId]!.text,
+                draftTime: _drafts[t.threadId]!.updatedAt,
+              )
+            : t,
+    ];
+    for (final e in _drafts.entries) {
+      if (existing.contains(e.key)) continue;
+      final d = e.value;
+      merged.add(
+        MessageThread(
+          threadId: e.key,
+          phoneNumber: d.phoneNumber.isNotEmpty ? d.phoneNumber : e.key,
+          contactName: d.contactName,
+          lastMessage: '',
+          lastMessageTime: d.updatedAt,
+          draftText: d.text,
+          draftTime: d.updatedAt,
+        ),
+      );
+    }
+    merged.sort((a, b) {
+      if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
+      return b.sortTime.compareTo(a.sortTime);
+    });
+    return merged;
   }
 
   // ── Selection helpers ───────────────────────────────────────────────────
@@ -138,12 +206,15 @@ class _MessagesListScreenState extends State<MessagesListScreen>
               if (state.archived) {
                 return const Center(child: CircularProgressIndicator());
               }
-              final threads = _visibleThreads(state.threads);
+              final base = _visibleThreads(state.threads);
+              final threads = _query.isEmpty ? _mergeDrafts(base) : base;
               if (threads.isEmpty) {
                 return _query.isEmpty
                     ? const MessagesEmptyState()
                     : const MessagesNoResults();
               }
+              // Rows that exist only because of a draft (no real messages yet).
+              final realIds = {for (final t in state.threads) t.threadId};
               return ListView.builder(
                 controller: _scrollController,
                 padding: const EdgeInsets.only(bottom: 88),
@@ -155,7 +226,10 @@ class _MessagesListScreenState extends State<MessagesListScreen>
                       child: Center(child: CircularProgressIndicator()),
                     );
                   }
-                  return _buildThreadRow(context, threads[index]);
+                  final thread = threads[index];
+                  final draftOnly =
+                      thread.hasDraft && !realIds.contains(thread.threadId);
+                  return _buildThreadRow(context, thread, draftOnly: draftOnly);
                 },
               );
             }
@@ -166,12 +240,17 @@ class _MessagesListScreenState extends State<MessagesListScreen>
             ? null
             : FloatingActionButton.extended(
                 heroTag: 'messages_fab',
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const ContactSelectorScreen(),
-                  ),
-                ),
+                onPressed: () async {
+                  final messageBloc = context.read<MessageBloc>();
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const ContactSelectorScreen(),
+                    ),
+                  );
+                  messageBloc.add(const LoadThreads());
+                  _loadDrafts();
+                },
                 icon: const Icon(Icons.edit_outlined),
                 label: const Text('پیام جدید'),
               ),
@@ -283,9 +362,56 @@ class _MessagesListScreenState extends State<MessagesListScreen>
 
   // ── Thread row (swipe + tile) ────────────────────────────────────────────
 
-  Widget _buildThreadRow(BuildContext context, MessageThread thread) {
+  Widget _buildThreadRow(
+    BuildContext context,
+    MessageThread thread, {
+    bool draftOnly = false,
+  }) {
     final selected = _selected.contains(thread.threadId);
     final cs = Theme.of(context).colorScheme;
+
+    // A draft-only row has no conversation to archive / mark read — either swipe
+    // simply discards the draft.
+    if (draftOnly) {
+      return Dismissible(
+        key: ValueKey('thread_${thread.threadId}'),
+        confirmDismiss: (_) async {
+          _discardDraft(context, thread);
+          return false;
+        },
+        background: ThreadSwipeBackground(
+          color: cs.error,
+          icon: Icons.delete_outline,
+          label: 'حذف پیش‌نویس',
+          alignStart: true,
+        ),
+        secondaryBackground: ThreadSwipeBackground(
+          color: cs.error,
+          icon: Icons.delete_outline,
+          label: 'حذف پیش‌نویس',
+          alignStart: false,
+        ),
+        child: ThreadTile(
+          thread: thread,
+          selected: selected,
+          selectionMode: _selectionMode,
+          onTap: () {
+            if (_selectionMode) {
+              _toggleSelect(thread.threadId);
+            } else {
+              _openConversation(context, thread);
+            }
+          },
+          onLongPress: () {
+            if (_selectionMode) {
+              _toggleSelect(thread.threadId);
+            } else {
+              _discardDraft(context, thread);
+            }
+          },
+        ),
+      );
+    }
 
     return Dismissible(
       key: ValueKey('thread_${thread.threadId}'),
@@ -352,7 +478,37 @@ class _MessagesListScreenState extends State<MessagesListScreen>
         ),
       ),
     );
-    if (mounted) messageBloc.add(const LoadThreads());
+    if (mounted) {
+      messageBloc.add(const LoadThreads());
+      _loadDrafts();
+    }
+  }
+
+  void _discardDraft(BuildContext context, MessageThread thread) {
+    final draft = _drafts[thread.threadId];
+    _draftStore.remove(thread.threadId);
+    _loadDrafts();
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: const Text('پیش‌نویس حذف شد'),
+          action: draft == null
+              ? null
+              : SnackBarAction(
+                  label: 'واگرد',
+                  onPressed: () {
+                    _draftStore.save(
+                      threadId: thread.threadId,
+                      text: draft.text,
+                      phoneNumber: draft.phoneNumber,
+                      contactName: draft.contactName,
+                    );
+                    _loadDrafts();
+                  },
+                ),
+        ),
+      );
   }
 
   void _archiveWithUndo(BuildContext context, MessageThread thread) {
@@ -393,6 +549,9 @@ class _MessagesListScreenState extends State<MessagesListScreen>
       },
       onSelect: () => _toggleSelect(thread.threadId),
       onDelete: () => _confirmDeleteThread(context, thread),
+      onDiscardDraft: thread.hasDraft
+          ? () => _discardDraft(context, thread)
+          : null,
     );
   }
 
@@ -413,7 +572,7 @@ class _MessagesListScreenState extends State<MessagesListScreen>
     final ids = _selected.toList();
     final ok = await _confirmDialog(
       context,
-      'حذف ${ids.length} گفتگو؟ این عمل قابل بازگشت نیست.',
+      'حذف ${PersianUtils.toPersianNumber('${ids.length}')} گفتگو؟ این عمل قابل بازگشت نیست.',
     );
     if (ok) {
       bloc.add(DeleteThreads(ids));

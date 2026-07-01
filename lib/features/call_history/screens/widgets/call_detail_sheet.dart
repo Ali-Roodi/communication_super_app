@@ -4,7 +4,11 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/theme/app_dimensions.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
+import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
+import 'package:communication_super_app/features/contacts/models/contact_model.dart';
+import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
+import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
 import 'package:communication_super_app/features/call_history/bloc/call_log_bloc.dart';
 import 'package:communication_super_app/features/call_history/bloc/call_log_event.dart';
 import 'package:communication_super_app/features/call_history/bloc/call_log_state.dart';
@@ -177,9 +181,28 @@ class _ActionChips extends StatelessWidget {
               label: hasName ? 'مخاطب' : 'افزودن',
               onTap: () async {
                 if (hasName) {
-                  ScaffoldMessenger.of(
-                    context,
-                  ).showSnackBar(const SnackBar(content: Text('به‌زودی')));
+                  // Resolve the saved contact by normalized number and open its
+                  // detail page.
+                  final navigator = Navigator.of(context);
+                  final target = PhoneNormalizer.toThreadId(log.phoneNumber);
+                  ContactModel? match;
+                  for (final c in await ContactRepository().getDeviceContacts()) {
+                    final hit = [...c.phoneNumbers, c.phoneNumber]
+                        .any((p) => PhoneNormalizer.toThreadId(p) == target);
+                    if (hit) {
+                      match = c;
+                      break;
+                    }
+                  }
+                  navigator.pop();
+                  if (match != null) {
+                    navigator.push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            DeviceContactDetailScreen(contact: match!),
+                      ),
+                    );
+                  }
                 } else {
                   // Capture the bloc before the sheet's context is torn down so we
                   // can refresh the recents list once the contact is saved (its

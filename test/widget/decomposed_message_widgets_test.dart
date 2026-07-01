@@ -75,9 +75,7 @@ void main() {
       },
     );
 
-    testWidgets('shows the SMS-segment counter only past 140 chars', (
-      tester,
-    ) async {
+    testWidgets('GSM text: 200 chars split into 2 segments', (tester) async {
       await tester.pumpWidget(
         _bodyHarness(
           MessageComposer(
@@ -90,9 +88,29 @@ void main() {
           ),
         ),
       );
-      // 200 chars -> 2 segments, and >160 shows the MMS chip.
-      expect(find.text('200 / 2 SMS'), findsOneWidget);
-      expect(find.text('MMS'), findsOneWidget);
+      // GSM-7: 160 per single, 153 per part → 200 chars = 2 پیامک. Long SMS is
+      // multipart SMS, not MMS, so there is no "MMS" chip.
+      expect(find.textContaining('۲ پیامک'), findsOneWidget);
+      expect(find.text('MMS'), findsNothing);
+    });
+
+    testWidgets('Persian text splits at the 70-char UCS-2 boundary', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _bodyHarness(
+          MessageComposer(
+            controller: TextEditingController(text: 'ن' * 71),
+            showStickers: false,
+            onToggleStickers: () {},
+            onAttach: () {},
+            onSend: () {},
+            onStickerSelected: (_) {},
+          ),
+        ),
+      );
+      // Unicode: 70 per single → 71 chars must already be 2 پیامک.
+      expect(find.textContaining('۲ پیامک'), findsOneWidget);
     });
 
     testWidgets('the sticker panel is shown and taps fire onStickerSelected', (
@@ -136,7 +154,7 @@ void main() {
           ),
         ),
       );
-      expect(find.text('3'), findsOneWidget);
+      expect(find.text('۳'), findsOneWidget);
       await tester.tap(find.byIcon(Icons.mark_chat_read_outlined));
       await tester.tap(find.byIcon(Icons.archive_outlined));
       await tester.tap(find.byIcon(Icons.delete_outline));

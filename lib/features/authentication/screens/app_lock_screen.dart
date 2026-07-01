@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/services/app_lock_service.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_bloc.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_event.dart';
+import 'widgets/pin_pad.dart';
 
 class AppLockScreen extends StatefulWidget {
   const AppLockScreen({super.key});
@@ -99,9 +100,9 @@ class _AppLockScreenState extends State<AppLockScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('PIN اشتباه است'),
-            backgroundColor: Colors.red,
+          SnackBar(
+            content: const Text('رمز عبور اشتباه است'),
+            backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
       }
@@ -112,7 +113,9 @@ class _AppLockScreenState extends State<AppLockScreen> {
   Widget build(BuildContext context) {
     return PopScope(
       canPop: false,
-      child: Scaffold(
+      child: Directionality(
+        textDirection: TextDirection.rtl,
+        child: Scaffold(
         body: SafeArea(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -129,25 +132,13 @@ class _AppLockScreenState extends State<AppLockScreen> {
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
               const SizedBox(height: 40),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(4, (index) {
-                  return Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 8),
-                    width: 20,
-                    height: 20,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.grey),
-                      color: index < _pin.length
-                          ? Theme.of(context).colorScheme.primary
-                          : Colors.transparent,
-                    ),
-                  );
-                }),
-              ),
+              PinDots(filled: _pin.length),
               const SizedBox(height: 60),
-              _buildKeypad(),
+              PinKeypad(
+                onKey: _onNumberPressed,
+                onDelete: _onDelete,
+                enabled: !_isAuthenticating,
+              ),
               if (_isBiometricAvailable && !_isAuthenticating) ...[
                 const SizedBox(height: 24),
                 IconButton(
@@ -164,88 +155,7 @@ class _AppLockScreenState extends State<AppLockScreen> {
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildKeypad() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 32),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              '1',
-              '2',
-              '3',
-            ].map((number) => _buildKey(number)).toList(),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              '4',
-              '5',
-              '6',
-            ].map((number) => _buildKey(number)).toList(),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              '7',
-              '8',
-              '9',
-            ].map((number) => _buildKey(number)).toList(),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              const SizedBox(width: 80),
-              _buildKey('0'),
-              _buildDeleteKey(),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildKey(String number) {
-    return InkWell(
-      onTap: _isAuthenticating ? null : () => _onNumberPressed(number),
-      borderRadius: BorderRadius.circular(40),
-      child: Container(
-        width: 80,
-        height: 80,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.grey.shade300),
         ),
-        child: Center(
-          child: Text(
-            number,
-            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDeleteKey() {
-    return InkWell(
-      onTap: _isAuthenticating ? null : _onDelete,
-      borderRadius: BorderRadius.circular(40),
-      child: Container(
-        width: 80,
-        height: 80,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.grey.shade300),
-        ),
-        child: const Icon(Icons.backspace, size: 24),
       ),
     );
   }

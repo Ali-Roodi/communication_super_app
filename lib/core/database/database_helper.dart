@@ -146,6 +146,12 @@ class DatabaseHelper {
     if (oldVersion < 8) {
       await _createScheduledMessagesTable(db);
     }
+
+    // Migration from version 8 to 9: drop the unused `notes` table (the notes
+    // feature was never built).
+    if (oldVersion < 9) {
+      await db.execute('DROP TABLE IF EXISTS notes');
+    }
   }
 
   Future<void> _createFavoritesTable(Database db) async {
@@ -296,17 +302,6 @@ class DatabaseHelper {
       await db.execute('''
         CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_content_unique
         ON ${AppConstants.messagesTable}(phone_number, body, timestamp, type)
-      ''');
-
-      // Notes table
-      await db.execute('''
-        CREATE TABLE ${AppConstants.notesTable} (
-          id TEXT PRIMARY KEY,
-          title TEXT NOT NULL,
-          content TEXT NOT NULL,
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL
-        )
       ''');
 
       // Call logs table (local cache)
