@@ -83,7 +83,7 @@ features/
 - Repositories are suffixed `_repository.dart`; platform/plugin wrappers are
   suffixed `_service.dart`.
 
-## Database tables (owned by `DatabaseHelper`, `databaseVersion = 7`)
+## Database tables (owned by `DatabaseHelper`, `databaseVersion = 8`)
 
 | Table                | Key                      | Purpose |
 |----------------------|--------------------------|---------|
@@ -96,6 +96,7 @@ features/
 | `pinned_threads`     | `thread_id`              | Pinned conversation state |
 | `message_categories` | `id`                     | Draft labels |
 | `drafts`             | `id`                     | Saved (unsent) drafts |
+| `scheduled_messages` | `id`                     | Queued outgoing SMS, optionally recurring (زمان‌بندی ارسال) |
 | `notes`              | `id`                     | **Unused** — feature removed; table kept for migration safety (see KNOWN_ISSUES) |
 
 ## Generated / config files (do not hand-edit casually)

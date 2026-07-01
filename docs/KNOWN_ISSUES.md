@@ -128,9 +128,10 @@ real schema on an in-memory `sqflite_common_ffi` database — enabled by the K9
 constructor-injection fix and the `DatabaseHelper` testing hooks. Now covers all
 stateful BLoCs and the favorites/blocked/messages/drafts repositories, plus the
 presentation widgets extracted from the messages screens (app bars, composer,
-option sheets). Total: **113 passing** — and the suite already paid for itself by
-surfacing K10. Still missing: the SMS/call-log pipelines and full-shell widget
-tests (`MainNavigation`).
+option sheets), and the scheduled-send model/repository/bloc/list-screen. Total:
+**138 passing** — and the suite already paid for itself by surfacing K10. Still
+missing: the SMS/call-log pipelines and full-shell widget tests
+(`MainNavigation`).
 **Fix:** continue Roadmap P4.
 
 ---
@@ -153,3 +154,22 @@ blocking mock-based unit tests.
 to the real implementations (`MessageBloc({repository, smsService,
 contactRepository})`, `CallLogBloc({service, repository})`), so production code is
 unchanged while tests can inject mocks — see `test/unit/message_bloc_test.dart`.
+
+---
+
+### K11 — Scheduled send delivers only in the foreground (PHASE 2 deferred)
+**Severity:** Medium (functional limitation, by design).
+**Where:** `ScheduledMessageBloc` (`features/messages/bloc/scheduled_bloc.dart`).
+**Detail:** the scheduled-send feature (زمان‌بندی ارسال — model, repository, rich
+scheduling UI, recurrence/end-conditions, list screen) is built and delivers due
+messages via a periodic in-bloc `Timer` while the app is running. **When the app
+is killed, nothing sends until it is reopened.** True background delivery needs a
+native Android **AlarmManager/WorkManager** that wakes a headless isolate and
+calls the existing SMS `MethodChannel` (`SmsHandler.kt`). That is a Kotlin +
+on-device task that cannot be verified in this environment, so it is deliberately
+deferred. The `jitter` window (رأس ساعت / ۱۰/۳۰/۶۰ دقیقه) is persisted and shown
+in the UI but is **only applied by that future native sender** — foreground
+delivery fires as soon as a message is due.
+**Fix (PHASE 2):** add the AlarmManager/WorkManager scheduling on `SaveScheduled`,
+a headless entrypoint that runs the same due-query + send loop, and apply the
+jitter offset there. Verify on a device with the app closed.

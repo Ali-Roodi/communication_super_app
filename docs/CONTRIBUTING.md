@@ -17,7 +17,7 @@ for SMS/call features.
 ```bash
 flutter analyze        # must be ZERO issues before committing
 dart format lib test   # format before committing
-flutter test           # run unit + widget tests (113 currently)
+flutter test           # run unit + widget tests (138 currently)
 flutter test test/unit/phone_normalizer_test.dart   # single file
 flutter build apk --release
 ```

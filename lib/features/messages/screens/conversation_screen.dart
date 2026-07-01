@@ -12,8 +12,10 @@ import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
+import '../bloc/scheduled_bloc.dart';
 import 'drafts_list_screen.dart';
 import 'template_picker_screen.dart';
+import 'schedule_message_screen.dart';
 import 'widgets/message_bubble.dart';
 import 'widgets/conversation_app_bars.dart';
 import 'widgets/conversation_sheets.dart';
@@ -519,9 +521,28 @@ class _ConversationScreenState extends State<ConversationScreen> {
       context,
       onInsertDraft: _insertDraft,
       onInsertTemplate: _insertTemplate,
+      onSchedule: _openScheduler,
       onComingSoon: () => ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('به‌زودی'))),
+    );
+  }
+
+  /// Opens the scheduler prefilled with this conversation's recipient and the
+  /// current composer text.
+  void _openScheduler() {
+    final scheduledBloc = context.read<ScheduledMessageBloc>();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => BlocProvider.value(
+          value: scheduledBloc,
+          child: ScheduleMessageScreen(
+            phoneNumber: widget.phoneNumber,
+            contactName: widget.contactName,
+            initialBody: _messageController.text.trim(),
+          ),
+        ),
+      ),
     );
   }
 

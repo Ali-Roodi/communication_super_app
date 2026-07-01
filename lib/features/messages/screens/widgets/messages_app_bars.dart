@@ -11,12 +11,14 @@ class MessagesDefaultAppBar extends StatelessWidget
     required this.onSearch,
     required this.onOpenArchived,
     required this.onOpenDrafts,
+    required this.onOpenScheduled,
     required this.onOpenSettings,
   });
 
   final VoidCallback onSearch;
   final VoidCallback onOpenArchived;
   final VoidCallback onOpenDrafts;
+  final VoidCallback onOpenScheduled;
   final VoidCallback onOpenSettings;
 
   @override
@@ -39,6 +41,8 @@ class MessagesDefaultAppBar extends StatelessWidget
                 onOpenArchived();
               case 'drafts':
                 onOpenDrafts();
+              case 'scheduled':
+                onOpenScheduled();
               case 'settings':
                 onOpenSettings();
             }
@@ -46,6 +50,7 @@ class MessagesDefaultAppBar extends StatelessWidget
           itemBuilder: (_) => const [
             PopupMenuItem(value: 'archived', child: Text('بایگانی')),
             PopupMenuItem(value: 'drafts', child: Text('پیش‌نویس‌ها')),
+            PopupMenuItem(value: 'scheduled', child: Text('زمان‌بندی‌شده‌ها')),
             PopupMenuItem(value: 'settings', child: Text('تنظیمات')),
           ],
         ),
