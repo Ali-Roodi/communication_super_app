@@ -55,8 +55,11 @@ object ScheduledSmsWorker {
         }
     }
 
-    /** Epoch millis of the soonest pending message, or null if none. */
-    fun earliestPending(context: Context): Long? {
+    /** The soonest pending message's nominal fire time and its jitter window. */
+    data class Earliest(val at: Long, val jitterMinutes: Int)
+
+    /** The soonest pending message (time + jitter), or null if none. */
+    fun earliestPending(context: Context): Earliest? {
         val dbFile = context.getDatabasePath(DB_NAME)
         if (!dbFile.exists()) return null
         val db = try {
@@ -66,14 +69,29 @@ object ScheduledSmsWorker {
         }
         return try {
             db.rawQuery(
-                "SELECT MIN(scheduled_at) FROM $TABLE WHERE status = 'pending'",
+                "SELECT scheduled_at, jitter FROM $TABLE " +
+                    "WHERE status = 'pending' ORDER BY scheduled_at ASC LIMIT 1",
                 null
-            ).use { c -> if (c.moveToFirst() && !c.isNull(0)) c.getLong(0) else null }
+            ).use { c ->
+                if (c.moveToFirst()) {
+                    Earliest(c.getLong(0), jitterMinutes(c.getString(1)))
+                } else {
+                    null
+                }
+            }
         } catch (e: Exception) {
             null
         } finally {
             db.close()
         }
+    }
+
+    /** Maps the stored jitter enum value to its window length in minutes. */
+    private fun jitterMinutes(value: String?): Int = when (value) {
+        "min10" -> 10
+        "min30" -> 30
+        "min60" -> 60
+        else -> 0
     }
 
     // ── Query ────────────────────────────────────────────────────────────────

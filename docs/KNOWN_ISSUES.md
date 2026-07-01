@@ -174,10 +174,12 @@ side calls `NativeScheduledSmsService.reschedule()` (MethodChannel
 **Sync invariant:** the table/column names, enum string values, and recurrence
 math are duplicated in `ScheduledSmsWorker.kt` — keep them in lock-step with
 `scheduled_message_model.dart` when either changes.
+**Jitter:** applied at alarm-arm time — `ScheduledSmsScheduler` fires the alarm
+at a random point within the window *after* the nominal time, leaving
+`scheduled_at` (the recurrence base) untouched so recurring messages don't drift.
+It is per-alarm (based on the soonest pending message's window), not strictly
+per-message. Foreground delivery still ignores jitter (sends as soon as due).
 **Still to do:**
-- The **jitter** window is persisted/shown but **not yet applied** by the native
-  sender (it sends at the exact due time). Apply a random offset within the
-  window in `ScheduledSmsWorker.processDue` if desired.
 - Exact alarms use `USE_EXACT_ALARM`/`SCHEDULE_EXACT_ALARM`; on Android 12 if the
   user denies exact-alarm permission the scheduler falls back to an inexact
   (best-effort) alarm.
