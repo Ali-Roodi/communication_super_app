@@ -12,6 +12,12 @@ class LoadContacts extends ContactEvent {
   const LoadContacts();
 }
 
+/// Force a reload from the device (bypassing the in-memory cache) — dispatched
+/// when the device address book changes or the app resumes.
+class RefreshContacts extends ContactEvent {
+  const RefreshContacts();
+}
+
 class SearchContacts extends ContactEvent {
   final String query;
 

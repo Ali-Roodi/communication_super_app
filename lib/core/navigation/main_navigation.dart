@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_contacts/flutter_contacts.dart';
+import 'package:communication_super_app/features/contacts/bloc/contact_bloc.dart';
+import 'package:communication_super_app/features/contacts/bloc/contact_event.dart';
+import 'package:communication_super_app/features/messages/bloc/message_event.dart';
 import 'package:communication_super_app/features/dialer/widgets/dialer_bottom_sheet.dart';
 import 'package:communication_super_app/features/dialer/screens/incoming_call_screen.dart';
 import 'package:communication_super_app/features/dialer/screens/in_call_screen.dart';
@@ -26,7 +30,8 @@ class MainNavigation extends StatefulWidget {
   State<MainNavigation> createState() => _MainNavigationState();
 }
 
-class _MainNavigationState extends State<MainNavigation> {
+class _MainNavigationState extends State<MainNavigation>
+    with WidgetsBindingObserver {
   int _currentIndex = 0;
 
   // Tab order: Recents · Favorites · Contacts (+ Messages, kept as a 4th tab
@@ -53,6 +58,33 @@ class _MainNavigationState extends State<MainNavigation> {
   void initState() {
     super.initState();
     _currentIndex = widget.initialIndex;
+    WidgetsBinding.instance.addObserver(this);
+    // Live-refresh when the device address book changes (a contact added/edited
+    // in the phone's Contacts app) so names update without an app restart.
+    FlutterContacts.addListener(_refreshDeviceContacts);
+  }
+
+  @override
+  void dispose() {
+    FlutterContacts.removeListener(_refreshDeviceContacts);
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // A contact may have been added while we were backgrounded (e.g. the user
+    // switched to the phone's Contacts app and came back).
+    if (state == AppLifecycleState.resumed) _refreshDeviceContacts();
+  }
+
+  /// Invalidates the device-contact cache and asks the contacts list + message
+  /// thread names to re-resolve from the fresh data.
+  void _refreshDeviceContacts() {
+    if (!mounted) return;
+    context.read<ContactBloc>().add(const RefreshContacts());
+    context.read<MessageBloc>().add(const RefreshContactNames());
   }
 
   @override

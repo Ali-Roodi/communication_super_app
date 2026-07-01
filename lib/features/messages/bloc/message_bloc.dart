@@ -37,6 +37,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     on<LoadMoreMessages>(_onLoadMoreMessages);
     on<SendMessage>(_onSendMessage);
     on<ReceiveMessage>(_onReceiveMessage);
+    on<RefreshContactNames>(_onRefreshContactNames);
     on<DeleteMessage>(_onDeleteMessage);
     on<DeleteThread>(_onDeleteThread);
     on<DeleteThreads>(_onDeleteThreads);
@@ -358,6 +359,27 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       }
     } catch (e) {
       emit(MessageError(e.toString()));
+    }
+  }
+
+  /// Rebuilds the phone→name cache from freshly-fetched device contacts and
+  /// re-resolves names on the currently-loaded threads, so a contact added on
+  /// the device shows its name without a full (SMS re-import) refresh.
+  Future<void> _onRefreshContactNames(
+    RefreshContactNames event,
+    Emitter<MessageState> emit,
+  ) async {
+    _cachedPhoneToName = null;
+    try {
+      // Pull fresh device contacts so the rebuilt map reflects the change.
+      await _contactRepository.getAllContacts(forceRefresh: true);
+    } catch (_) {
+      // Fall through: _resolveContactNames will use whatever is available.
+    }
+    final current = state;
+    if (current is ThreadsLoaded && !current.archived) {
+      final enriched = await _resolveContactNames(current.threads);
+      emit(ThreadsLoaded(enriched, hasMore: current.hasMore));
     }
   }
 
