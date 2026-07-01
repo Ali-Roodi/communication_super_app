@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import kotlin.random.Random
 
 /**
  * Schedules a single AlarmManager alarm for the soonest pending scheduled
@@ -22,14 +23,23 @@ object ScheduledSmsScheduler {
     fun reschedule(context: Context) {
         val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val pi = pendingIntent(context)
-        val at = ScheduledSmsWorker.earliestPending(context)
-        if (at == null) {
+        val earliest = ScheduledSmsWorker.earliestPending(context)
+        if (earliest == null) {
             am.cancel(pi)
             Log.d(TAG, "No pending schedules; alarm cancelled")
             return
         }
-        // Fire immediately if the time is already in the past.
-        val trigger = maxOf(at, System.currentTimeMillis())
+        val now = System.currentTimeMillis()
+        // Apply the send-time jitter: fire at a random point within the window
+        // after the nominal time. `scheduled_at` (the recurrence base) is left
+        // untouched, so recurring messages don't drift. Overdue messages fire
+        // immediately with no jitter.
+        val trigger = if (earliest.at <= now) {
+            now
+        } else {
+            val windowMs = earliest.jitterMinutes * 60_000L
+            earliest.at + if (windowMs > 0) Random.nextLong(0, windowMs + 1) else 0L
+        }
         try {
             val exactAllowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
                 am.canScheduleExactAlarms()
