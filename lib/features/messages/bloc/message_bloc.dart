@@ -4,6 +4,7 @@ import 'message_state.dart';
 import '../repositories/message_repository.dart';
 import '../services/sms_service.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
+import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import '../models/message_model.dart';
 
 class MessageBloc extends Bloc<MessageEvent, MessageState> {
@@ -12,7 +13,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   final ContactRepository _contactRepository;
   static bool _hasImported = false;
 
-  /// One-per-session cache of the digits-only → contact name lookup table.
+  /// One-per-session cache of the normalized-number → contact name lookup table.
   ///
   /// Building this map requires fetching all device contacts (which is slow on
   /// the first call but fast once the ContactRepository cache is warm).
@@ -285,8 +286,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         for (final c in contacts) {
           if (c.name.isEmpty) continue;
           for (final phone in [...c.phoneNumbers, c.phoneNumber]) {
-            final digits = phone.replaceAll(RegExp(r'[^\d]'), '');
-            if (digits.isNotEmpty) map[digits] = c.name;
+            // Key on the normalized national number (09xxxxxxxxx) so a contact
+            // saved as 0912… still matches an incoming SMS whose address is the
+            // E.164 form (+98912…). Keying on raw digits missed those.
+            final key = PhoneNormalizer.toThreadId(phone);
+            if (key.isNotEmpty) map[key] = c.name;
           }
         }
         _cachedPhoneToName = map;
@@ -297,8 +301,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
 
       return threads.map((t) {
         if (t.contactName != null && t.contactName!.isNotEmpty) return t;
-        final digits = t.phoneNumber.replaceAll(RegExp(r'[^\d]'), '');
-        final name = phoneToName[digits];
+        final name = phoneToName[PhoneNormalizer.toThreadId(t.phoneNumber)];
         if (name == null || name.isEmpty) return t;
         return t.copyWith(contactName: name);
       }).toList();
