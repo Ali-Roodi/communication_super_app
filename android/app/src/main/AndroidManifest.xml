@@ -71,13 +71,22 @@
             </intent-filter>
         </service>
 
-        <!-- NOTE: incoming SMS is handled by the native SmsHandler dynamic
-             receiver (registered at runtime, EXPORTED) and, as a fallback, by the
-             another_telephony plugin's own auto-merged receiver. The previous
-             hardcoded `com.shounakmulay.telephony.sms.IncomingSmsReceiver` was
-             removed: that class no longer exists after swapping the discontinued
-             `telephony` plugin for `another_telephony`, so the system threw a
-             ClassNotFoundException when delivering SMS_RECEIVED to it. -->
+        <!-- Background SMS delivery: when the app process is dead, this
+             manifest receiver persists the message + posts a notification
+             natively. When the app is alive, SmsHandler's dynamic receiver +
+             Flutter handle it and this receiver bails out (see
+             SmsHandler.isDynamicReceiverActive). BROADCAST_SMS restricts the
+             sender to the system. (Replaces the old hardcoded
+             com.shounakmulay.telephony receiver, whose class no longer exists
+             after the another_telephony swap.) -->
+        <receiver
+            android:name=".IncomingSmsReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter android:priority="999">
+                <action android:name="android.provider.Telephony.SMS_RECEIVED"/>
+            </intent-filter>
+        </receiver>
 
         <!-- Scheduled-SMS background delivery (زمان‌بندی ارسال, PHASE 2) -->
         <receiver

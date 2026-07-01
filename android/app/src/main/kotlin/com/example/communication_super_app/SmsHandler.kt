@@ -37,6 +37,14 @@ class SmsHandler(
         private const val SMS_DELIVERED_ACTION = "SMS_DELIVERED_ACTION"
         private const val CHANNEL_SMS_METHOD = "com.example.communication_super_app/sms"
         private const val CHANNEL_SMS_EVENTS = "com.example.communication_super_app/sms_events"
+
+        /// True while the app's dynamic SMS_RECEIVED receiver is registered (i.e.
+        /// the app process is alive and Flutter is handling reception). The
+        /// manifest [IncomingSmsReceiver] reads this to avoid double-handling —
+        /// it only acts on a cold start, when this is false.
+        @JvmStatic
+        @Volatile
+        var isDynamicReceiverActive = false
     }
 
     private val coroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -177,6 +185,7 @@ class SmsHandler(
                 context.registerReceiver(deliveredReceiver, deliveredFilter)
             }
 
+            isDynamicReceiverActive = true
             Log.d(TAG, "SMS receivers registered successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to register SMS receiver: ${e.message}", e)
@@ -196,6 +205,7 @@ class SmsHandler(
             context.unregisterReceiver(smsReceiver)
             context.unregisterReceiver(sentReceiver)
             context.unregisterReceiver(deliveredReceiver)
+            isDynamicReceiverActive = false
             Log.d(TAG, "SMS receivers unregistered successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to unregister SMS receiver: ${e.message}", e)

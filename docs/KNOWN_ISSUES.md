@@ -206,8 +206,8 @@ per-message. Foreground delivery still ignores jitter (sends as soon as due).
 3. **Stale manifest receiver.** The manifest still hardcoded
    `com.shounakmulay.telephony.sms.IncomingSmsReceiver`, which no longer exists
    after the `telephony` → `another_telephony` swap → `ClassNotFoundException`
-   when the system delivered SMS to it. **Fix:** removed the dead entry (native
-   `SmsHandler` + the plugin's auto-merged receiver cover reception).
+   when the system delivered SMS to it. **Fix:** replaced it with the real
+   `.IncomingSmsReceiver` (see K13).
 
 **Also fixed (`message_bloc.dart`):** incoming-SMS threads showed the raw number
 instead of the contact name because `_resolveContactNames` matched on raw digits
@@ -215,3 +215,28 @@ instead of the contact name because `_resolveContactNames` matched on raw digits
 Now both sides are normalized with `PhoneNormalizer.toThreadId` (national `09…`).
 **Verified on device (Android 16):** logcat shows `SMS sent successfully`,
 `SMS delivered successfully`, and `SMS received from: +98…`.
+
+---
+
+### K13 — Background SMS notifications + live contact refresh ✅ ADDED (pending device QA)
+**Notifications when the app is closed.** The live receive path
+(`SmsHandler` dynamic receiver → EventChannel → Flutter) only exists while the
+app process is alive, so a killed app posted nothing. Added a manifest-registered
+`IncomingSmsReceiver` that, **only on a cold start** (guarded by
+`SmsHandler.isDynamicReceiverActive` so it never double-handles a live app),
+persists the SMS straight into the sqflite DB (`INSERT OR IGNORE`, matching the
+Dart schema/enum strings + `PhoneNormalizer` thread-id) and posts a notification
+natively via `NotificationCompat` (contact name resolved through
+`ContactsContract.PhoneLookup`). *Verified: compiles, receiver registered
+(priority 999), app boots clean. Real closed-app delivery is on-device QA.*
+
+**Notification/thread contact name** now uses device contacts
+(`ContactRepository.getDeviceContactName`, normalized match) instead of the empty
+local table, so the saved name shows rather than `+98…`.
+
+**Live device-contact refresh.** `ContactRepository`'s static cache was only
+invalidated on the app's own CRUD, so a contact added in the phone's Contacts app
+didn't appear until restart. `MainNavigation` now registers
+`FlutterContacts.addListener` + an app-resume hook that force-refreshes the
+contact list (`ContactBloc.RefreshContacts`) and re-resolves thread names
+(`MessageBloc.RefreshContactNames`).
