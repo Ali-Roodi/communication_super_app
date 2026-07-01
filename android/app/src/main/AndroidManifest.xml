@@ -27,7 +27,13 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
-    
+
+    <!-- Exact alarms for background scheduled-SMS delivery (زمان‌بندی ارسال).
+         USE_EXACT_ALARM is auto-granted on Android 13+; SCHEDULE_EXACT_ALARM
+         covers 12 (the scheduler falls back to an inexact alarm if denied). -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
+
     <application
         android:label="communication_super_app"
         android:name="${applicationName}"
@@ -73,6 +79,19 @@
             </intent-filter>
         </receiver>
         
+        <!-- Scheduled-SMS background delivery (زمان‌بندی ارسال, PHASE 2) -->
+        <receiver
+            android:name=".scheduled.ScheduledSmsAlarmReceiver"
+            android:exported="false"/>
+        <receiver
+            android:name=".scheduled.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+            </intent-filter>
+        </receiver>
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
