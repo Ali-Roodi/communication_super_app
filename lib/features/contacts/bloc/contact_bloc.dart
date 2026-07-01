@@ -8,6 +8,7 @@ class ContactBloc extends Bloc<ContactEvent, ContactState> {
 
   ContactBloc(this._repository) : super(const ContactInitial()) {
     on<LoadContacts>(_onLoadContacts);
+    on<RefreshContacts>(_onRefreshContacts);
     on<SearchContacts>(_onSearchContacts);
     on<CreateContact>(_onCreateContact);
     on<UpdateContact>(_onUpdateContact);
@@ -22,6 +23,20 @@ class ContactBloc extends Bloc<ContactEvent, ContactState> {
     emit(const ContactLoading());
     try {
       final contacts = await _repository.getAllContacts();
+      emit(ContactsLoaded(contacts));
+    } catch (e) {
+      emit(ContactError(e.toString()));
+    }
+  }
+
+  /// Reload from the device, bypassing the cache. Does not emit a loading state
+  /// so the visible list doesn't flicker while it refreshes in place.
+  Future<void> _onRefreshContacts(
+    RefreshContacts event,
+    Emitter<ContactState> emit,
+  ) async {
+    try {
+      final contacts = await _repository.getAllContacts(forceRefresh: true);
       emit(ContactsLoaded(contacts));
     } catch (e) {
       emit(ContactError(e.toString()));
