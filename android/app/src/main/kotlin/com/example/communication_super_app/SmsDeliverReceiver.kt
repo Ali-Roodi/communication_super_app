@@ -50,6 +50,13 @@ class SmsDeliverReceiver : BroadcastReceiver() {
         val body = parts.joinToString("") { it.messageBody ?: "" }
         val timestamp = parts[0].timestampMillis
 
+        // Blocked sender: as the default SMS app WE decide what lands in the
+        // provider — a blocked message lands nowhere.
+        if (BlockedNumbers.isBlocked(context, address)) {
+            Log.d(TAG, "Blocked SMS not written to provider")
+            return
+        }
+
         val values = ContentValues().apply {
             put(Telephony.Sms.ADDRESS, address)
             put(Telephony.Sms.BODY, body)

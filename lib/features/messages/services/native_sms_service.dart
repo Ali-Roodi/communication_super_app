@@ -22,6 +22,8 @@ class NativeSmsService {
   StreamSubscription<dynamic>? _smsSubscription;
   final StreamController<SmsReceivedEvent> _smsController =
       StreamController<SmsReceivedEvent>.broadcast();
+  final StreamController<SmsStatusEvent> _statusController =
+      StreamController<SmsStatusEvent>.broadcast();
 
   // Guard against calling initialize() more than once so that the native
   // EventChannel is never set up with more than one active StreamSubscription.
@@ -32,6 +34,10 @@ class NativeSmsService {
 
   /// Stream of incoming SMS messages
   Stream<SmsReceivedEvent> get onSmsReceived => _smsController.stream;
+
+  /// Stream of send/delivery status updates for outgoing messages — keyed by
+  /// the tracking id passed to [sendSms] (the Dart-side message UUID).
+  Stream<SmsStatusEvent> get onSmsStatus => _statusController.stream;
 
   /// Initialize the SMS service and start listening for incoming messages.
   /// Safe to call multiple times — subsequent calls are no-ops.
@@ -54,9 +60,15 @@ class NativeSmsService {
         (dynamic event) {
           try {
             if (event is Map) {
-              final smsEvent = SmsReceivedEvent.fromMap(
-                Map<String, dynamic>.from(event),
-              );
+              final map = Map<String, dynamic>.from(event);
+              // Typed events: "status" = sent/delivered/failed report for an
+              // outgoing message; anything else is an incoming SMS (older
+              // payloads carry no "type" key).
+              if (map['type'] == 'status') {
+                _statusController.add(SmsStatusEvent.fromMap(map));
+                return;
+              }
+              final smsEvent = SmsReceivedEvent.fromMap(map);
               _smsController.add(smsEvent);
               debugPrint('SMS received: ${smsEvent.address}');
             }
@@ -94,6 +106,7 @@ class NativeSmsService {
     required String phoneNumber,
     required String message,
     int? subscriptionId,
+    String? trackingId,
   }) async {
     try {
       if (phoneNumber.trim().isEmpty) {
@@ -108,6 +121,7 @@ class NativeSmsService {
         'phoneNumber': phoneNumber,
         'message': message,
         'subscriptionId': subscriptionId ?? -1,
+        'trackingId': trackingId ?? '',
       };
 
       final result = await _methodChannel.invokeMethod<Map>('sendSms', params);
@@ -234,9 +248,28 @@ class NativeSmsService {
     if (!_smsController.isClosed) {
       _smsController.close();
     }
+    if (!_statusController.isClosed) {
+      _statusController.close();
+    }
     _initialized = false;
     debugPrint('NativeSmsService disposed');
   }
+}
+
+/// Send/delivery status report for an outgoing SMS.
+class SmsStatusEvent {
+  /// The tracking id passed to [NativeSmsService.sendSms] — the Dart message UUID.
+  final String id;
+
+  /// 'sent' | 'delivered' | 'failed'
+  final String status;
+
+  const SmsStatusEvent({required this.id, required this.status});
+
+  factory SmsStatusEvent.fromMap(Map<String, dynamic> map) => SmsStatusEvent(
+    id: map['id'] as String? ?? '',
+    status: map['status'] as String? ?? '',
+  );
 }
 
 /// Event emitted when an SMS is received

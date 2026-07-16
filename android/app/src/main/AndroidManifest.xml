@@ -40,7 +40,7 @@
     <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
 
     <application
-        android:label="communication_super_app"
+        android:label="قاسم"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
@@ -131,6 +131,16 @@
             <intent-filter>
                 <action android:name="com.example.communication_super_app.ANSWER_CALL"/>
                 <action android:name="com.example.communication_super_app.DECLINE_CALL"/>
+            </intent-filter>
+        </receiver>
+
+        <!-- Inline-reply / mark-read actions on the cold-start SMS notification -->
+        <receiver
+            android:name=".SmsNotificationActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.example.communication_super_app.SMS_REPLY"/>
+                <action android:name="com.example.communication_super_app.SMS_MARK_READ"/>
             </intent-filter>
         </receiver>
 

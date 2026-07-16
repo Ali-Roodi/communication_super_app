@@ -20,16 +20,33 @@ class MainActivity : FlutterActivity() {
     private var callHandler: CallHandler? = null
     private var callLogSyncHandler: CallLogSyncHandler? = null
 
+    /// Deep-link channel: SMS-notification taps carry a `threadId` extra.
+    private var intentsChannel: MethodChannel? = null
+
     /// Pending result for an in-flight image pick (resolved in onActivityResult).
     private var pendingPickResult: MethodChannel.Result? = null
 
     companion object {
+        /** Thread currently on screen in Flutter (null = none). Set over the
+         *  intents channel; [SmsNotifier] suppresses notifications for it
+         *  while the activity is resumed (Google Messages behavior). */
+        @JvmStatic
+        @Volatile
+        var visibleThreadId: String? = null
+
+        /** True between onResume and onPause — a "visible" thread only
+         *  suppresses notifications while the app is actually foreground. */
+        @JvmStatic
+        @Volatile
+        var isResumed = false
+
         private const val CHANNEL_SMS_METHOD = "com.example.communication_super_app/sms"
         private const val CHANNEL_SMS_EVENTS = "com.example.communication_super_app/sms_events"
         private const val CHANNEL_MEDIA = "com.example.communication_super_app/media"
         private const val CHANNEL_SCHEDULED = "com.example.communication_super_app/scheduled_sms"
         private const val CHANNEL_CALL_LOG = "com.example.communication_super_app/call_log"
         private const val CHANNEL_CALL_LOG_EVENTS = "com.example.communication_super_app/call_log_events"
+        private const val CHANNEL_INTENTS = "com.example.communication_super_app/intents"
         private const val REQUEST_PICK_IMAGE = 9001
         private const val MAX_DIMEN = 512
     }
@@ -93,6 +110,49 @@ class MainActivity : FlutterActivity() {
             }
         }
         ScheduledSmsChannel.channel = scheduledChannel
+
+        // ── Deep links (باز کردن گفتگو از اعلان) ─────────────────────────
+        // Cold start: Dart asks for the launch intent's threadId once the UI
+        // is up. Warm start (app alive, notification tapped): onNewIntent
+        // pushes the threadId to Dart directly.
+        intentsChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            CHANNEL_INTENTS,
+        ).also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "getInitialThreadId" -> {
+                        val id = intent?.getStringExtra("threadId")
+                        intent?.removeExtra("threadId")
+                        result.success(id)
+                    }
+                    // Which conversation is on screen (null when none) — used
+                    // to suppress notifications for the open chat.
+                    "setVisibleThread" -> {
+                        visibleThreadId = call.arguments as? String
+                        result.success(true)
+                    }
+                    // Dismiss this thread's SMS notifications (user opened it).
+                    "clearThreadNotifications" -> {
+                        val threadId = call.arguments as? String
+                        if (threadId != null) {
+                            SmsNotifier.cancelThread(applicationContext, threadId)
+                        }
+                        result.success(true)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.getStringExtra("threadId")?.let { threadId ->
+            intent.removeExtra("threadId")
+            intentsChannel?.invokeMethod("openThread", threadId)
+        }
     }
 
     private fun pickImage(result: MethodChannel.Result) {
@@ -172,7 +232,13 @@ class MainActivity : FlutterActivity() {
 
     override fun onResume() {
         super.onResume()
+        isResumed = true
         smsHandler?.registerReceiver()
+    }
+
+    override fun onPause() {
+        isResumed = false
+        super.onPause()
     }
 
     override fun onDestroy() {

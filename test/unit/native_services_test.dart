@@ -88,6 +88,7 @@ void main() {
         'phoneNumber': '09120000000',
         'message': 'hello',
         'subscriptionId': -1,
+        'trackingId': '',
       });
       expect(result.success, isTrue);
       expect(result.timestamp, 1700000000000);

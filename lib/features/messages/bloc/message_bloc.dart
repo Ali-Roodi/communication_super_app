@@ -41,6 +41,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     on<SendMessage>(_onSendMessage);
     on<ReceiveMessage>(_onReceiveMessage);
     on<MessageSentExternally>(_onMessageSentExternally);
+    on<MessageStatusChanged>(_onMessageStatusChanged);
     on<RefreshContactNames>(_onRefreshContactNames);
     on<DeleteMessage>(_onDeleteMessage);
     on<DeleteThread>(_onDeleteThread);
@@ -61,16 +62,58 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       (message) => add(MessageSentExternally(message)),
     );
 
+    // Delivery reports: advance the tick on the open conversation's bubble.
+    _statusSubscription = SmsService.onMessageStatusChanged.listen(
+      (change) => add(MessageStatusChanged(change.messageId, change.status)),
+    );
+
     // NOTE: SMS listening will be initialized only after permissions are granted
     // and when LoadThreads event is first triggered (in _onLoadThreads)
   }
 
   StreamSubscription<MessageModel>? _sentSubscription;
+  StreamSubscription<({String messageId, MessageStatus status})>?
+  _statusSubscription;
 
   @override
   Future<void> close() {
     _sentSubscription?.cancel();
+    _statusSubscription?.cancel();
     return super.close();
+  }
+
+  /// Replaces the status of one message in the open conversation, in place.
+  /// DB is already current (SmsService updated it before broadcasting).
+  Future<void> _onMessageStatusChanged(
+    MessageStatusChanged event,
+    Emitter<MessageState> emit,
+  ) async {
+    final current = state;
+    if (current is! MessagesLoaded) return;
+    final index = current.messages.indexWhere((m) => m.id == event.messageId);
+    if (index == -1) return;
+    final old = current.messages[index];
+    final updated = MessageModel(
+      id: old.id,
+      threadId: old.threadId,
+      contactId: old.contactId,
+      phoneNumber: old.phoneNumber,
+      body: old.body,
+      type: old.type,
+      status: event.status,
+      timestamp: old.timestamp,
+      isRead: old.isRead,
+      deviceSmsId: old.deviceSmsId,
+    );
+    final messages = [...current.messages];
+    messages[index] = updated;
+    emit(
+      MessagesLoaded(
+        messages,
+        hasMore: current.hasMore,
+        threadId: current.threadId,
+      ),
+    );
   }
 
   Future<void> _onLoadThreads(

@@ -13,6 +13,8 @@ import 'package:communication_super_app/features/messages/bloc/message_state.dar
 import 'package:communication_super_app/features/call_history/screens/call_history_screen.dart';
 import 'package:communication_super_app/features/call_history/bloc/call_log_bloc.dart';
 import 'package:communication_super_app/features/call_history/bloc/call_log_event.dart';
+import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
+import 'package:communication_super_app/core/services/deep_link_service.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/features/search/screens/search_screen.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
@@ -60,6 +62,26 @@ class _MainNavigationState extends State<MainNavigation>
     // Live-refresh when the device address book changes (a contact added/edited
     // in the phone's Contacts app) so names update without an app restart.
     FlutterContacts.addListener(_refreshDeviceContacts);
+
+    // Notification deep links: warm-start handler + the cold-start extra.
+    // Registered here (post-auth) so a tap never bypasses the app lock.
+    DeepLinkService.instance
+      ..onOpenThread = _openThreadFromNotification
+      ..registerHandler();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final threadId = await DeepLinkService.instance.consumeInitialThreadId();
+      if (threadId != null) _openThreadFromNotification(threadId);
+    });
+  }
+
+  /// Opens the conversation a notification points at. The threadId IS the
+  /// normalized phone number, so `forPhone` resolves it directly.
+  void _openThreadFromNotification(String threadId) {
+    if (!mounted) return;
+    setState(() => _currentIndex = 3); // land on the Messages tab underneath
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => ConversationScreen.forPhone(threadId)),
+    );
   }
 
   @override

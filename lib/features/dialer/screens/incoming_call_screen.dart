@@ -1,21 +1,51 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/dialer_bloc.dart';
 import '../bloc/dialer_event.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/persian_utils.dart';
+import '../../contacts/repositories/contact_repository.dart';
 import '../../messages/bloc/message_bloc.dart';
 import '../../messages/bloc/message_event.dart';
 import '../../settings/bloc/settings_bloc.dart';
 
-class IncomingCallScreen extends StatelessWidget {
+class IncomingCallScreen extends StatefulWidget {
   final String phone;
   final String? contactName;
 
   const IncomingCallScreen({super.key, required this.phone, this.contactName});
 
   @override
+  State<IncomingCallScreen> createState() => _IncomingCallScreenState();
+}
+
+class _IncomingCallScreenState extends State<IncomingCallScreen> {
+  String get phone => widget.phone;
+
+  /// Resolved device-contact identity (name + photo) for the caller.
+  String? _resolvedName;
+  Uint8List? _avatar;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveContact();
+  }
+
+  Future<void> _resolveContact() async {
+    if (phone.isEmpty) return;
+    final contact = await ContactRepository().getContactByPhoneNumber(phone);
+    if (!mounted || contact == null) return;
+    setState(() {
+      _resolvedName = contact.name.isNotEmpty ? contact.name : null;
+      _avatar = contact.avatar;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final name = widget.contactName ?? _resolvedName;
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
@@ -39,11 +69,14 @@ class IncomingCallScreen extends StatelessWidget {
                     shape: BoxShape.circle,
                     border: Border.all(color: AppColors.googleBlue, width: 2),
                   ),
-                  child: const Icon(
-                    Icons.person,
-                    size: 56,
-                    color: Colors.white70,
-                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: _avatar != null
+                      ? Image.memory(_avatar!, fit: BoxFit.cover)
+                      : const Icon(
+                          Icons.person,
+                          size: 56,
+                          color: Colors.white70,
+                        ),
                 ),
                 const SizedBox(height: 24),
                 const Text(
@@ -52,7 +85,7 @@ class IncomingCallScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  contactName ?? PersianUtils.toPersianNumber(phone),
+                  name ?? PersianUtils.toPersianNumber(phone),
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 30,
@@ -60,7 +93,7 @@ class IncomingCallScreen extends StatelessWidget {
                   ),
                   textAlign: TextAlign.center,
                 ),
-                if (contactName != null) ...[
+                if (name != null) ...[
                   const SizedBox(height: 8),
                   Text(
                     PersianUtils.toPersianNumber(phone),

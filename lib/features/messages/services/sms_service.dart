@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../models/message_model.dart';
 import '../repositories/message_repository.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
+import 'package:communication_super_app/features/settings/repositories/blocked_numbers_repository.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:uuid/uuid.dart';
 import 'notification_service.dart';
@@ -43,14 +44,27 @@ class SmsService {
   /// Stream of outgoing messages the moment they land in the DB.
   static Stream<MessageModel> get onMessageSent => _sentController.stream;
 
+  /// Broadcast of delivery-status changes for outgoing messages
+  /// (sent → delivered, or → failed), keyed by message id. `MessageBloc`
+  /// subscribes and advances the bubble tick in the open conversation.
+  static final StreamController<({String messageId, MessageStatus status})>
+  _statusController =
+      StreamController<({String messageId, MessageStatus status})>.broadcast();
+
+  static Stream<({String messageId, MessageStatus status})>
+  get onMessageStatusChanged => _statusController.stream;
+
   final Telephony _telephony = Telephony.instance;
   final MessageRepository _messageRepository = MessageRepository();
   final ContactRepository _contactRepository = ContactRepository();
   final NotificationService _notificationService = NotificationService();
   final NativeSmsService _nativeSmsService = NativeSmsService();
+  final BlockedNumbersRepository _blockedRepository =
+      BlockedNumbersRepository();
   Function(MessageModel)? onMessageReceived;
   // _imported flag moved to SharedPreferences (sms_imported_v1) — B6 fix
   StreamSubscription<SmsReceivedEvent>? _nativeSmsSubscription;
+  StreamSubscription<SmsStatusEvent>? _statusSubscription;
 
   // Guard: SMS listener should be set up exactly once per app session.
   bool _listening = false;
@@ -87,10 +101,16 @@ class SmsService {
       final normalized = _normalizePhoneNumber(phoneNumber);
       final threadId = normalized.isNotEmpty ? normalized : phoneNumber;
 
+      // Message id is generated BEFORE the send so the native layer can tag
+      // its sent/delivered PendingIntents with it — the status report then
+      // finds this exact row (see onMessageStatusChanged).
+      final messageId = const Uuid().v4();
+
       // Use native SMS service for sending
       final result = await _nativeSmsService.sendSms(
         phoneNumber: phoneNumber,
         message: message,
+        trackingId: messageId,
       );
 
       if (!result.success) {
@@ -102,7 +122,7 @@ class SmsService {
       );
 
       final messageModel = MessageModel(
-        id: const Uuid().v4(),
+        id: messageId,
         threadId: threadId,
         contactId: contact?.id,
         phoneNumber: phoneNumber,
@@ -166,6 +186,13 @@ class SmsService {
                     ? normalized
                     : phoneNumber;
 
+                // Blocked sender: drop silently — no persist, no notification,
+                // no UI event (mirrors Google Messages behavior).
+                if (await _blockedRepository.isBlocked(threadId)) {
+                  debugPrint('Dropped SMS from blocked number: $threadId');
+                  return;
+                }
+
                 final contact = await _contactRepository
                     .getContactByPhoneNumber(phoneNumber);
 
@@ -185,20 +212,9 @@ class SmsService {
 
                 await _messageRepository.createMessage(messageModel);
 
-                // Prefer the device-contact name (matched on the normalized
-                // number) so the notification shows the saved name, not the raw
-                // +98… address. Falls back to the local table / number.
-                final deviceName = await _contactRepository.getDeviceContactName(
-                  phoneNumber,
-                );
-
-                // Show notification
-                await _notificationService.showSmsNotification(
-                  contactName: deviceName ?? contact?.name ?? '',
-                  phoneNumber: phoneNumber,
-                  message: body,
-                  threadId: threadId,
-                );
+                // NOTE: no Dart-side notification here — the native receiver
+                // (SmsNotifier) already posted one with inline-reply and
+                // mark-read actions. Posting a second would duplicate it.
 
                 onMessageReceived?.call(messageModel);
               },
@@ -207,6 +223,22 @@ class SmsService {
               },
               cancelOnError: false,
             );
+
+            // Delivery reports: advance the message row (sent → delivered /
+            // failed) and tell the BLoC so the open bubble's tick updates.
+            _statusSubscription = _nativeSmsService.onSmsStatus.listen((
+              event,
+            ) async {
+              if (event.id.isEmpty) return;
+              final status = switch (event.status) {
+                'delivered' => MessageStatus.delivered,
+                'failed' => MessageStatus.failed,
+                _ => MessageStatus.sent,
+              };
+              await _messageRepository.updateMessageStatus(event.id, status);
+              _statusController.add((messageId: event.id, status: status));
+            });
+
             _listening = true;
           })
           .catchError((error) {
@@ -243,6 +275,9 @@ class SmsService {
 
           final normalized = _normalizePhoneNumber(phoneNumber);
           final threadId = normalized.isNotEmpty ? normalized : phoneNumber;
+
+          // Blocked sender: drop silently (same as the native path).
+          if (await _blockedRepository.isBlocked(threadId)) return;
 
           final contact = await _contactRepository.getContactByPhoneNumber(
             phoneNumber,
@@ -508,6 +543,8 @@ class SmsService {
   void dispose() {
     _nativeSmsSubscription?.cancel();
     _nativeSmsSubscription = null;
+    _statusSubscription?.cancel();
+    _statusSubscription = null;
     _listening = false;
     _nativeSmsService.dispose();
   }
