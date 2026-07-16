@@ -34,6 +34,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
        _contactRepository = contactRepository ?? ContactRepository(),
        super(const MessageInitial()) {
     on<LoadThreads>(_onLoadThreads);
+    on<SyncDeviceMessages>(_onSyncDeviceMessages);
     on<LoadMoreThreads>(_onLoadMoreThreads);
     on<LoadMessages>(_onLoadMessages);
     on<LoadMoreMessages>(_onLoadMoreMessages);
@@ -84,10 +85,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     }
 
     try {
-      // Import device messages only once per app session (or on explicit force)
+      // Mirror-sync with the device provider once per app session (or on
+      // explicit force). Resume-time syncs go through SyncDeviceMessages.
       if (!_hasImported || event.forceRefresh) {
         try {
-          await _smsService.importDeviceMessages(
+          await _smsService.syncDeviceMessages(
             forceRefresh: event.forceRefresh,
           );
           _hasImported = true;
@@ -167,6 +169,59 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       );
     } catch (e) {
       emit(MessageError(e.toString()));
+    }
+  }
+
+  /// Silent device mirror-sync + in-place refresh (no loading state, no
+  /// flicker). Runs on app resume: messages may have been sent/deleted on the
+  /// device while this app was backgrounded.
+  Future<void> _onSyncDeviceMessages(
+    SyncDeviceMessages event,
+    Emitter<MessageState> emit,
+  ) async {
+    try {
+      await _smsService.syncDeviceMessages();
+    } catch (_) {
+      return; // No permission / transient failure — keep what's on screen.
+    }
+    final current = state;
+    try {
+      if (current is MessagesLoaded) {
+        // A conversation is open: refresh its bubbles in place.
+        final limit = current.messages.length > 50
+            ? current.messages.length
+            : 50;
+        final messages = await _repository.getMessagesByThread(
+          current.threadId,
+          limit: limit,
+          offset: 0,
+          orderDesc: true,
+        );
+        emit(
+          MessagesLoaded(
+            messages.reversed.toList(),
+            hasMore: messages.length >= limit,
+            threadId: current.threadId,
+          ),
+        );
+      } else if (current is ThreadsLoaded) {
+        final limit = current.threads.length > 50 ? current.threads.length : 50;
+        final rawThreads = await _repository.getAllThreads(
+          limit: limit,
+          offset: 0,
+          archived: current.archived,
+        );
+        final threads = await _resolveContactNames(rawThreads);
+        emit(
+          ThreadsLoaded(
+            threads,
+            hasMore: threads.length >= limit,
+            archived: current.archived,
+          ),
+        );
+      }
+    } catch (_) {
+      // Silent by design.
     }
   }
 
@@ -363,18 +418,37 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       final current = state;
       if (current is MessagesLoaded) {
         if (current.threadId == message.threadId) {
+          var merged = message;
+          // The user is LOOKING at this conversation: an incoming message is
+          // read the moment it lands. Persist that too — without it the DB row
+          // keeps is_read=0 and leaving the chat shows a ghost unread badge.
+          if (message.type == MessageType.received && !message.isRead) {
+            await _repository.markThreadAsRead(message.threadId);
+            merged = MessageModel(
+              id: message.id,
+              threadId: message.threadId,
+              contactId: message.contactId,
+              phoneNumber: message.phoneNumber,
+              body: message.body,
+              type: message.type,
+              status: message.status,
+              timestamp: message.timestamp,
+              isRead: true,
+              deviceSmsId: message.deviceSmsId,
+            );
+          }
           // Dedupe: avoid appending if this message is already in the list (e.g. duplicate event).
           final alreadyPresent = current.messages.any(
             (m) =>
-                m.id == message.id ||
-                (m.body == message.body &&
-                    m.timestamp == message.timestamp &&
-                    m.phoneNumber == message.phoneNumber),
+                m.id == merged.id ||
+                (m.body == merged.body &&
+                    m.timestamp == merged.timestamp &&
+                    m.phoneNumber == merged.phoneNumber),
           );
           if (!alreadyPresent) {
             emit(
               MessagesLoaded(
-                [...current.messages, message],
+                [...current.messages, merged],
                 hasMore: current.hasMore,
                 threadId: current.threadId,
               ),
@@ -417,7 +491,8 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     Emitter<MessageState> emit,
   ) async {
     try {
-      await _repository.deleteMessage(event.messageId);
+      // Global: provider row first (default-SMS-app), then local.
+      await _smsService.deleteMessagesGlobally([event.messageId]);
       add(const LoadThreads());
     } catch (e) {
       emit(MessageError(e.toString()));
@@ -429,7 +504,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     Emitter<MessageState> emit,
   ) async {
     try {
-      await _repository.deleteThread(event.threadId);
+      await _smsService.deleteThreadGlobally(event.threadId);
       add(const LoadThreads());
     } catch (e) {
       emit(MessageError(e.toString()));
@@ -442,7 +517,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   ) async {
     try {
       for (final id in event.threadIds) {
-        await _repository.deleteThread(id);
+        await _smsService.deleteThreadGlobally(id);
       }
       final archived =
           state is ThreadsLoaded && (state as ThreadsLoaded).archived;
@@ -457,7 +532,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     Emitter<MessageState> emit,
   ) async {
     try {
-      await _repository.softDeleteMessages(event.messageIds);
+      await _smsService.deleteMessagesGlobally(event.messageIds);
       // Reload the open conversation so the deleted bubbles disappear.
       add(LoadMessages(event.threadId));
     } catch (e) {

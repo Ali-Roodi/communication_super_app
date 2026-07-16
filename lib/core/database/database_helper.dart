@@ -165,6 +165,22 @@ class DatabaseHelper {
     if (oldVersion < 10) {
       await _addScheduledDeliveryColumns(db);
     }
+
+    // Migration from version 10 to 11: messages.device_sms_id — the row id of
+    // this message inside the device SMS provider (content://sms). Written by
+    // the mirror-sync and by the sent write-through; used so an in-app delete
+    // can remove the exact provider row (global delete) instead of relying on
+    // content matching.
+    if (oldVersion < 11) {
+      await db.execute('''
+        ALTER TABLE ${AppConstants.messagesTable}
+        ADD COLUMN device_sms_id INTEGER
+      ''');
+      await db.execute('''
+        CREATE INDEX IF NOT EXISTS idx_messages_device_sms_id
+        ON ${AppConstants.messagesTable}(device_sms_id)
+      ''');
+    }
   }
 
   /// v10 columns on `scheduled_messages`. Split out so `_createDB` and the
@@ -306,6 +322,7 @@ class DatabaseHelper {
           timestamp INTEGER NOT NULL,
           is_read INTEGER DEFAULT 0,
           is_deleted INTEGER NOT NULL DEFAULT 0,
+          device_sms_id INTEGER,
           FOREIGN KEY (contact_id) REFERENCES ${AppConstants.contactsTable}(id) ON DELETE SET NULL
         )
       ''');
@@ -333,6 +350,12 @@ class DatabaseHelper {
       await db.execute('''
         CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_content_unique
         ON ${AppConstants.messagesTable}(phone_number, body, timestamp, type)
+      ''');
+
+      // Provider row-id lookup (mirror-sync + global delete)
+      await db.execute('''
+        CREATE INDEX IF NOT EXISTS idx_messages_device_sms_id
+        ON ${AppConstants.messagesTable}(device_sms_id)
       ''');
 
       // Call logs table (local cache)

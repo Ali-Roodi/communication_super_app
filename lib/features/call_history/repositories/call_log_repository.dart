@@ -63,6 +63,13 @@ class CallLogRepository {
     return maps.map((map) => CallLogModel.fromMap(map)).toList();
   }
 
+  /// Returns the ids of every stored call log (used by the mirror-sync diff).
+  Future<Set<String>> getAllIds() async {
+    final db = await _dbHelper.database;
+    final maps = await db.query(AppConstants.callLogsTable, columns: ['id']);
+    return maps.map((m) => m['id'] as String).toSet();
+  }
+
   Future<void> deleteCallLog(String id) async {
     final db = await _dbHelper.database;
     await db.delete(

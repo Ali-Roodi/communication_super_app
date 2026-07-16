@@ -5,6 +5,7 @@ import android.content.Context
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.os.Build
+import android.provider.Telephony
 import android.telephony.SmsManager
 import android.util.Log
 import java.util.Calendar
@@ -63,7 +64,11 @@ object ScheduledSmsWorker {
             for (row in due) {
                 val sent = sendSms(context, row.phoneNumber, row.body)
                 if (sent) {
-                    persistSentMessage(db, row.phoneNumber, row.body, now)
+                    // Provider write-through (default-SMS-app only): the system
+                    // doesn't store sends from the role holder, so without this
+                    // a background-scheduled SMS is invisible to other SMS apps.
+                    val deviceId = writeSentToProvider(context, row.phoneNumber, row.body, now)
+                    persistSentMessage(db, row.phoneNumber, row.body, now, deviceId)
                     db.update(TABLE, advance(row, now), "id = ?", arrayOf(row.id))
                 } else {
                     db.update(TABLE, failAttempt(row, now), "id = ?", arrayOf(row.id))
@@ -351,11 +356,40 @@ object ScheduledSmsWorker {
      * `MessageRepository.createMessage` for a sent message. Without this a
      * background-delivered scheduled SMS never appears in its conversation.
      */
+    /**
+     * Inserts a just-sent message into the device SMS provider so it shows up
+     * in every SMS app. Only effective while this app is the default SMS app.
+     * Returns the provider row id, or null.
+     */
+    private fun writeSentToProvider(
+        context: Context,
+        address: String,
+        body: String,
+        timestamp: Long,
+    ): Long? {
+        if (Telephony.Sms.getDefaultSmsPackage(context) != context.packageName) return null
+        return try {
+            val values = ContentValues().apply {
+                put(Telephony.Sms.ADDRESS, address)
+                put(Telephony.Sms.BODY, body)
+                put(Telephony.Sms.DATE, timestamp)
+                put(Telephony.Sms.READ, 1)
+            }
+            context.contentResolver
+                .insert(Telephony.Sms.Sent.CONTENT_URI, values)
+                ?.lastPathSegment?.toLongOrNull()
+        } catch (e: Exception) {
+            Log.e(TAG, "writeSentToProvider failed: ${e.message}")
+            null
+        }
+    }
+
     private fun persistSentMessage(
         db: SQLiteDatabase,
         phone: String,
         body: String,
         timestamp: Long,
+        deviceSmsId: Long? = null,
     ) {
         try {
             val values = ContentValues().apply {
@@ -368,6 +402,7 @@ object ScheduledSmsWorker {
                 put("status", "sent")
                 put("timestamp", timestamp)
                 put("is_read", 1)
+                if (deviceSmsId != null) put("device_sms_id", deviceSmsId)
             }
             // OR IGNORE: the unique (phone_number, body, timestamp, type) index
             // dedups against a later device-inbox import.

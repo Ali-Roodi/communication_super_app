@@ -2,12 +2,15 @@ package com.example.communication_super_app
 
 import android.app.Activity
 import android.app.PendingIntent
+import android.app.role.RoleManager
 import android.content.BroadcastReceiver
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.provider.Settings
+import android.provider.Telephony
 import android.telephony.ServiceState
 import android.telephony.SmsManager
 import android.telephony.SmsMessage
@@ -38,6 +41,9 @@ class SmsHandler(
         private const val CHANNEL_SMS_METHOD = "com.example.communication_super_app/sms"
         private const val CHANNEL_SMS_EVENTS = "com.example.communication_super_app/sms_events"
 
+        /** startActivityForResult code for the default-SMS-role request. */
+        const val REQUEST_DEFAULT_SMS_ROLE = 9002
+
         /// True while the app's dynamic SMS_RECEIVED receiver is registered (i.e.
         /// the app process is alive and Flutter is handling reception). The
         /// manifest [IncomingSmsReceiver] reads this to avoid double-handling —
@@ -50,6 +56,10 @@ class SmsHandler(
     private val coroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var eventSink: EventChannel.EventSink? = null
     private val isReceiverRegistered = AtomicBoolean(false)
+
+    /** Pending result of an in-flight default-SMS-role request; resolved in
+     *  [handleRoleActivityResult] when the system dialog returns. */
+    private var pendingRoleResult: MethodChannel.Result? = null
     
     // Broadcast receivers
     private val smsReceiver = SmsBroadcastReceiver()
@@ -294,13 +304,21 @@ class SmsHandler(
                 )
             }
 
+            val timestamp = System.currentTimeMillis()
+
+            // Write-through: while this app is the default SMS app the system
+            // does NOT store outgoing messages — without this insert the sent
+            // SMS would be invisible to every other SMS app on the phone.
+            val deviceId = writeSentToProvider(phoneNumber, message, timestamp)
+
             val result = mapOf(
                 "success" to true,
                 "phoneNumber" to phoneNumber,
                 "messageLength" to message.length,
                 "parts" to parts.size,
                 "subscriptionId" to subscriptionId,
-                "timestamp" to System.currentTimeMillis()
+                "timestamp" to timestamp,
+                "deviceId" to deviceId
             )
 
             Log.d(TAG, "SMS sent to $phoneNumber (${parts.size} parts)")
@@ -372,6 +390,174 @@ class SmsHandler(
             // actual send surface the real error.
             true
         }
+    }
+
+    // ── Default SMS app role ─────────────────────────────────────────────────
+
+    /** True when this app currently holds the default-SMS-app role. */
+    fun isDefaultSmsApp(): Boolean =
+        Telephony.Sms.getDefaultSmsPackage(context) == context.packageName
+
+    /**
+     * Launches the system "set default SMS app" dialog. The outcome lands in
+     * [handleRoleActivityResult] (forwarded from MainActivity.onActivityResult).
+     */
+    private fun requestDefaultSmsRole(result: MethodChannel.Result) {
+        if (isDefaultSmsApp()) {
+            result.success(true)
+            return
+        }
+        val act = activity
+        if (act == null) {
+            result.error("NO_ACTIVITY", "Activity not available", null)
+            return
+        }
+        val intent: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val roleManager = context.getSystemService(RoleManager::class.java)
+            if (roleManager?.isRoleAvailable(RoleManager.ROLE_SMS) == true) {
+                roleManager.createRequestRoleIntent(RoleManager.ROLE_SMS)
+            } else null
+        } else {
+            Intent(Telephony.Sms.Intents.ACTION_CHANGE_DEFAULT).apply {
+                putExtra(Telephony.Sms.Intents.EXTRA_PACKAGE_NAME, context.packageName)
+            }
+        }
+        if (intent == null) {
+            result.error("ROLE_UNAVAILABLE", "SMS role not available on this device", null)
+            return
+        }
+        // Only one request at a time; resolve a stale pending one as cancelled.
+        pendingRoleResult?.success(false)
+        pendingRoleResult = result
+        try {
+            act.startActivityForResult(intent, REQUEST_DEFAULT_SMS_ROLE)
+        } catch (e: Exception) {
+            pendingRoleResult = null
+            result.error("ROLE_REQUEST_FAILED", e.message, null)
+        }
+    }
+
+    /** Called from MainActivity.onActivityResult. Returns true when consumed. */
+    fun handleRoleActivityResult(requestCode: Int): Boolean {
+        if (requestCode != REQUEST_DEFAULT_SMS_ROLE) return false
+        // Don't trust resultCode — some OEM dialogs return CANCELED even on
+        // success. The role state itself is the source of truth.
+        pendingRoleResult?.success(isDefaultSmsApp())
+        pendingRoleResult = null
+        return true
+    }
+
+    // ── SMS provider write-through (only effective while default) ───────────
+
+    /**
+     * Inserts a just-sent message into the device SMS provider so it shows up
+     * in every SMS app. Only the default SMS app may write; otherwise the
+     * insert is skipped (Android would silently drop or reject it anyway).
+     * Returns the provider row id, or -1.
+     */
+    fun writeSentToProvider(address: String, body: String, timestamp: Long): Long {
+        if (!isDefaultSmsApp()) return -1
+        return try {
+            val values = ContentValues().apply {
+                put(Telephony.Sms.ADDRESS, address)
+                put(Telephony.Sms.BODY, body)
+                put(Telephony.Sms.DATE, timestamp)
+                put(Telephony.Sms.READ, 1)
+            }
+            val uri = context.contentResolver.insert(Telephony.Sms.Sent.CONTENT_URI, values)
+            uri?.lastPathSegment?.toLongOrNull() ?: -1
+        } catch (e: Exception) {
+            Log.e(TAG, "writeSentToProvider failed: ${e.message}")
+            -1
+        }
+    }
+
+    /**
+     * Deletes messages from the device SMS provider. Each spec identifies one
+     * message either by provider row id (`deviceId`) or by content match
+     * (`address` + `body` + `timestamp`, with a small clock tolerance because
+     * provider DATE and our timestamp can differ by the send/receive latency).
+     * Returns the number of provider rows deleted.
+     */
+    fun deleteSmsFromProvider(specs: List<Map<String, Any?>>): Int {
+        if (!isDefaultSmsApp()) return 0
+        var deleted = 0
+        val resolver = context.contentResolver
+        for (spec in specs) {
+            try {
+                val deviceId = (spec["deviceId"] as? Number)?.toLong()
+                if (deviceId != null && deviceId > 0) {
+                    deleted += resolver.delete(
+                        Telephony.Sms.CONTENT_URI,
+                        "${Telephony.Sms._ID} = ?",
+                        arrayOf(deviceId.toString())
+                    )
+                    continue
+                }
+                val body = spec["body"] as? String ?: continue
+                val timestamp = (spec["timestamp"] as? Number)?.toLong() ?: continue
+                // ±10 s window: covers provider DATE vs app timestamp skew.
+                deleted += resolver.delete(
+                    Telephony.Sms.CONTENT_URI,
+                    "${Telephony.Sms.BODY} = ? AND ${Telephony.Sms.DATE} BETWEEN ? AND ?",
+                    arrayOf(body, (timestamp - 10_000).toString(), (timestamp + 10_000).toString())
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "deleteSmsFromProvider spec failed: ${e.message}")
+            }
+        }
+        return deleted
+    }
+
+    /**
+     * Deletes an entire conversation from the provider: every row whose
+     * normalized address ends with the same national significant number.
+     * Addresses are stored inconsistently (+98912…, 0912…, 912…), so rows are
+     * matched in code, not in SQL. Returns the number of rows deleted.
+     */
+    fun deleteSmsThreadFromProvider(address: String): Int {
+        if (!isDefaultSmsApp()) return 0
+        val target = significantDigits(address)
+        if (target.isEmpty()) return 0
+        val resolver = context.contentResolver
+        val ids = ArrayList<String>()
+        try {
+            resolver.query(
+                Telephony.Sms.CONTENT_URI,
+                arrayOf(Telephony.Sms._ID, Telephony.Sms.ADDRESS),
+                null, null, null
+            )?.use { c ->
+                val idIdx = c.getColumnIndexOrThrow(Telephony.Sms._ID)
+                val addrIdx = c.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)
+                while (c.moveToNext()) {
+                    val rowAddr = c.getString(addrIdx) ?: continue
+                    if (significantDigits(rowAddr) == target) {
+                        ids.add(c.getString(idIdx))
+                    }
+                }
+            }
+            var deleted = 0
+            // Chunked IN() delete to stay well under SQLite's variable limit.
+            ids.chunked(500).forEach { chunk ->
+                val placeholders = chunk.joinToString(",") { "?" }
+                deleted += resolver.delete(
+                    Telephony.Sms.CONTENT_URI,
+                    "${Telephony.Sms._ID} IN ($placeholders)",
+                    chunk.toTypedArray()
+                )
+            }
+            return deleted
+        } catch (e: Exception) {
+            Log.e(TAG, "deleteSmsThreadFromProvider failed: ${e.message}")
+            return 0
+        }
+    }
+
+    /** Last 10 digits — the national significant number, comparable across
+     *  +98912…, 0912…, 912… representations (mirrors PhoneNormalizer). */
+    private fun significantDigits(phone: String): String {
+        val digits = phone.filter { it.isDigit() }
+        return if (digits.length > 10) digits.takeLast(10) else digits
     }
 
     /**
@@ -485,7 +671,51 @@ class SmsHandler(
                         result.error("REGISTER_ERROR", e.message, e.stackTraceToString())
                     }
                 }
-                
+
+                "isDefaultSmsApp" -> result.success(isDefaultSmsApp())
+
+                "requestDefaultSmsRole" -> requestDefaultSmsRole(result)
+
+                // Fallback when the role dialog is unavailable or auto-denied
+                // (system permanently auto-denies after two refusals): send the
+                // user to Settings → Default apps to pick this app manually.
+                "openDefaultAppsSettings" -> {
+                    try {
+                        val intent = Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("SETTINGS_FAILED", e.message, null)
+                    }
+                }
+
+                // Deletes provider rows by spec list [{deviceId?|body+timestamp}].
+                "deleteSmsFromProvider" -> {
+                    val specs = call.argument<List<Map<String, Any?>>>("messages")
+                    if (specs == null) {
+                        result.error("INVALID_ARGUMENTS", "messages required", null)
+                        return@setMethodCallHandler
+                    }
+                    coroutineScope.launch(Dispatchers.IO) {
+                        val deleted = deleteSmsFromProvider(specs)
+                        withContext(Dispatchers.Main) { result.success(deleted) }
+                    }
+                }
+
+                // Deletes a whole conversation (all rows for an address).
+                "deleteSmsThreadFromProvider" -> {
+                    val address = call.argument<String>("address")
+                    if (address.isNullOrBlank()) {
+                        result.error("INVALID_ARGUMENTS", "address required", null)
+                        return@setMethodCallHandler
+                    }
+                    coroutineScope.launch(Dispatchers.IO) {
+                        val deleted = deleteSmsThreadFromProvider(address)
+                        withContext(Dispatchers.Main) { result.success(deleted) }
+                    }
+                }
+
                 else -> {
                     result.notImplemented()
                 }

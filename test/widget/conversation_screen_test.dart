@@ -83,7 +83,7 @@ void main() {
     when(() => repo.markThreadAsRead(any())).thenAnswer((_) async {});
     // LoadThreads (fired on dispose) needs these stubbed so it can't throw.
     when(
-      () => sms.importDeviceMessages(forceRefresh: any(named: 'forceRefresh')),
+      () => sms.syncDeviceMessages(forceRefresh: any(named: 'forceRefresh')),
     ).thenAnswer((_) async {});
     when(() => sms.isListening).thenReturn(true);
     when(

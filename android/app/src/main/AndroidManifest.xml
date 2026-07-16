@@ -9,6 +9,9 @@
     <uses-permission android:name="android.permission.SEND_SMS"/>
     <uses-permission android:name="android.permission.RECEIVE_SMS"/>
     <uses-permission android:name="android.permission.READ_SMS"/>
+    <!-- Required to qualify for the default-SMS-app role (ROLE_SMS) -->
+    <uses-permission android:name="android.permission.RECEIVE_MMS"/>
+    <uses-permission android:name="android.permission.RECEIVE_WAP_PUSH"/>
     
     <!-- Permissions for Phone Calls -->
     <uses-permission android:name="android.permission.CALL_PHONE"/>
@@ -27,6 +30,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <!-- Incoming-call notification must be able to launch the in-call UI -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
 
     <!-- Exact alarms for background scheduled-SMS delivery (زمان‌بندی ارسال).
          USE_EXACT_ALARM is auto-granted on Android 13+; SCHEDULE_EXACT_ALARM
@@ -59,6 +64,35 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- Default-SMS-app role requirement: handle sms:/smsto:/mms:/mmsto:
+                 send intents (e.g. tapping a number in the browser). -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <action android:name="android.intent.action.SENDTO"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="sms"/>
+                <data android:scheme="smsto"/>
+                <data android:scheme="mms"/>
+                <data android:scheme="mmsto"/>
+            </intent-filter>
+            <!-- Default-dialer role requirement: handle ACTION_DIAL, both with
+                 a tel: number and bare (open the keypad). -->
+            <intent-filter>
+                <action android:name="android.intent.action.DIAL"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:scheme="tel"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.DIAL"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="tel"/>
+            </intent-filter>
         </activity>
         
         <!-- CallConnectionService برای TelecomManager -->
@@ -70,6 +104,35 @@
                 <action android:name="android.telecom.ConnectionService" />
             </intent-filter>
         </service>
+
+        <!-- Default-dialer role: telecom binds this while the app holds
+             ROLE_DIALER, making it the ONLY in-call UI on the device.
+             IN_CALL_SERVICE_RINGING=false → telecom keeps playing the
+             ringtone; this app only renders the UI. -->
+        <service
+            android:name=".call.CallInCallService"
+            android:permission="android.permission.BIND_INCALL_SERVICE"
+            android:exported="true">
+            <meta-data
+                android:name="android.telecom.IN_CALL_SERVICE_UI"
+                android:value="true"/>
+            <meta-data
+                android:name="android.telecom.IN_CALL_SERVICE_RINGING"
+                android:value="false"/>
+            <intent-filter>
+                <action android:name="android.telecom.InCallService"/>
+            </intent-filter>
+        </service>
+
+        <!-- Answer/decline actions on the incoming-call notification -->
+        <receiver
+            android:name=".call.CallActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.example.communication_super_app.ANSWER_CALL"/>
+                <action android:name="com.example.communication_super_app.DECLINE_CALL"/>
+            </intent-filter>
+        </receiver>
 
         <!-- Background SMS delivery: when the app process is dead, this
              manifest receiver persists the message + posts a notification
@@ -87,6 +150,45 @@
                 <action android:name="android.provider.Telephony.SMS_RECEIVED"/>
             </intent-filter>
         </receiver>
+
+        <!-- Default-SMS-app role: SMS_DELIVER is sent ONLY to the default app.
+             This receiver writes the incoming message into content://sms —
+             the system stops doing that once we hold the role. App-side
+             persist/notify keeps flowing through SMS_RECEIVED as before. -->
+        <receiver
+            android:name=".SmsDeliverReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.SMS_DELIVER"/>
+            </intent-filter>
+        </receiver>
+
+        <!-- Default-SMS-app role requirement: MMS delivery (stub — MMS dropped). -->
+        <receiver
+            android:name=".MmsReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_WAP_PUSH">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.WAP_PUSH_DELIVER"/>
+                <data android:mimeType="application/vnd.wap.mms-message"/>
+            </intent-filter>
+        </receiver>
+
+        <!-- Default-SMS-app role requirement: reject-call-with-message. -->
+        <service
+            android:name=".HeadlessSmsSendService"
+            android:exported="true"
+            android:permission="android.permission.SEND_RESPOND_VIA_MESSAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.RESPOND_VIA_MESSAGE"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:scheme="sms"/>
+                <data android:scheme="smsto"/>
+                <data android:scheme="mms"/>
+                <data android:scheme="mmsto"/>
+            </intent-filter>
+        </service>
 
         <!-- Scheduled-SMS background delivery (زمان‌بندی ارسال, PHASE 2) -->
         <receiver

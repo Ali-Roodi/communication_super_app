@@ -25,19 +25,6 @@ class ContactsLoaded extends ContactState {
   List<Object?> get props => [contacts];
 }
 
-class ContactLoaded extends ContactState {
-  final ContactModel contact;
-
-  const ContactLoaded(this.contact);
-
-  @override
-  List<Object?> get props => [contact];
-}
-
-class ContactOperationSuccess extends ContactState {
-  const ContactOperationSuccess();
-}
-
 class ContactError extends ContactState {
   final String message;
 

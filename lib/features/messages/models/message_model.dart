@@ -15,6 +15,11 @@ class MessageModel extends Equatable {
   final DateTime timestamp;
   final bool isRead;
 
+  /// Row id of this message inside the device SMS provider (content://sms),
+  /// when known. Set by the mirror-sync import and by the sent write-through;
+  /// lets a delete remove the exact provider row. Null when unknown.
+  final int? deviceSmsId;
+
   const MessageModel({
     required this.id,
     required this.threadId,
@@ -25,6 +30,7 @@ class MessageModel extends Equatable {
     required this.status,
     required this.timestamp,
     this.isRead = false,
+    this.deviceSmsId,
   });
 
   Map<String, dynamic> toMap() {
@@ -38,6 +44,7 @@ class MessageModel extends Equatable {
       'status': status.name,
       'timestamp': timestamp.millisecondsSinceEpoch,
       'is_read': isRead ? 1 : 0,
+      'device_sms_id': deviceSmsId,
     };
   }
 
@@ -58,6 +65,7 @@ class MessageModel extends Equatable {
       ),
       timestamp: DateTime.fromMillisecondsSinceEpoch(map['timestamp'] as int),
       isRead: (map['is_read'] as int?) == 1,
+      deviceSmsId: (map['device_sms_id'] as num?)?.toInt(),
     );
   }
 
@@ -72,6 +80,7 @@ class MessageModel extends Equatable {
     status,
     timestamp,
     isRead,
+    deviceSmsId,
   ];
 }
 

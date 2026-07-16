@@ -16,16 +16,21 @@ class _MockSmsService extends Mock implements SmsService {}
 
 class _MockContactRepository extends Mock implements ContactRepository {}
 
-MessageModel _msg(String id, String threadId, {String body = 'سلام'}) =>
-    MessageModel(
-      id: id,
-      threadId: threadId,
-      phoneNumber: threadId,
-      body: body,
-      type: MessageType.received,
-      status: MessageStatus.delivered,
-      timestamp: DateTime(2026, 1, 1, 12),
-    );
+MessageModel _msg(
+  String id,
+  String threadId, {
+  String body = 'سلام',
+  bool isRead = false,
+}) => MessageModel(
+  id: id,
+  threadId: threadId,
+  phoneNumber: threadId,
+  body: body,
+  type: MessageType.received,
+  status: MessageStatus.delivered,
+  timestamp: DateTime(2026, 1, 1, 12),
+  isRead: isRead,
+);
 
 void main() {
   late _MockMessageRepository repo;
@@ -50,7 +55,7 @@ void main() {
       '(no flash-to-loading on background refresh)',
       setUp: () {
         when(
-          () => sms.importDeviceMessages(
+          () => sms.syncDeviceMessages(
             forceRefresh: any(named: 'forceRefresh'),
           ),
         ).thenAnswer((_) async {});
@@ -76,17 +81,26 @@ void main() {
   });
 
   group('MessageBloc._onReceiveMessage (state guard)', () {
+    // An unread message landing in the OPEN conversation is marked read.
+    setUp(() {
+      when(() => repo.markThreadAsRead(any())).thenAnswer((_) async {});
+    });
+
     blocTest<MessageBloc, MessageState>(
-      'appends an incoming message to the open conversation (same thread)',
+      'appends an incoming message to the open conversation (same thread) '
+      'and marks it read (the user is looking at it)',
       build: build,
       seed: () => MessagesLoaded([_msg('m1', 't1')], threadId: 't1'),
       act: (bloc) => bloc.add(ReceiveMessage(_msg('m2', 't1', body: 'خوبی؟'))),
       expect: () => [
         MessagesLoaded([
           _msg('m1', 't1'),
-          _msg('m2', 't1', body: 'خوبی؟'),
+          _msg('m2', 't1', body: 'خوبی؟', isRead: true),
         ], threadId: 't1'),
       ],
+      verify: (_) {
+        verify(() => repo.markThreadAsRead('t1')).called(1);
+      },
     );
 
     blocTest<MessageBloc, MessageState>(

@@ -162,10 +162,15 @@ class MessageSendButton extends StatelessWidget {
   final bool enabled;
   final VoidCallback onSend;
 
+  /// Long-press action: opens the scheduler prefilled with the composer text
+  /// (ارسال زمان‌بندی‌شده). Null disables the gesture.
+  final VoidCallback? onSchedule;
+
   const MessageSendButton({
     super.key,
     required this.enabled,
     required this.onSend,
+    this.onSchedule,
   });
 
   @override
@@ -177,6 +182,7 @@ class MessageSendButton extends StatelessWidget {
       child: InkWell(
         customBorder: const CircleBorder(),
         onTap: enabled ? onSend : null,
+        onLongPress: enabled && onSchedule != null ? onSchedule : null,
         child: Padding(
           padding: const EdgeInsets.all(10),
           child: Icon(Icons.send, color: cs.onPrimary, size: 24),

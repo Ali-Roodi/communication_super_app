@@ -2,7 +2,6 @@ import 'package:another_telephony/telephony.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../models/message_model.dart';
 import '../repositories/message_repository.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
@@ -112,6 +111,9 @@ class SmsService {
         status: MessageStatus.sent,
         timestamp: DateTime.fromMillisecondsSinceEpoch(result.timestamp),
         isRead: true, // Sent messages are always marked as read
+        // Provider row id from the native write-through (default-SMS-app only)
+        // so a later delete can remove the exact provider row.
+        deviceSmsId: result.deviceId > 0 ? result.deviceId : null,
       );
 
       await _messageRepository.createMessage(messageModel);
@@ -279,104 +281,109 @@ class SmsService {
     }
   }
 
-  /// Maximum number of inbox/sent messages imported per session.
+  /// Maximum number of inbox/sent messages whose **content** is reconciled per
+  /// sync pass.
   ///
   /// The `telephony` plugin transfers ALL matching rows through the
   /// MethodChannel as a single JSON payload.  On a device with tens of
   /// thousands of SMS this payload can exceed the Binder transaction limit
   /// (~1 MB), causing an OOM crash or a TransactionTooLargeException.
-  /// Capping the import at a reasonable number keeps the first-run safe while
-  /// still showing all recent conversations.
+  /// Capping the content pass keeps every sync safe while still covering all
+  /// recent conversations. (The deletion diff below is NOT capped — it only
+  /// moves row ids, which are tiny.)
   static const int _importLimit = 500;
 
-  Future<void> importDeviceMessages({bool forceRefresh = false}) async {
-    // B6 fix: persist the import flag across restarts via SharedPreferences
-    final prefs = await SharedPreferences.getInstance();
-    final alreadyImported = prefs.getBool('sms_imported_v1') ?? false;
-    if (alreadyImported && !forceRefresh) return;
+  /// Mirror-syncs the local message store with the device SMS provider:
+  ///
+  /// 1. Recent device rows (inbox + sent) are reconciled in — new messages are
+  ///    imported, and rows the app already has get their `device_sms_id`
+  ///    linked (see [MessageRepository.reconcileDeviceRows]).
+  /// 2. Local rows whose provider row disappeared are removed — a message
+  ///    deleted on the phone (by another SMS app, or before this app held the
+  ///    default role) disappears here too.
+  ///
+  /// Runs on every app session start and on resume (cheap after the first
+  /// pass: reconcile skips known rows by `device_sms_id`).
+  Future<void> syncDeviceMessages({bool forceRefresh = false}) async {
+    final hasPermission = await requestPermissions();
+    if (!hasPermission) {
+      throw Exception('SMS permissions not granted');
+    }
 
-    try {
-      final hasPermission = await requestPermissions();
-      if (!hasPermission) {
-        throw Exception('SMS permissions not granted');
-      }
+    // One-time: link rows imported before the v11 migration (their id IS the
+    // provider row id). Cheap idempotent UPDATE afterwards.
+    await _messageRepository.backfillDeviceSmsIds();
 
-      // Preload contacts to map phone numbers quickly
-      final contacts = await _contactRepository.getAllContacts();
-      final contactMap = <String, dynamic>{};
-      for (var c in contacts) {
-        for (final phone in c.phoneNumbers) {
-          final normalized = _normalizePhoneNumber(phone);
-          if (normalized.isNotEmpty) {
-            contactMap[normalized] = c;
-          }
-        }
-        final primaryNormalized = _normalizePhoneNumber(c.phoneNumber);
-        if (primaryNormalized.isNotEmpty) {
-          contactMap[primaryNormalized] = c;
-        }
-      }
-
-      final inbox = await _telephony.getInboxSms(
-        columns: [
-          SmsColumn.ID,
-          SmsColumn.ADDRESS,
-          SmsColumn.BODY,
-          SmsColumn.DATE,
-        ],
-        sortOrder: [OrderBy(SmsColumn.DATE, sort: Sort.DESC)],
-      );
-
-      final sent = await _telephony.getSentSms(
-        columns: [
-          SmsColumn.ID,
-          SmsColumn.ADDRESS,
-          SmsColumn.BODY,
-          SmsColumn.DATE,
-        ],
-        sortOrder: [OrderBy(SmsColumn.DATE, sort: Sort.DESC)],
-      );
-
-      const int batchSize = 100;
-      // Cap at _importLimit: the telephony MethodChannel payload is already
-      // in memory at this point; limiting here reduces DB write time and
-      // prevents processing tens of thousands of rows on the main isolate.
-      final inboxList = inbox.take(_importLimit).toList();
-      final sentList = sent.take(_importLimit).toList();
-      final batch = <MessageModel>[];
-
-      for (final message in inboxList) {
-        batch.add(
-          _createMessageModel(message, MessageType.received, contactMap),
-        );
-        if (batch.length >= batchSize) {
-          await _messageRepository.createMessagesBatch(batch);
-          batch.clear();
-          await Future.delayed(Duration.zero);
+    // Preload contacts to map phone numbers quickly
+    final contacts = await _contactRepository.getAllContacts();
+    final contactMap = <String, dynamic>{};
+    for (var c in contacts) {
+      for (final phone in c.phoneNumbers) {
+        final normalized = _normalizePhoneNumber(phone);
+        if (normalized.isNotEmpty) {
+          contactMap[normalized] = c;
         }
       }
-      if (batch.isNotEmpty) {
-        await _messageRepository.createMessagesBatch(batch);
-        batch.clear();
+      final primaryNormalized = _normalizePhoneNumber(c.phoneNumber);
+      if (primaryNormalized.isNotEmpty) {
+        contactMap[primaryNormalized] = c;
       }
+    }
 
-      for (final message in sentList) {
-        batch.add(_createMessageModel(message, MessageType.sent, contactMap));
-        if (batch.length >= batchSize) {
-          await _messageRepository.createMessagesBatch(batch);
-          batch.clear();
-          await Future.delayed(Duration.zero);
-        }
-      }
-      if (batch.isNotEmpty) {
-        await _messageRepository.createMessagesBatch(batch);
-      }
+    const columns = [
+      SmsColumn.ID,
+      SmsColumn.ADDRESS,
+      SmsColumn.BODY,
+      SmsColumn.DATE,
+    ];
+    final inbox = await _telephony.getInboxSms(
+      columns: columns,
+      sortOrder: [OrderBy(SmsColumn.DATE, sort: Sort.DESC)],
+    );
+    final sent = await _telephony.getSentSms(
+      columns: columns,
+      sortOrder: [OrderBy(SmsColumn.DATE, sort: Sort.DESC)],
+    );
 
-      await prefs.setBool('sms_imported_v1', true);
-    } catch (e) {
-      // Do NOT reset the flag on failure — prevents infinite retry loops.
-      // The user can force a refresh via forceRefresh: true if needed.
-      rethrow;
+    // ── 1. Reconcile recent content in ─────────────────────────────────────
+    const int batchSize = 100;
+    final inboxList = inbox.take(_importLimit).toList();
+    final sentList = sent.take(_importLimit).toList();
+    final batch = <MessageModel>[];
+
+    Future<void> flush() async {
+      if (batch.isEmpty) return;
+      await _messageRepository.reconcileDeviceRows(batch);
+      batch.clear();
+      await Future.delayed(Duration.zero);
+    }
+
+    for (final message in inboxList) {
+      batch.add(_createMessageModel(message, MessageType.received, contactMap));
+      if (batch.length >= batchSize) await flush();
+    }
+    await flush();
+
+    for (final message in sentList) {
+      batch.add(_createMessageModel(message, MessageType.sent, contactMap));
+      if (batch.length >= batchSize) await flush();
+    }
+    await flush();
+
+    // ── 2. Remove local rows deleted on the device ─────────────────────────
+    // The full (uncapped) id set from both boxes; a local row linked to a
+    // provider id that is in neither box no longer exists on the device.
+    final deviceIds = <int>{
+      for (final m in inbox)
+        if (m.id != null) m.id!,
+      for (final m in sent)
+        if (m.id != null) m.id!,
+    };
+    final removed = await _messageRepository.removeRowsMissingFromDevice(
+      deviceIds,
+    );
+    if (removed > 0) {
+      debugPrint('Device mirror-sync removed $removed locally-stale messages');
     }
   }
 
@@ -406,7 +413,50 @@ class SmsService {
       ),
       // Imported messages from device are considered already read
       isRead: true,
+      // Provider row id — the key the mirror-sync diffs on.
+      deviceSmsId: smsMessage.id,
     );
+  }
+
+  // ── Default SMS app role ──────────────────────────────────────────────────
+
+  /// True when this app currently holds the default-SMS-app role.
+  Future<bool> isDefaultSmsApp() => _nativeSmsService.isDefaultSmsApp();
+
+  /// Shows the system dialog asking the user to make this app the default SMS
+  /// app. Resolves to true when granted.
+  Future<bool> requestDefaultSmsRole() =>
+      _nativeSmsService.requestDefaultSmsRole();
+
+  // ── Global delete (app + device provider) ─────────────────────────────────
+
+  /// Deletes messages **globally**: from the device SMS provider (when this
+  /// app is the default SMS app) and then from the local store (soft delete —
+  /// keeps the dedup index row, and reconcile skips known `device_sms_id`s so
+  /// the message can never resurrect).
+  Future<void> deleteMessagesGlobally(List<String> messageIds) async {
+    if (messageIds.isEmpty) return;
+    final messages = await _messageRepository.getMessagesByIds(messageIds);
+    final specs = <Map<String, Object?>>[
+      for (final m in messages)
+        if (m.deviceSmsId != null)
+          {'deviceId': m.deviceSmsId}
+        else
+          {
+            'body': m.body,
+            'timestamp': m.timestamp.millisecondsSinceEpoch,
+          },
+    ];
+    await _nativeSmsService.deleteSmsFromProvider(specs);
+    await _messageRepository.softDeleteMessages(messageIds);
+  }
+
+  /// Deletes a whole conversation globally: every provider row for the thread
+  /// address (default-SMS-app only), then the local thread.
+  Future<void> deleteThreadGlobally(String threadId) async {
+    // threadId IS the normalized national number — usable as the address key.
+    await _nativeSmsService.deleteSmsThreadFromProvider(threadId);
+    await _messageRepository.deleteThread(threadId);
   }
 
   /// Delegates to [PhoneNormalizer.toThreadId] so that all thread IDs are

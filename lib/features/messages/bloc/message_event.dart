@@ -39,6 +39,13 @@ class LoadMoreThreads extends MessageEvent {
   const LoadMoreThreads();
 }
 
+/// Silent mirror-sync with the device SMS provider (import new rows, drop
+/// device-deleted ones) followed by an in-place refresh — no loading state.
+/// Dispatched on app resume so changes made while backgrounded show up.
+class SyncDeviceMessages extends MessageEvent {
+  const SyncDeviceMessages();
+}
+
 class LoadMessages extends MessageEvent {
   final String threadId;
   final int limit;

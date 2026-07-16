@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:communication_super_app/features/messages/services/native_sms_service.dart';
+import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import '../services/permission_service.dart';
 
 /// Guards [child] behind a runtime-permission check.
@@ -50,6 +53,10 @@ class _PermissionGateState extends State<PermissionGate> {
     try {
       final allGranted = await PermissionService.instance
           .hasAllRequiredPermissions();
+      if (allGranted) {
+        await _maybeRequestDefaultSmsRole();
+        await _maybeRequestDefaultDialerRole();
+      }
       if (!mounted) return;
       setState(() {
         _phase = allGranted ? _GatePhase.done : _GatePhase.needsRequest;
@@ -65,6 +72,13 @@ class _PermissionGateState extends State<PermissionGate> {
     setState(() => _isRequesting = true);
     try {
       final results = await PermissionService.instance.requestAllPermissions();
+      // First entry: right after the runtime permissions, ask the system to
+      // make this app the default SMS app (needed for full two-way SMS sync)
+      // and then the default phone app (needed for the in-app call UI).
+      // One-shot each — a refusal is respected; the inbox banner stays
+      // available for SMS.
+      await _maybeRequestDefaultSmsRole();
+      await _maybeRequestDefaultDialerRole();
       if (!mounted) return;
       setState(() {
         _results = results;
@@ -74,6 +88,40 @@ class _PermissionGateState extends State<PermissionGate> {
     } catch (e) {
       debugPrint('PermissionGate: request failed: $e');
       if (mounted) setState(() => _isRequesting = false);
+    }
+  }
+
+  /// Shows the system "set default SMS app" dialog exactly once, on the first
+  /// entry after install. Never repeats (Android permanently auto-denies a
+  /// role after two refusals, so nagging here would burn the second chance —
+  /// later requests go through the inbox banner instead).
+  Future<void> _maybeRequestDefaultSmsRole() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool('default_sms_role_requested_v1') ?? false) return;
+      // Flag BEFORE the dialog: even if the app is killed mid-dialog we must
+      // not re-ask on next launch.
+      await prefs.setBool('default_sms_role_requested_v1', true);
+      final native = NativeSmsService();
+      if (await native.isDefaultSmsApp()) return;
+      await native.requestDefaultSmsRole();
+    } catch (e) {
+      debugPrint('PermissionGate: default-SMS-role request failed: $e');
+    }
+  }
+
+  /// Same one-shot pattern for the default-dialer role (ROLE_DIALER). Runs
+  /// after the SMS dialog so the two system sheets appear sequentially.
+  Future<void> _maybeRequestDefaultDialerRole() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool('default_dialer_role_requested_v1') ?? false) return;
+      await prefs.setBool('default_dialer_role_requested_v1', true);
+      final service = NativeCallService.instance;
+      if (await service.isDefaultDialer()) return;
+      await service.requestDefaultDialerRole();
+    } catch (e) {
+      debugPrint('PermissionGate: default-dialer-role request failed: $e');
     }
   }
 

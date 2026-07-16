@@ -17,6 +17,7 @@ class MessageComposer extends StatelessWidget {
     required this.onAttach,
     required this.onSend,
     required this.onStickerSelected,
+    this.onSchedule,
   });
 
   final TextEditingController controller;
@@ -25,6 +26,9 @@ class MessageComposer extends StatelessWidget {
   final VoidCallback onAttach;
   final VoidCallback onSend;
   final ValueChanged<String> onStickerSelected;
+
+  /// Long-press on the send button → schedule this message (زمان‌بندی ارسال).
+  final VoidCallback? onSchedule;
 
   /// Quick-pick emoji — tapping one inserts it at the cursor (so several can be
   /// combined before sending). Full emoji and any keyboard sticker packs remain
@@ -142,7 +146,11 @@ class MessageComposer extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 4),
-                MessageSendButton(enabled: hasText, onSend: onSend),
+                MessageSendButton(
+                  enabled: hasText,
+                  onSend: onSend,
+                  onSchedule: onSchedule,
+                ),
               ],
             ),
             if (showStickers)

@@ -38,7 +38,11 @@ void main() {
     );
   });
 
-  CallLogBloc build() => CallLogBloc(service: service, repository: repo);
+  CallLogBloc build() => CallLogBloc(
+    service: service,
+    repository: repo,
+    observeDeviceChanges: false,
+  );
 
   blocTest<CallLogBloc, CallLogState>(
     'LoadCallLogs emits [Loading, Loaded] with hasMore=false for a short page',

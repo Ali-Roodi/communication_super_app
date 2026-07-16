@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'core/navigation/app_route_observer.dart';
+import 'core/navigation/call_ui_coordinator.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_bloc.dart';
 import 'core/bloc_providers/app_bloc_providers.dart';
@@ -48,6 +49,7 @@ class MyApp extends StatelessWidget {
               return MaterialApp(
                 title: 'قاسم',
                 debugShowCheckedModeBanner: false,
+                navigatorKey: appNavigatorKey,
                 navigatorObservers: [appRouteObserver],
                 theme: AppTheme.light,
                 darkTheme: AppTheme.dark,
@@ -57,7 +59,10 @@ class MyApp extends StatelessWidget {
                     child: child ?? const AuthWrapperScreen(),
                   );
                 },
-                home: const AuthWrapperScreen(),
+                // CallUiCoordinator sits ABOVE the auth flow: an incoming call
+                // must surface its UI even on the PIN screen (default-dialer
+                // duty) — the rest of the app stays locked.
+                home: const CallUiCoordinator(child: AuthWrapperScreen()),
               );
             },
           );

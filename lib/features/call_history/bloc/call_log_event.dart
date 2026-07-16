@@ -19,6 +19,13 @@ class LoadMoreCallLogs extends CallLogEvent {
   const LoadMoreCallLogs();
 }
 
+/// Silent device mirror-sync: refreshes the list **without** emitting a
+/// loading state, so the screen never flashes. Fired by the native
+/// ContentObserver (a call just ended / a row changed) and on app resume.
+class SyncCallLogs extends CallLogEvent {
+  const SyncCallLogs();
+}
+
 class DeleteCallLog extends CallLogEvent {
   final String id;
 
