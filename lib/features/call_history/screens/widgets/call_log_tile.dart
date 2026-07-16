@@ -10,6 +10,10 @@ import 'package:communication_super_app/features/call_history/bloc/call_log_even
 import 'package:communication_super_app/features/call_history/models/call_log_model.dart';
 import 'package:communication_super_app/features/call_history/screens/widgets/call_detail_sheet.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
+import 'package:communication_super_app/features/favorites/bloc/favorites_bloc.dart';
+import 'package:communication_super_app/features/favorites/bloc/favorites_event.dart';
+import 'package:communication_super_app/features/favorites/bloc/favorites_state.dart';
+import 'package:communication_super_app/features/favorites/models/favorite_model.dart';
 import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
 
 /// A single row in the recents list (Google Phone style).
@@ -17,14 +21,24 @@ import 'package:communication_super_app/features/settings/bloc/blocked_numbers_b
 /// Layout: avatar · [name/number (+ ×N count when collapsed)] over
 /// [type-arrow icon · type label · relative time] · ⓘ info button.
 /// Tapping the row places a call; the ⓘ opens the call detail sheet; a long
-/// press opens the options sheet (copy / block / delete).
+/// press opens the options sheet (favorite / copy / block / delete).
 class CallLogTile extends StatelessWidget {
   final CallLogModel log;
 
   /// Number of consecutive same-number/same-day calls collapsed into this row.
   final int count;
 
-  const CallLogTile({super.key, required this.log, this.count = 1});
+  /// IDs of *all* calls collapsed into this row. Deleting the row deletes them
+  /// all, so a "(۴)" group disappears instead of counting down to "(۳)".
+  /// Defaults to just [log]'s id when the row is not collapsed.
+  final List<String>? groupIds;
+
+  const CallLogTile({
+    super.key,
+    required this.log,
+    this.count = 1,
+    this.groupIds,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -98,6 +112,7 @@ class CallLogTile extends StatelessWidget {
   void _showOptions(BuildContext context) {
     final bloc = context.read<CallLogBloc>();
     final blockedBloc = context.read<BlockedNumbersBloc>();
+    final favoritesBloc = context.read<FavoritesBloc>();
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -107,6 +122,24 @@ class CallLogTile extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              FavoriteToggleTile(
+                phoneNumber: log.phoneNumber,
+                name: log.contactName,
+                contactId: log.contactId,
+                favoritesBloc: favoritesBloc,
+                onDone: (added) {
+                  Navigator.of(sheetContext).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        added
+                            ? 'به موردعلاقه‌ها افزوده شد'
+                            : 'از موردعلاقه‌ها حذف شد',
+                      ),
+                    ),
+                  );
+                },
+              ),
               ListTile(
                 leading: const Icon(Icons.copy_outlined),
                 title: const Text('کپی شماره'),
@@ -137,9 +170,13 @@ class CallLogTile extends StatelessWidget {
                   Icons.delete_outline,
                   color: AppColors.callRejectRed,
                 ),
-                title: const Text('حذف'),
+                title: Text(
+                  count > 1
+                      ? 'حذف (${PersianUtils.toPersianNumber('$count')} تماس)'
+                      : 'حذف',
+                ),
                 onTap: () {
-                  bloc.add(DeleteCallLog(log.id));
+                  bloc.add(DeleteCallLogs(groupIds ?? [log.id]));
                   Navigator.of(sheetContext).pop();
                 },
               ),
@@ -147,6 +184,65 @@ class CallLogTile extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ── Favorite toggle (shared by the options sheet and the detail sheet) ────────
+
+/// Star/unstar [phoneNumber]. Rebuilds on [FavoritesBloc] so the label and icon
+/// always match the current favorite state.
+class FavoriteToggleTile extends StatelessWidget {
+  final String phoneNumber;
+  final String? name;
+  final String? contactId;
+  final FavoritesBloc favoritesBloc;
+
+  /// Called with `true` when the number was added, `false` when removed.
+  final ValueChanged<bool> onDone;
+
+  const FavoriteToggleTile({
+    super.key,
+    required this.phoneNumber,
+    required this.favoritesBloc,
+    required this.onDone,
+    this.name,
+    this.contactId,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final norm = FavoriteModel.normalize(phoneNumber);
+    return BlocBuilder<FavoritesBloc, FavoritesState>(
+      bloc: favoritesBloc,
+      builder: (context, state) {
+        final isFav =
+            state is FavoritesLoaded &&
+            state.favorites.any((f) => f.normalized == norm);
+        return ListTile(
+          leading: Icon(
+            isFav ? Icons.star : Icons.star_border,
+            color: isFav ? AppColors.callHoldOrange : null,
+          ),
+          title: Text(
+            isFav ? 'حذف از موردعلاقه‌ها' : 'افزودن به موردعلاقه‌ها',
+          ),
+          onTap: () {
+            if (isFav) {
+              favoritesBloc.add(RemoveFavorite(norm));
+            } else {
+              favoritesBloc.add(
+                AddFavorite(
+                  phoneNumber: phoneNumber,
+                  name: name,
+                  contactId: contactId,
+                ),
+              );
+            }
+            onDone(!isFav);
+          },
+        );
+      },
     );
   }
 }

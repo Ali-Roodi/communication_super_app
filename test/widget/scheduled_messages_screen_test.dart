@@ -7,15 +7,16 @@ import 'package:communication_super_app/features/messages/bloc/scheduled_bloc.da
 import 'package:communication_super_app/features/messages/bloc/scheduled_event.dart';
 import 'package:communication_super_app/features/messages/models/scheduled_message_model.dart';
 import 'package:communication_super_app/features/messages/repositories/scheduled_message_repository.dart';
-import 'package:communication_super_app/features/messages/services/sms_service.dart';
 import 'package:communication_super_app/features/messages/services/native_scheduled_sms_service.dart';
 import 'package:communication_super_app/features/messages/screens/scheduled_messages_screen.dart';
 
 class _MockRepo extends Mock implements ScheduledMessageRepository {}
 
-class _MockSms extends Mock implements SmsService {}
-
 class _NoopNative implements NativeScheduledSmsService {
+  @override
+  Future<void> Function()? onDeliverDueRequested;
+  @override
+  void startListening() {}
   @override
   Future<void> reschedule() async {}
   @override
@@ -34,17 +35,14 @@ ScheduledMessage _msg() => ScheduledMessage(
 
 void main() {
   late _MockRepo repo;
-  late _MockSms sms;
 
   setUp(() {
     repo = _MockRepo();
-    sms = _MockSms();
   });
 
   Widget harness() {
     final bloc = ScheduledMessageBloc(
       repository: repo,
-      smsService: sms,
       nativeScheduler: _NoopNative(),
       autoDeliver: false,
     )..add(const LoadScheduled());

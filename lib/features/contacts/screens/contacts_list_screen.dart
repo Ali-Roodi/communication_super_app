@@ -12,14 +12,34 @@ import '../models/contact_model.dart';
 const double _kRowHeight = 64;
 const double _kHeaderHeight = 32;
 
-// Stock-phone style fast-scroll index: A–Z then '#' for everything else.
-const List<String> _kIndexLetters = [
+// Stock-phone style fast-scroll index. Which alphabet is shown follows the
+// device language: Persian phone → Persian letters + '#', otherwise A–Z + '#'.
+// '#' is always last and collects every initial outside the active alphabet.
+const List<String> _kLatinIndexLetters = [
   'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', //
   'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '#',
 ];
 
-/// Ordering rank so '#' sorts after Z.
-int _indexRank(String letter) => letter == '#' ? 26 : letter.codeUnitAt(0) - 65;
+const List<String> _kPersianIndexLetters = [
+  'ا', 'ب', 'پ', 'ت', 'ث', 'ج', 'چ', 'ح', 'خ', 'د', 'ذ', 'ر', 'ز', 'ژ', //
+  'س', 'ش', 'ص', 'ض', 'ط', 'ظ', 'ع', 'غ', 'ف', 'ق', 'ک', 'گ', 'ل', 'م', //
+  'ن', 'و', 'ه', 'ی', '#',
+];
+
+/// Maps the Arabic-script variants a name can start with onto the canonical
+/// Persian letter used for its section (e.g. «آرش» and «احمد» both → «ا»).
+const Map<String, String> _kPersianLetterAliases = {
+  'آ': 'ا', 'أ': 'ا', 'إ': 'ا', 'ٱ': 'ا', 'ء': 'ا', //
+  'ك': 'ک',
+  'ي': 'ی', 'ى': 'ی', 'ئ': 'ی',
+  'ة': 'ه', 'ۀ': 'ه',
+  'ؤ': 'و',
+};
+
+/// `true` when the device language is Persian, so the contacts index should use
+/// the Persian alphabet.
+bool isPersianDeviceLocale() =>
+    WidgetsBinding.instance.platformDispatcher.locale.languageCode == 'fa';
 
 class ContactsListScreen extends StatefulWidget {
   const ContactsListScreen({super.key});
@@ -34,15 +54,32 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
   bool _hasLoaded = false;
   String _query = '';
 
-  // Memoized section grouping (rebuilt only when the contact list changes).
+  // Memoized section grouping (rebuilt only when the contact list or the active
+  // alphabet changes).
   List<ContactModel>? _lastContacts;
+  List<String>? _lastLetters;
   List<_Section> _sections = [];
 
+  /// Index alphabet for the current device language.
+  List<String> get _indexLetters =>
+      isPersianDeviceLocale() ? _kPersianIndexLetters : _kLatinIndexLetters;
+
   List<_Section> _getOrBuildSections(List<ContactModel> contacts) {
-    if (identical(_lastContacts, contacts)) return _sections;
+    final letters = _indexLetters;
+    if (identical(_lastContacts, contacts) &&
+        identical(_lastLetters, letters)) {
+      return _sections;
+    }
     _lastContacts = contacts;
-    _sections = _buildSections(contacts);
+    _lastLetters = letters;
+    _sections = _buildSections(contacts, letters);
     return _sections;
+  }
+
+  /// Ordering rank of [letter] within the active alphabet ('#' sorts last).
+  int _indexRank(String letter) {
+    final i = _indexLetters.indexOf(letter);
+    return i < 0 ? _indexLetters.length : i;
   }
 
   @override
@@ -216,7 +253,7 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
           bottom: 88,
           left: 0, // mirrored to the left edge for the RTL layout
           child: _AlphabetBar(
-            letters: _kIndexLetters,
+            letters: _indexLetters,
             available: sections.map((s) => s.letter).toSet(),
             onSelect: _jumpToLetter,
           ),
@@ -249,31 +286,29 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
     );
   }
 
-  List<_Section> _buildSections(List<ContactModel> contacts) {
+  List<_Section> _buildSections(
+    List<ContactModel> contacts,
+    List<String> letters,
+  ) {
     final grouped = <String, List<ContactModel>>{};
     for (final c in contacts) {
-      grouped.putIfAbsent(_sectionLetter(c.name), () => []).add(c);
+      grouped.putIfAbsent(_sectionLetter(c.name, letters), () => []).add(c);
     }
-    final keys = grouped.keys.toList()..sort(_compareLetters);
+    final keys = grouped.keys.toList()
+      ..sort((a, b) => _indexRank(a).compareTo(_indexRank(b)));
     return [for (final k in keys) _Section(k, grouped[k]!)];
   }
 
-  /// Latin initials become their uppercase letter; everything else (Persian,
-  /// digits, symbols) is grouped under '#' so the index bar can stay A–Z + #.
-  static String _sectionLetter(String name) {
-    if (name.isEmpty) return '#';
-    final code = name[0].codeUnitAt(0);
-    final isLatin =
-        (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
-    return isLatin ? name[0].toUpperCase() : '#';
-  }
-
-  /// A–Z first, '#' always last.
-  static int _compareLetters(String a, String b) {
-    if (a == b) return 0;
-    if (a == '#') return 1;
-    if (b == '#') return -1;
-    return a.compareTo(b);
+  /// Section letter for [name] within the active alphabet [letters]. Latin
+  /// initials are uppercased; Persian initials are folded onto their canonical
+  /// letter (آ → ا, ك → ک, …). Anything the active alphabet doesn't contain
+  /// (digits, symbols, or the *other* script) falls under '#'.
+  static String _sectionLetter(String name, List<String> letters) {
+    final trimmed = name.trimLeft();
+    if (trimmed.isEmpty) return '#';
+    final first = trimmed[0];
+    final folded = _kPersianLetterAliases[first] ?? first.toUpperCase();
+    return letters.contains(folded) && folded != '#' ? folded : '#';
   }
 
   Widget _buildEmptyState(ThemeData theme) {
@@ -419,6 +454,13 @@ class _AlphabetBar extends StatelessWidget {
           onSelect(letters[i]);
         }
 
+        // The Persian alphabet has 33 entries vs. 27 for Latin, so shrink the
+        // glyphs when the available height can't fit them at the base size.
+        final maxPerLetter = constraints.maxHeight / letters.length;
+        final fontSize = maxPerLetter.isFinite
+            ? maxPerLetter.clamp(6.0, 11.0)
+            : 11.0;
+
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTapDown: (d) => handle(d.localPosition),
@@ -432,8 +474,14 @@ class _AlphabetBar extends StatelessWidget {
                 for (final l in letters)
                   Text(
                     l,
+                    strutStyle: StrutStyle(
+                      fontSize: fontSize,
+                      height: 1,
+                      forceStrutHeight: true,
+                    ),
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: fontSize,
+                      height: 1,
                       fontWeight: FontWeight.w600,
                       color: available.contains(l)
                           ? theme.colorScheme.primary

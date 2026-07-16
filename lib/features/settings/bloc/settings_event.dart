@@ -29,6 +29,16 @@ class SetTtyMode extends SettingsEvent {
   List<Object?> get props => [mode];
 }
 
+/// Switches every date display and date picker between the Jalali and
+/// Gregorian calendars.
+class SetCalendarType extends SettingsEvent {
+  final CalendarType calendarType;
+  const SetCalendarType(this.calendarType);
+
+  @override
+  List<Object?> get props => [calendarType];
+}
+
 class UpdateQuickReply extends SettingsEvent {
   final int index;
   final String text;

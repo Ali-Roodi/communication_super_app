@@ -4,11 +4,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:communication_super_app/features/messages/bloc/message_bloc.dart';
+import 'package:communication_super_app/features/messages/bloc/scheduled_bloc.dart';
+import 'package:communication_super_app/features/messages/bloc/scheduled_event.dart';
 import 'package:communication_super_app/features/messages/models/message_model.dart';
+import 'package:communication_super_app/features/messages/models/scheduled_message_model.dart';
 import 'package:communication_super_app/features/messages/repositories/message_repository.dart';
+import 'package:communication_super_app/features/messages/repositories/scheduled_message_repository.dart';
+import 'package:communication_super_app/features/messages/services/native_scheduled_sms_service.dart';
 import 'package:communication_super_app/features/messages/services/sms_service.dart';
 import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
 import 'package:communication_super_app/features/messages/screens/widgets/message_bubble.dart';
+import 'package:communication_super_app/features/messages/screens/widgets/scheduled_bubble.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
 import 'package:communication_super_app/features/settings/repositories/blocked_numbers_repository.dart';
@@ -21,6 +27,20 @@ class _MockContactRepository extends Mock implements ContactRepository {}
 
 class _MockBlockedNumbersRepository extends Mock
     implements BlockedNumbersRepository {}
+
+class _MockScheduledRepository extends Mock
+    implements ScheduledMessageRepository {}
+
+class _NoopNative implements NativeScheduledSmsService {
+  @override
+  Future<void> Function()? onDeliverDueRequested;
+  @override
+  void startListening() {}
+  @override
+  Future<void> reschedule() async {}
+  @override
+  Future<void> cancel() async {}
+}
 
 MessageModel _msg(
   String id, {
@@ -37,17 +57,28 @@ MessageModel _msg(
   timestamp: at,
 );
 
+ScheduledMessage _scheduled({String body = 'پیام زمان‌بندی‌شده'}) =>
+    ScheduledMessage(
+      id: 's1',
+      phoneNumber: '09120000000',
+      body: body,
+      scheduledAt: DateTime.now().add(const Duration(hours: 3)),
+      createdAt: DateTime.now(),
+    );
+
 void main() {
   late _MockMessageRepository repo;
   late _MockSmsService sms;
   late _MockContactRepository contacts;
   late _MockBlockedNumbersRepository blockedRepo;
+  late _MockScheduledRepository scheduledRepo;
 
   setUp(() {
     repo = _MockMessageRepository();
     sms = _MockSmsService();
     contacts = _MockContactRepository();
     blockedRepo = _MockBlockedNumbersRepository();
+    scheduledRepo = _MockScheduledRepository();
 
     when(() => repo.markThreadAsRead(any())).thenAnswer((_) async {});
     // LoadThreads (fired on dispose) needs these stubbed so it can't throw.
@@ -64,6 +95,9 @@ void main() {
     ).thenAnswer((_) async => const []);
     when(() => contacts.getAllContacts()).thenAnswer((_) async => const []);
     when(() => blockedRepo.getBlocked()).thenAnswer((_) async => const []);
+    when(
+      () => scheduledRepo.getAll(status: any(named: 'status')),
+    ).thenAnswer((_) async => const <ScheduledMessage>[]);
   });
 
   Widget harness() {
@@ -72,10 +106,16 @@ void main() {
       smsService: sms,
       contactRepository: contacts,
     );
+    final scheduledBloc = ScheduledMessageBloc(
+      repository: scheduledRepo,
+      nativeScheduler: _NoopNative(),
+      autoDeliver: false,
+    )..add(const LoadScheduled());
     return MaterialApp(
       home: MultiBlocProvider(
         providers: [
           BlocProvider.value(value: messageBloc),
+          BlocProvider.value(value: scheduledBloc),
           BlocProvider(create: (_) => BlockedNumbersBloc(blockedRepo)),
         ],
         child: const ConversationScreen(
@@ -158,5 +198,82 @@ void main() {
     expect(find.byType(MessageBubble), findsNWidgets(2));
     expect(find.text('امروز'), findsOneWidget);
     expect(find.text('دیروز'), findsOneWidget);
+  });
+
+  testWidgets('a pending schedule for this thread renders as a ghost bubble', (
+    tester,
+  ) async {
+    when(
+      () => repo.getMessagesByThread(
+        any(),
+        limit: any(named: 'limit'),
+        offset: any(named: 'offset'),
+        orderDesc: any(named: 'orderDesc'),
+      ),
+    ).thenAnswer((_) async => [_msg('m1', at: DateTime.now())]);
+    when(
+      () => scheduledRepo.getAll(status: any(named: 'status')),
+    ).thenAnswer((_) async => [_scheduled()]);
+
+    await tester.pumpWidget(harness());
+    await tester.pumpAndSettle();
+
+    expect(find.byType(MessageBubble), findsOneWidget);
+    expect(find.byType(ScheduledBubble), findsOneWidget);
+    expect(find.text('پیام زمان‌بندی‌شده'), findsOneWidget);
+  });
+
+  testWidgets('a schedule for another thread is not shown', (tester) async {
+    when(
+      () => repo.getMessagesByThread(
+        any(),
+        limit: any(named: 'limit'),
+        offset: any(named: 'offset'),
+        orderDesc: any(named: 'orderDesc'),
+      ),
+    ).thenAnswer((_) async => const []);
+    when(() => scheduledRepo.getAll(status: any(named: 'status'))).thenAnswer(
+      (_) async => [
+        ScheduledMessage(
+          id: 's2',
+          phoneNumber: '09129999999',
+          body: 'مال یک چت دیگر',
+          scheduledAt: DateTime.now().add(const Duration(hours: 1)),
+          createdAt: DateTime.now(),
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(harness());
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ScheduledBubble), findsNothing);
+    expect(find.text('هنوز پیامی نیست'), findsOneWidget);
+  });
+
+  testWidgets('long-pressing a scheduled bubble opens the actions sheet', (
+    tester,
+  ) async {
+    when(
+      () => repo.getMessagesByThread(
+        any(),
+        limit: any(named: 'limit'),
+        offset: any(named: 'offset'),
+        orderDesc: any(named: 'orderDesc'),
+      ),
+    ).thenAnswer((_) async => const []);
+    when(
+      () => scheduledRepo.getAll(status: any(named: 'status')),
+    ).thenAnswer((_) async => [_scheduled()]);
+
+    await tester.pumpWidget(harness());
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.byType(ScheduledBubble));
+    await tester.pumpAndSettle();
+
+    expect(find.text('ارسال فوری'), findsOneWidget);
+    expect(find.text('ویرایش پیام'), findsOneWidget);
+    expect(find.text('لغو زمان‌بندی'), findsOneWidget);
   });
 }

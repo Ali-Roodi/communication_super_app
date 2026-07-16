@@ -17,6 +17,9 @@ import 'package:communication_super_app/features/contacts/repositories/contact_r
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
 import '../bloc/scheduled_bloc.dart';
+import '../bloc/scheduled_event.dart';
+import '../bloc/scheduled_state.dart';
+import '../models/scheduled_message_model.dart';
 import 'drafts_list_screen.dart';
 import 'template_picker_screen.dart';
 import 'schedule_message_screen.dart';
@@ -24,6 +27,7 @@ import 'widgets/message_bubble.dart';
 import 'widgets/conversation_app_bars.dart';
 import 'widgets/conversation_sheets.dart';
 import 'widgets/message_composer.dart';
+import 'widgets/scheduled_bubble.dart';
 
 /// Google Messages style chat screen.
 ///
@@ -82,6 +86,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
     super.initState();
     _messageBloc = context.read<MessageBloc>();
     _messageBloc.add(LoadMessages(widget.threadId));
+    // Re-read the schedules table on entry: a message delivered while this
+    // screen was gone (native worker, cold start) would otherwise still show as
+    // a pending ghost bubble from the BLoC's cached state.
+    context.read<ScheduledMessageBloc>().add(const LoadScheduled());
     _scrollController.addListener(_onScroll);
     _messageController.addListener(_onComposerChanged);
     _restoreComposerDraft();
@@ -312,26 +320,105 @@ class _ConversationScreenState extends State<ConversationScreen> {
         if (state is MessageLoading) {
           return const Center(child: CircularProgressIndicator());
         }
-        if (state is MessagesLoaded) {
-          if (state.messages.isEmpty) {
-            return const Center(child: Text('هنوز پیامی نیست'));
-          }
-          final msgs = state.messages;
-          return ListView.builder(
-            controller: _scrollController,
-            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-            itemCount: msgs.length,
-            itemBuilder: (context, i) {
-              final msg = msgs[i];
-              final prev = i > 0 ? msgs[i - 1] : null;
-              final next = i < msgs.length - 1 ? msgs[i + 1] : null;
-              return _buildMessageItem(msg, prev, next);
-            },
-          );
-        }
-        return const SizedBox.shrink();
+        if (state is! MessagesLoaded) return const SizedBox.shrink();
+
+        // Pending schedules for this thread render as ghost bubbles pinned after
+        // the real messages (they are all in the future). They come from
+        // ScheduledMessageBloc, so the list re-renders the moment one is sent,
+        // edited or cancelled.
+        return BlocBuilder<ScheduledMessageBloc, ScheduledState>(
+          buildWhen: (_, curr) => curr is ScheduledLoaded,
+          builder: (context, sState) {
+            final scheduled = sState is ScheduledLoaded
+                ? sState.pendingForThread(widget.threadId)
+                : const <ScheduledMessage>[];
+            final msgs = state.messages;
+
+            if (msgs.isEmpty && scheduled.isEmpty) {
+              return const Center(child: Text('هنوز پیامی نیست'));
+            }
+
+            return ListView.builder(
+              controller: _scrollController,
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+              itemCount: msgs.length + scheduled.length,
+              itemBuilder: (context, i) {
+                if (i >= msgs.length) {
+                  final s = scheduled[i - msgs.length];
+                  return ScheduledBubble(
+                    message: s,
+                    onTap: () => _showScheduledOptions(s),
+                    onLongPress: () => _showScheduledOptions(s),
+                  );
+                }
+                final msg = msgs[i];
+                final prev = i > 0 ? msgs[i - 1] : null;
+                final next = i < msgs.length - 1 ? msgs[i + 1] : null;
+                return _buildMessageItem(msg, prev, next);
+              },
+            );
+          },
+        );
       },
     );
+  }
+
+  // ── Scheduled-message actions ─────────────────────────────────────────────
+
+  void _showScheduledOptions(ScheduledMessage msg) {
+    final bloc = context.read<ScheduledMessageBloc>();
+    showScheduledMessageOptionsSheet(
+      context,
+      message: msg,
+      onSendNow: () => bloc.add(SendScheduledNow(msg.id)),
+      onEdit: () => _editScheduled(msg),
+      onCopy: () {
+        Clipboard.setData(ClipboardData(text: msg.body));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('کپی شد')));
+      },
+      onDelete: () => _confirmCancelScheduled(msg),
+    );
+  }
+
+  void _editScheduled(ScheduledMessage msg) {
+    final scheduledBloc = context.read<ScheduledMessageBloc>();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => BlocProvider.value(
+          value: scheduledBloc,
+          child: ScheduleMessageScreen(existing: msg),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmCancelScheduled(ScheduledMessage msg) async {
+    final bloc = context.read<ScheduledMessageBloc>();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          content: const Text('زمان‌بندی این پیام لغو شود؟ پیام ارسال نخواهد شد.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('بازگشت'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text(
+                'لغو زمان‌بندی',
+                style: TextStyle(color: AppColors.danger),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok == true) bloc.add(DeleteScheduled(msg.id));
   }
 
   bool _sameGroup(MessageModel a, MessageModel b) {

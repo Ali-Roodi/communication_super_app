@@ -66,6 +66,12 @@ class MessageRepository {
         : 'm.thread_id NOT IN (SELECT thread_id FROM ${AppConstants.archivedThreadsTable})';
 
     // Pinned threads (only relevant in the non-archived inbox) float to the top.
+    //
+    // The "last message" row is picked with a correlated rowid subquery rather
+    // than a `MAX(timestamp)` join: when two messages in a thread share the same
+    // timestamp (multipart SMS, or two messages delivered in the same
+    // millisecond) a MAX join matches *both* rows and the thread shows up twice
+    // in the inbox. Matching on rowid guarantees exactly one row per thread.
     String query =
         '''
       SELECT
@@ -83,15 +89,15 @@ class MessageRepository {
         p.thread_id AS pinned_id,
         p.pinned_at AS pinned_at
       FROM ${AppConstants.messagesTable} m
-      JOIN (
-        SELECT thread_id, MAX(timestamp) AS max_ts
-        FROM ${AppConstants.messagesTable}
-        WHERE is_deleted = 0
-        GROUP BY thread_id
-      ) latest ON latest.thread_id = m.thread_id AND latest.max_ts = m.timestamp
       LEFT JOIN ${AppConstants.contactsTable} c ON c.id = m.contact_id
       LEFT JOIN ${AppConstants.pinnedThreadsTable} p ON p.thread_id = m.thread_id
       WHERE m.is_deleted = 0 AND $archiveClause
+        AND m.rowid = (
+          SELECT ml.rowid FROM ${AppConstants.messagesTable} ml
+          WHERE ml.thread_id = m.thread_id AND ml.is_deleted = 0
+          ORDER BY ml.timestamp DESC, ml.rowid DESC
+          LIMIT 1
+        )
       ORDER BY (pinned_id IS NOT NULL) DESC, m.timestamp DESC
     ''';
 

@@ -54,6 +54,15 @@ class SettingsScreen extends StatelessWidget {
                     SetBoolSetting(BoolSetting.nameFormatLastFirst, v),
                   ),
                 ),
+                _ChoiceTile<CalendarType>(
+                  title: 'تقویم',
+                  current: s.calendarType,
+                  options: const {
+                    CalendarType.jalali: 'شمسی (هجری خورشیدی)',
+                    CalendarType.gregorian: 'میلادی',
+                  },
+                  onSelected: (c) => bloc.add(SetCalendarType(c)),
+                ),
                 BlocBuilder<ThemeBloc, ThemeState>(
                   builder: (context, t) => _ChoiceTile<AppThemeMode>(
                     title: 'پوسته',

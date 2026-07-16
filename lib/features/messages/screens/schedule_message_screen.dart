@@ -93,7 +93,7 @@ class _ScheduleMessageScreenState extends State<ScheduleMessageScreen> {
   String _fa(String s) => PersianUtils.toPersianNumber(s);
 
   Future<void> _pickDate() async {
-    final picked = await showJalaliDatePicker(
+    final picked = await showAppDatePicker(
       context: context,
       initialDate: _scheduledAt,
       firstDate: DateTime.now().subtract(const Duration(days: 1)),
@@ -129,7 +129,7 @@ class _ScheduleMessageScreenState extends State<ScheduleMessageScreen> {
   }
 
   Future<void> _pickEndDate() async {
-    final picked = await showJalaliDatePicker(
+    final picked = await showAppDatePicker(
       context: context,
       initialDate: _endDate ?? _scheduledAt.add(const Duration(days: 30)),
       firstDate: _scheduledAt,

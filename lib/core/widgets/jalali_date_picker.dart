@@ -1,68 +1,99 @@
 import 'package:flutter/material.dart';
+import '../utils/calendar_type.dart';
+import '../utils/date_formatter.dart';
 import '../utils/jalali_date.dart';
 import '../utils/persian_utils.dart';
 
-/// Shows an RTL Jalali (Persian) date picker and returns the chosen date as a
+/// Shows an RTL date picker on the calendar the user selected in Settings
+/// (Jalali by default, Gregorian on request) and returns the chosen date as a
 /// Gregorian [DateTime] (time-of-day copied from [initialDate]), or null if
 /// dismissed. Drop-in replacement for `showDatePicker` in this Persian app.
-Future<DateTime?> showJalaliDatePicker({
+Future<DateTime?> showAppDatePicker({
   required BuildContext context,
   required DateTime initialDate,
   required DateTime firstDate,
   required DateTime lastDate,
+  CalendarType? calendar,
 }) {
   return showDialog<DateTime>(
     context: context,
-    builder: (_) => _JalaliDatePickerDialog(
+    builder: (_) => _AppDatePickerDialog(
       initialDate: initialDate,
       firstDate: firstDate,
       lastDate: lastDate,
+      calendar: calendar ?? DateFormatter.calendar,
     ),
   );
 }
 
-class _JalaliDatePickerDialog extends StatefulWidget {
+class _AppDatePickerDialog extends StatefulWidget {
   final DateTime initialDate;
   final DateTime firstDate;
   final DateTime lastDate;
+  final CalendarType calendar;
 
-  const _JalaliDatePickerDialog({
+  const _AppDatePickerDialog({
     required this.initialDate,
     required this.firstDate,
     required this.lastDate,
+    required this.calendar,
   });
 
   @override
-  State<_JalaliDatePickerDialog> createState() =>
-      _JalaliDatePickerDialogState();
+  State<_AppDatePickerDialog> createState() => _AppDatePickerDialogState();
 }
 
-class _JalaliDatePickerDialogState extends State<_JalaliDatePickerDialog> {
+class _AppDatePickerDialogState extends State<_AppDatePickerDialog> {
   late int _year;
   late int _month;
   late int _day;
   late final int _firstYear;
   late final int _lastYear;
 
+  bool get _isJalali => widget.calendar == CalendarType.jalali;
+
+  /// Calendar year of a Gregorian [dt] on the active calendar.
+  int _yearOf(DateTime dt) =>
+      _isJalali ? JalaliDate.fromDateTime(dt).year : dt.year;
+
+  int _monthLength(int y, int m) {
+    if (_isJalali) return JalaliDate.monthLength(y, m);
+    // Day 0 of the next month == last day of month m.
+    return DateTime(y, m + 1, 0).day;
+  }
+
+  List<String> get _monthNames =>
+      _isJalali ? JalaliDate.monthNames : DateFormatter.gregorianMonthNames;
+
   @override
   void initState() {
     super.initState();
-    final j = JalaliDate.fromDateTime(widget.initialDate);
-    _year = j.year;
-    _month = j.month;
-    _day = j.day;
-    _firstYear = JalaliDate.fromDateTime(widget.firstDate).year;
-    _lastYear = JalaliDate.fromDateTime(widget.lastDate).year;
+    if (_isJalali) {
+      final j = JalaliDate.fromDateTime(widget.initialDate);
+      _year = j.year;
+      _month = j.month;
+      _day = j.day;
+    } else {
+      _year = widget.initialDate.year;
+      _month = widget.initialDate.month;
+      _day = widget.initialDate.day;
+    }
+    _firstYear = _yearOf(widget.firstDate);
+    _lastYear = _yearOf(widget.lastDate);
   }
 
   void _clampDay() {
-    final maxDay = JalaliDate.monthLength(_year, _month);
+    final maxDay = _monthLength(_year, _month);
     if (_day > maxDay) _day = maxDay;
   }
 
-  DateTime get _selected =>
-      JalaliDate.toDateTime(_year, _month, _day,
-          hour: widget.initialDate.hour, minute: widget.initialDate.minute);
+  DateTime get _selected {
+    final h = widget.initialDate.hour;
+    final min = widget.initialDate.minute;
+    return _isJalali
+        ? JalaliDate.toDateTime(_year, _month, _day, hour: h, minute: min)
+        : DateTime(_year, _month, _day, h, min);
+  }
 
   bool get _inRange {
     final d = DateTime(_selected.year, _selected.month, _selected.day);
@@ -77,7 +108,8 @@ class _JalaliDatePickerDialogState extends State<_JalaliDatePickerDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final dayCount = JalaliDate.monthLength(_year, _month);
+    final dayCount = _monthLength(_year, _month);
+    final monthNames = _monthNames;
 
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -100,7 +132,7 @@ class _JalaliDatePickerDialogState extends State<_JalaliDatePickerDialog> {
               child: _dropdown<int>(
                 value: _month,
                 items: [for (var m = 1; m <= 12; m++) m],
-                label: (m) => JalaliDate.monthNames[m - 1],
+                label: (m) => monthNames[m - 1],
                 onChanged: (m) => setState(() {
                   _month = m;
                   _clampDay();

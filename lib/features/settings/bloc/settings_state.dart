@@ -1,4 +1,7 @@
 import 'package:equatable/equatable.dart';
+import 'package:communication_super_app/core/utils/calendar_type.dart';
+
+export 'package:communication_super_app/core/utils/calendar_type.dart';
 
 enum TtyMode { off, full, hco, vco }
 
@@ -28,6 +31,7 @@ class SettingsState extends Equatable {
   final bool callerIdSpam;
   final bool filterSpam;
   final TtyMode ttyMode;
+  final CalendarType calendarType;
   final List<String> quickReplies;
 
   const SettingsState({
@@ -42,6 +46,7 @@ class SettingsState extends Equatable {
     this.callerIdSpam = false,
     this.filterSpam = false,
     this.ttyMode = TtyMode.off,
+    this.calendarType = CalendarType.jalali,
     this.quickReplies = defaultQuickReplies,
   });
 
@@ -89,6 +94,7 @@ class SettingsState extends Equatable {
     bool? callerIdSpam,
     bool? filterSpam,
     TtyMode? ttyMode,
+    CalendarType? calendarType,
     List<String>? quickReplies,
   }) {
     return SettingsState(
@@ -103,6 +109,7 @@ class SettingsState extends Equatable {
       callerIdSpam: callerIdSpam ?? this.callerIdSpam,
       filterSpam: filterSpam ?? this.filterSpam,
       ttyMode: ttyMode ?? this.ttyMode,
+      calendarType: calendarType ?? this.calendarType,
       quickReplies: quickReplies ?? this.quickReplies,
     );
   }
@@ -145,6 +152,7 @@ class SettingsState extends Equatable {
     callerIdSpam,
     filterSpam,
     ttyMode,
+    calendarType,
     quickReplies,
   ];
 }

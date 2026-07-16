@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Bundle
 import com.example.communication_super_app.call.CallHandler
+import com.example.communication_super_app.scheduled.ScheduledSmsChannel
 import com.example.communication_super_app.scheduled.ScheduledSmsScheduler
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -58,20 +59,26 @@ class MainActivity : FlutterActivity() {
             }
 
         // ── Scheduled SMS (زمان‌بندی ارسال — تحویل پس‌زمینه) ─────────────
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL_SCHEDULED)
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "reschedule" -> {
-                        ScheduledSmsScheduler.reschedule(applicationContext)
-                        result.success(true)
-                    }
-                    "cancel" -> {
-                        ScheduledSmsScheduler.cancel(applicationContext)
-                        result.success(true)
-                    }
-                    else -> result.notImplemented()
+        // Published to ScheduledSmsChannel so the alarm receiver can hand the
+        // delivery to Dart while the engine is alive (keeps the BLoCs in sync).
+        val scheduledChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            CHANNEL_SCHEDULED,
+        )
+        scheduledChannel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "reschedule" -> {
+                    ScheduledSmsScheduler.reschedule(applicationContext)
+                    result.success(true)
                 }
+                "cancel" -> {
+                    ScheduledSmsScheduler.cancel(applicationContext)
+                    result.success(true)
+                }
+                else -> result.notImplemented()
             }
+        }
+        ScheduledSmsChannel.channel = scheduledChannel
     }
 
     private fun pickImage(result: MethodChannel.Result) {
@@ -154,6 +161,9 @@ class MainActivity : FlutterActivity() {
         smsHandler?.dispose()
         smsHandler = null
         callHandler = null
+        // The engine is going away: the alarm receiver must go back to delivering
+        // scheduled messages natively.
+        ScheduledSmsChannel.channel = null
         super.onDestroy()
     }
 }

@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:equatable/equatable.dart';
+import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 
 /// How a scheduled message repeats.
 enum ScheduleRepeat {
@@ -54,6 +55,11 @@ enum ScheduleEnd {
 
 enum ScheduleStatus {
   pending('pending'),
+
+  /// Claimed by a deliverer and currently being sent. A row left in this state
+  /// (process killed mid-send) is reclaimed after
+  /// [ScheduledMessage.staleClaimTimeout].
+  sending('sending'),
   completed('completed'),
   cancelled('cancelled'),
   failed('failed');
@@ -97,6 +103,17 @@ class ScheduledMessage extends Equatable {
   final ScheduleStatus status;
   final DateTime createdAt;
 
+  /// Consecutive failed send attempts for the *current* occurrence. Reset to 0
+  /// on a successful send.
+  final int attemptCount;
+
+  /// When a failed attempt may be retried. While set in the future the row is
+  /// not due, even though `scheduledAt` has passed.
+  final DateTime? nextAttemptAt;
+
+  /// Error code of the last failed attempt (`NO_SERVICE`, `NO_SIM_CARD`, …).
+  final String? lastError;
+
   const ScheduledMessage({
     required this.id,
     required this.phoneNumber,
@@ -113,9 +130,34 @@ class ScheduledMessage extends Equatable {
     this.occurrenceCount = 0,
     this.status = ScheduleStatus.pending,
     required this.createdAt,
+    this.attemptCount = 0,
+    this.nextAttemptAt,
+    this.lastError,
   });
 
+  /// A row claimed longer ago than this is assumed abandoned (the process that
+  /// claimed it was killed) and is released back to `pending`.
+  static const Duration staleClaimTimeout = Duration(minutes: 2);
+
+  /// Attempts before a schedule is given up on. Delays: 1 min, 5 min, then fail.
+  static const int maxAttempts = 3;
+
+  /// Backoff before retry number [attempt] (1-based).
+  static Duration retryDelay(int attempt) =>
+      attempt <= 1 ? const Duration(minutes: 1) : const Duration(minutes: 5);
+
   bool get isRecurring => repeat != ScheduleRepeat.none;
+
+  /// Conversation this schedule belongs to — same normalization as
+  /// `messages.thread_id`, so the chat screen can match them up.
+  String get threadId => PhoneNormalizer.toThreadId(phoneNumber);
+
+  /// True when this schedule should be sent at [now]: still pending, its time
+  /// has arrived, and any retry backoff has elapsed.
+  bool isDueAt(DateTime now) =>
+      status == ScheduleStatus.pending &&
+      !scheduledAt.isAfter(now) &&
+      (nextAttemptAt == null || !nextAttemptAt!.isAfter(now));
 
   /// The next fire time strictly after [scheduledAt] per the repeat rule, or
   /// null if this is a one-shot schedule.
@@ -168,9 +210,23 @@ class ScheduledMessage extends Equatable {
   /// Returns this schedule advanced after a successful send: either the next
   /// pending occurrence, or a completed schedule when the recurrence is
   /// exhausted (non-recurring, end-date passed, or occurrence cap reached).
-  ScheduledMessage advanceAfterSend() {
+  ///
+  /// Occurrences that were missed while the device was off are **skipped, not
+  /// replayed**: the next fire time is walked forward until it is in the future
+  /// relative to [now]. Without this a daily schedule missed for a week fires
+  /// seven times in a row the moment the app opens.
+  ScheduledMessage advanceAfterSend({DateTime? now}) {
+    final at = now ?? DateTime.now();
     final newCount = occurrenceCount + 1;
-    final next = _nextAfter(scheduledAt);
+
+    var next = _nextAfter(scheduledAt);
+    // Skip every occurrence that is already in the past.
+    var guard = 0;
+    while (next != null && !next.isAfter(at) && guard++ < _maxSkipAhead) {
+      final after = _nextAfter(next);
+      if (after == null || after == next) break;
+      next = after;
+    }
 
     final exhausted =
         next == null ||
@@ -185,11 +241,53 @@ class ScheduledMessage extends Equatable {
       return copyWith(
         occurrenceCount: newCount,
         status: ScheduleStatus.completed,
+        attemptCount: 0,
+        clearNextAttemptAt: true,
+        clearLastError: true,
       );
     }
-    return copyWith(occurrenceCount: newCount, scheduledAt: next);
+    return copyWith(
+      occurrenceCount: newCount,
+      scheduledAt: next,
+      attemptCount: 0,
+      clearNextAttemptAt: true,
+      clearLastError: true,
+    );
   }
 
+  /// Bounds the catch-up walk in [advanceAfterSend] so a pathological repeat
+  /// rule can never spin (e.g. a `weekly` rule whose weekday set never matches).
+  static const int _maxSkipAhead = 5000;
+
+  /// Returns this schedule after a failed send attempt: either scheduled for a
+  /// backoff retry, or permanently failed once [maxAttempts] is reached.
+  ScheduledMessage withFailedAttempt({
+    required String errorCode,
+    DateTime? now,
+  }) {
+    final at = now ?? DateTime.now();
+    final attempts = attemptCount + 1;
+    if (attempts >= maxAttempts) {
+      return copyWith(
+        status: ScheduleStatus.failed,
+        attemptCount: attempts,
+        lastError: errorCode,
+        clearNextAttemptAt: true,
+      );
+    }
+    return copyWith(
+      status: ScheduleStatus.pending,
+      attemptCount: attempts,
+      lastError: errorCode,
+      nextAttemptAt: at.add(retryDelay(attempts)),
+    );
+  }
+
+  /// Row for an INSERT-OR-REPLACE upsert.
+  ///
+  /// `claim_token` / `claimed_at` are deliberately absent: writing a row back
+  /// through the repository always *releases* any claim it held, which is the
+  /// correct outcome for every writer (send finished, user edited, cancelled).
   Map<String, dynamic> toMap() => {
     'id': id,
     'phone_number': phoneNumber,
@@ -206,6 +304,9 @@ class ScheduledMessage extends Equatable {
     'occurrence_count': occurrenceCount,
     'status': status.value,
     'created_at': createdAt.millisecondsSinceEpoch,
+    'attempt_count': attemptCount,
+    'next_attempt_at': nextAttemptAt?.millisecondsSinceEpoch,
+    'last_error': lastError,
   };
 
   factory ScheduledMessage.fromMap(Map<String, dynamic> m) => ScheduledMessage(
@@ -226,6 +327,11 @@ class ScheduledMessage extends Equatable {
     occurrenceCount: (m['occurrence_count'] as int?) ?? 0,
     status: ScheduleStatus.fromValue(m['status'] as String?),
     createdAt: DateTime.fromMillisecondsSinceEpoch(m['created_at'] as int),
+    attemptCount: (m['attempt_count'] as int?) ?? 0,
+    nextAttemptAt: (m['next_attempt_at'] as int?) == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(m['next_attempt_at'] as int),
+    lastError: m['last_error'] as String?,
   );
 
   static Set<int> _parseWeekdays(String? csv) {
@@ -251,6 +357,11 @@ class ScheduledMessage extends Equatable {
     int? maxOccurrences,
     int? occurrenceCount,
     ScheduleStatus? status,
+    int? attemptCount,
+    DateTime? nextAttemptAt,
+    String? lastError,
+    bool clearNextAttemptAt = false,
+    bool clearLastError = false,
   }) => ScheduledMessage(
     id: id,
     phoneNumber: phoneNumber ?? this.phoneNumber,
@@ -267,6 +378,11 @@ class ScheduledMessage extends Equatable {
     occurrenceCount: occurrenceCount ?? this.occurrenceCount,
     status: status ?? this.status,
     createdAt: createdAt,
+    attemptCount: attemptCount ?? this.attemptCount,
+    nextAttemptAt: clearNextAttemptAt
+        ? null
+        : (nextAttemptAt ?? this.nextAttemptAt),
+    lastError: clearLastError ? null : (lastError ?? this.lastError),
   );
 
   @override
@@ -286,5 +402,8 @@ class ScheduledMessage extends Equatable {
     occurrenceCount,
     status,
     createdAt,
+    attemptCount,
+    nextAttemptAt,
+    lastError,
   ];
 }

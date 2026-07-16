@@ -185,6 +185,43 @@ void main() {
       final remaining = await repo.getMessagesByThread('09120000000');
       expect(remaining.map((m) => m.id), ['m2']);
     });
+
+    test('getAllThreads returns one thread even when the two newest messages '
+        'share a timestamp', () async {
+      final repo = MessageRepository();
+      // Two messages at the same millisecond (multipart SMS / burst delivery).
+      await repo.createMessage(_message('m1', minute: 5, body: 'بخش اول'));
+      await repo.createMessage(_message('m2', minute: 5, body: 'بخش دوم'));
+
+      final threads = await repo.getAllThreads();
+      expect(threads, hasLength(1));
+      expect(threads.single.threadId, '09120000000');
+    });
+
+    test('getAllThreads returns one row per thread', () async {
+      final repo = MessageRepository();
+      await repo.createMessage(_message('a1', threadId: '09120000001'));
+      await repo.createMessage(
+        _message('a2', threadId: '09120000001', minute: 3),
+      );
+      await repo.createMessage(_message('b1', threadId: '09120000002'));
+
+      final threads = await repo.getAllThreads();
+      expect(
+        threads.map((t) => t.threadId).toSet(),
+        {'09120000001', '09120000002'},
+      );
+      expect(threads, hasLength(2));
+    });
+
+    test('getAllThreads last message is the newest one', () async {
+      final repo = MessageRepository();
+      await repo.createMessage(_message('m1', minute: 0, body: 'قدیمی'));
+      await repo.createMessage(_message('m2', minute: 9, body: 'جدید'));
+
+      final threads = await repo.getAllThreads();
+      expect(threads.single.lastMessage, 'جدید');
+    });
   });
 
   group('DraftRepository', () {
@@ -410,6 +447,91 @@ void main() {
       await repo.delete('1');
 
       expect(await repo.getAll(), isEmpty);
+    });
+
+    test('claimDue takes ownership of due rows exactly once', () async {
+      final repo = ScheduledMessageRepository();
+      final now = DateTime(2026, 6, 1, 9);
+      await repo.upsert(_scheduled('1', at: DateTime(2026, 6, 1, 8)));
+      await repo.upsert(_scheduled('2', at: DateTime(2026, 6, 1, 8, 30)));
+      await repo.upsert(_scheduled('3', at: DateTime(2026, 6, 1, 10)));
+
+      final first = await repo.claimDue(now, 'token-a');
+      expect(first.map((m) => m.id), ['1', '2']);
+      expect(first.every((m) => m.status == ScheduleStatus.sending), isTrue);
+
+      // A competing deliverer running immediately after gets nothing: the rows
+      // are no longer `pending`, and the not-yet-due row is out of range.
+      final second = await repo.claimDue(now, 'token-b');
+      expect(second, isEmpty);
+    });
+
+    test('claimDue skips a row whose retry backoff has not elapsed', () async {
+      final repo = ScheduledMessageRepository();
+      final now = DateTime(2026, 6, 1, 9);
+      await repo.upsert(
+        _scheduled(
+          '1',
+          at: DateTime(2026, 6, 1, 8),
+        ).withFailedAttempt(errorCode: 'NO_SERVICE', now: now),
+      );
+
+      expect(await repo.claimDue(now, 't1'), isEmpty);
+
+      final later = now.add(ScheduledMessage.retryDelay(1));
+      expect(await repo.claimDue(later, 't2'), hasLength(1));
+    });
+
+    test('releaseStaleClaims frees a row abandoned mid-send', () async {
+      final repo = ScheduledMessageRepository();
+      final now = DateTime(2026, 6, 1, 9);
+      await repo.upsert(_scheduled('1', at: DateTime(2026, 6, 1, 8)));
+      await repo.claimDue(now, 'dead-process');
+
+      // Still owned right after the claim.
+      expect(await repo.claimDue(now, 'other'), isEmpty);
+
+      // Past the stale timeout the row is reclaimable.
+      final later = now.add(
+        ScheduledMessage.staleClaimTimeout + const Duration(seconds: 1),
+      );
+      final reclaimed = await repo.claimDue(later, 'other');
+      expect(reclaimed.map((m) => m.id), ['1']);
+    });
+
+    test('earliestDueAt accounts for a pending retry backoff', () async {
+      final repo = ScheduledMessageRepository();
+      final now = DateTime(2026, 6, 1, 9);
+      final retryAt = now.add(const Duration(minutes: 1));
+      await repo.upsert(
+        _scheduled(
+          '1',
+          at: DateTime(2026, 6, 1, 8),
+        ).withFailedAttempt(errorCode: 'NO_SERVICE', now: now),
+      );
+
+      expect(await repo.earliestDueAt(), retryAt);
+    });
+
+    test('reschedule pulls the fire time forward and clears the backoff',
+        () async {
+      final repo = ScheduledMessageRepository();
+      final now = DateTime(2026, 6, 1, 9);
+      await repo.upsert(
+        _scheduled(
+          '1',
+          at: DateTime(2026, 6, 5, 8),
+        ).withFailedAttempt(errorCode: 'NO_SERVICE', now: now),
+      );
+
+      await repo.reschedule('1', now);
+
+      final row = (await repo.getById('1'))!;
+      expect(row.scheduledAt, now);
+      expect(row.status, ScheduleStatus.pending);
+      expect(row.attemptCount, 0);
+      expect(row.nextAttemptAt, isNull);
+      expect(await repo.claimDue(now, 'x'), hasLength(1));
     });
   });
 }

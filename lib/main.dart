@@ -8,6 +8,8 @@ import 'core/bloc_providers/app_bloc_providers.dart';
 import 'core/widgets/app_lock_wrapper.dart';
 import 'features/authentication/screens/auth_wrapper_screen.dart';
 import 'features/messages/services/notification_service.dart';
+import 'features/settings/bloc/settings_bloc.dart';
+import 'features/settings/bloc/settings_state.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -38,17 +40,26 @@ class MyApp extends StatelessWidget {
       // BlocBuilder داخل AppBlocProviders است تا به ThemeBloc دسترسی داشته باشد
       child: BlocBuilder<ThemeBloc, ThemeState>(
         builder: (context, themeState) {
-          return MaterialApp(
-            title: 'قاسم',
-            debugShowCheckedModeBanner: false,
-            navigatorObservers: [appRouteObserver],
-            theme: AppTheme.light,
-            darkTheme: AppTheme.dark,
-            themeMode: themeState.themeMode,
-            builder: (context, child) {
-              return AppLockWrapper(child: child ?? const AuthWrapperScreen());
+          // Rebuild the whole app when the calendar changes so every already-
+          // built screen re-formats its dates through DateFormatter.
+          return BlocBuilder<SettingsBloc, SettingsState>(
+            buildWhen: (a, b) => a.calendarType != b.calendarType,
+            builder: (context, _) {
+              return MaterialApp(
+                title: 'قاسم',
+                debugShowCheckedModeBanner: false,
+                navigatorObservers: [appRouteObserver],
+                theme: AppTheme.light,
+                darkTheme: AppTheme.dark,
+                themeMode: themeState.themeMode,
+                builder: (context, child) {
+                  return AppLockWrapper(
+                    child: child ?? const AuthWrapperScreen(),
+                  );
+                },
+                home: const AuthWrapperScreen(),
+              );
             },
-            home: const AuthWrapperScreen(),
           );
         },
       ),

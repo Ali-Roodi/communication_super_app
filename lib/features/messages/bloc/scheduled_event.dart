@@ -82,3 +82,14 @@ class DeleteScheduled extends ScheduledEvent {
 class DeliverDueScheduled extends ScheduledEvent {
   const DeliverDueScheduled();
 }
+
+/// Send a pending schedule immediately, without waiting for its time
+/// («ارسال فوری»). Recurring schedules advance to their next occurrence as if
+/// the send had happened on time.
+class SendScheduledNow extends ScheduledEvent {
+  final String id;
+  const SendScheduledNow(this.id);
+
+  @override
+  List<Object?> get props => [id];
+}

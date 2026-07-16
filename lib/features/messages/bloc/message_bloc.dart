@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'message_event.dart';
 import 'message_state.dart';
@@ -37,6 +39,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     on<LoadMoreMessages>(_onLoadMoreMessages);
     on<SendMessage>(_onSendMessage);
     on<ReceiveMessage>(_onReceiveMessage);
+    on<MessageSentExternally>(_onMessageSentExternally);
     on<RefreshContactNames>(_onRefreshContactNames);
     on<DeleteMessage>(_onDeleteMessage);
     on<DeleteThread>(_onDeleteThread);
@@ -51,8 +54,22 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       add(ReceiveMessage(message));
     };
 
+    // Outgoing messages can be persisted by code that doesn't go through this
+    // bloc (the scheduled-message deliverer). Mirror them into the UI too.
+    _sentSubscription = SmsService.onMessageSent.listen(
+      (message) => add(MessageSentExternally(message)),
+    );
+
     // NOTE: SMS listening will be initialized only after permissions are granted
     // and when LoadThreads event is first triggered (in _onLoadThreads)
+  }
+
+  StreamSubscription<MessageModel>? _sentSubscription;
+
+  @override
+  Future<void> close() {
+    _sentSubscription?.cancel();
+    return super.close();
   }
 
   Future<void> _onLoadThreads(
@@ -328,24 +345,36 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   Future<void> _onReceiveMessage(
     ReceiveMessage event,
     Emitter<MessageState> emit,
+  ) async => _mergePersistedMessage(event.message, emit);
+
+  Future<void> _onMessageSentExternally(
+    MessageSentExternally event,
+    Emitter<MessageState> emit,
+  ) async => _mergePersistedMessage(event.message, emit);
+
+  /// Folds a message that is *already in the DB* into the current state: append
+  /// it to the open conversation, or refresh the inbox when no conversation for
+  /// its thread is on screen.
+  Future<void> _mergePersistedMessage(
+    MessageModel message,
+    Emitter<MessageState> emit,
   ) async {
     try {
-      // Message is already created in SmsService before this callback; do not insert again.
       final current = state;
       if (current is MessagesLoaded) {
-        if (current.threadId == event.message.threadId) {
+        if (current.threadId == message.threadId) {
           // Dedupe: avoid appending if this message is already in the list (e.g. duplicate event).
           final alreadyPresent = current.messages.any(
             (m) =>
-                m.id == event.message.id ||
-                (m.body == event.message.body &&
-                    m.timestamp == event.message.timestamp &&
-                    m.phoneNumber == event.message.phoneNumber),
+                m.id == message.id ||
+                (m.body == message.body &&
+                    m.timestamp == message.timestamp &&
+                    m.phoneNumber == message.phoneNumber),
           );
           if (!alreadyPresent) {
             emit(
               MessagesLoaded(
-                [...current.messages, event.message],
+                [...current.messages, message],
                 hasMore: current.hasMore,
                 threadId: current.threadId,
               ),
