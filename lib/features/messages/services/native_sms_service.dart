@@ -172,6 +172,44 @@ class NativeSmsService {
     }
   }
 
+  // ── SMS provider queries (mirror-sync source) ──────────────────────────
+
+  /// Recent rows of a provider box ('inbox' | 'sent'), newest first.
+  /// [limit] <= 0 means no limit.
+  Future<List<DeviceSmsRow>> querySms({
+    required String box,
+    int limit = 0,
+  }) async {
+    try {
+      final rows = await _methodChannel.invokeMethod<List>('querySms', {
+        'box': box,
+        'limit': limit,
+      });
+      if (rows == null) return const [];
+      return [
+        for (final row in rows)
+          DeviceSmsRow.fromMap(Map<String, dynamic>.from(row as Map)),
+      ];
+    } catch (e) {
+      debugPrint('querySms($box) failed: $e');
+      return const [];
+    }
+  }
+
+  /// ALL row ids of a provider box — tiny payload for the deletion diff.
+  Future<Set<int>> querySmsIds({required String box}) async {
+    try {
+      final ids = await _methodChannel.invokeMethod<List>('querySmsIds', {
+        'box': box,
+      });
+      if (ids == null) return const {};
+      return {for (final id in ids) (id as num).toInt()};
+    } catch (e) {
+      debugPrint('querySmsIds($box) failed: $e');
+      return const {};
+    }
+  }
+
   // ── Default SMS app role ────────────────────────────────────────────────
 
   /// True when this app currently holds the default-SMS-app role.
@@ -254,6 +292,29 @@ class NativeSmsService {
     _initialized = false;
     debugPrint('NativeSmsService disposed');
   }
+}
+
+/// One row of the device SMS provider (content://sms), as returned by
+/// [NativeSmsService.querySms].
+class DeviceSmsRow {
+  final int id;
+  final String address;
+  final String body;
+  final int date;
+
+  const DeviceSmsRow({
+    required this.id,
+    required this.address,
+    required this.body,
+    required this.date,
+  });
+
+  factory DeviceSmsRow.fromMap(Map<String, dynamic> map) => DeviceSmsRow(
+    id: (map['id'] as num).toInt(),
+    address: map['address'] as String? ?? '',
+    body: map['body'] as String? ?? '',
+    date: (map['date'] as num?)?.toInt() ?? 0,
+  );
 }
 
 /// Send/delivery status report for an outgoing SMS.

@@ -1,4 +1,3 @@
-import 'package:another_telephony/telephony.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
@@ -54,7 +53,6 @@ class SmsService {
   static Stream<({String messageId, MessageStatus status})>
   get onMessageStatusChanged => _statusController.stream;
 
-  final Telephony _telephony = Telephony.instance;
   final MessageRepository _messageRepository = MessageRepository();
   final ContactRepository _contactRepository = ContactRepository();
   final NotificationService _notificationService = NotificationService();
@@ -243,8 +241,12 @@ class SmsService {
           })
           .catchError((error) {
             debugPrint('Failed to initialize native SMS service: $error');
-            // Fallback to telephony plugin
-            _useTelephonyFallback();
+            // No plugin fallback: the manifest IncomingSmsReceiver still
+            // persists + notifies natively, and the next app start retries
+            // this initialization. (The old `another_telephony` fallback was
+            // REMOVED — its global permission-result listener double-replied
+            // a MethodChannel result and crashed the app whenever a telephony
+            // call overlapped a permission dialog.)
           });
     } catch (e) {
       // Silently handle errors (e.g., permission denied)
@@ -253,79 +255,14 @@ class SmsService {
     }
   }
 
-  /// Fallback to telephony plugin if native implementation fails.
-  ///
-  /// IMPORTANT: `listenInBackground: true` spawns a background Dart isolate
-  /// using `BackgroundIsolateBinaryMessenger`.  On some Android versions the
-  /// engine reference held by that isolate becomes stale when the Activity is
-  /// recreated (which Android can trigger right after permission grants),
-  /// causing an immediate crash.  Using `false` keeps reception foreground-only
-  /// but avoids the crash; the native `SmsHandler.kt` BroadcastReceiver
-  /// handles background reception anyway.
-  void _useTelephonyFallback() {
-    if (_listening) return;
-    try {
-      _telephony.listenIncomingSms(
-        onNewMessage: (SmsMessage message) async {
-          final phoneNumber = message.address ?? '';
-          final body = message.body ?? '';
-          final timestamp = DateTime.now().millisecondsSinceEpoch;
-
-          if (_isDuplicateSms(phoneNumber, body, timestamp)) return;
-
-          final normalized = _normalizePhoneNumber(phoneNumber);
-          final threadId = normalized.isNotEmpty ? normalized : phoneNumber;
-
-          // Blocked sender: drop silently (same as the native path).
-          if (await _blockedRepository.isBlocked(threadId)) return;
-
-          final contact = await _contactRepository.getContactByPhoneNumber(
-            phoneNumber,
-          );
-
-          final messageModel = MessageModel(
-            id: const Uuid().v4(),
-            threadId: threadId,
-            contactId: contact?.id,
-            phoneNumber: phoneNumber,
-            body: body,
-            type: MessageType.received,
-            status: MessageStatus.delivered,
-            timestamp: DateTime.fromMillisecondsSinceEpoch(timestamp),
-            isRead: false,
-          );
-
-          await _messageRepository.createMessage(messageModel);
-
-          await _notificationService.showSmsNotification(
-            contactName: contact?.name ?? '',
-            phoneNumber: phoneNumber,
-            message: body,
-            threadId: threadId,
-          );
-
-          onMessageReceived?.call(messageModel);
-        },
-        // Keep false: background isolate on some Android versions crashes when
-        // Activity is recreated after permission grants (see note above).
-        listenInBackground: false,
-      );
-      _listening = true;
-    } catch (e) {
-      debugPrint('Telephony fallback also failed: $e');
-    }
-  }
-
   /// Maximum number of inbox/sent messages whose **content** is reconciled per
   /// sync pass.
   ///
-  /// The `telephony` plugin transfers ALL matching rows through the
-  /// MethodChannel as a single JSON payload.  On a device with tens of
-  /// thousands of SMS this payload can exceed the Binder transaction limit
-  /// (~1 MB), causing an OOM crash or a TransactionTooLargeException.
-  /// Capping the content pass keeps every sync safe while still covering all
-  /// recent conversations. (The deletion diff below is NOT capped — it only
-  /// moves row ids, which are tiny.)
+  /// The full rows travel through the MethodChannel as one payload; on a
+  /// device with tens of thousands of SMS an uncapped read could exceed the
+  /// Binder transaction limit (~1 MB). Capping the content pass keeps every
+  /// sync safe while still covering all recent conversations. (The deletion
+  /// diff below is NOT capped — it only moves row ids, which are tiny.)
   static const int _importLimit = 500;
 
   /// Mirror-syncs the local message store with the device SMS provider:
@@ -365,25 +302,19 @@ class SmsService {
       }
     }
 
-    const columns = [
-      SmsColumn.ID,
-      SmsColumn.ADDRESS,
-      SmsColumn.BODY,
-      SmsColumn.DATE,
-    ];
-    final inbox = await _telephony.getInboxSms(
-      columns: columns,
-      sortOrder: [OrderBy(SmsColumn.DATE, sort: Sort.DESC)],
+    // Native provider queries (see SmsHandler.querySms) — content capped,
+    // deletion-diff ids uncapped.
+    final inbox = await _nativeSmsService.querySms(
+      box: 'inbox',
+      limit: _importLimit,
     );
-    final sent = await _telephony.getSentSms(
-      columns: columns,
-      sortOrder: [OrderBy(SmsColumn.DATE, sort: Sort.DESC)],
+    final sent = await _nativeSmsService.querySms(
+      box: 'sent',
+      limit: _importLimit,
     );
 
     // ── 1. Reconcile recent content in ─────────────────────────────────────
     const int batchSize = 100;
-    final inboxList = inbox.take(_importLimit).toList();
-    final sentList = sent.take(_importLimit).toList();
     final batch = <MessageModel>[];
 
     Future<void> flush() async {
@@ -393,14 +324,14 @@ class SmsService {
       await Future.delayed(Duration.zero);
     }
 
-    for (final message in inboxList) {
-      batch.add(_createMessageModel(message, MessageType.received, contactMap));
+    for (final row in inbox) {
+      batch.add(_createMessageModel(row, MessageType.received, contactMap));
       if (batch.length >= batchSize) await flush();
     }
     await flush();
 
-    for (final message in sentList) {
-      batch.add(_createMessageModel(message, MessageType.sent, contactMap));
+    for (final row in sent) {
+      batch.add(_createMessageModel(row, MessageType.sent, contactMap));
       if (batch.length >= batchSize) await flush();
     }
     await flush();
@@ -409,11 +340,12 @@ class SmsService {
     // The full (uncapped) id set from both boxes; a local row linked to a
     // provider id that is in neither box no longer exists on the device.
     final deviceIds = <int>{
-      for (final m in inbox)
-        if (m.id != null) m.id!,
-      for (final m in sent)
-        if (m.id != null) m.id!,
+      ...await _nativeSmsService.querySmsIds(box: 'inbox'),
+      ...await _nativeSmsService.querySmsIds(box: 'sent'),
     };
+    // Safety: an empty id set with rows present means the query failed —
+    // do NOT wipe the local mirror on a transient read error.
+    if (deviceIds.isEmpty && (inbox.isNotEmpty || sent.isNotEmpty)) return;
     final removed = await _messageRepository.removeRowsMissingFromDevice(
       deviceIds,
     );
@@ -423,11 +355,11 @@ class SmsService {
   }
 
   MessageModel _createMessageModel(
-    SmsMessage smsMessage,
+    DeviceSmsRow row,
     MessageType type,
     Map<String, dynamic> contactMap,
   ) {
-    final phone = smsMessage.address ?? '';
+    final phone = row.address;
     final normalized = _normalizePhoneNumber(phone);
     final threadId = normalized.isNotEmpty ? normalized : phone;
     final contact = contactMap[normalized];
@@ -436,20 +368,20 @@ class SmsService {
         : MessageStatus.delivered;
 
     return MessageModel(
-      id: (smsMessage.id ?? const Uuid().v4()).toString(),
+      id: row.id.toString(),
       threadId: threadId,
       contactId: contact?.id,
       phoneNumber: phone,
-      body: smsMessage.body ?? '',
+      body: row.body,
       type: type,
       status: status,
       timestamp: DateTime.fromMillisecondsSinceEpoch(
-        smsMessage.date ?? DateTime.now().millisecondsSinceEpoch,
+        row.date > 0 ? row.date : DateTime.now().millisecondsSinceEpoch,
       ),
       // Imported messages from device are considered already read
       isRead: true,
       // Provider row id — the key the mirror-sync diffs on.
-      deviceSmsId: smsMessage.id,
+      deviceSmsId: row.id,
     );
   }
 
