@@ -21,6 +21,7 @@ class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
     on<RefreshCallLogs>(_onRefreshCallLogs);
     on<LoadMoreCallLogs>(_onLoadMoreCallLogs);
     on<DeleteCallLog>(_onDeleteCallLog);
+    on<DeleteCallLogs>(_onDeleteCallLogs);
   }
 
   Future<void> _onLoadCallLogs(
@@ -100,8 +101,23 @@ class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
     DeleteCallLog event,
     Emitter<CallLogState> emit,
   ) async {
+    await _deleteThenReload(emit, () => _repository.deleteCallLog(event.id));
+  }
+
+  Future<void> _onDeleteCallLogs(
+    DeleteCallLogs event,
+    Emitter<CallLogState> emit,
+  ) async {
+    if (event.ids.isEmpty) return;
+    await _deleteThenReload(emit, () => _repository.deleteCallLogs(event.ids));
+  }
+
+  Future<void> _deleteThenReload(
+    Emitter<CallLogState> emit,
+    Future<void> Function() delete,
+  ) async {
     try {
-      await _repository.deleteCallLog(event.id);
+      await delete();
       final page = await _repository.getAllCallLogs(
         limit: _callLogPageSize,
         offset: 0,

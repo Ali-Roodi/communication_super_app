@@ -78,6 +78,18 @@ class ReceiveMessage extends MessageEvent {
   List<Object?> get props => [message];
 }
 
+/// An outgoing message was persisted by *some* code path (composer, scheduled
+/// delivery, "send now"). Appends it to the open conversation or refreshes the
+/// inbox, exactly like [ReceiveMessage] does for incoming ones.
+class MessageSentExternally extends MessageEvent {
+  final MessageModel message;
+
+  const MessageSentExternally(this.message);
+
+  @override
+  List<Object?> get props => [message];
+}
+
 class DeleteMessage extends MessageEvent {
   final String messageId;
 

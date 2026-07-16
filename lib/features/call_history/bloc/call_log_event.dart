@@ -27,3 +27,14 @@ class DeleteCallLog extends CallLogEvent {
   @override
   List<Object?> get props => [id];
 }
+
+/// Deletes every call in a collapsed recents row in one shot, so a group shown
+/// as "(۴)" disappears entirely instead of shrinking to "(۳)".
+class DeleteCallLogs extends CallLogEvent {
+  final List<String> ids;
+
+  const DeleteCallLogs(this.ids);
+
+  @override
+  List<Object?> get props => [ids];
+}

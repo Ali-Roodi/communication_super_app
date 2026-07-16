@@ -543,7 +543,7 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
 
   Future<void> _pickBirthday() async {
     final now = DateTime.now();
-    final picked = await showJalaliDatePicker(
+    final picked = await showAppDatePicker(
       context: context,
       initialDate: _birthday ?? DateTime(now.year - 20),
       firstDate: DateTime(1900),

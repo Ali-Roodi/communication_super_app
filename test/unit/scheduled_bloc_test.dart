@@ -7,6 +7,7 @@ import 'package:communication_super_app/features/messages/bloc/scheduled_event.d
 import 'package:communication_super_app/features/messages/bloc/scheduled_state.dart';
 import 'package:communication_super_app/features/messages/models/scheduled_message_model.dart';
 import 'package:communication_super_app/features/messages/repositories/scheduled_message_repository.dart';
+import 'package:communication_super_app/features/messages/services/scheduled_delivery_service.dart';
 import 'package:communication_super_app/features/messages/services/sms_service.dart';
 import 'package:communication_super_app/features/messages/services/native_scheduled_sms_service.dart';
 
@@ -17,6 +18,10 @@ class _MockSms extends Mock implements SmsService {}
 /// No-op so the bloc doesn't reach for the real platform channel in tests.
 class _NoopNative implements NativeScheduledSmsService {
   @override
+  Future<void> Function()? onDeliverDueRequested;
+  @override
+  void startListening() {}
+  @override
   Future<void> reschedule() async {}
   @override
   Future<void> cancel() async {}
@@ -25,18 +30,21 @@ class _NoopNative implements NativeScheduledSmsService {
 ScheduledMessage _due({
   String id = 's1',
   ScheduleRepeat repeat = ScheduleRepeat.none,
+  int attemptCount = 0,
 }) => ScheduledMessage(
   id: id,
   phoneNumber: '09120000000',
   body: 'سلام',
   scheduledAt: DateTime(2026, 1, 1, 9),
   repeat: repeat,
+  attemptCount: attemptCount,
   createdAt: DateTime(2026, 1, 1),
 );
 
 void main() {
   setUpAll(() {
     registerFallbackValue(_due());
+    registerFallbackValue(DateTime(2026));
   });
 
   late _MockRepo repo;
@@ -50,20 +58,34 @@ void main() {
     ).thenAnswer((_) async => const <ScheduledMessage>[]);
     when(() => repo.upsert(any())).thenAnswer((_) async {});
     when(() => repo.cancel(any())).thenAnswer((_) async {});
+    when(() => repo.delete(any())).thenAnswer((_) async {});
+    when(() => repo.reschedule(any(), any())).thenAnswer((_) async {});
+    when(() => repo.claimDue(any(), any())).thenAnswer((_) async => const []);
   });
 
   ScheduledMessageBloc build() => ScheduledMessageBloc(
     repository: repo,
-    smsService: sms,
+    deliveryService: ScheduledDeliveryService(repository: repo, smsService: sms),
     nativeScheduler: _NoopNative(),
     autoDeliver: false,
   );
 
+  /// Only the *first* claim yields rows: a second sweep must find nothing, which
+  /// is what stops a message being sent twice.
+  void claimYieldsOnce(List<ScheduledMessage> rows) {
+    var first = true;
+    when(() => repo.claimDue(any(), any())).thenAnswer((_) async {
+      if (!first) return const [];
+      first = false;
+      return rows;
+    });
+  }
+
   group('DeliverDueScheduled', () {
     blocTest<ScheduledMessageBloc, ScheduledState>(
-      'sends each due message and completes a one-shot',
+      'sends each claimed message and completes a one-shot',
       setUp: () {
-        when(() => repo.getDue(any())).thenAnswer((_) async => [_due()]);
+        claimYieldsOnce([_due()]);
         when(
           () => sms.sendSms(any(), any()),
         ).thenAnswer((_) async => const SmsServiceResult.ok());
@@ -81,9 +103,9 @@ void main() {
     );
 
     blocTest<ScheduledMessageBloc, ScheduledState>(
-      'marks a message failed when sending fails',
+      'a transient failure schedules a retry instead of failing the message',
       setUp: () {
-        when(() => repo.getDue(any())).thenAnswer((_) async => [_due()]);
+        claimYieldsOnce([_due()]);
         when(
           () => sms.sendSms(any(), any()),
         ).thenAnswer((_) async => const SmsServiceResult.fail('NO_SERVICE'));
@@ -94,16 +116,39 @@ void main() {
         final captured =
             verify(() => repo.upsert(captureAny())).captured.last
                 as ScheduledMessage;
+        expect(captured.status, ScheduleStatus.pending);
+        expect(captured.attemptCount, 1);
+        expect(captured.lastError, 'NO_SERVICE');
+        expect(captured.nextAttemptAt, isNotNull);
+      },
+    );
+
+    blocTest<ScheduledMessageBloc, ScheduledState>(
+      'the final attempt marks the message failed',
+      setUp: () {
+        claimYieldsOnce([
+          _due(attemptCount: ScheduledMessage.maxAttempts - 1),
+        ]);
+        when(
+          () => sms.sendSms(any(), any()),
+        ).thenAnswer((_) async => const SmsServiceResult.fail('NO_SIM_CARD'));
+      },
+      build: build,
+      act: (b) => b.add(const DeliverDueScheduled()),
+      verify: (_) {
+        final captured =
+            verify(() => repo.upsert(captureAny())).captured.last
+                as ScheduledMessage;
         expect(captured.status, ScheduleStatus.failed);
+        expect(captured.lastError, 'NO_SIM_CARD');
+        expect(captured.nextAttemptAt, isNull);
       },
     );
 
     blocTest<ScheduledMessageBloc, ScheduledState>(
       'a recurring message stays pending with an advanced fire time',
       setUp: () {
-        when(
-          () => repo.getDue(any()),
-        ).thenAnswer((_) async => [_due(repeat: ScheduleRepeat.daily)]);
+        claimYieldsOnce([_due(repeat: ScheduleRepeat.daily)]);
         when(
           () => sms.sendSms(any(), any()),
         ).thenAnswer((_) async => const SmsServiceResult.ok());
@@ -115,19 +160,78 @@ void main() {
             verify(() => repo.upsert(captureAny())).captured.last
                 as ScheduledMessage;
         expect(captured.status, ScheduleStatus.pending);
-        expect(captured.scheduledAt, DateTime(2026, 1, 2, 9));
+        expect(captured.scheduledAt.isAfter(DateTime.now()), isTrue);
       },
     );
 
     blocTest<ScheduledMessageBloc, ScheduledState>(
-      'does nothing when no message is due',
-      setUp: () {
-        when(() => repo.getDue(any())).thenAnswer((_) async => const []);
-      },
+      'sends nothing when the claim comes back empty',
       build: build,
       act: (b) => b.add(const DeliverDueScheduled()),
-      expect: () => const <ScheduledState>[],
       verify: (_) => verifyNever(() => sms.sendSms(any(), any())),
+    );
+
+    blocTest<ScheduledMessageBloc, ScheduledState>(
+      're-reads the table even when this sweep sent nothing, so a schedule '
+      'delivered by the native worker stops being shown as pending',
+      setUp: () {
+        // Claim yields nothing — the native worker already took the row and
+        // completed it directly in SQLite.
+        var reads = 0;
+        when(() => repo.getAll(status: any(named: 'status'))).thenAnswer((
+          _,
+        ) async {
+          reads++;
+          return reads == 1
+              ? [_due()]
+              : [_due().copyWith(status: ScheduleStatus.completed)];
+        });
+      },
+      build: build,
+      act: (b) async {
+        b.add(const LoadScheduled());
+        await Future<void>.delayed(Duration.zero);
+        b.add(const DeliverDueScheduled());
+      },
+      verify: (b) {
+        final state = b.state as ScheduledLoaded;
+        expect(state.pending, isEmpty);
+        expect(state.history.single.status, ScheduleStatus.completed);
+      },
+    );
+  });
+
+  group('SendScheduledNow', () {
+    blocTest<ScheduledMessageBloc, ScheduledState>(
+      'pulls the fire time to now and delivers in the same turn',
+      setUp: () {
+        when(() => repo.getById('s1')).thenAnswer((_) async => _due());
+        claimYieldsOnce([_due()]);
+        when(
+          () => sms.sendSms(any(), any()),
+        ).thenAnswer((_) async => const SmsServiceResult.ok());
+      },
+      build: build,
+      act: (b) => b.add(const SendScheduledNow('s1')),
+      verify: (_) {
+        verify(() => repo.reschedule('s1', any())).called(1);
+        verify(() => sms.sendSms('09120000000', 'سلام')).called(1);
+      },
+    );
+
+    blocTest<ScheduledMessageBloc, ScheduledState>(
+      'ignores a schedule that is no longer pending',
+      setUp: () {
+        when(() => repo.getById('s1')).thenAnswer(
+          (_) async => _due().copyWith(status: ScheduleStatus.completed),
+        );
+      },
+      build: build,
+      act: (b) => b.add(const SendScheduledNow('s1')),
+      verify: (_) {
+        verifyNever(() => repo.reschedule(any(), any()));
+        verifyNever(() => sms.sendSms(any(), any()));
+      },
     );
   });
 

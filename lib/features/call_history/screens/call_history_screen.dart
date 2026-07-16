@@ -187,6 +187,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen>
                                 return CallLogTile(
                                   log: group.representative,
                                   count: group.count,
+                                  groupIds: group.ids,
                                 );
                               },
                             ),
@@ -251,8 +252,8 @@ class _CallHistoryScreenState extends State<CallHistoryScreen>
   }
 
   /// Collapses consecutive calls to/from the same number on the same calendar
-  /// day into one [_CallGroup] (the representative is the most recent call;
-  /// [count] is how many were merged). Mirrors Google Phone's "(×N)" grouping.
+  /// day into one [_CallGroup] (the representative is the most recent call).
+  /// Mirrors Google Phone's "(×N)" grouping.
   List<_CallGroup> _groupCallLogs(List<CallLogModel> logs) {
     final groups = <_CallGroup>[];
     var i = 0;
@@ -271,7 +272,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen>
           break;
         }
       }
-      groups.add(_CallGroup(representative: base, count: j - i));
+      groups.add(_CallGroup(logs.sublist(i, j)));
       i = j;
     }
     return groups;
@@ -283,10 +284,16 @@ class _CallHistoryScreenState extends State<CallHistoryScreen>
   static DateTime _dayOf(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
 }
 
+/// Every call merged into one recents row. [logs] is ordered newest-first, so
+/// the first entry is the row's representative; [ids] is what a "delete" on the
+/// row must remove.
 class _CallGroup {
-  final CallLogModel representative;
-  final int count;
-  const _CallGroup({required this.representative, required this.count});
+  final List<CallLogModel> logs;
+  const _CallGroup(this.logs);
+
+  CallLogModel get representative => logs.first;
+  int get count => logs.length;
+  List<String> get ids => [for (final l in logs) l.id];
 }
 
 /// Small day-section header (امروز / دیروز / قدیمی‌تر) — Figma 627:4073.

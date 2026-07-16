@@ -31,6 +31,19 @@ class SmsServiceResult {
 }
 
 class SmsService {
+  /// Broadcast of every **outgoing** message this app persists, from any code
+  /// path (composer send, scheduled delivery, "send now").
+  ///
+  /// `SmsService` is constructed independently by several BLoCs, so this is
+  /// static: `MessageBloc` subscribes once and refreshes the conversation /
+  /// inbox no matter who did the sending. Incoming messages keep using the
+  /// [onMessageReceived] callback (they already drive `ReceiveMessage`).
+  static final StreamController<MessageModel> _sentController =
+      StreamController<MessageModel>.broadcast();
+
+  /// Stream of outgoing messages the moment they land in the DB.
+  static Stream<MessageModel> get onMessageSent => _sentController.stream;
+
   final Telephony _telephony = Telephony.instance;
   final MessageRepository _messageRepository = MessageRepository();
   final ContactRepository _contactRepository = ContactRepository();
@@ -102,6 +115,10 @@ class SmsService {
       );
 
       await _messageRepository.createMessage(messageModel);
+      // Tell every listening BLoC the thread changed. Without this a message
+      // sent by the scheduler (or from another screen) sits in the DB until the
+      // next manual reload.
+      _sentController.add(messageModel);
       return const SmsServiceResult.ok();
     } on PlatformException catch (e) {
       // Surface the native error code (NO_SIM_CARD, NO_SERVICE, etc.) directly

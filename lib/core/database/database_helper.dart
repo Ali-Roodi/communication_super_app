@@ -152,6 +152,32 @@ class DatabaseHelper {
     if (oldVersion < 9) {
       await db.execute('DROP TABLE IF EXISTS notes');
     }
+
+    // Migration from version 9 to 10: make scheduled-message delivery safe when
+    // the foreground (Dart) and background (native AlarmManager) deliverers race.
+    //
+    // - claim_token / claimed_at: a due row is *claimed* with a random token in
+    //   one atomic UPDATE before it is sent, so exactly one deliverer owns it.
+    //   A claim older than the stale timeout is reclaimed (process died mid-send).
+    // - attempt_count / next_attempt_at / last_error: a transient send failure
+    //   (no service, no SIM) now backs off and retries instead of permanently
+    //   marking the schedule failed.
+    if (oldVersion < 10) {
+      await _addScheduledDeliveryColumns(db);
+    }
+  }
+
+  /// v10 columns on `scheduled_messages`. Split out so `_createDB` and the
+  /// migration can't drift apart.
+  Future<void> _addScheduledDeliveryColumns(Database db) async {
+    const table = AppConstants.scheduledMessagesTable;
+    await db.execute(
+      'ALTER TABLE $table ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0',
+    );
+    await db.execute('ALTER TABLE $table ADD COLUMN next_attempt_at INTEGER');
+    await db.execute('ALTER TABLE $table ADD COLUMN last_error TEXT');
+    await db.execute('ALTER TABLE $table ADD COLUMN claim_token TEXT');
+    await db.execute('ALTER TABLE $table ADD COLUMN claimed_at INTEGER');
   }
 
   Future<void> _createFavoritesTable(Database db) async {
@@ -236,7 +262,12 @@ class DatabaseHelper {
         max_occurrences INTEGER,
         occurrence_count INTEGER NOT NULL DEFAULT 0,
         status TEXT NOT NULL DEFAULT 'pending',
-        created_at INTEGER NOT NULL
+        created_at INTEGER NOT NULL,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at INTEGER,
+        last_error TEXT,
+        claim_token TEXT,
+        claimed_at INTEGER
       )
     ''');
     // The delivery worker filters on (status, scheduled_at); index it.

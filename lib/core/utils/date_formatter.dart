@@ -1,10 +1,51 @@
 import 'package:intl/intl.dart';
+import 'calendar_type.dart';
 import 'jalali_date.dart';
 import 'persian_utils.dart';
 
-/// Formats dates on the **Jalali (Persian) calendar** with Persian digits, so
-/// every date/time in the app is shown the way an Iranian user expects.
+/// Formats dates with Persian digits on whichever calendar the user picked in
+/// Settings — Jalali (default) or Gregorian. Digits and weekday/relative words
+/// stay Persian in both modes; only the calendar arithmetic and month names
+/// change.
 class DateFormatter {
+  /// Active calendar. Mirrored from `SettingsBloc` (see `SetCalendarType`);
+  /// defaults to Jalali so a formatter call before settings load is correct for
+  /// the common case.
+  static CalendarType calendar = CalendarType.jalali;
+
+  static bool get _isJalali => calendar == CalendarType.jalali;
+
+  /// Persian transliterations of the Gregorian month names, so a Gregorian date
+  /// still reads naturally inside the RTL Persian UI.
+  static const List<String> gregorianMonthNames = [
+    'ژانویه',
+    'فوریه',
+    'مارس',
+    'آوریل',
+    'مه',
+    'ژوئن',
+    'ژوئیه',
+    'اوت',
+    'سپتامبر',
+    'اکتبر',
+    'نوامبر',
+    'دسامبر',
+  ];
+
+  /// (year, month, day, monthName) of [dateTime] on the active calendar.
+  static (int, int, int, String) _parts(DateTime dateTime) {
+    if (_isJalali) {
+      final j = JalaliDate.fromDateTime(dateTime);
+      return (j.year, j.month, j.day, j.monthName);
+    }
+    return (
+      dateTime.year,
+      dateTime.month,
+      dateTime.day,
+      gregorianMonthNames[dateTime.month - 1],
+    );
+  }
+
   static String formatDateTime(DateTime dateTime, {bool persian = true}) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -24,20 +65,19 @@ class DateFormatter {
     return PersianUtils.toPersianNumber(DateFormat('HH:mm').format(dateTime));
   }
 
-  /// Jalali numeric date, e.g. «۱۴۰۳/۰۴/۱۰».
+  /// Numeric date on the active calendar, e.g. «۱۴۰۳/۰۴/۱۰» or «۲۰۲۴/۰۶/۳۰».
   static String formatDate(DateTime dateTime) {
-    final j = JalaliDate.fromDateTime(dateTime);
-    final y = j.year.toString();
-    final m = j.month.toString().padLeft(2, '0');
-    final d = j.day.toString().padLeft(2, '0');
-    return PersianUtils.toPersianNumber('$y/$m/$d');
+    final (y, m, d, _) = _parts(dateTime);
+    final ms = m.toString().padLeft(2, '0');
+    final ds = d.toString().padLeft(2, '0');
+    return PersianUtils.toPersianNumber('$y/$ms/$ds');
   }
 
-  /// Jalali date with a spelled-out month + time, e.g. «۱۰ تیر ۱۴:۳۰».
+  /// Date with a spelled-out month + time, e.g. «۱۰ تیر ۱۴:۳۰».
   static String formatDatePersian(DateTime dateTime) {
-    final j = JalaliDate.fromDateTime(dateTime);
-    final day = PersianUtils.toPersianNumber('${j.day}');
-    return '$day ${j.monthName} ${formatTime(dateTime)}';
+    final (_, _, d, name) = _parts(dateTime);
+    final day = PersianUtils.toPersianNumber('$d');
+    return '$day $name ${formatTime(dateTime)}';
   }
 
   static const List<String> _weekdaysFa = [
@@ -51,7 +91,7 @@ class DateFormatter {
   ];
 
   /// Compact timestamp for conversation/thread lists: today → time,
-  /// yesterday → «دیروز», within a week → weekday name, older → Jalali date.
+  /// yesterday → «دیروز», within a week → weekday name, older → numeric date.
   static String formatRelative(DateTime dateTime) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -63,15 +103,17 @@ class DateFormatter {
     return formatDate(dateTime);
   }
 
-  /// Jalali "day monthName" for a chat day-separator, appending the year only
-  /// when the date is not in the current Jalali year — e.g. «۱۰ تیر» or
-  /// «۱۰ تیر ۱۴۰۲».
+  /// "day monthName" for a chat day-separator, appending the year only when the
+  /// date is not in the current year — e.g. «۱۰ تیر» or «۱۰ تیر ۱۴۰۲».
   static String formatChatSeparator(DateTime dateTime) {
-    final j = JalaliDate.fromDateTime(dateTime);
-    final nowJ = JalaliDate.fromDateTime(DateTime.now());
-    final day = PersianUtils.toPersianNumber('${j.day}');
-    if (j.year == nowJ.year) return '$day ${j.monthName}';
-    final year = PersianUtils.toPersianNumber('${j.year}');
-    return '$day ${j.monthName} $year';
+    final (y, _, d, name) = _parts(dateTime);
+    final (nowY, _, _, _) = _parts(DateTime.now());
+    final day = PersianUtils.toPersianNumber('$d');
+    if (y == nowY) return '$day $name';
+    return '$day $name ${PersianUtils.toPersianNumber('$y')}';
   }
+
+  /// "۱۴۰۳/۰۲/۱۵ · ۱۴:۳۰" — full numeric date + time on the active calendar.
+  static String formatDateAndTime(DateTime dateTime) =>
+      '${formatDate(dateTime)} · ${formatTime(dateTime)}';
 }

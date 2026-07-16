@@ -71,4 +71,17 @@ class CallLogRepository {
       whereArgs: [id],
     );
   }
+
+  /// Deletes several call logs in one statement (used when a collapsed recents
+  /// group is removed as a whole).
+  Future<void> deleteCallLogs(List<String> ids) async {
+    if (ids.isEmpty) return;
+    final db = await _dbHelper.database;
+    final placeholders = List.filled(ids.length, '?').join(',');
+    await db.delete(
+      AppConstants.callLogsTable,
+      where: 'id IN ($placeholders)',
+      whereArgs: ids,
+    );
+  }
 }

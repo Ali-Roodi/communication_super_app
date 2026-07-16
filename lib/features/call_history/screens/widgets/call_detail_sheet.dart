@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/theme/app_dimensions.dart';
+import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
@@ -13,8 +14,10 @@ import 'package:communication_super_app/features/call_history/bloc/call_log_bloc
 import 'package:communication_super_app/features/call_history/bloc/call_log_event.dart';
 import 'package:communication_super_app/features/call_history/bloc/call_log_state.dart';
 import 'package:communication_super_app/features/call_history/models/call_log_model.dart';
+import 'package:communication_super_app/features/call_history/screens/widgets/call_log_tile.dart';
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
+import 'package:communication_super_app/features/favorites/bloc/favorites_bloc.dart';
 import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
 import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
 
@@ -93,6 +96,24 @@ class _CallDetailSheet extends StatelessWidget {
                 ...calls.map((c) => _CallRow(call: c, theme: theme)),
 
                 const Divider(height: 1),
+                FavoriteToggleTile(
+                  phoneNumber: log.phoneNumber,
+                  name: log.contactName,
+                  contactId: log.contactId,
+                  favoritesBloc: context.read<FavoritesBloc>(),
+                  onDone: (added) {
+                    Navigator.of(context).pop();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          added
+                              ? 'به موردعلاقه‌ها افزوده شد'
+                              : 'از موردعلاقه‌ها حذف شد',
+                        ),
+                      ),
+                    );
+                  },
+                ),
                 ListTile(
                   leading: const Icon(Icons.copy_outlined),
                   title: const Text('کپی شماره'),
@@ -352,12 +373,8 @@ String _callLabel(CallType type) {
   }
 }
 
-/// "۱۴۰۳/۰۲/۱۵ · ۱۴:۳۰" (Gregorian date with Persian digits).
-String _dateTime(DateTime dt) {
-  String p(int v, [int pad = 2]) =>
-      PersianUtils.toPersianNumber(v.toString().padLeft(pad, '0'));
-  return '${p(dt.year, 4)}/${p(dt.month)}/${p(dt.day)} · ${p(dt.hour)}:${p(dt.minute)}';
-}
+/// "۱۴۰۳/۰۲/۱۵ · ۱۴:۳۰" on whichever calendar Settings selected.
+String _dateTime(DateTime dt) => DateFormatter.formatDateAndTime(dt);
 
 String _duration(CallLogModel log) {
   switch (log.callType) {

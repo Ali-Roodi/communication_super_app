@@ -123,7 +123,8 @@ class _ScheduledTile extends StatelessWidget {
   }
 
   String _statusLabel() => switch (message.status) {
-    ScheduleStatus.pending => '',
+    ScheduleStatus.pending => message.attemptCount > 0 ? 'تلاش مجدد' : '',
+    ScheduleStatus.sending => 'در حال ارسال',
     ScheduleStatus.completed => 'انجام شد',
     ScheduleStatus.cancelled => 'لغو شد',
     ScheduleStatus.failed => 'ناموفق',
@@ -162,6 +163,8 @@ class _ScheduledTile extends StatelessWidget {
               onSelected: (v) {
                 final bloc = context.read<ScheduledMessageBloc>();
                 switch (v) {
+                  case 'now':
+                    bloc.add(SendScheduledNow(message.id));
                   case 'edit':
                     ScheduledMessagesScreen._openEditor(
                       context,
@@ -174,6 +177,7 @@ class _ScheduledTile extends StatelessWidget {
                 }
               },
               itemBuilder: (_) => const [
+                PopupMenuItem(value: 'now', child: Text('ارسال فوری')),
                 PopupMenuItem(value: 'edit', child: Text('ویرایش')),
                 PopupMenuItem(value: 'cancel', child: Text('لغو')),
                 PopupMenuItem(value: 'delete', child: Text('حذف')),

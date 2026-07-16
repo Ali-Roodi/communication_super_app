@@ -1,5 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'settings_event.dart';
 import 'settings_state.dart';
 
@@ -8,12 +9,14 @@ import 'settings_state.dart';
 class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
   static const _prefix = 'set_';
   static const _ttyKey = '${_prefix}tty_mode';
+  static const _calendarKey = '${_prefix}calendar_type';
   static const _quickKey = '${_prefix}quick_replies';
 
   SettingsBloc() : super(const SettingsState()) {
     on<LoadSettings>(_onLoad);
     on<SetBoolSetting>(_onSetBool);
     on<SetTtyMode>(_onSetTty);
+    on<SetCalendarType>(_onSetCalendar);
     on<UpdateQuickReply>(_onUpdateReply);
   }
 
@@ -30,6 +33,15 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
       (m) => m.name == ttyName,
       orElse: () => TtyMode.off,
     );
+    final calendarName = prefs.getString(_calendarKey);
+    final calendar = CalendarType.values.firstWhere(
+      (c) => c.name == calendarName,
+      orElse: () => defaults.calendarType,
+    );
+    // Mirror into the static formatter so every date rendered from now on uses
+    // the persisted calendar, not just the widgets that read SettingsState.
+    DateFormatter.calendar = calendar;
+
     final replies =
         prefs.getStringList(_quickKey) ?? SettingsState.defaultQuickReplies;
 
@@ -46,6 +58,7 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
         callerIdSpam: b(BoolSetting.callerIdSpam),
         filterSpam: b(BoolSetting.filterSpam),
         ttyMode: tty,
+        calendarType: calendar,
         quickReplies: replies,
       ),
     );
@@ -72,6 +85,16 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     emit(state.copyWith(ttyMode: event.mode));
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_ttyKey, event.mode.name);
+  }
+
+  Future<void> _onSetCalendar(
+    SetCalendarType event,
+    Emitter<SettingsState> emit,
+  ) async {
+    DateFormatter.calendar = event.calendarType;
+    emit(state.copyWith(calendarType: event.calendarType));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_calendarKey, event.calendarType.name);
   }
 
   Future<void> _onUpdateReply(

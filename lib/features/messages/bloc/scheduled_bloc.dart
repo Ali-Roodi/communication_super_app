@@ -3,33 +3,44 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:uuid/uuid.dart';
 import '../models/scheduled_message_model.dart';
 import '../repositories/scheduled_message_repository.dart';
-import '../services/sms_service.dart';
+import '../services/scheduled_delivery_service.dart';
 import '../services/native_scheduled_sms_service.dart';
 import 'scheduled_event.dart';
 import 'scheduled_state.dart';
 
 /// Manages scheduled outgoing messages (زمان‌بندی ارسال).
 ///
-/// **Delivery is PHASE 1 (foreground only):** while the app is running, a
-/// periodic tick (and app-open) fires [DeliverDueScheduled], which sends every
-/// schedule whose time has arrived via [SmsService]. True background delivery
-/// when the app is closed needs a native AlarmManager/WorkManager + a headless
-/// SMS path — deliberately deferred (see KNOWN_ISSUES / figma-sync notes).
+/// **Delivery has two paths and one owner per message.** While the app is alive
+/// a periodic tick fires [DeliverDueScheduled]; when it is dead the native
+/// AlarmManager worker (`ScheduledSmsWorker`) does the same job. Both take an
+/// atomic claim on the rows they are about to send
+/// ([ScheduledMessageRepository.claimDue]), so a message is sent exactly once
+/// even if both run at the same instant.
+///
+/// When the alarm fires while the engine *is* alive, the native receiver hands
+/// the work back here (see [NativeScheduledSmsService.onDeliverDueRequested]) so
+/// the send flows through `SmsService` and the conversation re-renders, rather
+/// than being written straight to SQLite behind the BLoCs' backs.
+///
+/// A send that fails for a transient reason (no service, no SIM) is retried
+/// with backoff and only marked [ScheduleStatus.failed] after
+/// [ScheduledMessage.maxAttempts] attempts.
 class ScheduledMessageBloc extends Bloc<ScheduledEvent, ScheduledState> {
   final ScheduledMessageRepository _repository;
-  final SmsService _smsService;
+  final ScheduledDeliveryService _delivery;
   final NativeScheduledSmsService _nativeScheduler;
   static const _uuid = Uuid();
   Timer? _timer;
 
   ScheduledMessageBloc({
     ScheduledMessageRepository? repository,
-    SmsService? smsService,
+    ScheduledDeliveryService? deliveryService,
     NativeScheduledSmsService? nativeScheduler,
     bool autoDeliver = true,
     Duration deliverInterval = const Duration(seconds: 30),
   }) : _repository = repository ?? ScheduledMessageRepository(),
-       _smsService = smsService ?? SmsService(),
+       _delivery =
+           deliveryService ?? ScheduledDeliveryService(repository: repository),
        _nativeScheduler = nativeScheduler ?? NativeScheduledSmsService(),
        super(const ScheduledInitial()) {
     on<LoadScheduled>(_onLoad);
@@ -37,6 +48,13 @@ class ScheduledMessageBloc extends Bloc<ScheduledEvent, ScheduledState> {
     on<CancelScheduled>(_onCancel);
     on<DeleteScheduled>(_onDelete);
     on<DeliverDueScheduled>(_onDeliverDue);
+    on<SendScheduledNow>(_onSendNow);
+
+    // When the native alarm fires while the app is alive it hands delivery back
+    // to us instead of writing to SQLite behind the BLoCs' backs — otherwise the
+    // chat would keep showing the scheduled ghost bubble after the send.
+    _nativeScheduler.onDeliverDueRequested = _deliverFromNativeAlarm;
+    _nativeScheduler.startListening();
 
     if (autoDeliver) {
       add(const DeliverDueScheduled());
@@ -50,7 +68,16 @@ class ScheduledMessageBloc extends Bloc<ScheduledEvent, ScheduledState> {
   @override
   Future<void> close() {
     _timer?.cancel();
+    _nativeScheduler.onDeliverDueRequested = null;
     return super.close();
+  }
+
+  /// Runs a delivery sweep on behalf of the native alarm, then refreshes the UI
+  /// and re-arms the alarm (via [LoadScheduled]). Awaited by the platform
+  /// channel: the native side falls back to headless delivery if this throws.
+  Future<void> _deliverFromNativeAlarm() async {
+    await _delivery.deliverDue();
+    if (!isClosed) add(const LoadScheduled());
   }
 
   Future<void> _onLoad(
@@ -134,23 +161,33 @@ class ScheduledMessageBloc extends Bloc<ScheduledEvent, ScheduledState> {
     DeliverDueScheduled event,
     Emitter<ScheduledState> emit,
   ) async {
+    final report = await _delivery.deliverDue();
+
+    // Always re-read the table, even when this sweep sent nothing: the row may
+    // have been delivered by the *native* worker (cold start, or an alarm that
+    // fired while the engine was detached), which writes straight to SQLite. Our
+    // cached state would otherwise keep a completed schedule alive as a ghost
+    // bubble until the app restarted. ScheduledLoaded is value-equal, so an
+    // unchanged table emits nothing.
+    await _emitLoaded(emit);
+
+    if (!report.changedAnything) return;
+    // Delivering changed the earliest-pending time; re-arm the native alarm.
+    await _nativeScheduler.reschedule();
+  }
+
+  /// «ارسال فوری» — pull the fire time to now, then deliver in the same turn so
+  /// the user sees the bubble move without waiting for the periodic tick.
+  Future<void> _onSendNow(
+    SendScheduledNow event,
+    Emitter<ScheduledState> emit,
+  ) async {
     try {
-      final due = await _repository.getDue(DateTime.now());
-      if (due.isEmpty) return;
-      for (final msg in due) {
-        try {
-          final result = await _smsService.sendSms(msg.phoneNumber, msg.body);
-          await _repository.upsert(
-            result.success
-                ? msg.advanceAfterSend()
-                : msg.copyWith(status: ScheduleStatus.failed),
-          );
-        } catch (_) {
-          await _repository.upsert(msg.copyWith(status: ScheduleStatus.failed));
-        }
-      }
+      final msg = await _repository.getById(event.id);
+      if (msg == null || msg.status != ScheduleStatus.pending) return;
+      await _repository.reschedule(event.id, DateTime.now());
+      await _delivery.deliverDue();
       await _emitLoaded(emit);
-      // Delivering changed the earliest-pending time; re-arm the native alarm.
       await _nativeScheduler.reschedule();
     } catch (e) {
       emit(ScheduledError(e.toString()));
