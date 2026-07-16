@@ -181,6 +181,28 @@ class DatabaseHelper {
         ON ${AppConstants.messagesTable}(device_sms_id)
       ''');
     }
+
+    // Migration from version 11 to 12: composite indexes for the inbox query.
+    // getAllThreads runs two correlated subqueries per thread (unread count +
+    // newest-row picker); on a mailbox with tens of thousands of messages the
+    // single-column thread_id index forces wide scans. These cover both.
+    if (oldVersion < 12) {
+      await _createThreadQueryIndexes(db);
+    }
+  }
+
+  /// v12 composite indexes (also created on fresh installs in `_createDB`).
+  Future<void> _createThreadQueryIndexes(Database db) async {
+    // Unread-count subquery: thread_id + type + is_read + is_deleted.
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_messages_thread_unread
+      ON ${AppConstants.messagesTable}(thread_id, type, is_read, is_deleted)
+    ''');
+    // Newest-row picker: per-thread ORDER BY timestamp DESC, rowid DESC.
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_messages_thread_ts
+      ON ${AppConstants.messagesTable}(thread_id, timestamp DESC)
+    ''');
   }
 
   /// v10 columns on `scheduled_messages`. Split out so `_createDB` and the
@@ -357,6 +379,9 @@ class DatabaseHelper {
         CREATE INDEX IF NOT EXISTS idx_messages_device_sms_id
         ON ${AppConstants.messagesTable}(device_sms_id)
       ''');
+
+      // Inbox thread-query composite indexes (v12)
+      await _createThreadQueryIndexes(db);
 
       // Call logs table (local cache)
       await db.execute('''

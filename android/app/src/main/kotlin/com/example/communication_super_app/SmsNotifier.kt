@@ -6,11 +6,15 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.provider.ContactsContract
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.Person
+import androidx.core.graphics.drawable.IconCompat
 
 /**
  * Single notification pipeline for incoming SMS — used by BOTH receive paths
@@ -103,11 +107,22 @@ object SmsNotifier {
                 piFlags,
             )
 
+            // MessagingStyle + Person: the sender's name and contact photo
+            // render in the notification exactly like Google Messages.
+            val avatar = lookupContactPhoto(context, address)
+            val sender = Person.Builder()
+                .setName(title)
+                .apply { if (avatar != null) setIcon(IconCompat.createWithBitmap(avatar)) }
+                .build()
+            val style = NotificationCompat.MessagingStyle(sender)
+                .addMessage(body, timestamp, sender)
+
             val notification = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(context.applicationInfo.icon)
                 .setContentTitle(title)
                 .setContentText(body)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+                .setStyle(style)
+                .apply { if (avatar != null) setLargeIcon(avatar) }
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setDefaults(NotificationCompat.DEFAULT_ALL)
                 .setCategory(Notification.CATEGORY_MESSAGE)
@@ -151,6 +166,26 @@ object SmsNotifier {
                     enableLights(true)
                 },
             )
+        }
+    }
+
+    /** The contact's photo thumbnail (round-cropped by the system), or null. */
+    private fun lookupContactPhoto(context: Context, phone: String): Bitmap? {
+        return try {
+            val uri = Uri.withAppendedPath(
+                ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(phone),
+            )
+            val photoUri = context.contentResolver.query(
+                uri,
+                arrayOf(ContactsContract.PhoneLookup.PHOTO_THUMBNAIL_URI),
+                null, null, null,
+            )?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+                ?: return null
+            context.contentResolver.openInputStream(Uri.parse(photoUri))?.use {
+                BitmapFactory.decodeStream(it)
+            }
+        } catch (e: Exception) {
+            null
         }
     }
 
