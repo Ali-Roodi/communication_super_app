@@ -1,20 +1,12 @@
 package com.example.communication_super_app
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.database.sqlite.SQLiteDatabase
-import android.net.Uri
-import android.os.Build
-import android.provider.ContactsContract
 import android.provider.Telephony
 import android.util.Log
-import androidx.core.app.NotificationCompat
 import java.util.UUID
 
 /**
@@ -35,7 +27,6 @@ class IncomingSmsReceiver : BroadcastReceiver() {
     companion object {
         private const val TAG = "IncomingSmsReceiver"
         private const val DB_NAME = "communication_app.db"
-        private const val CHANNEL_ID = "sms_channel"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -66,14 +57,14 @@ class IncomingSmsReceiver : BroadcastReceiver() {
         val timestamp = parts[0].timestampMillis
         val threadId = normalizeToThreadId(address)
 
-        persist(context, address, body, timestamp, threadId)
+        // Blocked sender: drop silently — no persist, no notification.
+        if (BlockedNumbers.isBlocked(context, address)) {
+            Log.d(TAG, "Dropped background SMS from blocked number")
+            return
+        }
 
-        val name = lookupContactName(context, address)
-        // Unique id per message: reusing one id per thread makes Samsung treat
-        // rapid re-posts as a silent in-place update (no heads-up). A distinct
-        // id per message ensures each one alerts.
-        val notifId = (timestamp and 0x7FFFFFFF).toInt()
-        notify(context, notifId, name ?: address, body, threadId)
+        persist(context, address, body, timestamp, threadId)
+        SmsNotifier.notifySms(context, address, body, timestamp, threadId)
         Log.d(TAG, "Delivered background SMS from $address")
     }
 
@@ -129,73 +120,4 @@ class IncomingSmsReceiver : BroadcastReceiver() {
         }
     }
 
-    // ── Contact name (ContactsContract PhoneLookup) ───────────────────────────
-
-    private fun lookupContactName(context: Context, phone: String): String? {
-        return try {
-            val uri = Uri.withAppendedPath(
-                ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(phone),
-            )
-            context.contentResolver.query(
-                uri,
-                arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME),
-                null, null, null,
-            )?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
-        } catch (e: SecurityException) {
-            null // READ_CONTACTS not granted
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    // ── Notification ──────────────────────────────────────────────────────────
-
-    private fun notify(
-        context: Context,
-        notifId: Int,
-        title: String,
-        body: String,
-        threadId: String,
-    ) {
-        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID, "پیام‌های کوتاه", NotificationManager.IMPORTANCE_HIGH,
-            ).apply {
-                description = "اعلان‌های پیام‌های کوتاه دریافتی"
-                enableVibration(true)
-                enableLights(true)
-            }
-            nm.createNotificationChannel(channel)
-        }
-
-        val launch = context.packageManager
-            .getLaunchIntentForPackage(context.packageName)
-            ?.apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                putExtra("threadId", threadId)
-            }
-        val piFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        } else {
-            PendingIntent.FLAG_UPDATE_CURRENT
-        }
-        val contentIntent = PendingIntent.getActivity(
-            context, threadId.hashCode(), launch ?: Intent(), piFlags,
-        )
-
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(context.applicationInfo.icon)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
-            .setCategory(Notification.CATEGORY_MESSAGE)
-            .setAutoCancel(true)
-            .setContentIntent(contentIntent)
-            .build()
-
-        nm.notify(notifId, notification)
-    }
 }

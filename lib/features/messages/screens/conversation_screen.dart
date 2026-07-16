@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/services/composer_draft_store.dart';
+import 'package:communication_super_app/core/services/deep_link_service.dart';
 import '../bloc/message_bloc.dart';
 import '../bloc/message_event.dart';
 import '../bloc/message_state.dart';
@@ -93,6 +94,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
     _scrollController.addListener(_onScroll);
     _messageController.addListener(_onComposerChanged);
     _restoreComposerDraft();
+    // Native notifier: suppress notifications for this (visible) thread and
+    // dismiss the ones already in the shade.
+    DeepLinkService.instance
+      ..setVisibleThread(widget.threadId)
+      ..clearThreadNotifications(widget.threadId);
   }
 
   /// Keeps the send button in sync and caches the draft synchronously so the
@@ -148,6 +154,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   @override
   void dispose() {
+    DeepLinkService.instance.setVisibleThread(null);
     _saveComposerDraft();
     _scrollController.removeListener(_onScroll);
     _messageController.dispose();

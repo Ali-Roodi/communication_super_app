@@ -97,6 +97,19 @@ class MessageSentExternally extends MessageEvent {
   List<Object?> get props => [message];
 }
 
+/// A delivery report arrived for an outgoing message (sent → delivered or
+/// failed). The DB row is already updated by SmsService; this only refreshes
+/// the open conversation's bubble tick.
+class MessageStatusChanged extends MessageEvent {
+  final String messageId;
+  final MessageStatus status;
+
+  const MessageStatusChanged(this.messageId, this.status);
+
+  @override
+  List<Object?> get props => [messageId, status];
+}
+
 class DeleteMessage extends MessageEvent {
   final String messageId;
 

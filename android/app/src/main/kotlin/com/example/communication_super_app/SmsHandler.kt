@@ -38,6 +38,7 @@ class SmsHandler(
         private const val TAG = "SmsHandler"
         private const val SMS_SENT_ACTION = "SMS_SENT_ACTION"
         private const val SMS_DELIVERED_ACTION = "SMS_DELIVERED_ACTION"
+        private const val EXTRA_TRACKING_ID = "tracking_id"
         private const val CHANNEL_SMS_METHOD = "com.example.communication_super_app/sms"
         private const val CHANNEL_SMS_EVENTS = "com.example.communication_super_app/sms_events"
 
@@ -79,31 +80,54 @@ class SmsHandler(
                 val pdus = bundle.get("pdus") as? Array<*> ?: return
                 val format = bundle.getString("format") ?: "3gpp"
 
-                for (pdu in pdus) {
-                    val message = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                // A multipart SMS arrives as several PDUs in ONE broadcast —
+                // join them into a single message instead of emitting one
+                // event (and one notification) per fragment.
+                val parts = pdus.mapNotNull { pdu ->
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                         SmsMessage.createFromPdu(pdu as ByteArray, format)
                     } else {
                         @Suppress("DEPRECATION")
                         SmsMessage.createFromPdu(pdu as ByteArray)
                     }
+                }
+                if (parts.isEmpty()) return
 
-                    val data = mapOf(
-                        "address" to (message.originatingAddress ?: ""),
-                        "body" to (message.messageBody ?: ""),
-                        "timestamp" to message.timestampMillis,
-                        "subscriptionId" to getSubscriptionId(bundle)
-                    )
+                val address = parts[0].originatingAddress ?: return
+                val body = parts.joinToString("") { it.messageBody ?: "" }
+                val timestamp = parts[0].timestampMillis
 
-                    // Send to Flutter via EventChannel (non-blocking)
-                    coroutineScope.launch(Dispatchers.Main) {
-                        try {
-                            eventSink?.success(data)
-                            Log.d(TAG, "SMS received from: ${message.originatingAddress}")
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error sending SMS to Flutter: ${e.message}")
-                        }
+                // Blocked sender: drop silently — no event, no notification.
+                if (BlockedNumbers.isBlocked(context, address)) {
+                    Log.d(TAG, "Dropped live SMS from blocked number")
+                    return
+                }
+
+                val data = mapOf(
+                    "type" to "received",
+                    "address" to address,
+                    "body" to body,
+                    "timestamp" to timestamp,
+                    "subscriptionId" to getSubscriptionId(bundle)
+                )
+
+                // Send to Flutter via EventChannel (non-blocking)
+                coroutineScope.launch(Dispatchers.Main) {
+                    try {
+                        eventSink?.success(data)
+                        Log.d(TAG, "SMS received from: $address")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error sending SMS to Flutter: ${e.message}")
                     }
                 }
+
+                // Native notification with inline reply / mark-read — the ONE
+                // SMS notification pipeline (the Dart side no longer posts its
+                // own for this path).
+                SmsNotifier.notifySms(
+                    context, address, body, timestamp,
+                    BlockedNumbers.normalizeToThreadId(address),
+                )
             } catch (e: Exception) {
                 Log.e(TAG, "Error receiving SMS: ${e.message}", e)
             }
@@ -119,42 +143,50 @@ class SmsHandler(
     }
 
     /**
-     * Inner class for SMS sent status
+     * Sent-status receiver. The tracking id (the Dart-side message UUID) rides
+     * in the PendingIntent extras; the outcome is streamed to Flutter as a
+     * typed `status` event so the bubble's tick can advance (⏱ → ✓ → ✓✓) or
+     * flip to failed.
      */
     inner class SmsSentReceiver : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            when (resultCode) {
-                Activity.RESULT_OK -> {
-                    Log.d(TAG, "SMS sent successfully")
-                }
-                SmsManager.RESULT_ERROR_GENERIC_FAILURE -> {
-                    Log.e(TAG, "SMS send failed: Generic failure")
-                }
-                SmsManager.RESULT_ERROR_NO_SERVICE -> {
-                    Log.e(TAG, "SMS send failed: No service")
-                }
-                SmsManager.RESULT_ERROR_NULL_PDU -> {
-                    Log.e(TAG, "SMS send failed: Null PDU")
-                }
-                SmsManager.RESULT_ERROR_RADIO_OFF -> {
-                    Log.e(TAG, "SMS send failed: Radio off")
-                }
+            val trackingId = intent.getStringExtra(EXTRA_TRACKING_ID) ?: return
+            val status = when (resultCode) {
+                Activity.RESULT_OK -> "sent"
+                else -> "failed"
+            }
+            if (status == "failed") {
+                Log.e(TAG, "SMS send failed (resultCode=$resultCode)")
+            }
+            emitStatus(trackingId, status)
+        }
+    }
+
+    /** Delivery-report receiver — fires when the recipient's phone got it. */
+    inner class SmsDeliveredReceiver : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val trackingId = intent.getStringExtra(EXTRA_TRACKING_ID) ?: return
+            if (resultCode == Activity.RESULT_OK) {
+                emitStatus(trackingId, "delivered")
+            } else {
+                Log.e(TAG, "SMS delivery failed")
             }
         }
     }
 
-    /**
-     * Inner class for SMS delivery status
-     */
-    inner class SmsDeliveredReceiver : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            when (resultCode) {
-                Activity.RESULT_OK -> {
-                    Log.d(TAG, "SMS delivered successfully")
-                }
-                else -> {
-                    Log.e(TAG, "SMS delivery failed")
-                }
+    /** Streams a typed status event to Flutter over the SMS EventChannel. */
+    private fun emitStatus(trackingId: String, status: String) {
+        coroutineScope.launch(Dispatchers.Main) {
+            try {
+                eventSink?.success(
+                    mapOf(
+                        "type" to "status",
+                        "id" to trackingId,
+                        "status" to status,
+                    )
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Error sending status to Flutter: ${e.message}")
             }
         }
     }
@@ -229,7 +261,8 @@ class SmsHandler(
     suspend fun sendSms(
         phoneNumber: String,
         message: String,
-        subscriptionId: Int = -1
+        subscriptionId: Int = -1,
+        trackingId: String = ""
     ): Result<Map<String, Any>> = withContext(Dispatchers.IO) {
         try {
             if (phoneNumber.isBlank()) {
@@ -264,13 +297,20 @@ class SmsHandler(
                 PendingIntent.FLAG_UPDATE_CURRENT
             }
 
+            // Per-message PendingIntents: a unique requestCode + the tracking
+            // id in the extras, so concurrent sends report to the right bubble.
+            val requestCode = if (trackingId.isEmpty()) 0 else trackingId.hashCode()
             val sentIntent = PendingIntent.getBroadcast(
-                context, 0,
-                Intent(SMS_SENT_ACTION).setPackage(context.packageName), flags
+                context, requestCode,
+                Intent(SMS_SENT_ACTION).setPackage(context.packageName)
+                    .putExtra(EXTRA_TRACKING_ID, trackingId),
+                flags
             )
             val deliveredIntent = PendingIntent.getBroadcast(
-                context, 0,
-                Intent(SMS_DELIVERED_ACTION).setPackage(context.packageName), flags
+                context, requestCode,
+                Intent(SMS_DELIVERED_ACTION).setPackage(context.packageName)
+                    .putExtra(EXTRA_TRACKING_ID, trackingId),
+                flags
             )
 
             // Handle multipart messages
@@ -623,6 +663,7 @@ class SmsHandler(
                     val phoneNumber = call.argument<String>("phoneNumber")
                     val message = call.argument<String>("message")
                     val subscriptionId = call.argument<Int>("subscriptionId") ?: -1
+                    val trackingId = call.argument<String>("trackingId") ?: ""
 
                     if (phoneNumber == null || message == null) {
                         result.error("INVALID_ARGUMENTS", "Phone number and message are required", null)
@@ -631,7 +672,7 @@ class SmsHandler(
 
                     coroutineScope.launch {
                         try {
-                            val sendResult = sendSms(phoneNumber, message, subscriptionId)
+                            val sendResult = sendSms(phoneNumber, message, subscriptionId, trackingId)
                             
                             if (sendResult.isSuccess) {
                                 result.success(sendResult.getOrNull())

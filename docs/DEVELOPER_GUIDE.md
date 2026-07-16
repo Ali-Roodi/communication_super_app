@@ -116,6 +116,19 @@ The app also requests the **default-dialer role** (ROLE_DIALER) — `CallHandler
 
 **First-entry role prompts** (`PermissionGate`): after the runtime permissions, the SMS-role dialog then the dialer-role dialog are each shown exactly once (SharedPreferences flags `default_sms_role_requested_v1` / `default_dialer_role_requested_v1`, set BEFORE the dialog). Never re-prompt automatically — Android permanently auto-denies a role after two refusals; later requests go through the inbox banner (SMS) or Settings → Default apps (`openDefaultAppsSettings`).
 
+### SMS notifications (single native pipeline)
+
+ALL incoming-SMS notifications are posted natively by `SmsNotifier` — from the live dynamic receiver (`SmsHandler`) and the cold-start `IncomingSmsReceiver` alike. The Dart `NotificationService` posts SMS notifications ONLY in the rare telephony-fallback path; never add a second Dart-side notification to the native event path (it would duplicate).
+
+- Actions are fully native (`SmsNotificationActionReceiver`): inline reply via RemoteInput (sends with SmsManager + provider write-through + app-DB insert) and mark-read (direct DB update). They work with the app dead.
+- Notifications are tagged with the threadId; opening a conversation calls `clearThreadNotifications` and `setVisibleThread` over the intents channel — `SmsNotifier` suppresses notifications for the visible thread while the activity is resumed.
+- Tap deep-links: the launch intent carries a `threadId` extra → `DeepLinkService` (cold start: `consumeInitialThreadId` in MainNavigation; warm: `onNewIntent` → `openThread`). Registered post-auth so a tap never bypasses the app lock.
+- Blocked numbers are enforced in BOTH receive paths natively (`BlockedNumbers.isBlocked` mirrors `PhoneNormalizer`) and in the Dart listeners; `SmsDeliverReceiver` also skips the provider write, and `CallInCallService` rejects ringing calls from blocked numbers before any UI. Missed calls post a native «تماس بی‌پاسخ» notification (default-dialer duty).
+
+### Delivery status (bubble ticks)
+
+`SmsService.sendSms` generates the message UUID BEFORE the native send and passes it as `trackingId`; the native sent/delivered PendingIntents carry it back through the SMS EventChannel as typed `{"type":"status"}` events (incoming SMS events carry `"type":"received"`). `SmsService` updates the DB row and broadcasts on the static `onMessageStatusChanged`; `MessageBloc.MessageStatusChanged` swaps the message in the open conversation in place (⏱ pending → ✓ sent → ✓✓ delivered / failed with retry).
+
 ### MessageBloc state guards
 
 - `LoadThreads` does **not** emit `MessageLoading` if the current state is already `ThreadsLoaded` or `MessagesLoaded` — this prevents the chat screen going blank when a background SMS triggers a thread refresh.

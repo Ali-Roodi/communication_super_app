@@ -11,10 +11,12 @@ import android.os.Build
 import android.provider.ContactsContract
 import android.telecom.Call
 import android.telecom.CallAudioState
+import android.telecom.DisconnectCause
 import android.telecom.InCallService
 import android.telecom.VideoProfile
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.example.communication_super_app.BlockedNumbers
 
 /**
  * The in-call UI binding for cellular calls — bound by telecom while this app
@@ -41,6 +43,7 @@ class CallInCallService : InCallService() {
     companion object {
         private const val TAG = "CallInCallService"
         private const val CHANNEL_ID = "incoming_call_channel"
+        private const val MISSED_CHANNEL_ID = "missed_call_channel"
         private const val NOTIF_ID = 7001
 
         /** The bound service instance — audio routing entry point. */
@@ -94,6 +97,18 @@ class CallInCallService : InCallService() {
     override fun onCallAdded(call: Call) {
         super.onCallAdded(call)
         Log.d(TAG, "onCallAdded state=${call.state}")
+
+        // Blocked caller: reject immediately, show nothing. Telecom records
+        // the rejected call in the call log (typed BLOCKED/REJECTED), so it
+        // still appears in «اخیر» without ever ringing the user.
+        if (call.state == Call.STATE_RINGING &&
+            BlockedNumbers.isBlocked(applicationContext, phoneOf(call))
+        ) {
+            Log.d(TAG, "Rejecting call from blocked number")
+            call.reject(false, null)
+            return
+        }
+
         currentCall = call
         call.registerCallback(callCallback)
         publishState(call, call.state)
@@ -108,6 +123,13 @@ class CallInCallService : InCallService() {
         if (currentCall == call) currentCall = null
         stickyState = null
         cancelIncomingCallNotification()
+
+        // Default-dialer duty: the system dialer used to post the missed-call
+        // notification — now that's on us.
+        if (call.details?.disconnectCause?.code == DisconnectCause.MISSED) {
+            postMissedCallNotification(phoneOf(call))
+        }
+
         CallEventStreamHandler.sendEvent(
             CallEvent.DISCONNECTED,
             mapOf("phone" to phoneOf(call), "direction" to directionOf(call)),
@@ -222,6 +244,40 @@ class CallInCallService : InCallService() {
     private fun cancelIncomingCallNotification() {
         (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
             .cancel(NOTIF_ID)
+    }
+
+    /** «تماس بی‌پاسخ» — tap opens the app on the recents tab. */
+    private fun postMissedCallNotification(phone: String) {
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            nm.createNotificationChannel(
+                NotificationChannel(
+                    MISSED_CHANNEL_ID, "تماس بی‌پاسخ",
+                    NotificationManager.IMPORTANCE_DEFAULT,
+                ).apply { description = "اعلان تماس‌های بی‌پاسخ" },
+            )
+        }
+        val piFlags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        val launch = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        } ?: Intent()
+        val contentIntent = PendingIntent.getActivity(this, 3, launch, piFlags)
+
+        val name = lookupContactName(phone) ?: phone
+        // Unique id per event so several missed calls stack instead of
+        // overwriting each other.
+        val notifId = (System.currentTimeMillis() and 0x7FFFFFFF).toInt()
+        nm.notify(
+            notifId,
+            NotificationCompat.Builder(this, MISSED_CHANNEL_ID)
+                .setSmallIcon(applicationInfo.icon)
+                .setContentTitle("تماس بی‌پاسخ")
+                .setContentText(name)
+                .setCategory(NotificationCompat.CATEGORY_MISSED_CALL)
+                .setAutoCancel(true)
+                .setContentIntent(contentIntent)
+                .build(),
+        )
     }
 
     private fun lookupContactName(phone: String): String? {

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/dialer_bloc.dart';
@@ -7,6 +8,7 @@ import '../bloc/dialer_state.dart';
 import '../widgets/dialer_bottom_sheet.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/persian_utils.dart';
+import '../../contacts/repositories/contact_repository.dart';
 
 const Color _kBg = Color(0xFF1C1B1F);
 const Color _kActiveTint = AppColors.googleBlueDark; // #8AB4F8
@@ -22,20 +24,43 @@ class InCallScreen extends StatefulWidget {
 }
 
 class _InCallScreenState extends State<InCallScreen> {
-  late final Timer _timer;
+  Timer? _timer;
   int _seconds = 0;
+
+  /// Resolved device-contact identity (name + photo) for [InCallScreen.phone].
+  String? _resolvedName;
+  Uint8List? _avatar;
 
   @override
   void initState() {
     super.initState();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+    _resolveContact();
+  }
+
+  Future<void> _resolveContact() async {
+    if (widget.phone.isEmpty) return;
+    final contact = await ContactRepository().getContactByPhoneNumber(
+      widget.phone,
+    );
+    if (!mounted || contact == null) return;
+    setState(() {
+      _resolvedName = contact.name.isNotEmpty ? contact.name : null;
+      _avatar = contact.avatar;
+    });
+  }
+
+  /// The duration counts talk time only: it starts on the first ACTIVE state,
+  /// not when the screen mounts (which happens while the call is still
+  /// dialing/ringing).
+  void _ensureTimerStarted() {
+    _timer ??= Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _seconds++);
     });
   }
 
   @override
   void dispose() {
-    _timer.cancel();
+    _timer?.cancel();
     super.dispose();
   }
 
@@ -49,9 +74,21 @@ class _InCallScreenState extends State<InCallScreen> {
   Widget build(BuildContext context) {
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: BlocBuilder<DialerBloc, DialerState>(
+      child: BlocConsumer<DialerBloc, DialerState>(
+        listenWhen: (prev, curr) => prev.callStatus != curr.callStatus,
+        listener: (context, state) {
+          if (state.callStatus == CallStatus.active) _ensureTimerStarted();
+        },
         builder: (context, state) {
           final onHold = state.callStatus == CallStatus.onHold;
+          final dialing =
+              state.callStatus == CallStatus.ringing ||
+              state.callStatus == CallStatus.connecting;
+          // Screen can mount when the call is already active (cold start into
+          // an ongoing call) — start counting right away in that case.
+          if (state.callStatus == CallStatus.active) _ensureTimerStarted();
+
+          final name = widget.contactName ?? _resolvedName;
           return Scaffold(
             backgroundColor: _kBg,
             body: SafeArea(
@@ -67,8 +104,7 @@ class _InCallScreenState extends State<InCallScreen> {
                   _buildAvatar(),
                   const SizedBox(height: 20),
                   Text(
-                    widget.contactName ??
-                        PersianUtils.toPersianNumber(widget.phone),
+                    name ?? PersianUtils.toPersianNumber(widget.phone),
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 30,
@@ -76,9 +112,21 @@ class _InCallScreenState extends State<InCallScreen> {
                     ),
                     textAlign: TextAlign.center,
                   ),
+                  if (name != null) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      PersianUtils.toPersianNumber(widget.phone),
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 10),
                   onHold
                       ? const _PulsingText('در انتظار')
+                      : dialing
+                      ? const _PulsingText('در حال برقراری تماس…')
                       : Text(
                           _formattedTime,
                           style: const TextStyle(
@@ -106,7 +154,10 @@ class _InCallScreenState extends State<InCallScreen> {
         color: Colors.white12,
         shape: BoxShape.circle,
       ),
-      child: const Icon(Icons.person, size: 52, color: Colors.white60),
+      clipBehavior: Clip.antiAlias,
+      child: _avatar != null
+          ? Image.memory(_avatar!, fit: BoxFit.cover)
+          : const Icon(Icons.person, size: 52, color: Colors.white60),
     );
   }
 
