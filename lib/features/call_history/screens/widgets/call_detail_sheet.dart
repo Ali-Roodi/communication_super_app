@@ -18,6 +18,8 @@ import 'package:communication_super_app/features/call_history/screens/widgets/ca
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_bloc.dart';
+import 'package:communication_super_app/features/messages/models/message_model.dart';
+import 'package:communication_super_app/features/messages/repositories/message_repository.dart';
 import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
 import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
 
@@ -92,8 +94,8 @@ class _CallDetailSheet extends StatelessWidget {
                 const SizedBox(height: 12),
                 const Divider(height: 1),
 
-                // ── Per-call breakdown ───────────────────────────────
-                ...calls.map((c) => _CallRow(call: c, theme: theme)),
+                // ── Activity log: calls + SMS, newest first ──────────
+                _ActivityLog(calls: calls, phoneNumber: log.phoneNumber),
 
                 const Divider(height: 1),
                 FavoriteToggleTile(
@@ -287,6 +289,89 @@ class _ActionChip extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Activity log: merged calls + SMS timeline ─────────────────────────────────
+
+/// The per-number breakdown: every loaded call AND the recent SMS exchanged
+/// with this number, merged into one newest-first timeline.
+class _ActivityLog extends StatelessWidget {
+  final List<CallLogModel> calls;
+  final String phoneNumber;
+
+  /// Keeps the sheet scannable — the full history lives in the conversation.
+  static const int _maxSmsRows = 30;
+  static const int _maxTotalRows = 50;
+
+  const _ActivityLog({required this.calls, required this.phoneNumber});
+
+  Future<List<MessageModel>> _loadMessages() {
+    final threadId = PhoneNormalizer.toThreadId(phoneNumber);
+    if (threadId.isEmpty) return Future.value(const []);
+    return MessageRepository().getMessagesByThread(
+      threadId,
+      limit: _maxSmsRows,
+      orderDesc: true,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return FutureBuilder<List<MessageModel>>(
+      future: _loadMessages(),
+      builder: (context, snap) {
+        final messages = snap.data ?? const <MessageModel>[];
+        // Merge and sort newest-first.
+        final items = <(DateTime, Widget)>[
+          for (final c in calls) (c.timestamp, _CallRow(call: c, theme: theme)),
+          for (final m in messages)
+            (m.timestamp, _SmsRow(message: m, theme: theme)),
+        ]..sort((a, b) => b.$1.compareTo(a.$1));
+        return Column(
+          children: [for (final it in items.take(_maxTotalRows)) it.$2],
+        );
+      },
+    );
+  }
+}
+
+/// One SMS row in the activity log (received or sent).
+class _SmsRow extends StatelessWidget {
+  final MessageModel message;
+  final ThemeData theme;
+
+  const _SmsRow({required this.message, required this.theme});
+
+  @override
+  Widget build(BuildContext context) {
+    final received = message.type == MessageType.received;
+    return ListTile(
+      dense: true,
+      leading: Icon(
+        received ? Icons.mark_chat_unread_outlined : Icons.send_outlined,
+        color: received ? AppColors.incomingCall : AppColors.outgoingCall,
+        size: 20,
+      ),
+      title: Text(
+        received ? 'پیامک دریافتی' : 'پیامک ارسالی',
+        style: const TextStyle(fontSize: 14),
+      ),
+      subtitle: Text(_dateTime(message.timestamp)),
+      trailing: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 120),
+        child: Text(
+          message.body,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 12,
+            color: theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.7),
           ),
         ),
       ),

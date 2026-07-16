@@ -521,21 +521,17 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
           icon: Icons.language_outlined,
           label: 'وب‌سایت',
         ),
-        ListTile(
-          leading: const Icon(Icons.cake_outlined),
-          title: const Text('تاریخ تولد'),
-          subtitle: Text(
-            _birthday == null
-                ? 'تعیین نشده'
-                : DateFormatter.formatDate(_birthday!),
-          ),
-          trailing: _birthday == null
-              ? null
-              : IconButton(
-                  icon: const Icon(Icons.clear),
-                  onPressed: () => setState(() => _birthday = null),
-                ),
+        // Same rail/metrics as the text fields above (see ContactValueField).
+        ContactValueField(
+          icon: Icons.cake_outlined,
+          label: 'تاریخ تولد',
+          value: _birthday == null
+              ? 'تعیین نشده'
+              : DateFormatter.formatDate(_birthday!),
           onTap: _pickBirthday,
+          onClear: _birthday == null
+              ? null
+              : () => setState(() => _birthday = null),
         ),
       ],
     );

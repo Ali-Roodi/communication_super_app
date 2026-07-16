@@ -19,12 +19,50 @@ void main() {
 
   group('CheckAuthStatus', () {
     blocTest<AuthBloc, AuthState>(
-      'emits AuthNotSet when no auth type is configured',
-      setUp: () =>
-          when(() => repo.getAuthType()).thenAnswer((_) async => AuthType.none),
+      'emits AuthNotSet when no auth type is configured (setup not skipped)',
+      setUp: () {
+        when(() => repo.getAuthType()).thenAnswer((_) async => AuthType.none);
+        when(() => repo.isAuthSkipped()).thenAnswer((_) async => false);
+      },
       build: build,
       act: (bloc) => bloc.add(const CheckAuthStatus()),
       expect: () => [const AuthLoading(), const AuthNotSet()],
+    );
+
+    blocTest<AuthBloc, AuthState>(
+      'goes straight in (AuthAuthenticated) when setup was skipped',
+      setUp: () {
+        when(() => repo.getAuthType()).thenAnswer((_) async => AuthType.none);
+        when(() => repo.isAuthSkipped()).thenAnswer((_) async => true);
+      },
+      build: build,
+      act: (bloc) => bloc.add(const CheckAuthStatus()),
+      expect: () => [const AuthLoading(), const AuthAuthenticated()],
+    );
+
+    blocTest<AuthBloc, AuthState>(
+      'SkipAuthSetup persists the flag and authenticates',
+      setUp: () =>
+          when(() => repo.setAuthSkipped(true)).thenAnswer((_) async {}),
+      build: build,
+      act: (bloc) => bloc.add(const SkipAuthSetup()),
+      expect: () => [const AuthAuthenticated()],
+      verify: (_) => verify(() => repo.setAuthSkipped(true)).called(1),
+    );
+
+    blocTest<AuthBloc, AuthState>(
+      'DisableAuth clears credentials, marks skipped, stays authenticated',
+      setUp: () {
+        when(() => repo.clearAuth()).thenAnswer((_) async {});
+        when(() => repo.setAuthSkipped(true)).thenAnswer((_) async {});
+      },
+      build: build,
+      act: (bloc) => bloc.add(const DisableAuth()),
+      expect: () => [const AuthAuthenticated()],
+      verify: (_) {
+        verify(() => repo.clearAuth()).called(1);
+        verify(() => repo.setAuthSkipped(true)).called(1);
+      },
     );
 
     blocTest<AuthBloc, AuthState>(

@@ -23,6 +23,11 @@ class AppConstants {
   static const String patternKey = 'app_pattern';
   static const String authTypeKey = 'auth_type';
   static const String isAuthenticatedKey = 'is_authenticated';
+
+  /// Set when the user chose «ادامه بدون رمز» on first entry (or removed the
+  /// PIN later). Auth setup is never re-prompted while this is true; the PIN
+  /// can still be set from Settings.
+  static const String authSkippedKey = 'auth_skipped';
   static const String themeModeKey = 'theme_mode';
 
   // Auth Types

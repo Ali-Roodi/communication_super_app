@@ -68,4 +68,18 @@ class AuthRepository {
     await _storage.delete(key: AppConstants.authTypeKey);
     await _storage.delete(key: AppConstants.isAuthenticatedKey);
   }
+
+  /// «ادامه بدون رمز»: when true, the app never re-prompts auth setup on
+  /// launch. Cleared automatically the moment a PIN/pattern is set.
+  Future<void> setAuthSkipped(bool value) async {
+    await _storage.write(
+      key: AppConstants.authSkippedKey,
+      value: value.toString(),
+    );
+  }
+
+  Future<bool> isAuthSkipped() async {
+    final value = await _storage.read(key: AppConstants.authSkippedKey);
+    return value == 'true';
+  }
 }

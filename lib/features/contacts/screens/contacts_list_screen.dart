@@ -454,38 +454,40 @@ class _AlphabetBar extends StatelessWidget {
           onSelect(letters[i]);
         }
 
-        // The Persian alphabet has 33 entries vs. 27 for Latin, so shrink the
-        // glyphs when the available height can't fit them at the base size.
-        final maxPerLetter = constraints.maxHeight / letters.length;
-        final fontSize = maxPerLetter.isFinite
-            ? maxPerLetter.clamp(6.0, 11.0)
-            : 11.0;
+        // Distribute the letters over the FULL bar height (one Expanded slot
+        // each) instead of packing them at line-height — the breathing room
+        // between glyphs is whatever the slot leaves around the text, so the
+        // index stays legible on any screen. The glyph itself takes ~60% of
+        // its slot; the Persian alphabet (33 entries) simply gets slightly
+        // smaller slots than Latin (27).
+        final slot = constraints.maxHeight / letters.length;
+        final fontSize = slot.isFinite ? (slot * 0.62).clamp(8.0, 13.0) : 12.0;
 
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTapDown: (d) => handle(d.localPosition),
           onVerticalDragUpdate: (d) => handle(d.localPosition),
-          child: Container(
+          child: SizedBox(
             width: 24,
-            alignment: Alignment.center,
+            height: constraints.maxHeight,
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 for (final l in letters)
-                  Text(
-                    l,
-                    strutStyle: StrutStyle(
-                      fontSize: fontSize,
-                      height: 1,
-                      forceStrutHeight: true,
-                    ),
-                    style: TextStyle(
-                      fontSize: fontSize,
-                      height: 1,
-                      fontWeight: FontWeight.w600,
-                      color: available.contains(l)
-                          ? theme.colorScheme.primary
-                          : theme.colorScheme.primary.withValues(alpha: 0.3),
+                  Expanded(
+                    child: Center(
+                      child: Text(
+                        l,
+                        style: TextStyle(
+                          fontSize: fontSize,
+                          height: 1,
+                          fontWeight: FontWeight.w600,
+                          color: available.contains(l)
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.primary.withValues(
+                                  alpha: 0.3,
+                                ),
+                        ),
+                      ),
                     ),
                   ),
               ],
