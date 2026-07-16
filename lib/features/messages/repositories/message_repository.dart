@@ -130,6 +130,156 @@ class MessageRepository {
     return threads;
   }
 
+  /// Fetches full rows for the given message ids (used to build the provider
+  /// delete specs before a global delete).
+  Future<List<MessageModel>> getMessagesByIds(List<String> ids) async {
+    if (ids.isEmpty) return [];
+    final db = await _dbHelper.database;
+    final placeholders = List.filled(ids.length, '?').join(',');
+    final maps = await db.query(
+      AppConstants.messagesTable,
+      where: 'id IN ($placeholders)',
+      whereArgs: ids,
+    );
+    return maps.map(MessageModel.fromMap).toList();
+  }
+
+  // ── Device mirror-sync ────────────────────────────────────────────────────
+
+  /// One-time backfill: rows imported before the v11 migration used the device
+  /// provider row id as their `id`, so a numeric id IS the provider id.
+  Future<void> backfillDeviceSmsIds() async {
+    final db = await _dbHelper.database;
+    await db.rawUpdate('''
+      UPDATE ${AppConstants.messagesTable}
+      SET device_sms_id = CAST(id AS INTEGER)
+      WHERE device_sms_id IS NULL AND id GLOB '[0-9]*' AND id NOT GLOB '*[^0-9]*'
+    ''');
+  }
+
+  /// Reconciles a batch of device-provider rows into the local store.
+  ///
+  /// Per row (all inside one transaction):
+  /// 1. Already known by `device_sms_id` → skip.
+  /// 2. Exact content match (unique-index key) → adopt: set `device_sms_id`.
+  /// 3. Fuzzy match (same thread/body/type within [fuzzyWindow]) → adopt.
+  ///    Needed because a live-received row stores the SMS-PDU timestamp while
+  ///    the provider stores the device receive time — the two differ by
+  ///    seconds, which defeats the exact unique index.
+  /// 4. No match → insert as a new message.
+  Future<void> reconcileDeviceRows(
+    List<MessageModel> deviceRows, {
+    Duration fuzzyWindow = const Duration(minutes: 2),
+  }) async {
+    if (deviceRows.isEmpty) return;
+    final db = await _dbHelper.database;
+    final windowMs = fuzzyWindow.inMilliseconds;
+    await db.transaction((txn) async {
+      for (final row in deviceRows) {
+        final deviceId = row.deviceSmsId;
+        if (deviceId == null) continue;
+
+        // 1. Known already?
+        final known = await txn.query(
+          AppConstants.messagesTable,
+          columns: ['id'],
+          where: 'device_sms_id = ?',
+          whereArgs: [deviceId],
+          limit: 1,
+        );
+        if (known.isNotEmpty) continue;
+
+        // 2. Exact content match (same key as the dedup unique index).
+        final exact = await txn.query(
+          AppConstants.messagesTable,
+          columns: ['id'],
+          where:
+              'phone_number = ? AND body = ? AND timestamp = ? AND type = ? '
+              'AND device_sms_id IS NULL',
+          whereArgs: [
+            row.phoneNumber,
+            row.body,
+            row.timestamp.millisecondsSinceEpoch,
+            row.type.name,
+          ],
+          limit: 1,
+        );
+        if (exact.isNotEmpty) {
+          await txn.update(
+            AppConstants.messagesTable,
+            {'device_sms_id': deviceId},
+            where: 'id = ?',
+            whereArgs: [exact.first['id']],
+          );
+          continue;
+        }
+
+        // 3. Fuzzy match: PDU timestamp vs provider receive time skew.
+        final ts = row.timestamp.millisecondsSinceEpoch;
+        final fuzzy = await txn.query(
+          AppConstants.messagesTable,
+          columns: ['id'],
+          where:
+              'thread_id = ? AND body = ? AND type = ? '
+              'AND device_sms_id IS NULL AND timestamp BETWEEN ? AND ?',
+          whereArgs: [row.threadId, row.body, row.type.name, ts - windowMs, ts + windowMs],
+          limit: 1,
+        );
+        if (fuzzy.isNotEmpty) {
+          await txn.update(
+            AppConstants.messagesTable,
+            {'device_sms_id': deviceId},
+            where: 'id = ?',
+            whereArgs: [fuzzy.first['id']],
+          );
+          continue;
+        }
+
+        // 4. New message from the device.
+        await txn.insert(
+          AppConstants.messagesTable,
+          row.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+      }
+    });
+  }
+
+  /// Hard-deletes local rows whose provider row no longer exists — the message
+  /// was deleted on the device, so it must disappear here too. Rows without a
+  /// `device_sms_id` are never touched (failed sends, provider-less rows).
+  ///
+  /// Returns the number of rows removed.
+  Future<int> removeRowsMissingFromDevice(Set<int> deviceIds) async {
+    final db = await _dbHelper.database;
+    final local = await db.query(
+      AppConstants.messagesTable,
+      columns: ['id', 'device_sms_id'],
+      where: 'device_sms_id IS NOT NULL',
+    );
+    final staleIds = <String>[
+      for (final row in local)
+        if (!deviceIds.contains((row['device_sms_id'] as num).toInt()))
+          row['id'] as String,
+    ];
+    if (staleIds.isEmpty) return 0;
+    var deleted = 0;
+    // Chunked to stay under SQLite's bound-variable limit.
+    for (var i = 0; i < staleIds.length; i += 500) {
+      final chunk = staleIds.sublist(
+        i,
+        i + 500 > staleIds.length ? staleIds.length : i + 500,
+      );
+      final placeholders = List.filled(chunk.length, '?').join(',');
+      deleted += await db.delete(
+        AppConstants.messagesTable,
+        where: 'id IN ($placeholders)',
+        whereArgs: chunk,
+      );
+    }
+    return deleted;
+  }
+
   Future<void> updateMessageStatus(
     String messageId,
     MessageStatus status,

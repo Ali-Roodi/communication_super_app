@@ -50,17 +50,14 @@ void main() {
   );
 
   blocTest<ContactBloc, ContactState>(
-    'DeleteContact emits success then the refreshed list',
-    setUp: () {
-      when(() => repo.deleteContact('id-1')).thenAnswer((_) async {});
-      when(() => repo.getAllContacts()).thenAnswer((_) async => const []);
-    },
+    'RefreshContacts reloads from the device without a loading state',
+    setUp: () => when(
+      () => repo.getAllContacts(forceRefresh: true),
+    ).thenAnswer((_) async => const []),
     build: build,
-    act: (bloc) => bloc.add(const DeleteContact('id-1')),
-    expect: () => [const ContactOperationSuccess(), const ContactsLoaded([])],
-    verify: (_) {
-      verify(() => repo.deleteContact('id-1')).called(1);
-      verify(() => repo.invalidateCache()).called(1);
-    },
+    act: (bloc) => bloc.add(const RefreshContacts()),
+    expect: () => [const ContactsLoaded([])],
+    verify: (_) =>
+        verify(() => repo.getAllContacts(forceRefresh: true)).called(1),
   );
 }

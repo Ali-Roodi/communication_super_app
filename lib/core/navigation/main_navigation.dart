@@ -5,16 +5,14 @@ import 'package:communication_super_app/features/contacts/bloc/contact_bloc.dart
 import 'package:communication_super_app/features/contacts/bloc/contact_event.dart';
 import 'package:communication_super_app/features/messages/bloc/message_event.dart';
 import 'package:communication_super_app/features/dialer/widgets/dialer_bottom_sheet.dart';
-import 'package:communication_super_app/features/dialer/screens/incoming_call_screen.dart';
-import 'package:communication_super_app/features/dialer/screens/in_call_screen.dart';
-import 'package:communication_super_app/features/dialer/bloc/dialer_bloc.dart';
-import 'package:communication_super_app/features/dialer/bloc/dialer_state.dart';
 import 'package:communication_super_app/features/favorites/screens/favorites_screen.dart';
 import 'package:communication_super_app/features/contacts/screens/contacts_list_screen.dart';
 import 'package:communication_super_app/features/messages/screens/messages_list_screen.dart';
 import 'package:communication_super_app/features/messages/bloc/message_bloc.dart';
 import 'package:communication_super_app/features/messages/bloc/message_state.dart';
 import 'package:communication_super_app/features/call_history/screens/call_history_screen.dart';
+import 'package:communication_super_app/features/call_history/bloc/call_log_bloc.dart';
+import 'package:communication_super_app/features/call_history/bloc/call_log_event.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/features/search/screens/search_screen.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
@@ -76,7 +74,14 @@ class _MainNavigationState extends State<MainNavigation>
     super.didChangeAppLifecycleState(state);
     // A contact may have been added while we were backgrounded (e.g. the user
     // switched to the phone's Contacts app and came back).
-    if (state == AppLifecycleState.resumed) _refreshDeviceContacts();
+    if (state == AppLifecycleState.resumed) {
+      _refreshDeviceContacts();
+      // Same for calls: one may have ended (or been deleted) while
+      // backgrounded — silent mirror-sync so «اخیر» is current on return.
+      context.read<CallLogBloc>().add(const SyncCallLogs());
+      // And for SMS: mirror-sync the provider (new/deleted rows) silently.
+      context.read<MessageBloc>().add(const SyncDeviceMessages());
+    }
   }
 
   /// Invalidates the device-contact cache and asks the contacts list + message
@@ -89,42 +94,9 @@ class _MainNavigationState extends State<MainNavigation>
 
   @override
   Widget build(BuildContext context) {
-    // PHASE-2 VoIP: this listener navigates to IncomingCallScreen / InCallScreen
-    // when callStatus changes. For cellular calls (Option A) callStatus stays
-    // idle and the native system dialer manages the UI — so this never fires.
-    return BlocListener<DialerBloc, DialerState>(
-      listenWhen: (prev, curr) => prev.callStatus != curr.callStatus,
-      listener: (context, state) {
-        switch (state.callStatus) {
-          case CallStatus.incoming:
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                fullscreenDialog: true,
-                builder: (_) => BlocProvider.value(
-                  value: context.read<DialerBloc>(),
-                  child: IncomingCallScreen(phone: state.activePhone),
-                ),
-              ),
-            );
-          case CallStatus.active:
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(
-                fullscreenDialog: true,
-                builder: (_) => BlocProvider.value(
-                  value: context.read<DialerBloc>(),
-                  child: InCallScreen(phone: state.activePhone),
-                ),
-              ),
-            );
-          case CallStatus.idle:
-            if (Navigator.of(context).canPop()) {
-              Navigator.of(context).pop();
-            }
-          default:
-            break;
-        }
-      },
-      child: Scaffold(
+    // Call-screen navigation lives in CallUiCoordinator (above the auth flow,
+    // see main.dart) so incoming calls surface even on the PIN screen.
+    return Scaffold(
         // The Messages tab (index 3) hosts its own contextual app bar (inline
         // search, multi-select, archived menu), so the shared header is hidden
         // there to avoid a duplicate header.
@@ -224,7 +196,6 @@ class _MainNavigationState extends State<MainNavigation>
             },
           ),
         ),
-      ),
     );
   }
 

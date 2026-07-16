@@ -656,6 +656,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
       onAttach: _showAttachmentSheet,
       onSend: _sendMessage,
       onStickerSelected: _insertSticker,
+      // Long-press send → scheduler prefilled with the typed message.
+      onSchedule: _openScheduler,
     );
   }
 

@@ -1,8 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:sqflite/sqflite.dart';
-import 'package:communication_super_app/core/database/database_helper.dart';
-import 'package:communication_super_app/core/constants/app_constants.dart';
 import 'package:flutter_contacts/flutter_contacts.dart' as device_contacts;
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import '../models/contact_model.dart';
@@ -38,9 +36,11 @@ List<Map<String, dynamic>> _mapContactsInIsolate(
 }
 
 class ContactRepository {
-  final DatabaseHelper _dbHelper = DatabaseHelper.instance;
   static List<ContactModel>? _cache;
-  static bool _isLoading = false;
+
+  /// In-flight device read; concurrent callers await the same future instead
+  /// of busy-waiting on a polling loop.
+  static Completer<void>? _loading;
 
   /// Invalidate the cache to force a reload on next request
   void invalidateCache() {
@@ -55,14 +55,14 @@ class ContactRepository {
     if (forceRefresh) _cache = null;
     if (_cache != null) return _cache!;
 
-    if (_isLoading) {
-      while (_isLoading) {
-        await Future.delayed(const Duration(milliseconds: 50));
-      }
+    final inFlight = _loading;
+    if (inFlight != null) {
+      await inFlight.future;
       return _cache ?? [];
     }
 
-    _isLoading = true;
+    final completer = Completer<void>();
+    _loading = completer;
     try {
       final hasPermission = await _ensurePermission();
       if (!hasPermission) {
@@ -70,9 +70,12 @@ class ContactRepository {
         return _cache!;
       }
 
+      // Thumbnails only: full-resolution photos for an entire address book are
+      // megabytes of decode work. The detail screen fetches the full photo for
+      // its single contact separately.
       final contacts = await device_contacts.FlutterContacts.getContacts(
         withProperties: true,
-        withPhoto: true,
+        withThumbnail: true,
       );
 
       // Serialize for isolate (minimal data; photos as base64)
@@ -83,12 +86,13 @@ class ContactRepository {
             .where((p) => p.isNotEmpty)
             .toList();
         if (phones.isEmpty) continue;
+        final avatar = c.thumbnail ?? c.photo;
         serialized.add({
           'id': c.id,
           'name': c.displayName,
           'phones': phones,
           'email': c.emails.isNotEmpty ? c.emails.first.address : null,
-          'avatar_base64': c.photo != null ? base64Encode(c.photo!) : null,
+          'avatar_base64': avatar != null ? base64Encode(avatar) : null,
         });
       }
 
@@ -113,7 +117,8 @@ class ContactRepository {
           .toList();
       return _cache!;
     } finally {
-      _isLoading = false;
+      _loading = null;
+      completer.complete();
     }
   }
 
@@ -130,74 +135,32 @@ class ContactRepository {
     return getDeviceContacts(forceRefresh: forceRefresh);
   }
 
-  Future<ContactModel?> getContactById(String id) async {
-    final db = await _dbHelper.database;
-    final maps = await db.query(
-      AppConstants.contactsTable,
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-    if (maps.isEmpty) return null;
-    return ContactModel.fromMap(maps.first);
-  }
-
   /// Resolves a device-contact display name for [phoneNumber] (E.164 or local
   /// format), matching on the normalized national number so `+98…` and `09…`
   /// both hit a contact saved either way. Returns null if no match.
   Future<String?> getDeviceContactName(String phoneNumber) async {
+    final contact = await getContactByPhoneNumber(phoneNumber);
+    return (contact == null || contact.name.isEmpty) ? null : contact.name;
+  }
+
+  /// Finds the device contact owning [phoneNumber], matching on the normalized
+  /// national number across **all** of each contact's numbers, so `+98…` and
+  /// `09…` both resolve.
+  ///
+  /// This used to query the local `contacts` SQLite table — which nothing
+  /// writes to anymore — so it returned null for every device contact and
+  /// messages lost their contact linkage. Now it reads the same device-contact
+  /// cache the lists use.
+  Future<ContactModel?> getContactByPhoneNumber(String phoneNumber) async {
     final target = PhoneNormalizer.toThreadId(phoneNumber);
     if (target.isEmpty) return null;
     final contacts = await getDeviceContacts();
     for (final c in contacts) {
-      if (c.name.isEmpty) continue;
       for (final p in [...c.phoneNumbers, c.phoneNumber]) {
-        if (PhoneNormalizer.toThreadId(p) == target) return c.name;
+        if (PhoneNormalizer.toThreadId(p) == target) return c;
       }
     }
     return null;
-  }
-
-  Future<ContactModel?> getContactByPhoneNumber(String phoneNumber) async {
-    final db = await _dbHelper.database;
-    final maps = await db.query(
-      AppConstants.contactsTable,
-      where: 'phone_number = ?',
-      whereArgs: [phoneNumber],
-    );
-    if (maps.isEmpty) return null;
-    return ContactModel.fromMap(maps.first);
-  }
-
-  Future<String> createContact(ContactModel contact) async {
-    final db = await _dbHelper.database;
-    await db.insert(
-      AppConstants.contactsTable,
-      contact.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
-    invalidateCache(); // Invalidate cache after creating
-    return contact.id;
-  }
-
-  Future<void> updateContact(ContactModel contact) async {
-    final db = await _dbHelper.database;
-    await db.update(
-      AppConstants.contactsTable,
-      contact.copyWith(updatedAt: DateTime.now()).toMap(),
-      where: 'id = ?',
-      whereArgs: [contact.id],
-    );
-    invalidateCache(); // Invalidate cache after updating
-  }
-
-  Future<void> deleteContact(String id) async {
-    final db = await _dbHelper.database;
-    await db.delete(
-      AppConstants.contactsTable,
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-    invalidateCache(); // Invalidate cache after deleting
   }
 
   Future<List<ContactModel>> searchContacts(String query) async {

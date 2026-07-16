@@ -19,6 +19,8 @@ import 'widgets/thread_tile.dart';
 import 'widgets/message_list_states.dart';
 import 'widgets/messages_app_bars.dart';
 import 'widgets/thread_options_sheet.dart';
+import 'widgets/default_sms_banner.dart';
+import '../services/native_sms_service.dart';
 
 /// Inbox of conversations — Google Messages style.
 ///
@@ -45,6 +47,12 @@ class _MessagesListScreenState extends State<MessagesListScreen>
   final ComposerDraftStore _draftStore = ComposerDraftStore();
   Map<String, ComposerDraft> _drafts = {};
 
+  /// Default-SMS-app banner: shown while the app doesn't hold the SMS role
+  /// (full two-way sync requires it). Dismissal lasts for the session.
+  final NativeSmsService _nativeSms = NativeSmsService();
+  bool _showDefaultSmsBanner = false;
+  bool _bannerDismissed = false;
+
   bool get _selectionMode => _selected.isNotEmpty;
 
   @override
@@ -59,6 +67,42 @@ class _MessagesListScreenState extends State<MessagesListScreen>
     WidgetsBinding.instance.addObserver(this);
     _scrollController.addListener(_onScroll);
     _loadDrafts();
+    _checkDefaultSmsApp();
+  }
+
+  Future<void> _checkDefaultSmsApp() async {
+    final isDefault = await _nativeSms.isDefaultSmsApp();
+    if (!mounted) return;
+    setState(() => _showDefaultSmsBanner = !isDefault && !_bannerDismissed);
+  }
+
+  Future<void> _requestDefaultSmsRole() async {
+    final granted = await _nativeSms.requestDefaultSmsRole();
+    if (!mounted) return;
+    setState(() => _showDefaultSmsBanner = !granted && !_bannerDismissed);
+    if (granted) {
+      // Role granted: mirror-sync immediately so the provider write-through
+      // and global deletes take effect from now on.
+      context.read<MessageBloc>().add(const SyncDeviceMessages());
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('این برنامه پیام‌رسان پیش‌فرض شد')),
+      );
+    } else {
+      // Denied — or the system auto-denied (it does after two refusals).
+      // Offer the manual path: Settings → Default apps.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            'درخواست رد شد. می‌توانید از تنظیمات، برنامه‌های پیش‌فرض را '
+            'تغییر دهید',
+          ),
+          action: SnackBarAction(
+            label: 'تنظیمات',
+            onPressed: () => _nativeSms.openDefaultAppsSettings(),
+          ),
+        ),
+      );
+    }
   }
 
   @override
@@ -109,6 +153,8 @@ class _MessagesListScreenState extends State<MessagesListScreen>
     if (state == AppLifecycleState.resumed && mounted && _hasLoadedInitially) {
       context.read<MessageBloc>().add(const LoadThreads());
       _loadDrafts();
+      // The user may have changed the default SMS app in system settings.
+      _checkDefaultSmsApp();
     }
   }
 
@@ -178,7 +224,43 @@ class _MessagesListScreenState extends State<MessagesListScreen>
       textDirection: TextDirection.rtl,
       child: Scaffold(
         appBar: _buildAppBar(context),
-        body: BlocConsumer<MessageBloc, MessageState>(
+        body: Column(
+          children: [
+            if (_showDefaultSmsBanner && !_selectionMode && !_searching)
+              DefaultSmsBanner(
+                onRequest: _requestDefaultSmsRole,
+                onDismiss: () => setState(() {
+                  _bannerDismissed = true;
+                  _showDefaultSmsBanner = false;
+                }),
+              ),
+            Expanded(child: _buildBody(context)),
+          ],
+        ),
+        floatingActionButton: _selectionMode || _searching
+            ? null
+            : FloatingActionButton.extended(
+                heroTag: 'messages_fab',
+                onPressed: () async {
+                  final messageBloc = context.read<MessageBloc>();
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const ContactSelectorScreen(),
+                    ),
+                  );
+                  messageBloc.add(const LoadThreads());
+                  _loadDrafts();
+                },
+                icon: const Icon(Icons.edit_outlined),
+                label: const Text('پیام جدید'),
+              ),
+      ),
+    );
+  }
+
+  Widget _buildBody(BuildContext context) {
+    return BlocConsumer<MessageBloc, MessageState>(
           listener: (context, state) {
             if (state is MessageSent || state is MessageSendFailed) {
               context.read<MessageBloc>().add(const LoadThreads());
@@ -235,27 +317,7 @@ class _MessagesListScreenState extends State<MessagesListScreen>
             }
             return const Center(child: CircularProgressIndicator());
           },
-        ),
-        floatingActionButton: _selectionMode || _searching
-            ? null
-            : FloatingActionButton.extended(
-                heroTag: 'messages_fab',
-                onPressed: () async {
-                  final messageBloc = context.read<MessageBloc>();
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const ContactSelectorScreen(),
-                    ),
-                  );
-                  messageBloc.add(const LoadThreads());
-                  _loadDrafts();
-                },
-                icon: const Icon(Icons.edit_outlined),
-                label: const Text('پیام جدید'),
-              ),
-      ),
-    );
+        );
   }
 
   // ── App bars ───────────────────────────────────────────────────────────

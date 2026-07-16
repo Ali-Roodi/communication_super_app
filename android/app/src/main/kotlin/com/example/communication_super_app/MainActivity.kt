@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Bundle
 import com.example.communication_super_app.call.CallHandler
+import com.example.communication_super_app.calllog.CallLogSyncHandler
 import com.example.communication_super_app.scheduled.ScheduledSmsChannel
 import com.example.communication_super_app.scheduled.ScheduledSmsScheduler
 import io.flutter.embedding.android.FlutterActivity
@@ -17,6 +18,7 @@ import java.io.ByteArrayOutputStream
 class MainActivity : FlutterActivity() {
     private var smsHandler: SmsHandler? = null
     private var callHandler: CallHandler? = null
+    private var callLogSyncHandler: CallLogSyncHandler? = null
 
     /// Pending result for an in-flight image pick (resolved in onActivityResult).
     private var pendingPickResult: MethodChannel.Result? = null
@@ -26,6 +28,8 @@ class MainActivity : FlutterActivity() {
         private const val CHANNEL_SMS_EVENTS = "com.example.communication_super_app/sms_events"
         private const val CHANNEL_MEDIA = "com.example.communication_super_app/media"
         private const val CHANNEL_SCHEDULED = "com.example.communication_super_app/scheduled_sms"
+        private const val CHANNEL_CALL_LOG = "com.example.communication_super_app/call_log"
+        private const val CHANNEL_CALL_LOG_EVENTS = "com.example.communication_super_app/call_log_events"
         private const val REQUEST_PICK_IMAGE = 9001
         private const val MAX_DIMEN = 512
     }
@@ -47,7 +51,17 @@ class MainActivity : FlutterActivity() {
         smsHandler?.setupEventChannel(eventChannel)
 
         // ── Call Handler (جدید) ────────────────────────────────────────
-        callHandler = CallHandler(applicationContext, flutterEngine)
+        // Activity ref: needed for the default-dialer role request dialog.
+        callHandler = CallHandler(applicationContext, flutterEngine, this)
+
+        // ── Call-log sync (تماس‌های اخیر — دوطرفه با گوشی) ───────────────
+        callLogSyncHandler = CallLogSyncHandler(applicationContext)
+        callLogSyncHandler?.setupMethodChannel(
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL_CALL_LOG)
+        )
+        callLogSyncHandler?.setupEventChannel(
+            EventChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL_CALL_LOG_EVENTS)
+        )
 
         // ── Media picker (انتخاب عکس مخاطب) ─────────────────────────────
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL_MEDIA)
@@ -102,6 +116,10 @@ class MainActivity : FlutterActivity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        // Default-SMS / default-dialer role dialog outcomes → resolve the
+        // pending Flutter calls.
+        if (smsHandler?.handleRoleActivityResult(requestCode) == true) return
+        if (callHandler?.handleRoleActivityResult(requestCode) == true) return
         if (requestCode != REQUEST_PICK_IMAGE) return
         val result = pendingPickResult ?: return
         pendingPickResult = null
@@ -161,6 +179,8 @@ class MainActivity : FlutterActivity() {
         smsHandler?.dispose()
         smsHandler = null
         callHandler = null
+        callLogSyncHandler?.dispose()
+        callLogSyncHandler = null
         // The engine is going away: the alarm receiver must go back to delivering
         // scheduled messages natively.
         ScheduledSmsChannel.channel = null

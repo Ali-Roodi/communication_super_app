@@ -1,9 +1,12 @@
 import 'dart:isolate';
 
+import 'dart:async';
+
 import 'package:call_log/call_log.dart' as call_log;
 import 'package:permission_handler/permission_handler.dart';
 import '../models/call_log_model.dart';
 import '../repositories/call_log_repository.dart';
+import 'native_call_log_service.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:uuid/uuid.dart';
@@ -12,29 +15,35 @@ class CallLogService {
   final CallLogRepository _repository = CallLogRepository();
   final ContactRepository _contactRepository = ContactRepository();
   static List<CallLogModel>? _cache;
-  static bool _isLoading = false;
+
+  /// In-flight load/sync; concurrent callers await the same future instead of
+  /// busy-waiting.
+  static Completer<void>? _loading;
 
   Future<bool> requestPermissions() async {
     final status = await Permission.phone.request();
     return status.isGranted;
   }
 
+  /// Drops the in-memory cache so the next [getCallLogs] re-reads the DB.
+  static void invalidateCache() => _cache = null;
+
   Future<List<CallLogModel>> getCallLogs({bool forceRefresh = false}) async {
     if (!forceRefresh && _cache != null && _cache!.isNotEmpty) {
       return _cache!;
     }
 
-    // Avoid duplicate concurrent loads
-    if (_isLoading) {
-      while (_isLoading) {
-        await Future.delayed(const Duration(milliseconds: 50));
-      }
-      if (_cache != null) return _cache!;
+    // Avoid duplicate concurrent loads: piggyback on the in-flight one.
+    final inFlight = _loading;
+    if (inFlight != null) {
+      await inFlight.future;
+      if (!forceRefresh && _cache != null) return _cache!;
     }
 
-    _isLoading = true;
+    final completer = Completer<void>();
+    _loading = completer;
     try {
-      // Source the raw logs: DB cache first, else read from the device.
+      // Source the raw logs: DB mirror first, else sync from the device.
       // `contact_name` is NOT stored in the DB, so it is resolved fresh below
       // from the current contacts on every load — this way a call shows the
       // saved name even for cached rows and updates the moment a contact is
@@ -44,13 +53,8 @@ class CallLogService {
       if (cachedDbLogs.isNotEmpty && !forceRefresh) {
         logs = cachedDbLogs;
       } else {
-        final hasPermission = await requestPermissions();
-        if (!hasPermission) {
-          _cache = [];
-          return _cache!;
-        }
-        logs = await _fetchDeviceLogs();
-        await _repository.saveCallLogsBatch(logs);
+        final synced = await syncFromDevice();
+        logs = synced ?? cachedDbLogs;
       }
 
       _cache = await resolveContactNames(logs);
@@ -59,9 +63,50 @@ class CallLogService {
       _cache = [];
       return _cache!;
     } finally {
-      _isLoading = false;
+      _loading = null;
+      completer.complete();
     }
   }
+
+  /// Mirror-syncs the local DB against the device call-log provider:
+  /// device rows are upserted, and local rows whose provider row no longer
+  /// exists are removed (so a call deleted on the phone disappears here too).
+  ///
+  /// Returns the fresh device logs, or null when permission is missing.
+  Future<List<CallLogModel>?> syncFromDevice() async {
+    final hasPermission = await requestPermissions();
+    if (!hasPermission) return null;
+
+    final deviceLogs = await _fetchDeviceLogs();
+    await _repository.saveCallLogsBatch(deviceLogs);
+
+    // Remove local rows that vanished from the device. Only numeric ids can be
+    // provider rows — UUID-fallback rows (device gave no id) are left alone.
+    final deviceIds = deviceLogs.map((l) => l.id).toSet();
+    final localIds = await _repository.getAllIds();
+    final stale = localIds
+        .where((id) => !deviceIds.contains(id) && _isNumeric(id))
+        .toList();
+    if (stale.isNotEmpty) {
+      await _repository.deleteCallLogs(stale);
+    }
+
+    invalidateCache();
+    return deviceLogs;
+  }
+
+  /// Deletes call logs **globally**: from the device provider first, then the
+  /// local mirror. Never delete local-only — the row would resurrect on the
+  /// next device sync.
+  Future<void> deleteCallLogsGlobally(List<String> ids) async {
+    if (ids.isEmpty) return;
+    await NativeCallLogService.instance.deleteDeviceCallLogs(ids);
+    await _repository.deleteCallLogs(ids);
+    invalidateCache();
+  }
+
+  static bool _isNumeric(String s) =>
+      s.isNotEmpty && s.codeUnits.every((c) => c >= 0x30 && c <= 0x39);
 
   /// Overlays the current contact name/id onto each log, matching on the
   /// canonical national number against **all** of a contact's phone numbers.

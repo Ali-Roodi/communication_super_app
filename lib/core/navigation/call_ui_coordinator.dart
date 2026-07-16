@@ -1,0 +1,94 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:communication_super_app/features/dialer/bloc/dialer_bloc.dart';
+import 'package:communication_super_app/features/dialer/bloc/dialer_state.dart';
+import 'package:communication_super_app/features/dialer/screens/incoming_call_screen.dart';
+import 'package:communication_super_app/features/dialer/screens/in_call_screen.dart';
+
+/// Global navigator key — lets [CallUiCoordinator] push call screens without a
+/// route-local context.
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
+
+/// Navigates to IncomingCallScreen / InCallScreen on call-state changes.
+///
+/// Lives directly under `home` — ABOVE the auth flow — deliberately: while the
+/// app holds the default-dialer role, this is the only call UI on the device,
+/// and it must appear even when the app cold-starts onto the PIN screen (an
+/// incoming call cannot wait for an unlock). Only the call screens are exposed;
+/// the rest of the app stays behind the lock, and ending the call drops the
+/// user back onto whatever was showing before (PIN screen included).
+class CallUiCoordinator extends StatefulWidget {
+  final Widget child;
+
+  const CallUiCoordinator({super.key, required this.child});
+
+  @override
+  State<CallUiCoordinator> createState() => _CallUiCoordinatorState();
+}
+
+class _CallUiCoordinatorState extends State<CallUiCoordinator> {
+  /// Previous call status — the listener needs the transition (not just the
+  /// new value) to decide between push / pushReplacement / no-op.
+  CallStatus _lastCallStatus = CallStatus.idle;
+
+  void _pushCall(BuildContext context, Widget screen, {bool replace = false}) {
+    final navigator = appNavigatorKey.currentState;
+    if (navigator == null) return;
+    final route = MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder: (_) =>
+          BlocProvider.value(value: context.read<DialerBloc>(), child: screen),
+    );
+    if (replace) {
+      navigator.pushReplacement(route);
+    } else {
+      navigator.push(route);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocListener<DialerBloc, DialerState>(
+      listenWhen: (prev, curr) => prev.callStatus != curr.callStatus,
+      listener: (context, state) {
+        final prev = _lastCallStatus;
+        _lastCallStatus = state.callStatus;
+        final navigator = appNavigatorKey.currentState;
+        if (navigator == null) return;
+
+        switch (state.callStatus) {
+          case CallStatus.incoming:
+            _pushCall(context, IncomingCallScreen(phone: state.activePhone));
+          case CallStatus.ringing:
+          case CallStatus.connecting:
+            // Outgoing call dialing — show the in-call UI immediately.
+            if (prev != CallStatus.active && prev != CallStatus.onHold) {
+              _pushCall(context, InCallScreen(phone: state.activePhone));
+            }
+          case CallStatus.active:
+            if (prev == CallStatus.incoming) {
+              // Answered: swap the incoming screen for the in-call screen.
+              _pushCall(
+                context,
+                InCallScreen(phone: state.activePhone),
+                replace: true,
+              );
+            } else if (prev != CallStatus.ringing &&
+                prev != CallStatus.connecting &&
+                prev != CallStatus.onHold) {
+              // Active with no prior UI (e.g. cold start into an ongoing call).
+              _pushCall(context, InCallScreen(phone: state.activePhone));
+            }
+          // ringing/connecting/onHold → InCallScreen is already up.
+          case CallStatus.onHold:
+            break; // InCallScreen renders the hold state itself.
+          case CallStatus.idle:
+            if (prev != CallStatus.idle && navigator.canPop()) {
+              navigator.pop();
+            }
+        }
+      },
+      child: widget.child,
+    );
+  }
+}

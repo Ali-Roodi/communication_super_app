@@ -9,6 +9,10 @@ enum NativeCallEvent {
   onHold,
   disconnected,
   callFailed,
+
+  /// Telecom audio route/mute changed (e.g. bluetooth connected) — carries
+  /// [CallInfo.speaker] / [CallInfo.muted] so the UI toggles stay honest.
+  audioState,
 }
 
 /// اطلاعات یک رویداد تماس
@@ -17,10 +21,16 @@ class CallInfo {
   final String phone;
   final String direction; // 'incoming' | 'outgoing'
 
+  /// Only meaningful for [NativeCallEvent.audioState].
+  final bool? speaker;
+  final bool? muted;
+
   const CallInfo({
     required this.event,
     this.phone = '',
     this.direction = 'outgoing',
+    this.speaker,
+    this.muted,
   });
 }
 
@@ -51,6 +61,7 @@ class NativeCallService {
         'on_hold' => NativeCallEvent.onHold,
         'disconnected' => NativeCallEvent.disconnected,
         'call_failed' => NativeCallEvent.callFailed,
+        'audio_state' => NativeCallEvent.audioState,
         _ => NativeCallEvent.disconnected,
       };
 
@@ -58,6 +69,8 @@ class NativeCallService {
         event: event,
         phone: map['phone'] as String? ?? '',
         direction: map['direction'] as String? ?? 'outgoing',
+        speaker: map['speaker'] as bool?,
+        muted: map['muted'] as bool?,
       );
     });
     return _stream!;
@@ -86,4 +99,21 @@ class NativeCallService {
 
   Future<bool> isInCall() async =>
       await _method.invokeMethod<bool>('isInCall') ?? false;
+
+  // ── Default dialer role ────────────────────────────────────
+
+  /// True when this app currently holds the default-dialer role.
+  Future<bool> isDefaultDialer() async =>
+      await _method.invokeMethod<bool>('isDefaultDialer') ?? false;
+
+  /// Shows the system "set default phone app" dialog.
+  /// Resolves to true when granted.
+  Future<bool> requestDefaultDialerRole() async {
+    try {
+      return await _method.invokeMethod<bool>('requestDefaultDialerRole') ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
 }

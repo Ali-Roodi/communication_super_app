@@ -1,10 +1,15 @@
 package com.example.communication_super_app.call
 
+import android.app.Activity
+import android.app.role.RoleManager
 import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.net.Uri
+import android.os.Build
+import android.telecom.TelecomManager
+import android.telecom.VideoProfile
 import android.util.Log
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -12,17 +17,24 @@ import io.flutter.plugin.common.MethodChannel
 
 class CallHandler(
     private val context: Context,
-    flutterEngine: FlutterEngine
+    flutterEngine: FlutterEngine,
+    private val activity: Activity? = null,
 ) {
     companion object {
         const val METHOD_CHANNEL = "com.example.communication_super_app/call"
         const val EVENT_CHANNEL  = "com.example.communication_super_app/call_events"
         private const val TAG    = "CallHandler"
+
+        /** startActivityForResult code for the default-dialer role request. */
+        const val REQUEST_DEFAULT_DIALER_ROLE = 9003
     }
 
     private val audioManager by lazy {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
+
+    /** Pending result of an in-flight default-dialer-role request. */
+    private var pendingRoleResult: MethodChannel.Result? = null
 
     // Single reusable DTMF tone generator — created lazily, reused across
     // presses so rapid dialing does not leak a ToneGenerator each time.
@@ -63,7 +75,11 @@ class CallHandler(
                         sendDtmf(call.argument<String>("digit") ?: "")
                         result.success(null)
                     }
-                    "isInCall"        -> result.success(CallConnection.instance != null)
+                    "isInCall"        -> result.success(
+                        CallInCallService.currentCall != null || CallConnection.instance != null
+                    )
+                    "isDefaultDialer" -> result.success(isDefaultDialer())
+                    "requestDefaultDialerRole" -> requestDefaultDialerRole(result)
                     else              -> result.notImplemented()
                 }
             } catch (e: SecurityException) {
@@ -82,15 +98,79 @@ class CallHandler(
         ).setStreamHandler(CallEventStreamHandler)
     }
 
+    // ── Default dialer role ──────────────────────────────────────────────
+
+    /** True when this app currently holds the default-dialer role. */
+    fun isDefaultDialer(): Boolean {
+        val tm = context.getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
+        return tm?.defaultDialerPackage == context.packageName
+    }
+
+    /**
+     * Launches the system "set default phone app" dialog. Outcome resolved in
+     * [handleRoleActivityResult] (forwarded from MainActivity.onActivityResult).
+     */
+    private fun requestDefaultDialerRole(result: MethodChannel.Result) {
+        if (isDefaultDialer()) {
+            result.success(true)
+            return
+        }
+        val act = activity
+        if (act == null) {
+            result.error("NO_ACTIVITY", "Activity not available", null)
+            return
+        }
+        val intent: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val roleManager = context.getSystemService(RoleManager::class.java)
+            if (roleManager?.isRoleAvailable(RoleManager.ROLE_DIALER) == true) {
+                roleManager.createRequestRoleIntent(RoleManager.ROLE_DIALER)
+            } else null
+        } else {
+            Intent(TelecomManager.ACTION_CHANGE_DEFAULT_DIALER).apply {
+                putExtra(
+                    TelecomManager.EXTRA_CHANGE_DEFAULT_DIALER_PACKAGE_NAME,
+                    context.packageName,
+                )
+            }
+        }
+        if (intent == null) {
+            result.error("ROLE_UNAVAILABLE", "Dialer role not available on this device", null)
+            return
+        }
+        pendingRoleResult?.success(false)
+        pendingRoleResult = result
+        try {
+            act.startActivityForResult(intent, REQUEST_DEFAULT_DIALER_ROLE)
+        } catch (e: Exception) {
+            pendingRoleResult = null
+            result.error("ROLE_REQUEST_FAILED", e.message, null)
+        }
+    }
+
+    /** Called from MainActivity.onActivityResult. Returns true when consumed. */
+    fun handleRoleActivityResult(requestCode: Int): Boolean {
+        if (requestCode != REQUEST_DEFAULT_DIALER_ROLE) return false
+        // The role state is the source of truth, not the resultCode (OEM
+        // dialogs are inconsistent).
+        pendingRoleResult?.success(isDefaultDialer())
+        pendingRoleResult = null
+        return true
+    }
+
+    // ── Call actions ─────────────────────────────────────────────────────
+    // Prefer the telecom Call bound through CallInCallService (cellular calls
+    // while this app is the default dialer); fall back to the legacy
+    // CallConnection (self-managed VoIP path).
+
     private fun makeCall(phone: String, result: MethodChannel.Result) {
         val clean = phone.replace(Regex("[^+0-9]"), "")
         if (clean.isEmpty()) {
             result.error("INVALID_NUMBER", "شماره تلفن معتبر نیست", null)
             return
         }
-        // Option A: hand off to the system default dialer via ACTION_CALL.
-        // The native in-call screen manages the entire call lifecycle.
-        // PHASE-2: switch to self-managed PhoneAccount for VoIP/custom UI.
+        // ACTION_CALL places the call through telecom. While this app is the
+        // default dialer, telecom binds CallInCallService and OUR UI manages
+        // the call; otherwise the system dialer takes over (previous behavior).
         val uri = Uri.fromParts("tel", clean, null)
         val intent = Intent(Intent.ACTION_CALL, uri).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -100,31 +180,73 @@ class CallHandler(
     }
 
     private fun endCall() {
-        // PHASE-2 VoIP only — native cellular calls are managed by the system dialer
+        val call = CallInCallService.currentCall
+        if (call != null) {
+            call.disconnect()
+            return
+        }
         CallConnection.instance?.onDisconnect()
     }
 
-    private fun answerCall() = CallConnection.instance?.onAnswer()
+    private fun answerCall() {
+        val call = CallInCallService.currentCall
+        if (call != null) {
+            call.answer(VideoProfile.STATE_AUDIO_ONLY)
+            return
+        }
+        CallConnection.instance?.onAnswer()
+    }
 
-    private fun rejectCall() = CallConnection.instance?.onReject()
+    private fun rejectCall() {
+        val call = CallInCallService.currentCall
+        if (call != null) {
+            call.reject(false, null)
+            return
+        }
+        CallConnection.instance?.onReject()
+    }
 
     private fun holdCall(hold: Boolean) {
+        val call = CallInCallService.currentCall
+        if (call != null) {
+            if (hold) call.hold() else call.unhold()
+            return
+        }
         if (hold) CallConnection.instance?.onHold()
         else      CallConnection.instance?.onUnhold()
     }
 
     private fun muteCall(muted: Boolean) {
+        val svc = CallInCallService.instance
+        if (svc != null) {
+            // InCallService.setMuted routes through telecom — the only way that
+            // reliably mutes the uplink during a telecom-managed call.
+            svc.setMicMuted(muted)
+            return
+        }
         audioManager.isMicrophoneMute = muted
     }
 
     private fun setSpeakerphone(on: Boolean) {
+        val svc = CallInCallService.instance
+        if (svc != null) {
+            svc.setSpeaker(on)
+            return
+        }
+        @Suppress("DEPRECATION")
         audioManager.isSpeakerphoneOn = on
         audioManager.mode = if (on) AudioManager.MODE_NORMAL else AudioManager.MODE_IN_CALL
     }
 
     private fun sendDtmf(digit: String) {
         if (digit.isEmpty()) return
-        // Map the character to a ToneGenerator DTMF constant
+        // Route the tone to the remote party through telecom when a real call
+        // is up (this is what IVR menus hear)…
+        CallInCallService.currentCall?.let { call ->
+            call.playDtmfTone(digit[0])
+            call.stopDtmfTone()
+        }
+        // …and always play local audible feedback.
         val toneType = when (digit[0]) {
             '0'  -> ToneGenerator.TONE_DTMF_0
             '1'  -> ToneGenerator.TONE_DTMF_1
@@ -141,8 +263,6 @@ class CallHandler(
             else -> return
         }
         try {
-            // Play local DTMF audio feedback (120 ms) via the shared generator.
-            // PHASE-2: also route the signal to the remote party via telecom stack
             dtmfToneGenerator?.startTone(toneType, 120)
         } catch (e: Exception) {
             Log.e(TAG, "DTMF tone error: ${e.message}")

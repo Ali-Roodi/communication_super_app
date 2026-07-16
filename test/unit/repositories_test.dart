@@ -323,46 +323,9 @@ void main() {
     });
   });
 
-  group('ContactRepository (local contacts table)', () {
-    test('create then read by id round-trips name and phone', () async {
-      final repo = ContactRepository();
-      await repo.createContact(
-        _contact('c1', name: 'مریم', phone: '09120001122'),
-      );
-
-      final fetched = await repo.getContactById('c1');
-      expect(fetched, isNotNull);
-      expect(fetched!.name, 'مریم');
-      expect(fetched.phoneNumber, '09120001122');
-    });
-
-    test('getContactByPhoneNumber finds the matching contact', () async {
-      final repo = ContactRepository();
-      await repo.createContact(_contact('c1', phone: '09125556677'));
-
-      final fetched = await repo.getContactByPhoneNumber('09125556677');
-      expect(fetched?.id, 'c1');
-      expect(await repo.getContactByPhoneNumber('00000000000'), isNull);
-    });
-
-    test('updateContact persists the new name', () async {
-      final repo = ContactRepository();
-      await repo.createContact(_contact('c1', name: 'علی'));
-
-      await repo.updateContact(_contact('c1', name: 'علی رضایی'));
-
-      expect((await repo.getContactById('c1'))!.name, 'علی رضایی');
-    });
-
-    test('deleteContact removes the row', () async {
-      final repo = ContactRepository();
-      await repo.createContact(_contact('c1'));
-
-      await repo.deleteContact('c1');
-
-      expect(await repo.getContactById('c1'), isNull);
-    });
-  });
+  // NOTE: the local `contacts`-table CRUD group was removed together with the
+  // dead ContactRepository CRUD itself — contacts live in the device address
+  // book (flutter_contacts) and lookups resolve against the device cache.
 
   group('ContactRepository.filterContactsByPhoneDigits (pure)', () {
     final repo = ContactRepository();

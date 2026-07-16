@@ -1,5 +1,4 @@
 import 'package:equatable/equatable.dart';
-import '../models/contact_model.dart';
 
 abstract class ContactEvent extends Equatable {
   const ContactEvent();
@@ -27,38 +26,9 @@ class SearchContacts extends ContactEvent {
   List<Object?> get props => [query];
 }
 
-class CreateContact extends ContactEvent {
-  final ContactModel contact;
-
-  const CreateContact(this.contact);
-
-  @override
-  List<Object?> get props => [contact];
-}
-
-class UpdateContact extends ContactEvent {
-  final ContactModel contact;
-
-  const UpdateContact(this.contact);
-
-  @override
-  List<Object?> get props => [contact];
-}
-
-class DeleteContact extends ContactEvent {
-  final String id;
-
-  const DeleteContact(this.id);
-
-  @override
-  List<Object?> get props => [id];
-}
-
-class GetContactById extends ContactEvent {
-  final String id;
-
-  const GetContactById(this.id);
-
-  @override
-  List<Object?> get props => [id];
-}
+// NOTE: contact create/update/delete intentionally have NO bloc events.
+// All writes go straight to the device address book via flutter_contacts
+// (see AddEditContactScreen._save), and the FlutterContacts.addListener in
+// MainNavigation triggers a RefreshContacts to re-read them. A local-table
+// CRUD path used to exist here but nothing read from that table — it only
+// desynced lookups.

@@ -158,6 +158,75 @@ class NativeSmsService {
     }
   }
 
+  // ── Default SMS app role ────────────────────────────────────────────────
+
+  /// True when this app currently holds the default-SMS-app role.
+  Future<bool> isDefaultSmsApp() async {
+    try {
+      return await _methodChannel.invokeMethod<bool>('isDefaultSmsApp') ??
+          false;
+    } catch (e) {
+      debugPrint('isDefaultSmsApp failed: $e');
+      return false;
+    }
+  }
+
+  /// Shows the system "set default SMS app" dialog.
+  /// Resolves to true when the user granted the role.
+  Future<bool> requestDefaultSmsRole() async {
+    try {
+      return await _methodChannel.invokeMethod<bool>('requestDefaultSmsRole') ??
+          false;
+    } catch (e) {
+      debugPrint('requestDefaultSmsRole failed: $e');
+      return false;
+    }
+  }
+
+  /// Opens Settings → Default apps so the user can pick this app manually —
+  /// the fallback when the role dialog is unavailable or was auto-denied
+  /// (Android permanently auto-denies a role after two refusals).
+  Future<void> openDefaultAppsSettings() async {
+    try {
+      await _methodChannel.invokeMethod('openDefaultAppsSettings');
+    } catch (e) {
+      debugPrint('openDefaultAppsSettings failed: $e');
+    }
+  }
+
+  // ── Device SMS provider deletes (global delete) ─────────────────────────
+
+  /// Deletes individual messages from the device SMS provider. Each spec is
+  /// `{deviceId: int?}` or `{body: String, timestamp: int}`.
+  /// No-op (returns 0) unless this app is the default SMS app.
+  Future<int> deleteSmsFromProvider(List<Map<String, Object?>> specs) async {
+    if (specs.isEmpty) return 0;
+    try {
+      return await _methodChannel.invokeMethod<int>('deleteSmsFromProvider', {
+            'messages': specs,
+          }) ??
+          0;
+    } catch (e) {
+      debugPrint('deleteSmsFromProvider failed: $e');
+      return 0;
+    }
+  }
+
+  /// Deletes a whole conversation (every provider row for [address]).
+  /// No-op (returns 0) unless this app is the default SMS app.
+  Future<int> deleteSmsThreadFromProvider(String address) async {
+    try {
+      return await _methodChannel.invokeMethod<int>(
+            'deleteSmsThreadFromProvider',
+            {'address': address},
+          ) ??
+          0;
+    } catch (e) {
+      debugPrint('deleteSmsThreadFromProvider failed: $e');
+      return 0;
+    }
+  }
+
   /// Clean up resources and cancel subscriptions
   void dispose() {
     _smsSubscription?.cancel();
@@ -218,6 +287,10 @@ class SmsSendResult {
   final int subscriptionId;
   final int timestamp;
 
+  /// Provider row id when the message was written through to the device SMS
+  /// store (only while this app is the default SMS app); -1 otherwise.
+  final int deviceId;
+
   SmsSendResult({
     required this.success,
     required this.phoneNumber,
@@ -225,6 +298,7 @@ class SmsSendResult {
     required this.parts,
     required this.subscriptionId,
     required this.timestamp,
+    this.deviceId = -1,
   });
 
   factory SmsSendResult.fromMap(Map<String, dynamic> map) {
@@ -236,6 +310,7 @@ class SmsSendResult {
       subscriptionId: map['subscriptionId'] as int? ?? -1,
       timestamp:
           map['timestamp'] as int? ?? DateTime.now().millisecondsSinceEpoch,
+      deviceId: (map['deviceId'] as num?)?.toInt() ?? -1,
     );
   }
 

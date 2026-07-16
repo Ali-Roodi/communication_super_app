@@ -185,9 +185,21 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
           ),
         );
       case NativeCallEvent.ringing:
-        emit(state.copyWith(callStatus: CallStatus.ringing));
+        // Outgoing dialing — carry the dialed number so the in-call screen
+        // has something to display.
+        emit(
+          state.copyWith(
+            callStatus: CallStatus.ringing,
+            activePhone: info.phone.isNotEmpty ? info.phone : null,
+          ),
+        );
       case NativeCallEvent.active:
-        emit(state.copyWith(callStatus: CallStatus.active));
+        emit(
+          state.copyWith(
+            callStatus: CallStatus.active,
+            activePhone: info.phone.isNotEmpty ? info.phone : null,
+          ),
+        );
       case NativeCallEvent.onHold:
         emit(state.copyWith(callStatus: CallStatus.onHold));
       case NativeCallEvent.disconnected:
@@ -204,6 +216,14 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
       case NativeCallEvent.callFailed:
         emit(
           state.copyWith(callStatus: CallStatus.idle, error: 'تماس برقرار نشد'),
+        );
+      case NativeCallEvent.audioState:
+        // Telecom changed the route/mute outside our toggles (e.g. bluetooth).
+        emit(
+          state.copyWith(
+            isSpeakerOn: info.speaker ?? state.isSpeakerOn,
+            isMuted: info.muted ?? state.isMuted,
+          ),
         );
     }
   }

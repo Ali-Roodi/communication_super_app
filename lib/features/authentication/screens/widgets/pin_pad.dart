@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:communication_super_app/core/utils/persian_utils.dart';
+import 'package:flutter/services.dart';
+import 'package:communication_super_app/core/theme/app_colors.dart';
+import 'package:communication_super_app/features/dialer/widgets/dialer_widgets.dart'
+    show DialKey;
 
 /// Row of 4 PIN dots that fill (in the primary colour) as digits are entered.
 class PinDots extends StatelessWidget {
@@ -31,6 +34,10 @@ class PinDots extends StatelessWidget {
 
 /// Shared numeric keypad for the PIN screens. Shows Persian digits but reports
 /// the Latin digit value to [onKey], so PIN comparison logic stays ASCII.
+///
+/// Visually identical to the dialer keypad: the same [DialKey] pill keys
+/// (rounded rect, press-scale animation, elevation), the same colors, and the
+/// same forced-LTR 1-2-3 row order — one keypad language across the app.
 class PinKeypad extends StatelessWidget {
   final void Function(String digit) onKey;
   final VoidCallback onDelete;
@@ -43,72 +50,126 @@ class PinKeypad extends StatelessWidget {
     this.enabled = true,
   });
 
+  /// [Persian display, Latin value] — mirrors the dialer's `_keyRows`.
+  static const List<List<List<String>>> _keyRows = [
+    [
+      ['۱', '1'],
+      ['۲', '2'],
+      ['۳', '3'],
+    ],
+    [
+      ['۴', '4'],
+      ['۵', '5'],
+      ['۶', '6'],
+    ],
+    [
+      ['۷', '7'],
+      ['۸', '8'],
+      ['۹', '9'],
+    ],
+  ];
+
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 32),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final row in const [
-            ['1', '2', '3'],
-            ['4', '5', '6'],
-            ['7', '8', '9'],
-          ]) ...[
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [for (final d in row) _key(context, d)],
-            ),
-            const SizedBox(height: 16),
-          ],
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              const SizedBox(width: 80),
-              _key(context, '0'),
-              _deleteKey(context),
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    // Same key pill background as the dialer (Figma tokens).
+    final keyColor = isDark ? AppColors.cardDark : AppColors.surfaceLight;
+
+    void press(String value) {
+      if (!enabled) return;
+      HapticFeedback.lightImpact();
+      onKey(value);
+    }
+
+    Widget cell(Widget child) => Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        child: child,
+      ),
+    );
+
+    // Force LTR so 1-2-3 always appear left→right, exactly like the dialer.
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final row in _keyRows) ...[
+              Row(
+                children: [
+                  for (final k in row)
+                    cell(
+                      DialKey(
+                        display: k[0],
+                        keyColor: keyColor,
+                        onTap: () => press(k[1]),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
             ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _key(BuildContext context, String digit) {
-    final theme = Theme.of(context);
-    return InkWell(
-      onTap: enabled ? () => onKey(digit) : null,
-      borderRadius: BorderRadius.circular(40),
-      child: Container(
-        width: 80,
-        height: 80,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: theme.dividerColor),
-        ),
-        child: Center(
-          child: Text(
-            PersianUtils.toPersianNumber(digit),
-            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-          ),
+            Row(
+              children: [
+                // Empty slot keeps 0 centred (dialer has * here; PIN doesn't).
+                cell(const SizedBox(height: 62)),
+                cell(
+                  DialKey(
+                    display: '۰',
+                    keyColor: keyColor,
+                    onTap: () => press('0'),
+                  ),
+                ),
+                cell(_BackspaceKey(keyColor: keyColor, enabled: enabled, onDelete: onDelete)),
+              ],
+            ),
+          ],
         ),
       ),
     );
   }
+}
 
-  Widget _deleteKey(BuildContext context) {
+/// Backspace key styled like a [DialKey] pill (icon instead of a digit).
+class _BackspaceKey extends StatelessWidget {
+  final Color keyColor;
+  final bool enabled;
+  final VoidCallback onDelete;
+
+  const _BackspaceKey({
+    required this.keyColor,
+    required this.enabled,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return InkWell(
-      onTap: enabled ? onDelete : null,
-      borderRadius: BorderRadius.circular(40),
-      child: Container(
-        width: 80,
-        height: 80,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: theme.dividerColor),
+    return Material(
+      color: keyColor,
+      elevation: 1,
+      shadowColor: Colors.black.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(16),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: enabled
+            ? () {
+                HapticFeedback.lightImpact();
+                onDelete();
+              }
+            : null,
+        child: SizedBox(
+          height: 62,
+          child: Icon(
+            Icons.backspace_outlined,
+            size: 24,
+            color: theme.textTheme.bodyLarge?.color,
+          ),
         ),
-        child: const Icon(Icons.backspace, size: 24),
       ),
     );
   }
