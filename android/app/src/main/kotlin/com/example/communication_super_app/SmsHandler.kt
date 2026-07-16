@@ -432,6 +432,60 @@ class SmsHandler(
         }
     }
 
+    // ── SMS provider queries (mirror-sync source) ────────────────────────────
+    // Replaces the `another_telephony` plugin, whose global
+    // onRequestPermissionsResult listener double-replied a MethodChannel
+    // result ("Reply already submitted") and crashed the app whenever a
+    // telephony call overlapped any permission dialog.
+
+    /** content://sms/<box> rows, newest first. limit <= 0 means no limit. */
+    fun querySms(box: String, limit: Int): List<Map<String, Any?>> {
+        val uri = if (box == "sent") Telephony.Sms.Sent.CONTENT_URI
+                  else Telephony.Sms.Inbox.CONTENT_URI
+        val out = ArrayList<Map<String, Any?>>()
+        context.contentResolver.query(
+            uri,
+            arrayOf(
+                Telephony.Sms._ID,
+                Telephony.Sms.ADDRESS,
+                Telephony.Sms.BODY,
+                Telephony.Sms.DATE,
+            ),
+            null, null,
+            "${Telephony.Sms.DATE} DESC",
+        )?.use { c ->
+            val idIdx = c.getColumnIndexOrThrow(Telephony.Sms._ID)
+            val addrIdx = c.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)
+            val bodyIdx = c.getColumnIndexOrThrow(Telephony.Sms.BODY)
+            val dateIdx = c.getColumnIndexOrThrow(Telephony.Sms.DATE)
+            while (c.moveToNext()) {
+                if (limit > 0 && out.size >= limit) break
+                out.add(
+                    mapOf(
+                        "id" to c.getLong(idIdx),
+                        "address" to (c.getString(addrIdx) ?: ""),
+                        "body" to (c.getString(bodyIdx) ?: ""),
+                        "date" to c.getLong(dateIdx),
+                    )
+                )
+            }
+        }
+        return out
+    }
+
+    /** ALL row ids of a box — tiny payload, used for the deletion diff. */
+    fun querySmsIds(box: String): List<Long> {
+        val uri = if (box == "sent") Telephony.Sms.Sent.CONTENT_URI
+                  else Telephony.Sms.Inbox.CONTENT_URI
+        val out = ArrayList<Long>()
+        context.contentResolver.query(
+            uri, arrayOf(Telephony.Sms._ID), null, null, null,
+        )?.use { c ->
+            while (c.moveToNext()) out.add(c.getLong(0))
+        }
+        return out
+    }
+
     // ── Default SMS app role ─────────────────────────────────────────────────
 
     /** True when this app currently holds the default-SMS-app role. */
@@ -710,6 +764,36 @@ class SmsHandler(
                         result.success(true)
                     } catch (e: Exception) {
                         result.error("REGISTER_ERROR", e.message, e.stackTraceToString())
+                    }
+                }
+
+                // Provider reads run on IO — a big inbox must not jank the UI.
+                "querySms" -> {
+                    val box = call.argument<String>("box") ?: "inbox"
+                    val limit = call.argument<Int>("limit") ?: 0
+                    coroutineScope.launch(Dispatchers.IO) {
+                        try {
+                            val rows = querySms(box, limit)
+                            withContext(Dispatchers.Main) { result.success(rows) }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                result.error("QUERY_FAILED", e.message, null)
+                            }
+                        }
+                    }
+                }
+
+                "querySmsIds" -> {
+                    val box = call.argument<String>("box") ?: "inbox"
+                    coroutineScope.launch(Dispatchers.IO) {
+                        try {
+                            val ids = querySmsIds(box)
+                            withContext(Dispatchers.Main) { result.success(ids) }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                result.error("QUERY_FAILED", e.message, null)
+                            }
+                        }
                     }
                 }
 

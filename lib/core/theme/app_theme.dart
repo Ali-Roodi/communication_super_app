@@ -7,11 +7,21 @@ abstract class AppTheme {
   /// خانواده فونت فارسی برند
   static const String fontFamily = 'Vazirmatn';
 
+  /// M3 route transitions: predictive-back on Android (the page peels away
+  /// with the back gesture, like Google's own apps) with zoom for the rest.
+  static const PageTransitionsTheme _pageTransitions = PageTransitionsTheme(
+    builders: {
+      // Android-only app — the predictive-back builder covers every route.
+      TargetPlatform.android: PredictiveBackPageTransitionsBuilder(),
+    },
+  );
+
   // ── Light Theme ─────────────────────────────────────────
   static ThemeData get light => ThemeData(
     useMaterial3: true,
     fontFamily: fontFamily,
     brightness: Brightness.light,
+    pageTransitionsTheme: _pageTransitions,
     colorScheme: ColorScheme.fromSeed(
       seedColor: AppColors.accent,
       brightness: Brightness.light,
@@ -127,6 +137,7 @@ abstract class AppTheme {
     useMaterial3: true,
     fontFamily: fontFamily,
     brightness: Brightness.dark,
+    pageTransitionsTheme: _pageTransitions,
     colorScheme: ColorScheme.fromSeed(
       seedColor: AppColors.accent,
       brightness: Brightness.dark,
