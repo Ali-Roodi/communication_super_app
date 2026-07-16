@@ -59,6 +59,18 @@ class ClearAuth extends AuthEvent {
   const ClearAuth();
 }
 
+/// First-entry choice «ادامه بدون رمز»: skip auth setup permanently (until a
+/// PIN is set from Settings) and enter the app.
+class SkipAuthSetup extends AuthEvent {
+  const SkipAuthSetup();
+}
+
+/// Settings action «حذف رمز عبور»: clears the credentials AND marks setup as
+/// skipped, so the next launch goes straight in instead of re-prompting.
+class DisableAuth extends AuthEvent {
+  const DisableAuth();
+}
+
 class LockApp extends AuthEvent {
   const LockApp();
 }

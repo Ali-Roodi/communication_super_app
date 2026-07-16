@@ -8,7 +8,12 @@ import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'widgets/pin_pad.dart';
 
 class PinSetupScreen extends StatefulWidget {
-  const PinSetupScreen({super.key});
+  /// True when opened from تنظیمات ← امنیت (set/change PIN): success pops a
+  /// single route back to Settings. False in the first-entry flow: success
+  /// pops to the root, revealing the now-authenticated app underneath.
+  final bool fromSettings;
+
+  const PinSetupScreen({super.key, this.fromSettings = false});
 
   @override
   State<PinSetupScreen> createState() => _PinSetupScreenState();
@@ -75,6 +80,15 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
         if (state is AuthValidationFailure) {
           _showError(state.error);
           _reset();
+        }
+        if (state is AuthAuthenticated) {
+          // PIN saved. This screen is always pushed as a route now (from the
+          // first-entry choice screen or from Settings) — leave it.
+          if (widget.fromSettings) {
+            Navigator.of(context).pop(true);
+          } else {
+            Navigator.of(context).popUntil((route) => route.isFirst);
+          }
         }
       },
       child: Directionality(

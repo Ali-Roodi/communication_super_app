@@ -5,8 +5,8 @@ import 'package:communication_super_app/core/theme/theme_bloc.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_bloc.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_event.dart';
-import 'package:communication_super_app/features/authentication/bloc/auth_state.dart';
 import 'package:communication_super_app/features/authentication/models/auth_type.dart';
+import 'package:communication_super_app/features/authentication/repositories/auth_repository.dart';
 import 'package:communication_super_app/features/authentication/screens/pin_setup_screen.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_event.dart';
@@ -176,9 +176,9 @@ class SettingsScreen extends StatelessWidget {
                 ),
                 const _Divider(),
 
-                // ── Security (existing) ───────────────────────────
+                // ── Security (optional app lock) ──────────────────
                 const _SectionHeader('امنیت'),
-                _buildSecurity(context),
+                const _SecuritySection(),
                 const _Divider(),
 
                 // ── About ─────────────────────────────────────────
@@ -250,61 +250,61 @@ class SettingsScreen extends StatelessWidget {
     }
   }
 
-  // ── Security section (PIN / clear auth) ───────────────────────────────────
+  void _snack(BuildContext context, String msg) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+}
 
-  Widget _buildSecurity(BuildContext context) {
-    return BlocBuilder<AuthBloc, AuthState>(
-      builder: (context, authState) {
-        final authType = authState is AuthSet
-            ? authState.authType
-            : AuthType.none;
-        final hasPin = authType == AuthType.pin;
-        return Column(
-          children: [
-            ListTile(
-              leading: Icon(
-                Icons.pin_outlined,
-                color: hasPin ? Theme.of(context).colorScheme.primary : null,
-              ),
-              title: Text(
-                hasPin ? 'تغییر رمز عبور (PIN)' : 'تنظیم رمز عبور (PIN)',
-              ),
-              subtitle: Text(
-                hasPin ? 'رمز عبور PIN فعال است' : 'بدون رمز عبور',
-              ),
-              trailing: const Icon(Icons.chevron_left),
-              onTap: () => Navigator.of(
-                context,
-              ).push(MaterialPageRoute(builder: (_) => const PinSetupScreen())),
-            ),
-            if (authState is AuthAuthenticated || authState is AuthSet)
-              ListTile(
-                leading: const Icon(
-                  Icons.no_encryption_outlined,
-                  color: AppColors.danger,
-                ),
-                title: const Text(
-                  'حذف قفل برنامه',
-                  style: TextStyle(color: AppColors.danger),
-                ),
-                subtitle: const Text('بدون قفل وارد برنامه می‌شوید'),
-                onTap: () => _confirmClearAuth(context),
-              ),
-          ],
-        );
-      },
-    );
+// ── Security section (optional PIN: set / change / remove) ───────────────────
+
+/// Reads the auth type straight from the repository (the bloc's
+/// `AuthAuthenticated` state carries no type, so it can't tell "PIN set"
+/// from "skipped") and reloads after every action.
+class _SecuritySection extends StatefulWidget {
+  const _SecuritySection();
+
+  @override
+  State<_SecuritySection> createState() => _SecuritySectionState();
+}
+
+class _SecuritySectionState extends State<_SecuritySection> {
+  final AuthRepository _repository = AuthRepository();
+  AuthType _authType = AuthType.none;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
   }
 
-  void _confirmClearAuth(BuildContext context) {
+  Future<void> _load() async {
+    final type = await _repository.getAuthType();
+    if (mounted) setState(() => _authType = type);
+  }
+
+  Future<void> _openPinSetup(BuildContext context) async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => const PinSetupScreen(fromSettings: true),
+      ),
+    );
+    await _load();
+    if (saved == true && context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('رمز عبور ذخیره شد')));
+    }
+  }
+
+  void _confirmRemovePin(BuildContext context) {
     showDialog<bool>(
       context: context,
       builder: (dialogCtx) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
-          title: const Text('حذف قفل برنامه'),
+          title: const Text('حذف رمز عبور'),
           content: const Text(
-            'آیا مطمئن هستید؟ بدون رمز یا الگو می‌توانید وارد برنامه شوید.',
+            'آیا مطمئن هستید؟ بدون رمز وارد برنامه می‌شوید و می‌توانید بعداً '
+            'دوباره از همین‌جا رمز تعیین کنید.',
           ),
           actions: [
             TextButton(
@@ -314,23 +314,59 @@ class SettingsScreen extends StatelessWidget {
             TextButton(
               style: TextButton.styleFrom(foregroundColor: AppColors.danger),
               onPressed: () => Navigator.of(dialogCtx).pop(true),
-              child: const Text('حذف قفل'),
+              child: const Text('حذف رمز'),
             ),
           ],
         ),
       ),
-    ).then((confirmed) {
+    ).then((confirmed) async {
       if (confirmed == true && context.mounted) {
-        context.read<AuthBloc>().add(const ClearAuth());
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('قفل برنامه حذف شد')));
+        // DisableAuth (NOT ClearAuth): keeps the user inside the app and
+        // marks setup skipped so the next launch doesn't re-prompt.
+        context.read<AuthBloc>().add(const DisableAuth());
+        await _load();
+        if (context.mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('رمز عبور حذف شد')));
+        }
       }
     });
   }
 
-  void _snack(BuildContext context, String msg) =>
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  @override
+  Widget build(BuildContext context) {
+    final hasPin = _authType == AuthType.pin;
+    return Column(
+      children: [
+        ListTile(
+          leading: Icon(
+            Icons.pin_outlined,
+            color: hasPin ? Theme.of(context).colorScheme.primary : null,
+          ),
+          title: Text(hasPin ? 'تغییر رمز عبور' : 'تنظیم رمز عبور'),
+          subtitle: Text(
+            hasPin ? 'قفل برنامه فعال است' : 'برنامه بدون قفل باز می‌شود',
+          ),
+          trailing: const Icon(Icons.chevron_left),
+          onTap: () => _openPinSetup(context),
+        ),
+        if (hasPin)
+          ListTile(
+            leading: const Icon(
+              Icons.no_encryption_outlined,
+              color: AppColors.danger,
+            ),
+            title: const Text(
+              'حذف رمز عبور',
+              style: TextStyle(color: AppColors.danger),
+            ),
+            subtitle: const Text('بدون قفل وارد برنامه می‌شوید'),
+            onTap: () => _confirmRemovePin(context),
+          ),
+      ],
+    );
+  }
 }
 
 // ── Choice tile (opens a radio dialog) ────────────────────────────────────────

@@ -6,14 +6,16 @@ import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
+import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
 import '../bloc/favorites_bloc.dart';
 import '../bloc/favorites_event.dart';
 import '../bloc/favorites_state.dart';
 import '../models/favorite_model.dart';
 
 /// Favorites (موردعلاقه‌ها) tab — a 2-column grid of starred numbers.
-/// Tap a card to call; long-press to remove. The empty state and the "+" card
-/// both open a contact picker.
+/// Tap a card to choose call/SMS; long-press for the full action sheet
+/// (call / message / remove). The empty state and the "+" card both open a
+/// contact picker.
 class FavoritesScreen extends StatelessWidget {
   const FavoritesScreen({super.key});
 
@@ -84,8 +86,9 @@ class _FavoriteCard extends StatelessWidget {
           ? AppColors.keypadDark
           : AppColors.keypadLight,
       child: InkWell(
-        onTap: () => NativeCallService.instance.makeCall(favorite.phoneNumber),
-        onLongPress: () => _confirmRemove(context),
+        // Tap: ask — call or message? (a favorite is used for both).
+        onTap: () => _showActions(context, withRemove: false),
+        onLongPress: () => _showActions(context, withRemove: true),
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(
@@ -131,8 +134,10 @@ class _FavoriteCard extends StatelessWidget {
     );
   }
 
-  void _confirmRemove(BuildContext context) {
+  /// Action sheet: call / message (+ remove on long-press).
+  void _showActions(BuildContext context, {required bool withRemove}) {
     final bloc = context.read<FavoritesBloc>();
+    final rootNavigator = Navigator.of(context);
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -143,7 +148,10 @@ class _FavoriteCard extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                leading: const Icon(Icons.call),
+                leading: Icon(
+                  Icons.call,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
                 title: const Text('تماس'),
                 onTap: () {
                   Navigator.of(sheetContext).pop();
@@ -151,19 +159,38 @@ class _FavoriteCard extends StatelessWidget {
                 },
               ),
               ListTile(
-                leading: const Icon(
-                  Icons.star_outline,
-                  color: AppColors.callRejectRed,
+                leading: Icon(
+                  Icons.message_outlined,
+                  color: Theme.of(context).colorScheme.primary,
                 ),
-                title: const Text(
-                  'حذف از موردعلاقه‌ها',
-                  style: TextStyle(color: AppColors.callRejectRed),
-                ),
+                title: const Text('پیامک'),
                 onTap: () {
-                  bloc.add(RemoveFavorite(favorite.normalized));
                   Navigator.of(sheetContext).pop();
+                  rootNavigator.push(
+                    MaterialPageRoute(
+                      builder: (_) => ConversationScreen.forPhone(
+                        favorite.phoneNumber,
+                        contactName: favorite.name,
+                      ),
+                    ),
+                  );
                 },
               ),
+              if (withRemove)
+                ListTile(
+                  leading: const Icon(
+                    Icons.star_outline,
+                    color: AppColors.callRejectRed,
+                  ),
+                  title: const Text(
+                    'حذف از موردعلاقه‌ها',
+                    style: TextStyle(color: AppColors.callRejectRed),
+                  ),
+                  onTap: () {
+                    bloc.add(RemoveFavorite(favorite.normalized));
+                    Navigator.of(sheetContext).pop();
+                  },
+                ),
             ],
           ),
         ),

@@ -18,6 +18,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<Authenticate>(_onAuthenticate);
     on<Logout>(_onLogout);
     on<ClearAuth>(_onClearAuth);
+    on<SkipAuthSetup>(_onSkipAuthSetup);
+    on<DisableAuth>(_onDisableAuth);
     on<LockApp>(_onLockApp);
   }
 
@@ -28,7 +30,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(const AuthLoading());
     final authType = await _repository.getAuthType();
     if (authType == AuthType.none) {
-      emit(const AuthNotSet());
+      // Auth is OPTIONAL: a user who chose «ادامه بدون رمز» (or removed the
+      // PIN from Settings) goes straight in — no re-prompt on every launch.
+      if (await _repository.isAuthSkipped()) {
+        emit(const AuthAuthenticated());
+      } else {
+        emit(const AuthNotSet());
+      }
     } else {
       final isAuthenticated = await _repository.isAuthenticated();
       if (isAuthenticated) {
@@ -43,12 +51,35 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(const AuthLoading());
     try {
       await _repository.setPin(event.pin);
+      // Setting a PIN re-arms the lock even if setup was skipped before.
+      await _repository.setAuthSkipped(false);
       // After setting PIN, automatically authenticate the user
       await _repository.setAuthenticated(true);
       emit(const AuthAuthenticated());
     } catch (e) {
       emit(AuthValidationFailure(e.toString()));
     }
+  }
+
+  /// «ادامه بدون رمز» — enter the app; never re-prompt setup on launch.
+  Future<void> _onSkipAuthSetup(
+    SkipAuthSetup event,
+    Emitter<AuthState> emit,
+  ) async {
+    await _repository.setAuthSkipped(true);
+    emit(const AuthAuthenticated());
+  }
+
+  /// «حذف رمز عبور» from Settings. Emits AuthAuthenticated (not AuthNotSet):
+  /// the user is inside the app; showing the setup screen again would be
+  /// wrong, and the skipped flag keeps future launches unprompted.
+  Future<void> _onDisableAuth(
+    DisableAuth event,
+    Emitter<AuthState> emit,
+  ) async {
+    await _repository.clearAuth();
+    await _repository.setAuthSkipped(true);
+    emit(const AuthAuthenticated());
   }
 
   Future<void> _onValidatePin(

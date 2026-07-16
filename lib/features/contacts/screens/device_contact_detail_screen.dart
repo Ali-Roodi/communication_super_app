@@ -6,7 +6,10 @@ import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/theme/app_dimensions.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
+import 'package:communication_super_app/features/contacts/bloc/contact_bloc.dart';
+import 'package:communication_super_app/features/contacts/bloc/contact_event.dart' as contact_events;
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
+import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_bloc.dart';
@@ -108,6 +111,53 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
     }
   }
 
+  /// «حذف مخاطب» from the overflow menu: confirm, delete from the DEVICE
+  /// address book, refresh the contacts list, and leave this screen.
+  Future<void> _confirmDelete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('حذف مخاطب'),
+          content: Text('«$_name» برای همیشه از مخاطبین گوشی حذف شود؟'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('انصراف'),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('حذف'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      final target =
+          _full ?? await FlutterContacts.getContact(widget.contact.id);
+      if (target == null) throw Exception('مخاطب یافت نشد');
+      await target.delete();
+      ContactRepository().invalidateCache();
+      if (!mounted) return;
+      context.read<ContactBloc>().add(const contact_events.RefreshContacts());
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('مخاطب حذف شد')));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('حذف ناموفق بود: $e')));
+      }
+    }
+  }
+
   // ── Collapsing toolbar ────────────────────────────────────────────────────
 
   Widget _buildAppBar(BuildContext context) {
@@ -143,6 +193,26 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
               },
             );
           },
+        ),
+        // «بیشتر» — overflow actions (delete contact).
+        PopupMenuButton<String>(
+          icon: const Icon(Icons.more_vert),
+          tooltip: 'بیشتر',
+          onSelected: (value) {
+            if (value == 'delete') _confirmDelete();
+          },
+          itemBuilder: (_) => const [
+            PopupMenuItem<String>(
+              value: 'delete',
+              child: Row(
+                children: [
+                  Icon(Icons.delete_outline, color: AppColors.danger),
+                  SizedBox(width: 12),
+                  Text('حذف مخاطب', style: TextStyle(color: AppColors.danger)),
+                ],
+              ),
+            ),
+          ],
         ),
       ],
       flexibleSpace: FlexibleSpaceBar(

@@ -3,7 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/auth_bloc.dart';
 import '../bloc/auth_state.dart';
 import 'pin_auth_screen.dart';
-import 'pin_setup_screen.dart';
+import 'auth_choice_screen.dart';
 import 'package:communication_super_app/core/navigation/main_navigation.dart';
 import 'package:communication_super_app/core/widgets/permission_gate.dart';
 
@@ -21,7 +21,9 @@ class AuthWrapperScreen extends StatelessWidget {
         }
 
         if (state is AuthNotSet) {
-          return const PinSetupScreen();
+          // Auth is optional: offer set-PIN / continue-without instead of
+          // forcing the setup screen.
+          return const AuthChoiceScreen();
         }
 
         if (state is AuthSet) {
