@@ -72,13 +72,18 @@ class _PermissionGateState extends State<PermissionGate> {
     setState(() => _isRequesting = true);
     try {
       final results = await PermissionService.instance.requestAllPermissions();
-      // First entry: right after the runtime permissions, ask the system to
-      // make this app the default SMS app (needed for full two-way SMS sync)
-      // and then the default phone app (needed for the in-app call UI).
-      // One-shot each — a refusal is respected; the inbox banner stays
-      // available for SMS.
-      await _maybeRequestDefaultSmsRole();
-      await _maybeRequestDefaultDialerRole();
+      // Only chase the default-app roles once EVERY runtime permission is
+      // granted. Becoming the default SMS/dialer app restarts the app process;
+      // if that happens while runtime permissions are still incomplete, the
+      // cold start lands back on this screen (permissions not all granted) and
+      // re-prompts everything. When incomplete we skip the roles here — the
+      // next launch's _checkInitial retries them once the user finishes.
+      // One-shot each (SharedPreferences flags); a refusal is respected and the
+      // inbox banner stays available for SMS.
+      if (PermissionService.instance.allGranted(results)) {
+        await _maybeRequestDefaultSmsRole();
+        await _maybeRequestDefaultDialerRole();
+      }
       if (!mounted) return;
       setState(() {
         _results = results;
