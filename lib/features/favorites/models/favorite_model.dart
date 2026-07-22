@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:communication_super_app/core/utils/persian_utils.dart';
 
 /// A favorited (starred) phone number. Keyed by [normalized] (digits only) so
 /// it works for device contacts and unknown numbers alike.
@@ -19,9 +20,10 @@ class FavoriteModel extends Equatable {
     required this.createdAt,
   });
 
-  /// Name to show, falling back to the raw phone number.
-  String get displayName =>
-      (name != null && name!.isNotEmpty) ? name! : phoneNumber;
+  /// Name to show, falling back to the formatted phone number.
+  String get displayName => (name != null && name!.isNotEmpty)
+      ? name!
+      : PersianUtils.displayPhone(phoneNumber);
 
   static String normalize(String phone) =>
       phone.replaceAll(RegExp(r'[^\d]'), '');

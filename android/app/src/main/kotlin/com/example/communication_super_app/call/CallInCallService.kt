@@ -43,6 +43,7 @@ class CallInCallService : InCallService() {
     companion object {
         private const val TAG = "CallInCallService"
         private const val CHANNEL_ID = "incoming_call_channel"
+        private const val SILENT_CHANNEL_ID = "incoming_call_silent_channel"
         private const val MISSED_CHANNEL_ID = "missed_call_channel"
         private const val NOTIF_ID = 7001
 
@@ -143,7 +144,15 @@ class CallInCallService : InCallService() {
         publishState(call, call.state)
         publishCallsChanged()
         if (call.state == Call.STATE_RINGING) {
-            postIncomingCallNotification(phoneOf(call))
+            // App on screen → the Flutter IncomingCallScreen is already being
+            // pushed by the INCOMING event; post only a silent shade entry (no
+            // heads-up popup over the in-app UI). Backgrounded/dead → the
+            // high-priority notification (with its fullScreenIntent) IS the
+            // incoming-call UI.
+            postIncomingCallNotification(
+                phoneOf(call),
+                headsUp = !com.example.communication_super_app.MainActivity.isResumed,
+            )
         } else {
             // Outgoing call: the default-dialer contract expects the UI dialer
             // to LAUNCH its in-call activity itself. Without a formal activity
@@ -239,6 +248,10 @@ class CallInCallService : InCallService() {
         val data = mapOf(
             "phone" to phoneOf(call),
             "direction" to directionOf(call),
+            // Conference host call (merged تماس گروهی) — the UI shows a group
+            // title instead of the first participant's name.
+            "isConference" to
+                (call.details?.hasProperty(Call.Details.PROPERTY_CONFERENCE) == true),
         )
         val event = when (state) {
             Call.STATE_RINGING -> CallEvent.INCOMING
@@ -299,23 +312,39 @@ class CallInCallService : InCallService() {
     // ── Incoming-call notification (full-screen intent) ─────────────────────
 
     /**
-     * High-priority notification with a fullScreenIntent: when the app process
-     * is dead or backgrounded, this is what launches MainActivity so Flutter
-     * can show IncomingCallScreen. Answer/decline actions work straight from
-     * the notification shade too.
+     * Incoming-call notification, two flavors:
+     *
+     * - [headsUp] = true (app backgrounded/dead): high-priority with a
+     *   fullScreenIntent — this is what launches MainActivity so Flutter can
+     *   show IncomingCallScreen.
+     * - [headsUp] = false (IncomingCallScreen already on screen): silent
+     *   entry in the notification shade only — no heads-up popup over the
+     *   in-app UI, but still there with answer/decline if the user leaves the
+     *   call screen.
      */
-    private fun postIncomingCallNotification(phone: String) {
+    private fun postIncomingCallNotification(phone: String, headsUp: Boolean = true) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channelId = if (headsUp) CHANNEL_ID else SILENT_CHANNEL_ID
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            nm.createNotificationChannel(
+            val channel = if (headsUp) {
                 NotificationChannel(
                     CHANNEL_ID, "تماس ورودی", NotificationManager.IMPORTANCE_HIGH,
                 ).apply {
                     description = "اعلان تماس‌های ورودی"
                     setSound(null, null) // telecom already plays the ringtone
                     enableVibration(false)
-                },
-            )
+                }
+            } else {
+                NotificationChannel(
+                    SILENT_CHANNEL_ID, "تماس ورودی (بی‌صدا)",
+                    NotificationManager.IMPORTANCE_LOW,
+                ).apply {
+                    description = "اعلان بی‌صدای تماس ورودی وقتی صفحه تماس باز است"
+                    setSound(null, null)
+                    enableVibration(false)
+                }
+            }
+            nm.createNotificationChannel(channel)
         }
 
         val piFlags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -335,14 +364,20 @@ class CallInCallService : InCallService() {
         )
 
         val name = lookupContactName(phone) ?: phone
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+        val notification = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(applicationInfo.icon)
             .setContentTitle(name)
             .setContentText("تماس ورودی")
             .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setPriority(
+                if (headsUp) {
+                    NotificationCompat.PRIORITY_MAX
+                } else {
+                    NotificationCompat.PRIORITY_LOW
+                },
+            )
             .setOngoing(true)
-            .setFullScreenIntent(fullScreen, true)
+            .apply { if (headsUp) setFullScreenIntent(fullScreen, true) }
             .setContentIntent(fullScreen)
             .addAction(0, "رد", decline)
             .addAction(0, "پاسخ", answer)
@@ -412,7 +447,9 @@ class CallActionReceiver : android.content.BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
-        val call = CallInCallService.currentCall ?: return
+        val call = CallInCallService.currentCall
+        Log.d("CallActionReceiver", "action=${intent.action} call=${call != null} state=${call?.state}")
+        if (call == null) return
         when (intent.action) {
             ACTION_ANSWER -> {
                 call.answer(VideoProfile.STATE_AUDIO_ONLY)

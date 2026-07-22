@@ -53,7 +53,9 @@ class ConversationAppBar extends StatelessWidget
                   ),
                   if (hasName)
                     Text(
-                      PhoneNormalizer.toNational(phoneNumber),
+                      PersianUtils.displayPhone(
+                        PhoneNormalizer.toNational(phoneNumber),
+                      ),
                       style: theme.textTheme.bodySmall,
                     ),
                 ],

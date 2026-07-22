@@ -80,7 +80,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   bool get _hasName => widget.contactName != null;
   String get _title =>
-      widget.contactName ?? PhoneNormalizer.toNational(widget.phoneNumber);
+      widget.contactName ??
+      PersianUtils.displayPhone(PhoneNormalizer.toNational(widget.phoneNumber));
 
   @override
   void initState() {

@@ -106,7 +106,7 @@ class _ScheduledTile extends StatelessWidget {
 
   String get _recipient => (message.contactName?.isNotEmpty ?? false)
       ? message.contactName!
-      : _fa(message.phoneNumber);
+      : PersianUtils.displayPhone(message.phoneNumber);
 
   String _repeatSummary() {
     final unit = switch (message.repeat) {

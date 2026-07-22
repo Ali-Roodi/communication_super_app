@@ -159,7 +159,7 @@ class _ContactResult extends StatelessWidget {
       subtitle: Directionality(
         textDirection: TextDirection.ltr,
         child: Text(
-          PersianUtils.toPersianNumber(contact.primaryPhone),
+          PersianUtils.displayPhone(contact.primaryPhone),
           textAlign: TextAlign.right,
           style: TextStyle(color: theme.textTheme.bodyMedium?.color),
         ),
@@ -190,14 +190,14 @@ class _CallLogResult extends StatelessWidget {
     final theme = Theme.of(context);
     final name = log.contactName?.isNotEmpty == true
         ? log.contactName!
-        : PersianUtils.toPersianNumber(log.phoneNumber);
+        : PersianUtils.displayPhone(log.phoneNumber);
     return ListTile(
       leading: AvatarWidget(name: name, size: 40),
       title: Text(name),
       subtitle: Directionality(
         textDirection: TextDirection.ltr,
         child: Text(
-          PersianUtils.toPersianNumber(log.phoneNumber),
+          PersianUtils.displayPhone(log.phoneNumber),
           textAlign: TextAlign.right,
           style: TextStyle(color: theme.textTheme.bodyMedium?.color),
         ),

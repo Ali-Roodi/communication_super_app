@@ -33,6 +33,9 @@ class CallInfo {
   final int? callCount;
   final bool? canMerge;
 
+  /// True when the call is a merged conference host (تماس گروهی).
+  final bool? isConference;
+
   const CallInfo({
     required this.event,
     this.phone = '',
@@ -41,6 +44,7 @@ class CallInfo {
     this.muted,
     this.callCount,
     this.canMerge,
+    this.isConference,
   });
 }
 
@@ -84,6 +88,7 @@ class NativeCallService {
         muted: map['muted'] as bool?,
         callCount: map['count'] as int?,
         canMerge: map['canMerge'] as bool?,
+        isConference: map['isConference'] as bool?,
       );
     });
     return _stream!;

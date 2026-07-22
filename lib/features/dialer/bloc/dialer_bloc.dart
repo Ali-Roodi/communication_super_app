@@ -200,10 +200,16 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
           state.copyWith(
             callStatus: CallStatus.active,
             activePhone: info.phone.isNotEmpty ? info.phone : null,
+            isConference: info.isConference ?? state.isConference,
           ),
         );
       case NativeCallEvent.onHold:
-        emit(state.copyWith(callStatus: CallStatus.onHold));
+        emit(
+          state.copyWith(
+            callStatus: CallStatus.onHold,
+            isConference: info.isConference ?? state.isConference,
+          ),
+        );
       case NativeCallEvent.disconnected:
         // reset call state — keypad و dialedNumber را حفظ کن
         emit(
@@ -214,6 +220,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
             isSpeakerOn: false,
             callCount: 0,
             canMerge: false,
+            isConference: false,
             clearError: true,
           ),
         );
@@ -269,6 +276,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
         isSpeakerOn: false,
         callCount: 0,
         canMerge: false,
+        isConference: false,
         clearError: true,
       ),
     );
@@ -300,6 +308,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
         isSpeakerOn: false,
         callCount: 0,
         canMerge: false,
+        isConference: false,
         clearError: true,
       ),
     );

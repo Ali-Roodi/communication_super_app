@@ -451,7 +451,7 @@ class DialerContactRow extends StatelessWidget {
                   Directionality(
                     textDirection: TextDirection.ltr,
                     child: Text(
-                      PersianUtils.toPersianNumber(phone),
+                      PersianUtils.displayPhone(phone),
                       style: TextStyle(
                         fontSize: 13,
                         color: theme.textTheme.bodyMedium?.color,
@@ -516,7 +516,7 @@ class DialerUnknownRow extends StatelessWidget {
                   Directionality(
                     textDirection: TextDirection.ltr,
                     child: Text(
-                      PersianUtils.toPersianNumber(phone),
+                      PersianUtils.displayPhone(phone),
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w500,

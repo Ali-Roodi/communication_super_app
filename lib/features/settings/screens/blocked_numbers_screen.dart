@@ -151,7 +151,7 @@ class _BlockedTile extends StatelessWidget {
       title: Directionality(
         textDirection: TextDirection.ltr,
         child: Text(
-          PersianUtils.toPersianNumber(number.phoneNumber),
+          PersianUtils.displayPhone(number.phoneNumber),
           textAlign: TextAlign.right,
         ),
       ),

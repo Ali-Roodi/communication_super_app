@@ -85,7 +85,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  name ?? PersianUtils.toPersianNumber(phone),
+                  name ?? PersianUtils.displayPhone(phone),
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 30,
@@ -96,7 +96,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
                 if (name != null) ...[
                   const SizedBox(height: 8),
                   Text(
-                    PersianUtils.toPersianNumber(phone),
+                    PersianUtils.displayPhone(phone),
                     style: const TextStyle(color: Colors.white54, fontSize: 16),
                   ),
                 ],

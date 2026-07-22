@@ -215,6 +215,7 @@ class CallHandler(
 
     private fun rejectCall() {
         val call = CallInCallService.currentCall
+        Log.d(TAG, "rejectCall: currentCall=${call != null} state=${call?.state}")
         if (call != null) {
             // reject() is only honored while RINGING — if the call slipped into
             // any other state (some OEMs move it during the tap), reject would
