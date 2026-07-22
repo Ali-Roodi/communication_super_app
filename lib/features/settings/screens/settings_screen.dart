@@ -186,7 +186,7 @@ class SettingsScreen extends StatelessWidget {
                 const ListTile(
                   leading: Icon(Icons.info_outline),
                   title: Text('نام برنامه'),
-                  trailing: Text('قاسم', style: TextStyle(color: Colors.grey)),
+                  trailing: Text('هم‌رسان', style: TextStyle(color: Colors.grey)),
                 ),
                 const ListTile(
                   leading: Icon(Icons.tag),
@@ -199,7 +199,7 @@ class SettingsScreen extends StatelessWidget {
                   trailing: const Icon(Icons.chevron_left),
                   onTap: () => showLicensePage(
                     context: context,
-                    applicationName: 'قاسم',
+                    applicationName: 'هم‌رسان',
                     applicationVersion: '۱.۰.۰',
                   ),
                 ),

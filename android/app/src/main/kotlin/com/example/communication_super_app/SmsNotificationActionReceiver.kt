@@ -138,10 +138,15 @@ class SmsNotificationActionReceiver : BroadcastReceiver() {
     }
 
     private fun dismiss(context: Context, intent: Intent) {
+        // Notifications are posted with the threadId as TAG (see SmsNotifier),
+        // so a tag-less cancel(id) would be a silent no-op. Cancel every
+        // notification of the thread — mark-read/reply applies to all of them.
+        val threadId = intent.getStringExtra(EXTRA_THREAD_ID)
+        if (threadId != null) SmsNotifier.cancelThread(context, threadId)
         val id = intent.getIntExtra(EXTRA_NOTIF_ID, -1)
         if (id != -1) {
             (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-                .cancel(id)
+                .cancel(threadId, id)
         }
     }
 

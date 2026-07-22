@@ -75,6 +75,15 @@ class CallHandler(
                         sendDtmf(call.argument<String>("digit") ?: "")
                         result.success(null)
                     }
+                    "mergeCalls"      -> {
+                        CallInCallService.instance?.mergeCalls()
+                        result.success(null)
+                    }
+                    "swapCalls"       -> {
+                        CallInCallService.instance?.swapCalls()
+                        result.success(null)
+                    }
+                    "canMerge"        -> result.success(CallInCallService.canMerge())
                     "isInCall"        -> result.success(
                         CallInCallService.currentCall != null || CallConnection.instance != null
                     )
@@ -200,7 +209,15 @@ class CallHandler(
     private fun rejectCall() {
         val call = CallInCallService.currentCall
         if (call != null) {
-            call.reject(false, null)
+            // reject() is only honored while RINGING — if the call slipped into
+            // any other state (some OEMs move it during the tap), reject would
+            // silently do nothing and the caller would keep ringing. Disconnect
+            // covers every other state.
+            if (call.state == android.telecom.Call.STATE_RINGING) {
+                call.reject(false, null)
+            } else {
+                call.disconnect()
+            }
             return
         }
         CallConnection.instance?.onReject()

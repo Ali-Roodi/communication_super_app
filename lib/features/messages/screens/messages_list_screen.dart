@@ -76,6 +76,21 @@ class _MessagesListScreenState extends State<MessagesListScreen>
     setState(() => _showDefaultSmsBanner = !isDefault && !_bannerDismissed);
   }
 
+  /// Fire-and-forget re-check used from build while the banner is visible:
+  /// the user may have granted the role from system Settings without the app
+  /// ever pausing (e.g. split screen) or while on another tab. Only ever
+  /// *hides* the banner, so it cannot rebuild-loop.
+  bool _recheckingDefault = false;
+  Future<void> _recheckDefaultSilently() async {
+    if (_recheckingDefault) return;
+    _recheckingDefault = true;
+    final isDefault = await _nativeSms.isDefaultSmsApp();
+    _recheckingDefault = false;
+    if (mounted && isDefault && _showDefaultSmsBanner) {
+      setState(() => _showDefaultSmsBanner = false);
+    }
+  }
+
   Future<void> _requestDefaultSmsRole() async {
     final granted = await _nativeSms.requestDefaultSmsRole();
     if (!mounted) return;
@@ -220,6 +235,7 @@ class _MessagesListScreenState extends State<MessagesListScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (_showDefaultSmsBanner) _recheckDefaultSilently();
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(

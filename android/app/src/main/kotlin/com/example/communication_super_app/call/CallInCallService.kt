@@ -51,10 +51,30 @@ class CallInCallService : InCallService() {
         @Volatile
         var instance: CallInCallService? = null
 
-        /** The telecom Call currently in progress (single-call model). */
+        /** The telecom Call currently in the foreground (most recent). */
         @JvmStatic
         @Volatile
         var currentCall: Call? = null
+
+        /** Every telecom call currently bound (conference children included). */
+        @JvmStatic
+        val calls = java.util.concurrent.CopyOnWriteArrayList<Call>()
+
+        /** Calls that are not children of a conference — what the UI counts. */
+        @JvmStatic
+        fun topLevelCalls(): List<Call> = calls.filter { it.parent == null }
+
+        /** True when an active+held pair (or a telecom merge capability) exists. */
+        @JvmStatic
+        fun canMerge(): Boolean {
+            val top = topLevelCalls()
+            val hasPair = top.any { it.state == Call.STATE_ACTIVE } &&
+                top.any { it.state == Call.STATE_HOLDING }
+            val capMerge = top.any {
+                it.details?.can(Call.Details.CAPABILITY_MERGE_CONFERENCE) == true
+            }
+            return top.size >= 2 && (hasPair || capMerge)
+        }
 
         /** Last event pushed — replayed when the Flutter EventChannel attaches
          *  after a cold start (see CallEventStreamHandler.onListen). */
@@ -80,7 +100,12 @@ class CallInCallService : InCallService() {
 
     private val callCallback = object : Call.Callback() {
         override fun onStateChanged(call: Call, state: Int) {
-            publishState(call, state)
+            // Only the foreground call drives the screen state — a background
+            // call flipping to HOLDING while the second call dials must not
+            // repaint the UI as "on hold".
+            if (call == currentCall) publishState(call, state)
+            // Mergeability depends on the active/held mix — keep Flutter posted.
+            publishCallsChanged()
         }
     }
 
@@ -109,9 +134,11 @@ class CallInCallService : InCallService() {
             return
         }
 
+        calls.add(call)
         currentCall = call
         call.registerCallback(callCallback)
         publishState(call, call.state)
+        publishCallsChanged()
         if (call.state == Call.STATE_RINGING) {
             postIncomingCallNotification(phoneOf(call))
         }
@@ -120,8 +147,7 @@ class CallInCallService : InCallService() {
     override fun onCallRemoved(call: Call) {
         super.onCallRemoved(call)
         call.unregisterCallback(callCallback)
-        if (currentCall == call) currentCall = null
-        stickyState = null
+        calls.remove(call)
         cancelIncomingCallNotification()
 
         // Default-dialer duty: the system dialer used to post the missed-call
@@ -130,9 +156,36 @@ class CallInCallService : InCallService() {
             postMissedCallNotification(phoneOf(call))
         }
 
-        CallEventStreamHandler.sendEvent(
-            CallEvent.DISCONNECTED,
-            mapOf("phone" to phoneOf(call), "direction" to directionOf(call)),
+        val remaining = topLevelCalls()
+        if (remaining.isEmpty()) {
+            // Last call gone — tear the in-call UI down.
+            currentCall = null
+            stickyState = null
+            CallEventStreamHandler.sendEvent(
+                CallEvent.DISCONNECTED,
+                mapOf("phone" to phoneOf(call), "direction" to directionOf(call)),
+            )
+        } else {
+            // Another call is still up (conference member ended, or one leg of
+            // a two-call session hung up) — keep the UI on the survivor.
+            val next = remaining.last()
+            currentCall = next
+            // A surviving held call is resumed so the user isn't left in
+            // silence wondering where the audio went.
+            if (next.state == Call.STATE_HOLDING) next.unhold()
+            publishState(next, next.state)
+        }
+        publishCallsChanged()
+    }
+
+    /** Pushes the number of top-level calls + mergeability to Flutter. */
+    private fun publishCallsChanged() {
+        CallEventStreamHandler.sendRaw(
+            mapOf(
+                "event" to "CALLS_CHANGED",
+                "count" to topLevelCalls().size,
+                "canMerge" to canMerge(),
+            ),
         )
     }
 
@@ -175,6 +228,30 @@ class CallInCallService : InCallService() {
             data + mapOf("event" to event.name)
         }
         CallEventStreamHandler.sendEvent(event, data)
+    }
+
+    // ── Multi-call control (called from CallHandler) ────────────────────────
+
+    /** Merges the active and held calls into a conference (تماس گروهی). */
+    fun mergeCalls() {
+        val top = topLevelCalls()
+        val active = top.firstOrNull { it.state == Call.STATE_ACTIVE }
+        val held = top.firstOrNull { it.state == Call.STATE_HOLDING }
+        when {
+            active != null && held != null -> active.conference(held)
+            else -> top.firstOrNull {
+                it.details?.can(Call.Details.CAPABILITY_MERGE_CONFERENCE) == true
+            }?.mergeConference()
+        }
+    }
+
+    /** Swaps the active and held calls (telecom holds the active one itself). */
+    fun swapCalls() {
+        val top = topLevelCalls()
+        val held = top.firstOrNull { it.state == Call.STATE_HOLDING } ?: return
+        currentCall = held
+        held.unhold()
+        publishState(held, held.state)
     }
 
     // ── Audio control (called from CallHandler) ─────────────────────────────
@@ -312,7 +389,13 @@ class CallActionReceiver : android.content.BroadcastReceiver() {
                     ?.apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP }
                     ?.let { context.startActivity(it) }
             }
-            ACTION_DECLINE -> call.reject(false, null)
+            // reject() only works while RINGING; disconnect covers the rest.
+            ACTION_DECLINE ->
+                if (call.state == Call.STATE_RINGING) {
+                    call.reject(false, null)
+                } else {
+                    call.disconnect()
+                }
         }
     }
 }

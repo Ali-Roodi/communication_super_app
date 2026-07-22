@@ -34,6 +34,8 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     on<ToggleSpeaker>(_onToggleSpeaker);
     on<HoldCall>(_onHold);
     on<SendDtmf>(_onSendDtmf);
+    on<MergeCalls>(_onMergeCalls);
+    on<SwapCalls>(_onSwapCalls);
     on<CallEventReceived>(_onCallEvent);
 
     add(const DialerLoadContacts());
@@ -210,6 +212,8 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
             activePhone: '',
             isMuted: false,
             isSpeakerOn: false,
+            callCount: 0,
+            canMerge: false,
             clearError: true,
           ),
         );
@@ -223,6 +227,13 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
           state.copyWith(
             isSpeakerOn: info.speaker ?? state.isSpeakerOn,
             isMuted: info.muted ?? state.isMuted,
+          ),
+        );
+      case NativeCallEvent.callsChanged:
+        emit(
+          state.copyWith(
+            callCount: info.callCount ?? state.callCount,
+            canMerge: info.canMerge ?? state.canMerge,
           ),
         );
     }
@@ -256,6 +267,8 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
         activePhone: '',
         isMuted: false,
         isSpeakerOn: false,
+        callCount: 0,
+        canMerge: false,
         clearError: true,
       ),
     );
@@ -277,6 +290,19 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
   }
 
   Future<void> _onReject(RejectCall event, Emitter<DialerState> emit) async {
+    // Same pattern as EndCall: dismiss the incoming-call UI immediately, the
+    // native teardown is fire-and-forget (DISCONNECTED arrives as a no-op).
+    emit(
+      state.copyWith(
+        callStatus: CallStatus.idle,
+        activePhone: '',
+        isMuted: false,
+        isSpeakerOn: false,
+        callCount: 0,
+        canMerge: false,
+        clearError: true,
+      ),
+    );
     try {
       await _callService.rejectCall();
     } catch (e) {
@@ -297,6 +323,22 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
       await _callService.sendDtmf(event.digit);
     } catch (e) {
       debugPrint('DialerBloc: sendDtmf error: $e');
+    }
+  }
+
+  Future<void> _onMergeCalls(MergeCalls event, Emitter<DialerState> emit) async {
+    try {
+      await _callService.mergeCalls();
+    } catch (e) {
+      debugPrint('DialerBloc: mergeCalls error: $e');
+    }
+  }
+
+  Future<void> _onSwapCalls(SwapCalls event, Emitter<DialerState> emit) async {
+    try {
+      await _callService.swapCalls();
+    } catch (e) {
+      debugPrint('DialerBloc: swapCalls error: $e');
     }
   }
 
