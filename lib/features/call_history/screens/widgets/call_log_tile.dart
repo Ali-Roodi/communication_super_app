@@ -1,12 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
-import 'package:communication_super_app/features/call_history/bloc/call_log_bloc.dart';
-import 'package:communication_super_app/features/call_history/bloc/call_log_event.dart';
 import 'package:communication_super_app/features/call_history/models/call_log_model.dart';
 import 'package:communication_super_app/features/call_history/screens/widgets/call_detail_sheet.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
@@ -14,14 +11,13 @@ import 'package:communication_super_app/features/favorites/bloc/favorites_bloc.d
 import 'package:communication_super_app/features/favorites/bloc/favorites_event.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_state.dart';
 import 'package:communication_super_app/features/favorites/models/favorite_model.dart';
-import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
 
 /// A single row in the recents list (Google Phone style).
 ///
 /// Layout: avatar · [name/number (+ ×N count when collapsed)] over
-/// [type-arrow icon · type label · relative time] · ⓘ info button.
-/// Tapping the row places a call; the ⓘ opens the call detail sheet; a long
-/// press opens the options sheet (favorite / copy / block / delete).
+/// [type-arrow icon · type label · relative time] · 📞 call button.
+/// Tapping the row (or the 📞 button) places a call; a long press opens the
+/// call detail sheet (activity log + favorite / copy / block / delete).
 class CallLogTile extends StatelessWidget {
   final CallLogModel log;
 
@@ -43,14 +39,16 @@ class CallLogTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final displayName = log.contactName?.isNotEmpty == true
+    final hasName = log.contactName?.isNotEmpty == true;
+    final displayName = hasName
         ? log.contactName!
         : PersianUtils.displayPhone(log.phoneNumber);
     final titleColor = _titleColor(log.callType, theme);
 
     return InkWell(
       onTap: () => NativeCallService.instance.makeCall(log.phoneNumber),
-      onLongPress: () => _showOptions(context),
+      onLongPress: () =>
+          showCallDetailSheet(context, log, count: count, groupIds: groupIds),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: Row(
@@ -64,15 +62,22 @@ class CallLogTile extends StatelessWidget {
                   Row(
                     children: [
                       Flexible(
-                        child: Text(
-                          displayName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                            color:
-                                titleColor ?? theme.textTheme.bodyLarge?.color,
+                        // A bare number renders LTR so "0919 096 1805" reads
+                        // left-to-right like everywhere else; names stay RTL.
+                        child: Directionality(
+                          textDirection: hasName
+                              ? TextDirection.rtl
+                              : TextDirection.ltr,
+                          child: Text(
+                            displayName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                              color:
+                                  titleColor ?? theme.textTheme.bodyLarge?.color,
+                            ),
                           ),
                         ),
                       ),
@@ -97,11 +102,12 @@ class CallLogTile extends StatelessWidget {
               ),
             ),
             IconButton(
-              icon: const Icon(Icons.info_outline),
+              icon: const Icon(Icons.call),
               iconSize: 22,
-              color: theme.textTheme.bodyMedium?.color,
-              tooltip: 'جزئیات تماس',
-              onPressed: () => showCallDetailSheet(context, log),
+              color: AppColors.outgoingCall,
+              tooltip: 'تماس',
+              onPressed: () =>
+                  NativeCallService.instance.makeCall(log.phoneNumber),
             ),
           ],
         ),
@@ -109,83 +115,6 @@ class CallLogTile extends StatelessWidget {
     );
   }
 
-  void _showOptions(BuildContext context) {
-    final bloc = context.read<CallLogBloc>();
-    final blockedBloc = context.read<BlockedNumbersBloc>();
-    final favoritesBloc = context.read<FavoritesBloc>();
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              FavoriteToggleTile(
-                phoneNumber: log.phoneNumber,
-                name: log.contactName,
-                contactId: log.contactId,
-                favoritesBloc: favoritesBloc,
-                onDone: (added) {
-                  Navigator.of(sheetContext).pop();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        added
-                            ? 'به موردعلاقه‌ها افزوده شد'
-                            : 'از موردعلاقه‌ها حذف شد',
-                      ),
-                    ),
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.copy_outlined),
-                title: const Text('کپی شماره'),
-                onTap: () {
-                  Clipboard.setData(ClipboardData(text: log.phoneNumber));
-                  Navigator.of(sheetContext).pop();
-                  ScaffoldMessenger.of(
-                    context,
-                  ).showSnackBar(const SnackBar(content: Text('شماره کپی شد')));
-                },
-              ),
-              ListTile(
-                leading: const Icon(
-                  Icons.block,
-                  color: AppColors.callRejectRed,
-                ),
-                title: const Text('مسدود کردن'),
-                onTap: () {
-                  blockedBloc.add(BlockNumber(log.phoneNumber));
-                  Navigator.of(sheetContext).pop();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('شماره مسدود شد')),
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(
-                  Icons.delete_outline,
-                  color: AppColors.callRejectRed,
-                ),
-                title: Text(
-                  count > 1
-                      ? 'حذف (${PersianUtils.toPersianNumber('$count')} تماس)'
-                      : 'حذف',
-                ),
-                onTap: () {
-                  bloc.add(DeleteCallLogs(groupIds ?? [log.id]));
-                  Navigator.of(sheetContext).pop();
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 // ── Favorite toggle (shared by the options sheet and the detail sheet) ────────

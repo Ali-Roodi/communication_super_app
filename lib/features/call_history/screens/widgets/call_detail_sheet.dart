@@ -28,7 +28,12 @@ import 'package:communication_super_app/features/settings/bloc/blocked_numbers_b
 /// Header (avatar, name, number) + action chips, followed by the breakdown of
 /// every call with this number in the currently-loaded history, then copy /
 /// block actions.
-Future<void> showCallDetailSheet(BuildContext context, CallLogModel log) {
+Future<void> showCallDetailSheet(
+  BuildContext context,
+  CallLogModel log, {
+  int count = 1,
+  List<String>? groupIds,
+}) {
   // "Calls with this contact in this session" = filter the already-loaded
   // history by normalized number (no extra DB round-trip).
   final state = context.read<CallLogBloc>().state;
@@ -41,7 +46,8 @@ Future<void> showCallDetailSheet(BuildContext context, CallLogModel log) {
     context: context,
     showDragHandle: true,
     isScrollControlled: true,
-    builder: (_) => _CallDetailSheet(log: log, calls: calls),
+    builder: (_) =>
+        _CallDetailSheet(log: log, calls: calls, count: count, groupIds: groupIds),
   );
 }
 
@@ -49,7 +55,17 @@ class _CallDetailSheet extends StatelessWidget {
   final CallLogModel log;
   final List<CallLogModel> calls;
 
-  const _CallDetailSheet({required this.log, required this.calls});
+  /// Number of collapsed calls in the row this sheet was opened from, and the
+  /// IDs to delete — mirrors [CallLogTile.count] / [CallLogTile.groupIds].
+  final int count;
+  final List<String>? groupIds;
+
+  const _CallDetailSheet({
+    required this.log,
+    required this.calls,
+    this.count = 1,
+    this.groupIds,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -146,6 +162,24 @@ class _CallDetailSheet extends StatelessWidget {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('شماره مسدود شد')),
                     );
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(
+                    Icons.delete_outline,
+                    color: AppColors.callRejectRed,
+                  ),
+                  title: Text(
+                    count > 1
+                        ? 'حذف (${PersianUtils.toPersianNumber('$count')} تماس)'
+                        : 'حذف',
+                    style: const TextStyle(color: AppColors.callRejectRed),
+                  ),
+                  onTap: () {
+                    context.read<CallLogBloc>().add(
+                      DeleteCallLogs(groupIds ?? [log.id]),
+                    );
+                    Navigator.of(context).pop();
                   },
                 ),
               ],
