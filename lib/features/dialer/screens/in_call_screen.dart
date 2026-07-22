@@ -27,25 +27,35 @@ class _InCallScreenState extends State<InCallScreen> {
   Timer? _timer;
   int _seconds = 0;
 
-  /// Resolved device-contact identity (name + photo) for [InCallScreen.phone].
+  /// Resolved device-contact identity (name + photo) for the phone currently
+  /// in the foreground. Re-resolved whenever the active call switches (add a
+  /// second call, swap) so the header tracks the live participant instead of
+  /// staying on the number the screen was first opened with.
   String? _resolvedName;
   Uint8List? _avatar;
+  String? _resolvedFor;
 
   @override
   void initState() {
     super.initState();
-    _resolveContact();
+    _resolveContact(widget.phone);
   }
 
-  Future<void> _resolveContact() async {
-    if (widget.phone.isEmpty) return;
-    final contact = await ContactRepository().getContactByPhoneNumber(
-      widget.phone,
-    );
-    if (!mounted || contact == null) return;
+  /// The number of the call currently shown — the bloc's activePhone once it
+  /// arrives (covers add-call/swap), else the number the screen opened with.
+  String _currentPhone(DialerState state) =>
+      state.activePhone.isNotEmpty ? state.activePhone : widget.phone;
+
+  Future<void> _resolveContact(String phone) async {
+    if (phone.isEmpty || phone == _resolvedFor) return;
+    _resolvedFor = phone;
+    final contact = await ContactRepository().getContactByPhoneNumber(phone);
+    if (!mounted || _resolvedFor != phone) return;
     setState(() {
-      _resolvedName = contact.name.isNotEmpty ? contact.name : null;
-      _avatar = contact.avatar;
+      _resolvedName = contact != null && contact.name.isNotEmpty
+          ? contact.name
+          : null;
+      _avatar = contact?.avatar;
     });
   }
 
@@ -75,9 +85,13 @@ class _InCallScreenState extends State<InCallScreen> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: BlocConsumer<DialerBloc, DialerState>(
-        listenWhen: (prev, curr) => prev.callStatus != curr.callStatus,
+        listenWhen: (prev, curr) =>
+            prev.callStatus != curr.callStatus ||
+            prev.activePhone != curr.activePhone,
         listener: (context, state) {
           if (state.callStatus == CallStatus.active) _ensureTimerStarted();
+          // Foreground call switched (add-call / swap) — refresh the identity.
+          _resolveContact(_currentPhone(state));
         },
         builder: (context, state) {
           final onHold = state.callStatus == CallStatus.onHold;
@@ -88,12 +102,15 @@ class _InCallScreenState extends State<InCallScreen> {
           // an ongoing call) — start counting right away in that case.
           if (state.callStatus == CallStatus.active) _ensureTimerStarted();
 
-          // Merged conference: show the group title, not the first
-          // participant's identity.
+          final phone = _currentPhone(state);
+          // Merged conference: show the group title, not a single participant.
           final conference = state.isConference;
+          // The passed-in contactName only applies to the number the screen
+          // opened with; once the active call switches, use the resolved name.
+          final passedName = phone == widget.phone ? widget.contactName : null;
           final name = conference
               ? 'تماس گروهی'
-              : (widget.contactName ?? _resolvedName);
+              : (passedName ?? _resolvedName);
           return Scaffold(
             backgroundColor: _kBg,
             body: SafeArea(
@@ -109,7 +126,7 @@ class _InCallScreenState extends State<InCallScreen> {
                   _buildAvatar(conference: conference),
                   const SizedBox(height: 20),
                   Text(
-                    name ?? PersianUtils.displayPhone(widget.phone),
+                    name ?? PersianUtils.displayPhone(phone),
                     // LTR keeps the grouped number order (0919 096 1805)
                     // inside the RTL screen.
                     textDirection: name == null ? TextDirection.ltr : null,
@@ -123,7 +140,7 @@ class _InCallScreenState extends State<InCallScreen> {
                   if (name != null && !conference) ...[
                     const SizedBox(height: 6),
                     Text(
-                      PersianUtils.displayPhone(widget.phone),
+                      PersianUtils.displayPhone(phone),
                       textDirection: TextDirection.ltr,
                       style: const TextStyle(
                         color: Colors.white54,
