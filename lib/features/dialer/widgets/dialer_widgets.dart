@@ -6,6 +6,7 @@ import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/theme/app_dimensions.dart';
+import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_bloc.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_event.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_state.dart';
@@ -461,10 +462,21 @@ class DialerContactRow extends StatelessWidget {
                 ],
               ),
             ),
-            Icon(
-              Icons.phone_outlined,
-              size: 20,
-              color: theme.colorScheme.primary,
+            // Direct-dial the matched contact — tapping the icon must NOT
+            // open the contact page (that's the row tap).
+            IconButton(
+              icon: Icon(
+                Icons.phone_outlined,
+                size: 22,
+                color: theme.colorScheme.primary,
+              ),
+              tooltip: 'تماس',
+              onPressed: () {
+                NativeCallService.instance.makeCall(phone);
+                // Dialer lives in a modal sheet — dismiss it so the in-call
+                // UI is unobstructed.
+                Navigator.of(context).maybePop();
+              },
             ),
           ],
         ),
