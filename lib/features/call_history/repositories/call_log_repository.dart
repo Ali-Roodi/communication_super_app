@@ -70,6 +70,20 @@ class CallLogRepository {
     return maps.map((m) => m['id'] as String).toSet();
   }
 
+  /// Ids of stored call logs at or after [sinceMs]. Scopes the mirror-sync
+  /// deletion diff to the same time window the device fetch covers, so calls
+  /// older than the window aren't wrongly purged.
+  Future<Set<String>> getIdsSince(int sinceMs) async {
+    final db = await _dbHelper.database;
+    final maps = await db.query(
+      AppConstants.callLogsTable,
+      columns: ['id'],
+      where: 'timestamp >= ?',
+      whereArgs: [sinceMs],
+    );
+    return maps.map((m) => m['id'] as String).toSet();
+  }
+
   Future<void> deleteCallLog(String id) async {
     final db = await _dbHelper.database;
     await db.delete(

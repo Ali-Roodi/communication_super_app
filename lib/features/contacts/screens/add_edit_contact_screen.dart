@@ -6,6 +6,7 @@ import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/core/widgets/jalali_date_picker.dart';
+import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/core/services/image_picker_service.dart';
 import '../bloc/contact_bloc.dart';
 import '../bloc/contact_event.dart';
@@ -181,6 +182,7 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
       }
 
       ContactRepository().invalidateCache();
+      LazyContactAvatar.invalidateCache();
       if (!mounted) return;
       context.read<ContactBloc>().add(const LoadContacts());
       Navigator.of(context).pop(true);
@@ -218,6 +220,7 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
     try {
       await _editing!.delete();
       ContactRepository().invalidateCache();
+      LazyContactAvatar.invalidateCache();
       if (!mounted) return;
       context.read<ContactBloc>().add(const LoadContacts());
       Navigator.of(context).pop(true);

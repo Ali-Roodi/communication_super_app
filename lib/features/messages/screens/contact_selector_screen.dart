@@ -4,7 +4,7 @@ import 'package:communication_super_app/features/contacts/bloc/contact_bloc.dart
 import 'package:communication_super_app/features/contacts/bloc/contact_state.dart';
 import 'package:communication_super_app/features/contacts/bloc/contact_event.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
-import 'package:communication_super_app/core/widgets/avatar_widget.dart';
+import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
@@ -325,13 +325,11 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
   }
 
   Widget _buildAvatar(ContactModel contact) {
-    if (contact.avatar != null) {
-      return CircleAvatar(
-        radius: 24,
-        backgroundImage: MemoryImage(contact.avatar!),
-      );
-    }
-    return AvatarWidget(name: contact.name, size: 48);
+    return LazyContactAvatar(
+      contactId: contact.id,
+      name: contact.name,
+      size: 48,
+    );
   }
 }
 

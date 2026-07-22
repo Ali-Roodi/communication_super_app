@@ -52,6 +52,9 @@ class ConversationAppBar extends StatelessWidget
                     style: const TextStyle(fontSize: 17),
                   ),
                   if (hasName)
+                    // Right-aligned under the name (RTL start). The number still
+                    // reads left-to-right — displayPhone wraps it in an LTR
+                    // embedding — so it's «0919 096 1805», just anchored right.
                     Text(
                       PersianUtils.displayPhone(
                         PhoneNormalizer.toNational(phoneNumber),

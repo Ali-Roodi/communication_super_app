@@ -1,39 +1,8 @@
 import 'dart:async';
-import 'dart:convert';
-import 'package:flutter/foundation.dart';
+import 'dart:typed_data';
 import 'package:flutter_contacts/flutter_contacts.dart' as device_contacts;
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import '../models/contact_model.dart';
-
-/// Top-level function for isolate: maps serialized contact maps to output maps (with avatar_base64).
-List<Map<String, dynamic>> _mapContactsInIsolate(
-  List<Map<String, dynamic>> serialized,
-) {
-  return serialized
-      .map((m) {
-        final phones =
-            (m['phones'] as List<dynamic>?)
-                ?.map((e) => e as String)
-                .where((p) => p.isNotEmpty)
-                .toList() ??
-            [];
-        final primary = phones.isNotEmpty ? phones.first : '';
-        if (primary.isEmpty) return null;
-        final name = (m['name'] as String?)?.isNotEmpty == true
-            ? m['name']!
-            : 'بدون نام';
-        return <String, dynamic>{
-          'id': m['id'] as String? ?? '',
-          'name': name,
-          'phone_number': primary,
-          'phone_numbers': phones,
-          'email': m['email'] as String?,
-          'avatar_base64': m['avatar_base64'] as String?,
-        };
-      })
-      .whereType<Map<String, dynamic>>()
-      .toList();
-}
 
 class ContactRepository {
   static List<ContactModel>? _cache;
@@ -41,6 +10,10 @@ class ContactRepository {
   /// In-flight device read; concurrent callers await the same future instead
   /// of busy-waiting on a polling loop.
   static Completer<void>? _loading;
+
+  /// Non-digit stripper reused across [filterContactsByPhoneDigits] calls
+  /// instead of recompiling a RegExp per contact per keystroke.
+  static final RegExp _nonDigits = RegExp(r'[^\d]');
 
   /// Invalidate the cache to force a reload on next request
   void invalidateCache() {
@@ -51,7 +24,9 @@ class ContactRepository {
     return device_contacts.FlutterContacts.requestPermission();
   }
 
-  Future<List<ContactModel>> getDeviceContacts({bool forceRefresh = false}) async {
+  Future<List<ContactModel>> getDeviceContacts({
+    bool forceRefresh = false,
+  }) async {
     if (forceRefresh) _cache = null;
     if (_cache != null) return _cache!;
 
@@ -70,51 +45,39 @@ class ContactRepository {
         return _cache!;
       }
 
-      // Thumbnails only: full-resolution photos for an entire address book are
-      // megabytes of decode work. The detail screen fetches the full photo for
-      // its single contact separately.
+      // Names + numbers only. Avatars are intentionally NOT loaded here:
+      // holding the decoded thumbnail of every contact permanently in this
+      // static cache blew the heap on large address books (OOM kills / GC
+      // thrash on aggressive-memory OEMs). Each visible row and the detail
+      // screen fetch their own thumbnail lazily by id — see
+      // [getContactThumbnail] / LazyContactAvatar.
       final contacts = await device_contacts.FlutterContacts.getContacts(
         withProperties: true,
-        withThumbnail: true,
+        withThumbnail: false,
+        withPhoto: false,
       );
 
-      // Serialize for isolate (minimal data; photos as base64)
-      final serialized = <Map<String, dynamic>>[];
+      final now = DateTime.now();
+      final list = <ContactModel>[];
       for (final c in contacts) {
         final phones = c.phones
             .map((p) => p.number)
             .where((p) => p.isNotEmpty)
             .toList();
         if (phones.isEmpty) continue;
-        final avatar = c.thumbnail ?? c.photo;
-        serialized.add({
-          'id': c.id,
-          'name': c.displayName,
-          'phones': phones,
-          'email': c.emails.isNotEmpty ? c.emails.first.address : null,
-          'avatar_base64': avatar != null ? base64Encode(avatar) : null,
-        });
+        list.add(
+          ContactModel(
+            id: c.id,
+            name: c.displayName.isNotEmpty ? c.displayName : 'بدون نام',
+            phoneNumber: phones.first,
+            phoneNumbers: phones,
+            email: c.emails.isNotEmpty ? c.emails.first.address : null,
+            createdAt: now,
+            updatedAt: now,
+          ),
+        );
       }
-
-      // Heavy mapping off main thread
-      final mapped = await compute(_mapContactsInIsolate, serialized);
-
-      // Quick pass on main thread: build ContactModels (decode base64)
-      final now = DateTime.now();
-      _cache = mapped
-          .map(
-            (m) => ContactModel(
-              id: m['id'] as String,
-              name: m['name'] as String,
-              phoneNumber: m['phone_number'] as String,
-              phoneNumbers: List<String>.from(m['phone_numbers'] as List),
-              email: m['email'] as String?,
-              createdAt: now,
-              updatedAt: now,
-              avatar: _decodeAvatar(m['avatar_base64'] as String?),
-            ),
-          )
-          .toList();
+      _cache = list;
       return _cache!;
     } finally {
       _loading = null;
@@ -122,10 +85,19 @@ class ContactRepository {
     }
   }
 
-  static Uint8List? _decodeAvatar(String? base64) {
-    if (base64 == null || base64.isEmpty) return null;
+  /// Lazily fetches the thumbnail bytes for a single device contact by id.
+  /// Returns null when the id is empty, the contact has no photo, or the read
+  /// fails. Callers cache the result (see LazyContactAvatar).
+  Future<Uint8List?> getContactThumbnail(String contactId) async {
+    if (contactId.isEmpty) return null;
     try {
-      return Uint8List.fromList(base64Decode(base64));
+      final c = await device_contacts.FlutterContacts.getContact(
+        contactId,
+        withProperties: false,
+        withThumbnail: true,
+        withPhoto: false,
+      );
+      return c?.thumbnail;
     } catch (_) {
       return null;
     }
@@ -184,14 +156,14 @@ class ContactRepository {
     if (digits.isEmpty) return [];
 
     // Normalize the search query (remove non-digits)
-    final normalizedQuery = digits.replaceAll(RegExp(r'[^\d]'), '');
+    final normalizedQuery = digits.replaceAll(_nonDigits, '');
 
     if (normalizedQuery.isEmpty) return [];
 
     return contacts.where((contact) {
       // Check if any phone number contains the digits sequence
       return contact.phoneNumbers.any((phone) {
-        final normalizedPhone = phone.replaceAll(RegExp(r'[^\d]'), '');
+        final normalizedPhone = phone.replaceAll(_nonDigits, '');
         return normalizedPhone.contains(normalizedQuery);
       });
     }).toList();

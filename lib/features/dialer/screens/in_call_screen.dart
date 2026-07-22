@@ -49,14 +49,20 @@ class _InCallScreenState extends State<InCallScreen> {
   Future<void> _resolveContact(String phone) async {
     if (phone.isEmpty || phone == _resolvedFor) return;
     _resolvedFor = phone;
-    final contact = await ContactRepository().getContactByPhoneNumber(phone);
+    final repo = ContactRepository();
+    final contact = await repo.getContactByPhoneNumber(phone);
     if (!mounted || _resolvedFor != phone) return;
     setState(() {
       _resolvedName = contact != null && contact.name.isNotEmpty
           ? contact.name
           : null;
-      _avatar = contact?.avatar;
     });
+    // Avatars are no longer held in the bulk cache — fetch this one contact's
+    // thumbnail lazily by id.
+    if (contact == null) return;
+    final avatar = await repo.getContactThumbnail(contact.id);
+    if (!mounted || _resolvedFor != phone || avatar == null) return;
+    setState(() => _avatar = avatar);
   }
 
   /// The duration counts talk time only: it starts on the first ACTIVE state,

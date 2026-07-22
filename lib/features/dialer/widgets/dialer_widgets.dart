@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
-import 'package:communication_super_app/core/widgets/avatar_widget.dart';
+import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/theme/app_dimensions.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
@@ -485,13 +485,11 @@ class DialerContactRow extends StatelessWidget {
   }
 
   Widget _buildAvatar() {
-    if (contact.avatar != null) {
-      return CircleAvatar(
-        radius: 22,
-        backgroundImage: MemoryImage(contact.avatar!),
-      );
-    }
-    return AvatarWidget(name: contact.name, size: 44);
+    return LazyContactAvatar(
+      contactId: contact.id,
+      name: contact.name,
+      size: 44,
+    );
   }
 }
 

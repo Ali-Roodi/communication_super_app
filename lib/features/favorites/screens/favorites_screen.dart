@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
+import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
@@ -343,11 +344,11 @@ class _FavoritePickerSheetState extends State<_FavoritePickerSheet> {
                             ? c.phoneNumbers.first
                             : c.phoneNumber;
                         return ListTile(
-                          leading: c.avatar != null
-                              ? CircleAvatar(
-                                  backgroundImage: MemoryImage(c.avatar!),
-                                )
-                              : AvatarWidget(name: c.name, size: 40),
+                          leading: LazyContactAvatar(
+                            contactId: c.id,
+                            name: c.name,
+                            size: 40,
+                          ),
                           title: Text(c.name),
                           subtitle: Directionality(
                             textDirection: TextDirection.ltr,

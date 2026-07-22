@@ -139,15 +139,17 @@ class _ConversationScreenState extends State<ConversationScreen> {
   void _onScroll() {
     if (!mounted) return;
     final pos = _scrollController.position;
-    // Show the scroll-to-bottom FAB once the user scrolls up a bit.
-    final shouldShow = pos.maxScrollExtent - pos.pixels > 400;
+    // reverse:true → offset 0 is the bottom (newest). pixels grows as the user
+    // scrolls UP toward older messages.
+    final shouldShow = pos.pixels > 400;
     if (shouldShow != _showScrollToBottom) {
       setState(() => _showScrollToBottom = shouldShow);
     }
     if (_isLoadingMore) return;
     final state = context.read<MessageBloc>().state;
     if (state is! MessagesLoaded || !state.hasMore) return;
-    if (pos.pixels <= 200) {
+    // Older messages live near the top (maxScrollExtent) now.
+    if (pos.maxScrollExtent - pos.pixels <= 200) {
       _isLoadingMore = true;
       context.read<MessageBloc>().add(LoadMoreMessages(widget.threadId));
     }
@@ -174,8 +176,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   void _scrollToBottom() {
     if (_scrollController.hasClients) {
+      // reverse:true → the bottom (newest) is offset 0.
       _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
+        0,
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeOut,
       );
@@ -200,10 +203,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
             if (state is MessagesLoaded) {
               _isLoadingMore = false;
               WidgetsBinding.instance.addPostFrameCallback((_) {
+                // reverse:true keeps the newest at offset 0; snap there only
+                // when the user hasn't scrolled up (loading older messages must
+                // not yank the view back to the bottom).
                 if (_scrollController.hasClients && !_showScrollToBottom) {
-                  _scrollController.jumpTo(
-                    _scrollController.position.maxScrollExtent,
-                  );
+                  _scrollController.jumpTo(0);
                 }
               });
             } else if (state is MessageSent) {
@@ -346,22 +350,29 @@ class _ConversationScreenState extends State<ConversationScreen> {
               return const Center(child: Text('هنوز پیامی نیست'));
             }
 
+            final total = msgs.length + scheduled.length;
+            // reverse:true anchors content to the BOTTOM, so a short/empty chat
+            // shows its first messages at the bottom of the screen (not the top)
+            // and grows upward. Render index 0 = newest (bottom); map it back to
+            // the chronological data index `di` (0 = oldest).
             return ListView.builder(
               controller: _scrollController,
+              reverse: true,
               padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-              itemCount: msgs.length + scheduled.length,
+              itemCount: total,
               itemBuilder: (context, i) {
-                if (i >= msgs.length) {
-                  final s = scheduled[i - msgs.length];
+                final di = total - 1 - i;
+                if (di >= msgs.length) {
+                  final s = scheduled[di - msgs.length];
                   return ScheduledBubble(
                     message: s,
                     onTap: () => _showScheduledOptions(s),
                     onLongPress: () => _showScheduledOptions(s),
                   );
                 }
-                final msg = msgs[i];
-                final prev = i > 0 ? msgs[i - 1] : null;
-                final next = i < msgs.length - 1 ? msgs[i + 1] : null;
+                final msg = msgs[di];
+                final prev = di > 0 ? msgs[di - 1] : null; // older
+                final next = di < msgs.length - 1 ? msgs[di + 1] : null; // newer
                 return _buildMessageItem(msg, prev, next);
               },
             );

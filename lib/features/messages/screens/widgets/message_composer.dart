@@ -100,49 +100,53 @@ class MessageComposer extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
+                // Attach — far right in the RTL layout.
                 IconButton(
                   icon: const Icon(Icons.add_circle_outline),
                   tooltip: 'پیوست',
                   onPressed: onAttach,
                 ),
+                // Outlined text field: a thin rounded border, no gray fill.
                 Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: theme.brightness == Brightness.dark
-                          ? theme.colorScheme.surfaceContainerHighest
-                          : Colors.grey[200],
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: controller,
-                            minLines: 1,
-                            maxLines: 4,
-                            textInputAction: TextInputAction.newline,
-                            decoration: const InputDecoration(
-                              hintText: 'پیام',
-                              border: InputBorder.none,
-                              contentPadding: EdgeInsets.symmetric(
-                                vertical: 10,
-                              ),
-                            ),
-                          ),
+                  child: TextField(
+                    controller: controller,
+                    minLines: 1,
+                    maxLines: 4,
+                    textInputAction: TextInputAction.newline,
+                    decoration: InputDecoration(
+                      hintText: 'پیام',
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                        vertical: 10,
+                        horizontal: 14,
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide(color: theme.colorScheme.outline),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.primary,
+                          width: 1.5,
                         ),
-                        IconButton(
-                          icon: Icon(
-                            showStickers
-                                ? Icons.keyboard
-                                : Icons.emoji_emotions_outlined,
-                          ),
-                          tooltip: 'استیکر',
-                          onPressed: onToggleStickers,
-                        ),
-                      ],
+                      ),
                     ),
+                  ),
+                ),
+                // Emoji toggle in its own tidy gray pill, left of the text.
+                IconButton(
+                  icon: Icon(
+                    showStickers
+                        ? Icons.keyboard
+                        : Icons.emoji_emotions_outlined,
+                  ),
+                  tooltip: 'استیکر',
+                  onPressed: onToggleStickers,
+                  style: IconButton.styleFrom(
+                    backgroundColor: theme.brightness == Brightness.dark
+                        ? theme.colorScheme.surfaceContainerHighest
+                        : Colors.grey[200],
                   ),
                 ),
                 const SizedBox(width: 4),

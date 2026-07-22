@@ -72,6 +72,15 @@ class SmsService {
   final Set<String> _recentSmsHashes = {};
   static const int _deduplicationWindowMs = 5000; // 5 second window
 
+  /// Minimum spacing between silent, resume-triggered device syncs. The resume
+  /// sync is expensive (500+500 provider rows + per-row reconcile); resuming
+  /// the app repeatedly must not re-run it every time. The once-per-session
+  /// LoadThreads sync and pull-to-refresh (forceRefresh) always bypass this.
+  static const Duration _resumeSyncThrottle = Duration(minutes: 2);
+
+  /// When the last full device sync completed. Null until the first sync.
+  static DateTime? _lastSyncAt;
+
   Future<bool> requestPermissions() async {
     // Fast-path: return immediately if already granted so that calling this
     // from an already-open conversation or list screen never shows a dialog.
@@ -276,7 +285,20 @@ class SmsService {
   ///
   /// Runs on every app session start and on resume (cheap after the first
   /// pass: reconcile skips known rows by `device_sms_id`).
-  Future<void> syncDeviceMessages({bool forceRefresh = false}) async {
+  Future<void> syncDeviceMessages({
+    bool forceRefresh = false,
+    bool throttle = false,
+  }) async {
+    // Collapse resume-storm syncs: skip a silent resume sync that lands within
+    // the throttle window of the previous one. forceRefresh never throttles.
+    if (throttle && !forceRefresh) {
+      final last = _lastSyncAt;
+      if (last != null &&
+          DateTime.now().difference(last) < _resumeSyncThrottle) {
+        return;
+      }
+    }
+
     final hasPermission = await requestPermissions();
     if (!hasPermission) {
       throw Exception('SMS permissions not granted');
@@ -352,6 +374,10 @@ class SmsService {
     if (removed > 0) {
       debugPrint('Device mirror-sync removed $removed locally-stale messages');
     }
+
+    // Stamp only on a full, successful pass — NOT on the transient-failure
+    // early return above — so a failed read retries on the next resume.
+    _lastSyncAt = DateTime.now();
   }
 
   MessageModel _createMessageModel(
