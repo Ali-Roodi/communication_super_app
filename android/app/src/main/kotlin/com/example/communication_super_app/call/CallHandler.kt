@@ -177,14 +177,21 @@ class CallHandler(
             result.error("INVALID_NUMBER", "شماره تلفن معتبر نیست", null)
             return
         }
-        // ACTION_CALL places the call through telecom. While this app is the
-        // default dialer, telecom binds CallInCallService and OUR UI manages
-        // the call; otherwise the system dialer takes over (previous behavior).
         val uri = Uri.fromParts("tel", clean, null)
-        val intent = Intent(Intent.ACTION_CALL, uri).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (isDefaultDialer()) {
+            // Default-dialer path: TelecomManager.placeCall is the direct API —
+            // no UserCallActivity trampoline over this app. The trampoline made
+            // Samsung's SCallUI fallback think no dialer UI was foreground
+            // ("isTopActivity: false") and launch the OEM in-call screen on top.
+            val tm = context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
+            tm.placeCall(uri, android.os.Bundle())
+        } else {
+            // Not the default dialer: hand over to the system dialer app.
+            val intent = Intent(Intent.ACTION_CALL, uri).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
         }
-        context.startActivity(intent)
         result.success(null)
     }
 
