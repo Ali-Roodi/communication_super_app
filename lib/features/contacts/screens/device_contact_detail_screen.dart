@@ -72,6 +72,7 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
         body: CustomScrollView(
           slivers: [
             _buildAppBar(context),
+            SliverToBoxAdapter(child: _buildHeader(context)),
             SliverToBoxAdapter(child: _buildActionRow(context)),
             if (_loading)
               const SliverToBoxAdapter(
@@ -158,15 +159,14 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
     }
   }
 
-  // ── Collapsing toolbar ────────────────────────────────────────────────────
+  // ── Toolbar (plain) + centered circular header ────────────────────────────
 
   Widget _buildAppBar(BuildContext context) {
-    final photo = _full?.photo ?? widget.contact.avatar;
     final norm = FavoriteModel.normalize(_primaryPhone);
 
     return SliverAppBar(
-      expandedHeight: 280,
       pinned: true,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       actions: [
         BlocBuilder<FavoritesBloc, FavoritesState>(
           builder: (context, state) {
@@ -215,41 +215,42 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
           ],
         ),
       ],
-      flexibleSpace: FlexibleSpaceBar(
-        collapseMode: CollapseMode.parallax,
-        title: Text(
-          _name,
-          style: const TextStyle(color: Colors.white, fontSize: 18),
-        ),
-        background: photo != null
-            ? Stack(
-                fit: StackFit.expand,
-                children: [
-                  Image.memory(photo, fit: BoxFit.cover),
-                  // Scrim so the title stays legible over the photo.
-                  const DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.center,
-                        end: Alignment.bottomCenter,
-                        colors: [Colors.transparent, Colors.black54],
-                      ),
+    );
+  }
+
+  /// Google-Phone-style header: a circular avatar centered over the name.
+  Widget _buildHeader(BuildContext context) {
+    final theme = Theme.of(context);
+    final photo = _full?.photo ?? widget.contact.avatar;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Column(
+        children: [
+          CircleAvatar(
+            radius: 56,
+            backgroundColor: PersianUtils.getAvatarColor(_name),
+            backgroundImage: photo != null ? MemoryImage(photo) : null,
+            child: photo == null
+                ? Text(
+                    PersianUtils.getInitials(_name),
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.9),
+                      fontSize: 44,
+                      fontWeight: FontWeight.w500,
                     ),
-                  ),
-                ],
-              )
-            : Container(
-                color: PersianUtils.getAvatarColor(_name),
-                alignment: Alignment.center,
-                child: Text(
-                  PersianUtils.getInitials(_name),
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.9),
-                    fontSize: 72,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
+                  )
+                : null,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            _name,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
