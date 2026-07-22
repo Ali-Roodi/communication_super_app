@@ -40,7 +40,17 @@ class PersianUtils {
 
   /// [formatPhone] + Persian digits — the standard way to render a phone
   /// number anywhere in the UI.
-  static String displayPhone(String raw) => toPersianNumber(formatPhone(raw));
+  ///
+  /// The result is wrapped in an LTR embedding (U+202A … U+202C) so the number
+  /// always reads left-to-right — with its space-separated groups in the right
+  /// order — even inside an RTL paragraph. Without it, an RTL layout reorders
+  /// the groups (e.g. «0919 096 1805» renders as «1805 096 0919»). Purely a
+  /// display concern: matching/search still use the raw digits.
+  static String displayPhone(String raw) {
+    final formatted = toPersianNumber(formatPhone(raw));
+    if (formatted.isEmpty) return formatted;
+    return '\u202A$formatted\u202C';
+  }
 
   static String getInitials(String name) {
     if (name.isEmpty) return '';

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
+import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
@@ -152,9 +153,11 @@ class _ContactResult extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return ListTile(
-      leading: contact.avatar != null
-          ? CircleAvatar(backgroundImage: MemoryImage(contact.avatar!))
-          : AvatarWidget(name: contact.name, size: 40),
+      leading: LazyContactAvatar(
+        contactId: contact.id,
+        name: contact.name,
+        size: 40,
+      ),
       title: Text(contact.name),
       subtitle: Directionality(
         textDirection: TextDirection.ltr,

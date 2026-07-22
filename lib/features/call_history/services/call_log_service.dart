@@ -73,17 +73,29 @@ class CallLogService {
   /// exists are removed (so a call deleted on the phone disappears here too).
   ///
   /// Returns the fresh device logs, or null when permission is missing.
+  /// How far back a mirror-sync pulls from the device. Pulling the *entire*
+  /// call log on every sync (the observer fires on every call end) is the main
+  /// call-history hang on phones with a huge history. Calls older than this were
+  /// imported by an earlier full sync and stay in the local DB untouched.
+  static const Duration _syncWindow = Duration(days: 365);
+
   Future<List<CallLogModel>?> syncFromDevice() async {
     final hasPermission = await requestPermissions();
     if (!hasPermission) return null;
 
-    final deviceLogs = await _fetchDeviceLogs();
+    final since = DateTime.now().subtract(_syncWindow);
+    final deviceLogs = await _fetchDeviceLogs(since: since);
     await _repository.saveCallLogsBatch(deviceLogs);
 
-    // Remove local rows that vanished from the device. Only numeric ids can be
-    // provider rows — UUID-fallback rows (device gave no id) are left alone.
+    // Remove local rows that vanished from the device — but SCOPED to the same
+    // window we fetched. Only numeric ids can be provider rows; UUID-fallback
+    // rows (device gave no id) are left alone. Without the window scope, every
+    // call older than [_syncWindow] would look "missing from device" and be
+    // wrongly deleted.
     final deviceIds = deviceLogs.map((l) => l.id).toSet();
-    final localIds = await _repository.getAllIds();
+    final localIds = await _repository.getIdsSince(
+      since.millisecondsSinceEpoch,
+    );
     final stale = localIds
         .where((id) => !deviceIds.contains(id) && _isNumeric(id))
         .toList();
@@ -139,8 +151,12 @@ class CallLogService {
 
   /// Reads the device call log and maps it to models (contact fields left null;
   /// they are filled by [_resolveContactNames]).
-  Future<List<CallLogModel>> _fetchDeviceLogs() async {
-    final Iterable<call_log.CallLogEntry> entries = await call_log.CallLog.get();
+  Future<List<CallLogModel>> _fetchDeviceLogs({DateTime? since}) async {
+    final Iterable<call_log.CallLogEntry> entries = since == null
+        ? await call_log.CallLog.get()
+        : await call_log.CallLog.query(
+            dateFrom: since.millisecondsSinceEpoch,
+          );
 
     // Serialize entries to make isolate-friendly data.
     final serialized = entries.map((e) {

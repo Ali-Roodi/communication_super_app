@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
+import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/features/contacts/bloc/contact_bloc.dart';
 import 'package:communication_super_app/features/contacts/bloc/contact_event.dart';
 import 'package:communication_super_app/features/messages/bloc/message_event.dart';
@@ -110,6 +111,9 @@ class _MainNavigationState extends State<MainNavigation>
   /// thread names to re-resolve from the fresh data.
   void _refreshDeviceContacts() {
     if (!mounted) return;
+    // Drop cached thumbnails too, so a photo changed on the device (outside the
+    // app) refreshes on resume.
+    LazyContactAvatar.invalidateCache();
     context.read<ContactBloc>().add(const RefreshContacts());
     context.read<MessageBloc>().add(const RefreshContactNames());
   }

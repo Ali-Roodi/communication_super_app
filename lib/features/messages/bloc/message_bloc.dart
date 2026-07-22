@@ -223,7 +223,9 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     Emitter<MessageState> emit,
   ) async {
     try {
-      await _smsService.syncDeviceMessages();
+      // Resume-triggered: throttled so rapid app switches don't re-run the
+      // expensive full device reconcile every time.
+      await _smsService.syncDeviceMessages(throttle: true);
     } catch (_) {
       return; // No permission / transient failure — keep what's on screen.
     }

@@ -35,12 +35,17 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
 
   Future<void> _resolveContact() async {
     if (phone.isEmpty) return;
-    final contact = await ContactRepository().getContactByPhoneNumber(phone);
+    final repo = ContactRepository();
+    final contact = await repo.getContactByPhoneNumber(phone);
     if (!mounted || contact == null) return;
     setState(() {
       _resolvedName = contact.name.isNotEmpty ? contact.name : null;
-      _avatar = contact.avatar;
     });
+    // Avatars are no longer held in the bulk cache — fetch this one contact's
+    // thumbnail lazily by id.
+    final avatar = await repo.getContactThumbnail(contact.id);
+    if (!mounted || avatar == null) return;
+    setState(() => _avatar = avatar);
   }
 
   @override

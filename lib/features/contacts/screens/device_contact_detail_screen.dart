@@ -6,6 +6,7 @@ import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/theme/app_dimensions.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
+import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/features/contacts/bloc/contact_bloc.dart';
 import 'package:communication_super_app/features/contacts/bloc/contact_event.dart' as contact_events;
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
@@ -144,6 +145,7 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
       if (target == null) throw Exception('مخاطب یافت نشد');
       await target.delete();
       ContactRepository().invalidateCache();
+      LazyContactAvatar.invalidateCache();
       if (!mounted) return;
       context.read<ContactBloc>().add(const contact_events.RefreshContacts());
       Navigator.of(context).pop();

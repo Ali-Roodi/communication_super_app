@@ -3,7 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/contact_bloc.dart';
 import '../bloc/contact_event.dart';
 import '../bloc/contact_state.dart';
-import 'package:communication_super_app/core/widgets/avatar_widget.dart';
+import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
 import 'add_edit_contact_screen.dart';
 import '../models/contact_model.dart';
@@ -395,12 +395,11 @@ class _ContactRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: Row(
           children: [
-            contact.avatar != null
-                ? CircleAvatar(
-                    radius: 24,
-                    backgroundImage: MemoryImage(contact.avatar!),
-                  )
-                : AvatarWidget(name: contact.name, size: 48),
+            LazyContactAvatar(
+              contactId: contact.id,
+              name: contact.name,
+              size: 48,
+            ),
             const SizedBox(width: 16),
             // Name-only rows per Figma 627:4074 (number shows on the detail).
             Expanded(
