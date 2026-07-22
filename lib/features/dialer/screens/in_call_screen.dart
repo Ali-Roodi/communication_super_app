@@ -110,6 +110,9 @@ class _InCallScreenState extends State<InCallScreen> {
                   const SizedBox(height: 20),
                   Text(
                     name ?? PersianUtils.displayPhone(widget.phone),
+                    // LTR keeps the grouped number order (0919 096 1805)
+                    // inside the RTL screen.
+                    textDirection: name == null ? TextDirection.ltr : null,
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 30,
@@ -121,6 +124,7 @@ class _InCallScreenState extends State<InCallScreen> {
                     const SizedBox(height: 6),
                     Text(
                       PersianUtils.displayPhone(widget.phone),
+                      textDirection: TextDirection.ltr,
                       style: const TextStyle(
                         color: Colors.white54,
                         fontSize: 15,

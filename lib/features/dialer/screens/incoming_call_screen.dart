@@ -86,6 +86,9 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
                 const SizedBox(height: 12),
                 Text(
                   name ?? PersianUtils.displayPhone(phone),
+                  // LTR so the grouped number reads 0919 096 1805, not with
+                  // the groups flipped by the surrounding RTL direction.
+                  textDirection: name == null ? TextDirection.ltr : null,
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 30,
@@ -97,6 +100,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
                   const SizedBox(height: 8),
                   Text(
                     PersianUtils.displayPhone(phone),
+                    textDirection: TextDirection.ltr,
                     style: const TextStyle(color: Colors.white54, fontSize: 16),
                   ),
                 ],
