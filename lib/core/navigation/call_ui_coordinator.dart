@@ -62,6 +62,19 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator> {
     navigator.removeRoute(route);
   }
 
+  /// Pops everything above the in-call route (dialer sheet, contact page …)
+  /// so the call screen is visible again — used when a second call starts
+  /// from the "افزودن تماس" flow. No-op when the call route isn't in the
+  /// stack.
+  void _bringCallRouteToTop(BuildContext context) {
+    final navigator = appNavigatorKey.currentState;
+    final route = _callRoute;
+    if (navigator == null) return;
+    if (route != null && route.isActive) {
+      navigator.popUntil((r) => r == route || r.isFirst);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return BlocListener<DialerBloc, DialerState>(
@@ -80,6 +93,11 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator> {
             // Outgoing call dialing — show the in-call UI immediately.
             if (prev != CallStatus.active && prev != CallStatus.onHold) {
               _pushCall(context, InCallScreen(phone: state.activePhone));
+            } else {
+              // Second call placed while one is up (افزودن تماس): the dialer
+              // sheet / contact page is stacked above the call screen — clear
+              // it so the user lands back on the in-call UI.
+              _bringCallRouteToTop(context);
             }
           case CallStatus.active:
             if (prev == CallStatus.incoming) {

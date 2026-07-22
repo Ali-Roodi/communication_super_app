@@ -256,9 +256,11 @@ class _ScheduleMessageScreenState extends State<ScheduleMessageScreen> {
       return ListTile(
         contentPadding: EdgeInsets.zero,
         leading: const Icon(Icons.person_outline),
-        title: Text(widget.contactName ?? _fa(widget.phoneNumber!)),
+        title: Text(
+          widget.contactName ?? PersianUtils.displayPhone(widget.phoneNumber!),
+        ),
         subtitle: widget.contactName != null
-            ? Text(_fa(widget.phoneNumber!))
+            ? Text(PersianUtils.displayPhone(widget.phoneNumber!))
             : null,
       );
     }

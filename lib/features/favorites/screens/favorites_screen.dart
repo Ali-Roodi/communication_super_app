@@ -366,7 +366,7 @@ class _FavoritePickerSheetState extends State<_FavoritePickerSheet> {
                           subtitle: Directionality(
                             textDirection: TextDirection.ltr,
                             child: Text(
-                              PersianUtils.toPersianNumber(phone),
+                              PersianUtils.displayPhone(phone),
                               textAlign: TextAlign.right,
                               style: TextStyle(
                                 color: theme.textTheme.bodyMedium?.color,

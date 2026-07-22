@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
+import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:communication_super_app/features/messages/models/message_model.dart';
 
@@ -27,7 +28,9 @@ class ThreadTile extends StatelessWidget {
 
   String get _displayName => thread.contactName?.isNotEmpty == true
       ? thread.contactName!
-      : PhoneNormalizer.toNational(thread.phoneNumber);
+      : PersianUtils.displayPhone(
+          PhoneNormalizer.toNational(thread.phoneNumber),
+        );
 
   @override
   Widget build(BuildContext context) {

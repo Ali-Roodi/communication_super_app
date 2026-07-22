@@ -381,7 +381,7 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
       title: Directionality(
         textDirection: TextDirection.ltr,
         child: Text(
-          PersianUtils.toPersianNumber(number),
+          PersianUtils.displayPhone(number),
           textAlign: TextAlign.right,
         ),
       ),

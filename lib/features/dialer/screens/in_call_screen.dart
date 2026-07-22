@@ -88,7 +88,12 @@ class _InCallScreenState extends State<InCallScreen> {
           // an ongoing call) — start counting right away in that case.
           if (state.callStatus == CallStatus.active) _ensureTimerStarted();
 
-          final name = widget.contactName ?? _resolvedName;
+          // Merged conference: show the group title, not the first
+          // participant's identity.
+          final conference = state.isConference;
+          final name = conference
+              ? 'تماس گروهی'
+              : (widget.contactName ?? _resolvedName);
           return Scaffold(
             backgroundColor: _kBg,
             body: SafeArea(
@@ -101,10 +106,10 @@ class _InCallScreenState extends State<InCallScreen> {
                     style: TextStyle(color: Colors.white38, fontSize: 13),
                   ),
                   const SizedBox(height: 24),
-                  _buildAvatar(),
+                  _buildAvatar(conference: conference),
                   const SizedBox(height: 20),
                   Text(
-                    name ?? PersianUtils.toPersianNumber(widget.phone),
+                    name ?? PersianUtils.displayPhone(widget.phone),
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 30,
@@ -112,10 +117,10 @@ class _InCallScreenState extends State<InCallScreen> {
                     ),
                     textAlign: TextAlign.center,
                   ),
-                  if (name != null) ...[
+                  if (name != null && !conference) ...[
                     const SizedBox(height: 6),
                     Text(
-                      PersianUtils.toPersianNumber(widget.phone),
+                      PersianUtils.displayPhone(widget.phone),
                       style: const TextStyle(
                         color: Colors.white54,
                         fontSize: 15,
@@ -146,7 +151,7 @@ class _InCallScreenState extends State<InCallScreen> {
     );
   }
 
-  Widget _buildAvatar() {
+  Widget _buildAvatar({bool conference = false}) {
     return Container(
       width: 96,
       height: 96,
@@ -155,7 +160,9 @@ class _InCallScreenState extends State<InCallScreen> {
         shape: BoxShape.circle,
       ),
       clipBehavior: Clip.antiAlias,
-      child: _avatar != null
+      child: conference
+          ? const Icon(Icons.group, size: 52, color: Colors.white60)
+          : _avatar != null
           ? Image.memory(_avatar!, fit: BoxFit.cover)
           : const Icon(Icons.person, size: 52, color: Colors.white60),
     );

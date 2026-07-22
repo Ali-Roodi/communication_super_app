@@ -263,7 +263,9 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
     // The threadId must use the same normalization as SmsService._normalizePhoneNumber
     // (pure digits) so that LoadMessages(threadId) finds the message that was just saved.
     final threadId = PhoneNormalizer.toThreadId(contact.phoneNumber);
-    final displayPhone = PhoneNormalizer.toNational(contact.phoneNumber);
+    final displayPhone = PersianUtils.displayPhone(
+      PhoneNormalizer.toNational(contact.phoneNumber),
+    );
 
     return InkWell(
       onTap: () {

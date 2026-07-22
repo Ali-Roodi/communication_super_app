@@ -21,6 +21,9 @@ class DialerState extends Equatable {
   /// تعداد تماس‌های هم‌زمان (بدون فرزندان کنفرانس) و امکان ادغام آن‌ها.
   final int callCount;
   final bool canMerge;
+
+  /// تماس جاری یک کنفرانس ادغام‌شده است (تماس گروهی).
+  final bool isConference;
   final String? error;
 
   const DialerState({
@@ -34,6 +37,7 @@ class DialerState extends Equatable {
     this.isSpeakerOn = false,
     this.callCount = 0,
     this.canMerge = false,
+    this.isConference = false,
     this.error,
   });
 
@@ -54,6 +58,7 @@ class DialerState extends Equatable {
     bool? isSpeakerOn,
     int? callCount,
     bool? canMerge,
+    bool? isConference,
     String? error,
     bool clearError = false,
   }) {
@@ -68,6 +73,7 @@ class DialerState extends Equatable {
       isSpeakerOn: isSpeakerOn ?? this.isSpeakerOn,
       callCount: callCount ?? this.callCount,
       canMerge: canMerge ?? this.canMerge,
+      isConference: isConference ?? this.isConference,
       error: clearError ? null : (error ?? this.error),
     );
   }
@@ -84,6 +90,7 @@ class DialerState extends Equatable {
     isSpeakerOn,
     callCount,
     canMerge,
+    isConference,
     error,
   ];
 }

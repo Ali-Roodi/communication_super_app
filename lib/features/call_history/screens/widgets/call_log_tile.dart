@@ -45,7 +45,7 @@ class CallLogTile extends StatelessWidget {
     final theme = Theme.of(context);
     final displayName = log.contactName?.isNotEmpty == true
         ? log.contactName!
-        : PersianUtils.toPersianNumber(log.phoneNumber);
+        : PersianUtils.displayPhone(log.phoneNumber);
     final titleColor = _titleColor(log.callType, theme);
 
     return InkWell(

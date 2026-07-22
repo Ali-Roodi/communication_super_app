@@ -55,7 +55,9 @@ class _CallDetailSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hasName = log.contactName?.isNotEmpty == true;
-    final displayName = hasName ? log.contactName! : log.phoneNumber;
+    final displayName = hasName
+        ? log.contactName!
+        : PersianUtils.displayPhone(log.phoneNumber);
     final maxHeight = MediaQuery.of(context).size.height * 0.85;
 
     return Directionality(
@@ -80,7 +82,7 @@ class _CallDetailSheet extends StatelessWidget {
                   Directionality(
                     textDirection: TextDirection.ltr,
                     child: Text(
-                      PersianUtils.toPersianNumber(log.phoneNumber),
+                      PersianUtils.displayPhone(log.phoneNumber),
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: theme.textTheme.bodyMedium?.color?.withValues(
                           alpha: 0.7,
