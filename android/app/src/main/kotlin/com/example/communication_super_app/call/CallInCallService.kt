@@ -56,13 +56,16 @@ class CallInCallService : InCallService() {
         @Volatile
         var currentCall: Call? = null
 
-        /** Every telecom call currently bound (conference children included). */
+        /** Every telecom call currently bound (conference children included).
+         *  NOT named `calls` — that would be shadowed inside the service by the
+         *  framework's InCallService.getCalls() (an unmodifiable list), and
+         *  `calls.add(...)` would crash with UnsupportedOperationException. */
         @JvmStatic
-        val calls = java.util.concurrent.CopyOnWriteArrayList<Call>()
+        val trackedCalls = java.util.concurrent.CopyOnWriteArrayList<Call>()
 
         /** Calls that are not children of a conference — what the UI counts. */
         @JvmStatic
-        fun topLevelCalls(): List<Call> = calls.filter { it.parent == null }
+        fun topLevelCalls(): List<Call> = trackedCalls.filter { it.parent == null }
 
         /** True when an active+held pair (or a telecom merge capability) exists. */
         @JvmStatic
@@ -134,20 +137,49 @@ class CallInCallService : InCallService() {
             return
         }
 
-        calls.add(call)
+        trackedCalls.add(call)
         currentCall = call
         call.registerCallback(callCallback)
         publishState(call, call.state)
         publishCallsChanged()
         if (call.state == Call.STATE_RINGING) {
             postIncomingCallNotification(phoneOf(call))
+        } else {
+            // Outgoing call: the default-dialer contract expects the UI dialer
+            // to LAUNCH its in-call activity itself. Without a formal activity
+            // start, Samsung's SCallUI fallback ("isTopActivity: false")
+            // launches the OEM in-call screen ~800ms in and covers this app.
+            bringActivityToFront()
+            // Samsung One UI binds its own InCallServiceImpl regardless and
+            // launches the OEM screen ~1s in, covering us. Re-assert once after
+            // it settles; SCallUI does not re-launch once its activity exists,
+            // so this doesn't ping-pong.
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                if (trackedCalls.contains(call) &&
+                    call.state != Call.STATE_DISCONNECTED
+                ) {
+                    bringActivityToFront()
+                }
+            }, 2000)
+        }
+    }
+
+    /** Brings MainActivity to the foreground so the Flutter in-call UI is the
+     *  visible (and telecom-recognized) call screen. */
+    private fun bringActivityToFront() {
+        try {
+            packageManager.getLaunchIntentForPackage(packageName)?.apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }?.let { startActivity(it) }
+        } catch (e: Exception) {
+            Log.e(TAG, "bringActivityToFront failed: ${e.message}")
         }
     }
 
     override fun onCallRemoved(call: Call) {
         super.onCallRemoved(call)
         call.unregisterCallback(callCallback)
-        calls.remove(call)
+        trackedCalls.remove(call)
         cancelIncomingCallNotification()
 
         // Default-dialer duty: the system dialer used to post the missed-call
