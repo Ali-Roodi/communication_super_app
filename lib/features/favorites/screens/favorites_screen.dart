@@ -5,17 +5,16 @@ import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
+import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
-import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
 import '../bloc/favorites_bloc.dart';
 import '../bloc/favorites_event.dart';
 import '../bloc/favorites_state.dart';
 import '../models/favorite_model.dart';
 
 /// Favorites (موردعلاقه‌ها) tab — a 2-column grid of starred numbers.
-/// Tap a card to choose call/SMS; long-press for the full action sheet
-/// (call / message / remove). The empty state and the "+" card both open a
-/// contact picker.
+/// Tap a card to open the saved contact; long-press to remove from favorites.
+/// The empty state and the "+" card both open a contact picker.
 class FavoritesScreen extends StatelessWidget {
   const FavoritesScreen({super.key});
 
@@ -86,9 +85,9 @@ class _FavoriteCard extends StatelessWidget {
           ? AppColors.keypadDark
           : AppColors.keypadLight,
       child: InkWell(
-        // Tap: ask — call or message? (a favorite is used for both).
-        onTap: () => _showActions(context, withRemove: false),
-        onLongPress: () => _showActions(context, withRemove: true),
+        // Tap: open the saved contact. Long-press: remove from favorites.
+        onTap: () => _openContact(context),
+        onLongPress: () => _confirmRemove(context),
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(
@@ -134,64 +133,51 @@ class _FavoriteCard extends StatelessWidget {
     );
   }
 
-  /// Action sheet: call / message (+ remove on long-press).
-  void _showActions(BuildContext context, {required bool withRemove}) {
+  /// Tap: resolve the saved device contact and open its detail page. Falls back
+  /// to a call when the number isn't a saved contact.
+  Future<void> _openContact(BuildContext context) async {
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    final match = await ContactRepository().getContactByPhoneNumber(
+      favorite.phoneNumber,
+    );
+    if (match != null) {
+      navigator.push(
+        MaterialPageRoute(
+          builder: (_) => DeviceContactDetailScreen(contact: match),
+        ),
+      );
+    } else {
+      // Not in the address book — nothing to open; place a call instead.
+      messenger.showSnackBar(
+        const SnackBar(content: Text('مخاطب ذخیره‌شده‌ای یافت نشد')),
+      );
+      NativeCallService.instance.makeCall(favorite.phoneNumber);
+    }
+  }
+
+  /// Long-press: remove-only sheet.
+  void _confirmRemove(BuildContext context) {
     final bloc = context.read<FavoritesBloc>();
-    final rootNavigator = Navigator.of(context);
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (sheetContext) => Directionality(
         textDirection: TextDirection.rtl,
         child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: Icon(
-                  Icons.call,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-                title: const Text('تماس'),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  NativeCallService.instance.makeCall(favorite.phoneNumber);
-                },
-              ),
-              ListTile(
-                leading: Icon(
-                  Icons.message_outlined,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-                title: const Text('پیامک'),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  rootNavigator.push(
-                    MaterialPageRoute(
-                      builder: (_) => ConversationScreen.forPhone(
-                        favorite.phoneNumber,
-                        contactName: favorite.name,
-                      ),
-                    ),
-                  );
-                },
-              ),
-              if (withRemove)
-                ListTile(
-                  leading: const Icon(
-                    Icons.star_outline,
-                    color: AppColors.callRejectRed,
-                  ),
-                  title: const Text(
-                    'حذف از موردعلاقه‌ها',
-                    style: TextStyle(color: AppColors.callRejectRed),
-                  ),
-                  onTap: () {
-                    bloc.add(RemoveFavorite(favorite.normalized));
-                    Navigator.of(sheetContext).pop();
-                  },
-                ),
-            ],
+          child: ListTile(
+            leading: const Icon(
+              Icons.star_outline,
+              color: AppColors.callRejectRed,
+            ),
+            title: const Text(
+              'حذف از موردعلاقه‌ها',
+              style: TextStyle(color: AppColors.callRejectRed),
+            ),
+            onTap: () {
+              bloc.add(RemoveFavorite(favorite.normalized));
+              Navigator.of(sheetContext).pop();
+            },
           ),
         ),
       ),
