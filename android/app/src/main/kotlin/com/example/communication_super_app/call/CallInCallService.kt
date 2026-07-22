@@ -111,6 +111,13 @@ class CallInCallService : InCallService() {
             // Mergeability depends on the active/held mix — keep Flutter posted.
             publishCallsChanged()
         }
+
+        override fun onDetailsChanged(call: Call, details: Call.Details) {
+            // PROPERTY_CONFERENCE lands slightly AFTER the conference host call
+            // is added — republish so the «تماس گروهی» header flips without
+            // waiting for the next state change.
+            if (call == currentCall) publishState(call, call.state)
+        }
     }
 
     override fun onCreate() {
