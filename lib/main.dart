@@ -47,7 +47,7 @@ class MyApp extends StatelessWidget {
             buildWhen: (a, b) => a.calendarType != b.calendarType,
             builder: (context, _) {
               return MaterialApp(
-                title: 'قاسم',
+                title: 'هم‌رسان',
                 debugShowCheckedModeBanner: false,
                 navigatorKey: appNavigatorKey,
                 navigatorObservers: [appRouteObserver],

@@ -263,6 +263,7 @@ void main() {
                 onPressed: () => showMessageOptionsSheet(
                   context,
                   onCopy: () => copied++,
+                  onSelectText: () {},
                   onForward: () {},
                   onInfo: () {},
                   onSelect: () {},

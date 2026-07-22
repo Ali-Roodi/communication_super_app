@@ -489,8 +489,15 @@ class SmsHandler(
     // ── Default SMS app role ─────────────────────────────────────────────────
 
     /** True when this app currently holds the default-SMS-app role. */
-    fun isDefaultSmsApp(): Boolean =
-        Telephony.Sms.getDefaultSmsPackage(context) == context.packageName
+    fun isDefaultSmsApp(): Boolean {
+        // On Q+ the role is the source of truth; some OEMs report a stale
+        // package from getDefaultSmsPackage right after the role changes.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val roleManager = context.getSystemService(RoleManager::class.java)
+            if (roleManager?.isRoleHeld(RoleManager.ROLE_SMS) == true) return true
+        }
+        return Telephony.Sms.getDefaultSmsPackage(context) == context.packageName
+    }
 
     /**
      * Launches the system "set default SMS app" dialog. The outcome lands in

@@ -31,6 +31,12 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator> {
   /// new value) to decide between push / pushReplacement / no-op.
   CallStatus _lastCallStatus = CallStatus.idle;
 
+  /// The call route currently pushed by this coordinator. Kept so that going
+  /// idle removes exactly THIS route — a blind `navigator.pop()` could pop an
+  /// unrelated screen (or walk the stack past the root) when the call screen
+  /// was never pushed or was already gone.
+  Route<void>? _callRoute;
+
   void _pushCall(BuildContext context, Widget screen, {bool replace = false}) {
     final navigator = appNavigatorKey.currentState;
     if (navigator == null) return;
@@ -39,11 +45,21 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator> {
       builder: (_) =>
           BlocProvider.value(value: context.read<DialerBloc>(), child: screen),
     );
-    if (replace) {
+    final previous = _callRoute;
+    _callRoute = route;
+    if (replace && previous != null && previous.isActive) {
       navigator.pushReplacement(route);
     } else {
       navigator.push(route);
     }
+  }
+
+  void _dismissCallRoute() {
+    final navigator = appNavigatorKey.currentState;
+    final route = _callRoute;
+    _callRoute = null;
+    if (navigator == null || route == null || !route.isActive) return;
+    navigator.removeRoute(route);
   }
 
   @override
@@ -83,9 +99,7 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator> {
           case CallStatus.onHold:
             break; // InCallScreen renders the hold state itself.
           case CallStatus.idle:
-            if (prev != CallStatus.idle && navigator.canPop()) {
-              navigator.pop();
-            }
+            if (prev != CallStatus.idle) _dismissCallRoute();
         }
       },
       child: widget.child,

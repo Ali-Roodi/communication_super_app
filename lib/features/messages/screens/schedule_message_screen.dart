@@ -9,11 +9,16 @@ import '../models/scheduled_message_model.dart';
 
 /// Compose + schedule an outgoing SMS (date/time, repeat, end condition,
 /// send-time jitter). Used both for new schedules and editing an existing one.
+///
+/// Pops with `true` when the schedule was saved (callers can e.g. clear the
+/// composer). With [settingsOnly] the recipient and body fields are hidden and
+/// only the scheduling settings are shown (long-press edit inside a chat).
 class ScheduleMessageScreen extends StatefulWidget {
   final String? phoneNumber;
   final String? contactName;
   final String? initialBody;
   final ScheduledMessage? existing;
+  final bool settingsOnly;
 
   const ScheduleMessageScreen({
     super.key,
@@ -21,6 +26,7 @@ class ScheduleMessageScreen extends StatefulWidget {
     this.contactName,
     this.initialBody,
     this.existing,
+    this.settingsOnly = false,
   });
 
   @override
@@ -67,7 +73,7 @@ class _ScheduleMessageScreenState extends State<ScheduleMessageScreen> {
     _scheduledAt =
         e?.scheduledAt ??
         DateTime.now()
-            .add(const Duration(hours: 1))
+            .add(const Duration(minutes: 1))
             .copyWith(second: 0, millisecond: 0, microsecond: 0);
     if (e != null) {
       _repeat = e.repeat;
@@ -89,6 +95,16 @@ class _ScheduleMessageScreenState extends State<ScheduleMessageScreen> {
 
   bool get _editing => widget.existing != null;
   bool get _recipientLocked => widget.phoneNumber != null && !_editing;
+
+  /// settingsOnly hides the recipient always, and the body field only when a
+  /// body already exists (typed in the composer / stored on the schedule) —
+  /// opened from the chat with an empty composer, the field must stay so the
+  /// message can be written at all. Decided once so the field never vanishes
+  /// mid-typing on a rebuild.
+  late final bool _showRecipient = !widget.settingsOnly;
+  late final bool _showBodyField =
+      !widget.settingsOnly ||
+      (widget.existing?.body ?? widget.initialBody ?? '').trim().isEmpty;
 
   String _fa(String s) => PersianUtils.toPersianNumber(s);
 
@@ -177,7 +193,7 @@ class _ScheduleMessageScreenState extends State<ScheduleMessageScreen> {
         maxOccurrences: maxOccurrences,
       ),
     );
-    Navigator.of(context).pop();
+    Navigator.of(context).pop(true);
     _toast(_editing ? 'زمان‌بندی به‌روزرسانی شد' : 'پیام زمان‌بندی شد');
   }
 
@@ -196,18 +212,22 @@ class _ScheduleMessageScreenState extends State<ScheduleMessageScreen> {
         body: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            _recipientField(),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _bodyController,
-              minLines: 3,
-              maxLines: 6,
-              decoration: const InputDecoration(
-                labelText: 'متن پیام',
-                border: OutlineInputBorder(),
+            if (_showRecipient) ...[
+              _recipientField(),
+              const SizedBox(height: 12),
+            ],
+            if (_showBodyField) ...[
+              TextField(
+                controller: _bodyController,
+                minLines: 3,
+                maxLines: 6,
+                decoration: const InputDecoration(
+                  labelText: 'متن پیام',
+                  border: OutlineInputBorder(),
+                ),
               ),
-            ),
-            const SizedBox(height: 20),
+              const SizedBox(height: 20),
+            ],
             _whenSection(),
             const SizedBox(height: 20),
             _repeatSection(),

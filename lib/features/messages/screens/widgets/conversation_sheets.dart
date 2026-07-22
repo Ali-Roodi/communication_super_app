@@ -100,11 +100,7 @@ class _ScheduledSheetHeader extends StatelessWidget {
           const SizedBox(height: 6),
           Row(
             children: [
-              Icon(
-                Icons.schedule,
-                size: 14,
-                color: theme.colorScheme.primary,
-              ),
+              Icon(Icons.schedule, size: 14, color: theme.colorScheme.primary),
               const SizedBox(width: 6),
               Text(
                 PersianUtils.toPersianNumber(
@@ -127,6 +123,7 @@ class _ScheduledSheetHeader extends StatelessWidget {
 Future<void> showMessageOptionsSheet(
   BuildContext context, {
   required VoidCallback onCopy,
+  required VoidCallback onSelectText,
   required VoidCallback onForward,
   required VoidCallback onInfo,
   required VoidCallback onSelect,
@@ -138,56 +135,68 @@ Future<void> showMessageOptionsSheet(
     builder: (sheetCtx) => Directionality(
       textDirection: TextDirection.rtl,
       child: SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.copy_outlined),
-              title: const Text('کپی'),
-              onTap: () {
-                Navigator.pop(sheetCtx);
-                onCopy();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.forward_outlined),
-              title: const Text('هدایت'),
-              onTap: () {
-                Navigator.pop(sheetCtx);
-                onForward();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.info_outline),
-              title: const Text('اطلاعات'),
-              onTap: () {
-                Navigator.pop(sheetCtx);
-                onInfo();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.checklist),
-              title: const Text('انتخاب'),
-              onTap: () {
-                Navigator.pop(sheetCtx);
-                onSelect();
-              },
-            ),
-            ListTile(
-              leading: const Icon(
-                Icons.delete_outline,
-                color: AppColors.danger,
+        // Scrollable: six rows no longer fit short viewports (landscape,
+        // small screens) — without this the sheet overflows.
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.copy_outlined),
+                title: const Text('کپی'),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  onCopy();
+                },
               ),
-              title: const Text(
-                'حذف',
-                style: TextStyle(color: AppColors.danger),
+              ListTile(
+                leading: const Icon(Icons.text_fields_outlined),
+                title: const Text('انتخاب متن'),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  onSelectText();
+                },
               ),
-              onTap: () {
-                Navigator.pop(sheetCtx);
-                onDelete();
-              },
-            ),
-          ],
+              ListTile(
+                leading: const Icon(Icons.forward_outlined),
+                title: const Text('هدایت'),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  onForward();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: const Text('اطلاعات'),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  onInfo();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.checklist),
+                title: const Text('انتخاب'),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  onSelect();
+                },
+              ),
+              ListTile(
+                leading: const Icon(
+                  Icons.delete_outline,
+                  color: AppColors.danger,
+                ),
+                title: const Text(
+                  'حذف',
+                  style: TextStyle(color: AppColors.danger),
+                ),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  onDelete();
+                },
+              ),
+            ],
+          ),
         ),
       ),
     ),

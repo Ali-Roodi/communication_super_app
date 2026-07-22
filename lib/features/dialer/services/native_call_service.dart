@@ -13,6 +13,10 @@ enum NativeCallEvent {
   /// Telecom audio route/mute changed (e.g. bluetooth connected) — carries
   /// [CallInfo.speaker] / [CallInfo.muted] so the UI toggles stay honest.
   audioState,
+
+  /// Number of concurrent calls changed — carries [CallInfo.callCount] /
+  /// [CallInfo.canMerge] (add-call / merge-to-conference UI).
+  callsChanged,
 }
 
 /// اطلاعات یک رویداد تماس
@@ -25,12 +29,18 @@ class CallInfo {
   final bool? speaker;
   final bool? muted;
 
+  /// Only meaningful for [NativeCallEvent.callsChanged].
+  final int? callCount;
+  final bool? canMerge;
+
   const CallInfo({
     required this.event,
     this.phone = '',
     this.direction = 'outgoing',
     this.speaker,
     this.muted,
+    this.callCount,
+    this.canMerge,
   });
 }
 
@@ -62,6 +72,7 @@ class NativeCallService {
         'disconnected' => NativeCallEvent.disconnected,
         'call_failed' => NativeCallEvent.callFailed,
         'audio_state' => NativeCallEvent.audioState,
+        'calls_changed' => NativeCallEvent.callsChanged,
         _ => NativeCallEvent.disconnected,
       };
 
@@ -71,6 +82,8 @@ class NativeCallService {
         direction: map['direction'] as String? ?? 'outgoing',
         speaker: map['speaker'] as bool?,
         muted: map['muted'] as bool?,
+        callCount: map['count'] as int?,
+        canMerge: map['canMerge'] as bool?,
       );
     });
     return _stream!;
@@ -96,6 +109,12 @@ class NativeCallService {
 
   Future<void> sendDtmf(String digit) =>
       _method.invokeMethod('sendDtmf', {'digit': digit});
+
+  /// Merges the active and held calls into a conference (تماس گروهی).
+  Future<void> mergeCalls() => _method.invokeMethod('mergeCalls');
+
+  /// Swaps the active and held calls.
+  Future<void> swapCalls() => _method.invokeMethod('swapCalls');
 
   Future<bool> isInCall() async =>
       await _method.invokeMethod<bool>('isInCall') ?? false;

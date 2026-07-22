@@ -395,7 +395,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       MaterialPageRoute(
         builder: (_) => BlocProvider.value(
           value: scheduledBloc,
-          child: ScheduleMessageScreen(existing: msg),
+          child: ScheduleMessageScreen(existing: msg, settingsOnly: true),
         ),
       ),
     );
@@ -525,12 +525,40 @@ class _ConversationScreenState extends State<ConversationScreen> {
     showMessageOptionsSheet(
       context,
       onCopy: () => _copyMessage(msg),
+      onSelectText: () => _showSelectableText(msg),
       onForward: () => ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('به‌زودی'))),
       onInfo: () => _showMessageInfo(msg),
       onSelect: () => _toggleSelect(msg.id),
       onDelete: () => _confirmDeleteMessages([msg.id]),
+    );
+  }
+
+  /// Full message body in a dialog with free text selection, so part of the
+  /// text can be selected and copied (the bubble's long-press is taken by the
+  /// options sheet).
+  void _showSelectableText(MessageModel msg) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('انتخاب متن'),
+          content: SingleChildScrollView(
+            child: SelectableText(
+              msg.body,
+              style: Theme.of(ctx).textTheme.bodyLarge,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('بستن'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -695,21 +723,26 @@ class _ConversationScreenState extends State<ConversationScreen> {
   }
 
   /// Opens the scheduler prefilled with this conversation's recipient and the
-  /// current composer text.
-  void _openScheduler() {
+  /// current composer text. Clears the composer once the schedule is saved —
+  /// the text now lives in the scheduled message, not the draft box.
+  Future<void> _openScheduler() async {
     final scheduledBloc = context.read<ScheduledMessageBloc>();
-    Navigator.of(context).push(
+    final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => BlocProvider.value(
           value: scheduledBloc,
+          // settingsOnly: launched from inside the chat, the recipient and the
+          // typed text are already known — show only the scheduling settings.
           child: ScheduleMessageScreen(
             phoneNumber: widget.phoneNumber,
             contactName: widget.contactName,
             initialBody: _messageController.text.trim(),
+            settingsOnly: true,
           ),
         ),
       ),
     );
+    if (saved == true && mounted) _messageController.clear();
   }
 
   /// Opens the drafts picker and inserts the chosen draft's body into the

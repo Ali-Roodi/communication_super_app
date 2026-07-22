@@ -1,6 +1,6 @@
 class AppConstants {
   static const String appName = 'Communication Super App';
-  static const String appNamePersian = 'قاسم';
+  static const String appNamePersian = 'هم‌رسان';
 
   // Database
   static const String databaseName = 'communication_app.db';

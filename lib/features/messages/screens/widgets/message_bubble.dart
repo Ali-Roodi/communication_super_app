@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import '../../models/message_model.dart';
+import 'link_preview_card.dart';
+import 'linkified_text.dart';
 
 /// A single chat bubble in the conversation list.
 ///
@@ -92,9 +94,27 @@ class MessageBubble extends StatelessWidget {
                       color: bubbleColor,
                       borderRadius: radius,
                     ),
-                    child: Text(
-                      message.body,
-                      style: TextStyle(color: textColor),
+                    child: Builder(
+                      builder: (context) {
+                        final previewUrl = LinkifiedText.firstUrl(message.body);
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            LinkifiedText(
+                              text: message.body,
+                              style: TextStyle(color: textColor),
+                              // Sent bubbles sit on the primary color — keep
+                              // links onPrimary (underline distinguishes
+                              // them); received bubbles get the brand color.
+                              linkColor: isSent ? cs.onPrimary : cs.primary,
+                              enableTaps: !selectionMode,
+                            ),
+                            if (previewUrl != null)
+                              LinkPreviewCard(url: previewUrl, onDark: isSent),
+                          ],
+                        );
+                      },
                     ),
                   ),
                 ),

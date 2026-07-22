@@ -26,6 +26,9 @@
     <uses-permission android:name="android.permission.READ_CONTACTS"/>
     <uses-permission android:name="android.permission.WRITE_CONTACTS"/>
     
+    <!-- Link previews in messages (og: metadata + preview images) -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <!-- Permissions for Notifications -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
@@ -40,7 +43,7 @@
     <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
 
     <application
-        android:label="قاسم"
+        android:label="هم‌رسان"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
@@ -228,6 +231,15 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- url_launcher: resolve browsers for links tapped inside messages -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="http"/>
         </intent>
     </queries>
 </manifest>

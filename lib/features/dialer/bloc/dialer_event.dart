@@ -80,6 +80,16 @@ class SendDtmf extends DialerEvent {
   List<Object?> get props => [digit];
 }
 
+/// ادغام تماس فعال و تماس در انتظار در یک تماس کنفرانسی
+class MergeCalls extends DialerEvent {
+  const MergeCalls();
+}
+
+/// تعویض تماس فعال با تماس در انتظار
+class SwapCalls extends DialerEvent {
+  const SwapCalls();
+}
+
 /// رویداد دریافتی از NativeCallService stream
 class CallEventReceived extends DialerEvent {
   final CallInfo callInfo;

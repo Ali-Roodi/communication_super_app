@@ -194,6 +194,34 @@ class _InCallScreenState extends State<InCallScreen> {
             ],
           ),
           const SizedBox(height: 28),
+          // Second call in progress: conference controls (ادغام / تعویض).
+          if (state.callCount > 1) ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _ControlButton(
+                  icon: Icons.call_merge,
+                  label: 'ادغام تماس',
+                  active: false,
+                  onTap: state.canMerge
+                      ? () => bloc.add(const MergeCalls())
+                      : () => ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('ادغام تماس در دسترس نیست'),
+                          ),
+                        ),
+                ),
+                _ControlButton(
+                  icon: Icons.swap_calls,
+                  label: 'تعویض تماس',
+                  active: false,
+                  onTap: () => bloc.add(const SwapCalls()),
+                ),
+                const SizedBox(width: 84),
+              ],
+            ),
+            const SizedBox(height: 28),
+          ],
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
