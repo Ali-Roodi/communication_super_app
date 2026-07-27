@@ -37,11 +37,23 @@ class ScheduledDeliveryService {
        _random = random ?? Random();
 
   /// Sends every schedule due at [now]. Never throws.
-  Future<DeliveryReport> deliverDue({DateTime? now}) async {
+  ///
+  /// [force] names schedules that must go out regardless of their jitter
+  /// window — «ارسال فوری» means now, not "somewhere in the next hour".
+  Future<DeliveryReport> deliverDue({DateTime? now, Set<String>? force}) async {
     final at = now ?? DateTime.now();
     List<ScheduledMessage> claimed;
     try {
-      claimed = await _repository.claimDue(at, _newToken());
+      // Rows whose time has come but whose jitter window hasn't elapsed are
+      // left alone — claiming them would send at the exact scheduled instant
+      // and defeat the spreading the user asked for.
+      final due = await _repository.getDue(at);
+      final ready = due
+          .where((m) => m.isDueAt(at) || (force?.contains(m.id) ?? false))
+          .map((m) => m.id)
+          .toSet();
+      if (ready.isEmpty) return const DeliveryReport();
+      claimed = await _repository.claimDue(at, _newToken(), restrictTo: ready);
     } catch (e) {
       debugPrint('ScheduledDeliveryService: claim failed: $e');
       return const DeliveryReport();

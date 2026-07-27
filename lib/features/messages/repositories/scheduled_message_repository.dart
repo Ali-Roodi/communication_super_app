@@ -50,11 +50,23 @@ class ScheduledMessageRepository {
   /// sees the rows as `pending` (and wins them) or as `sending` (and skips
   /// them) — never both. Returns an empty list when another deliverer got there
   /// first.
-  Future<List<ScheduledMessage>> claimDue(DateTime now, String token) async {
+  /// [restrictTo] narrows the claim to specific ids — the caller has already
+  /// decided which due rows may go out (the jitter window is per-row and can't
+  /// be expressed in SQL). An empty set claims nothing.
+  Future<List<ScheduledMessage>> claimDue(
+    DateTime now,
+    String token, {
+    Set<String>? restrictTo,
+  }) async {
     final db = await _dbHelper.database;
     final ms = now.millisecondsSinceEpoch;
 
     await releaseStaleClaims(now);
+    if (restrictTo != null && restrictTo.isEmpty) return const [];
+
+    final idFilter = restrictTo == null
+        ? ''
+        : ' AND id IN (${List.filled(restrictTo.length, '?').join(',')})';
 
     final claimed = await db.update(
       _table,
@@ -65,8 +77,13 @@ class ScheduledMessageRepository {
       },
       where:
           'status = ? AND scheduled_at <= ? '
-          'AND (next_attempt_at IS NULL OR next_attempt_at <= ?)',
-      whereArgs: [ScheduleStatus.pending.value, ms, ms],
+          'AND (next_attempt_at IS NULL OR next_attempt_at <= ?)$idFilter',
+      whereArgs: [
+        ScheduleStatus.pending.value,
+        ms,
+        ms,
+        ...?restrictTo,
+      ],
     );
     if (claimed == 0) return const [];
 

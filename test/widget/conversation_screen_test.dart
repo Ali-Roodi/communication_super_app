@@ -278,7 +278,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('ارسال فوری'), findsOneWidget);
-    expect(find.text('ویرایش پیام'), findsOneWidget);
+    expect(find.text('تغییر زمان'), findsOneWidget);
     expect(find.text('لغو زمان‌بندی'), findsOneWidget);
   });
 }

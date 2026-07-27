@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'message_bubble.dart';
+import 'schedule_send_sheet.dart';
 
 /// The chat composer: SMS-segment counter, attachment button, text field,
 /// sticker toggle, send button, and the emoji sticker panel.
@@ -18,6 +19,9 @@ class MessageComposer extends StatelessWidget {
     required this.onSend,
     required this.onStickerSelected,
     this.onSchedule,
+    this.scheduledAt,
+    this.scheduleSummary,
+    this.onClearSchedule,
   });
 
   final TextEditingController controller;
@@ -27,8 +31,19 @@ class MessageComposer extends StatelessWidget {
   final VoidCallback onSend;
   final ValueChanged<String> onStickerSelected;
 
-  /// Long-press on the send button → schedule this message (زمان‌بندی ارسال).
+  /// Long-press on the send button → the «زمان‌بندی ارسال» sheet.
   final VoidCallback? onSchedule;
+
+  /// When set, the composer is armed to schedule instead of send: a banner
+  /// names the time and the send button turns into a scheduled-send button.
+  final DateTime? scheduledAt;
+
+  /// Repeat rule in words («هر روز»), shown next to the time when the schedule
+  /// repeats. Null or «یک‌بار» renders just the time.
+  final String? scheduleSummary;
+
+  /// Drops the pending schedule and returns the composer to sending now.
+  final VoidCallback? onClearSchedule;
 
   /// Quick-pick emoji — tapping one inserts it at the cursor (so several can be
   /// combined before sending). Full emoji and any keyboard sticker packs remain
@@ -81,6 +96,12 @@ class MessageComposer extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (scheduledAt != null)
+              _ScheduleBanner(
+                at: scheduledAt!,
+                summary: scheduleSummary,
+                onClear: onClearSchedule,
+              ),
             if (showCounter)
               Padding(
                 padding: const EdgeInsets.only(bottom: 4, right: 16, left: 16),
@@ -156,6 +177,7 @@ class MessageComposer extends StatelessWidget {
                   enabled: hasText,
                   onSend: onSend,
                   onSchedule: onSchedule,
+                  scheduled: scheduledAt != null,
                 ),
               ],
             ),
@@ -163,6 +185,54 @@ class MessageComposer extends StatelessWidget {
               _StickerPanel(onStickerSelected: onStickerSelected),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The strip above the composer while a send is scheduled — Google Messages
+/// keeps the chosen time in front of the user until the message is sent.
+class _ScheduleBanner extends StatelessWidget {
+  const _ScheduleBanner({required this.at, this.summary, this.onClear});
+
+  final DateTime at;
+  final String? summary;
+  final VoidCallback? onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsetsDirectional.only(start: 12, end: 4),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.secondaryContainer,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.schedule,
+            size: 18,
+            color: theme.colorScheme.onSecondaryContainer,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'ارسال در ${formatScheduleLabel(at)}'
+              '${(summary == null || summary == 'یک‌بار') ? '' : ' · $summary'}',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSecondaryContainer,
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, size: 18),
+            tooltip: 'لغو زمان‌بندی',
+            color: theme.colorScheme.onSecondaryContainer,
+            onPressed: onClear,
+          ),
+        ],
       ),
     );
   }

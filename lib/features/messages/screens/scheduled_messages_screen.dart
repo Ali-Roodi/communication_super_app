@@ -7,7 +7,7 @@ import '../bloc/scheduled_bloc.dart';
 import '../bloc/scheduled_event.dart';
 import '../bloc/scheduled_state.dart';
 import '../models/scheduled_message_model.dart';
-import 'schedule_message_screen.dart';
+import 'widgets/schedule_send_sheet.dart';
 
 /// Lists scheduled outgoing messages: upcoming (pending) first, then a history
 /// section for sent / cancelled / failed ones.
@@ -20,12 +20,6 @@ class ScheduledMessagesScreen extends StatelessWidget {
       textDirection: TextDirection.rtl,
       child: Scaffold(
         appBar: AppBar(title: const Text('پیام‌های زمان‌بندی‌شده')),
-        floatingActionButton: FloatingActionButton.extended(
-          heroTag: 'scheduled_fab',
-          onPressed: () => _openEditor(context),
-          icon: const Icon(Icons.add),
-          label: const Text('زمان‌بندی جدید'),
-        ),
         body: BlocBuilder<ScheduledMessageBloc, ScheduledState>(
           builder: (context, state) {
             if (state is ScheduledLoading || state is ScheduledInitial) {
@@ -62,17 +56,33 @@ class ScheduledMessagesScreen extends StatelessWidget {
     );
   }
 
-  static Future<void> _openEditor(
-    BuildContext context, {
-    ScheduledMessage? existing,
-  }) {
+  /// Re-opens the «زمان‌بندی ارسال» sheet for [message] and saves it back under
+  /// the same id. Scheduling lives entirely in that sheet — there is no
+  /// separate scheduling screen.
+  static Future<void> reschedule(
+    BuildContext context,
+    ScheduledMessage message,
+  ) async {
     final bloc = context.read<ScheduledMessageBloc>();
-    return Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => BlocProvider.value(
-          value: bloc,
-          child: ScheduleMessageScreen(existing: existing),
-        ),
+    final choice = await showScheduleSendSheet(
+      context,
+      initial: ScheduleChoice.fromMessage(message),
+    );
+    if (choice == null) return;
+    bloc.add(
+      SaveScheduled(
+        id: message.id,
+        phoneNumber: message.phoneNumber,
+        contactName: message.contactName,
+        body: message.body,
+        scheduledAt: choice.at,
+        repeat: choice.repeat,
+        repeatEvery: choice.repeatEvery,
+        weekdays: choice.weekdays,
+        jitter: choice.jitter,
+        endType: choice.endType,
+        endDate: choice.endDate,
+        maxOccurrences: choice.maxOccurrences,
       ),
     );
   }
@@ -165,11 +175,8 @@ class _ScheduledTile extends StatelessWidget {
                 switch (v) {
                   case 'now':
                     bloc.add(SendScheduledNow(message.id));
-                  case 'edit':
-                    ScheduledMessagesScreen._openEditor(
-                      context,
-                      existing: message,
-                    );
+                  case 'reschedule':
+                    ScheduledMessagesScreen.reschedule(context, message);
                   case 'cancel':
                     bloc.add(CancelScheduled(message.id));
                   case 'delete':
@@ -178,7 +185,7 @@ class _ScheduledTile extends StatelessWidget {
               },
               itemBuilder: (_) => const [
                 PopupMenuItem(value: 'now', child: Text('ارسال فوری')),
-                PopupMenuItem(value: 'edit', child: Text('ویرایش')),
+                PopupMenuItem(value: 'reschedule', child: Text('تغییر زمان')),
                 PopupMenuItem(value: 'cancel', child: Text('لغو')),
                 PopupMenuItem(value: 'delete', child: Text('حذف')),
               ],
@@ -213,7 +220,7 @@ class _EmptyState extends StatelessWidget {
           const Text('پیام زمان‌بندی‌شده‌ای نیست'),
           const SizedBox(height: 4),
           Text(
-            'با دکمهٔ + یک پیام را برای ارسال خودکار زمان‌بندی کنید',
+            'در گفتگو، دکمهٔ ارسال را نگه دارید تا پیام زمان‌بندی شود',
             style: theme.textTheme.bodySmall,
             textAlign: TextAlign.center,
           ),

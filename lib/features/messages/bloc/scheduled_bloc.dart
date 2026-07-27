@@ -186,7 +186,9 @@ class ScheduledMessageBloc extends Bloc<ScheduledEvent, ScheduledState> {
       final msg = await _repository.getById(event.id);
       if (msg == null || msg.status != ScheduleStatus.pending) return;
       await _repository.reschedule(event.id, DateTime.now());
-      await _delivery.deliverDue();
+      // force: «ارسال فوری» must ignore the jitter window it would otherwise
+      // wait out.
+      await _delivery.deliverDue(force: {event.id});
       await _emitLoaded(emit);
       await _nativeScheduler.reschedule();
     } catch (e) {

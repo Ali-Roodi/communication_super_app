@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
-import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import '../../models/scheduled_message_model.dart';
+import 'schedule_send_sheet.dart';
 
 /// Long-press options for a pending scheduled message shown inside the chat —
-/// the Google Messages set: send now / edit / copy / cancel schedule.
+/// the Google Messages set: send now / reschedule / copy / cancel schedule.
 ///
 /// "Cancel" keeps the row as history (`cancelled`); "delete" removes it. Both
 /// are offered because the schedules list surfaces the history section.
@@ -13,7 +13,7 @@ Future<void> showScheduledMessageOptionsSheet(
   BuildContext context, {
   required ScheduledMessage message,
   required VoidCallback onSendNow,
-  required VoidCallback onEdit,
+  required VoidCallback onReschedule,
   required VoidCallback onCopy,
   required VoidCallback onDelete,
 }) {
@@ -41,11 +41,11 @@ Future<void> showScheduledMessageOptionsSheet(
             ),
             ListTile(
               enabled: !sending,
-              leading: const Icon(Icons.edit_outlined),
-              title: const Text('ویرایش پیام'),
+              leading: const Icon(Icons.schedule_outlined),
+              title: const Text('تغییر زمان'),
               onTap: () {
                 Navigator.pop(sheetCtx);
-                onEdit();
+                onReschedule();
               },
             ),
             ListTile(
@@ -104,7 +104,7 @@ class _ScheduledSheetHeader extends StatelessWidget {
               const SizedBox(width: 6),
               Text(
                 PersianUtils.toPersianNumber(
-                  DateFormatter.formatDateTime(message.scheduledAt),
+                  formatScheduleLabel(message.scheduledAt),
                 ),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.primary,

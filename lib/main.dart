@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'core/navigation/app_route_observer.dart';
 import 'core/navigation/call_ui_coordinator.dart';
 import 'core/theme/app_theme.dart';
@@ -54,6 +55,17 @@ class MyApp extends StatelessWidget {
                 theme: AppTheme.light,
                 darkTheme: AppTheme.dark,
                 themeMode: themeState.themeMode,
+                // The Material dialogs we don't draw ourselves — the time
+                // picker above all — take their strings from here; without the
+                // delegates they render «Select time / Cancel / OK» in English
+                // inside an otherwise Persian app.
+                locale: const Locale('fa'),
+                supportedLocales: const [Locale('fa'), Locale('en')],
+                localizationsDelegates: const [
+                  GlobalMaterialLocalizations.delegate,
+                  GlobalWidgetsLocalizations.delegate,
+                  GlobalCupertinoLocalizations.delegate,
+                ],
                 builder: (context, child) {
                   return AppLockWrapper(
                     child: child ?? const AuthWrapperScreen(),

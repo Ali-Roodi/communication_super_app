@@ -10,6 +10,7 @@ ScheduledMessage _msg({
   DateTime? endDate,
   int? maxOccurrences,
   int occurrenceCount = 0,
+  JitterWindow jitter = JitterWindow.none,
 }) => ScheduledMessage(
   id: 's1',
   phoneNumber: '09120000000',
@@ -22,6 +23,7 @@ ScheduledMessage _msg({
   endDate: endDate,
   maxOccurrences: maxOccurrences,
   occurrenceCount: occurrenceCount,
+  jitter: jitter,
   createdAt: DateTime(2026, 1, 1),
 );
 
@@ -225,6 +227,56 @@ void main() {
         at: DateTime(2026, 6, 1, 8),
       ).copyWith(status: ScheduleStatus.sending);
       expect(m.isDueAt(now), isFalse);
+    });
+  });
+
+  group('ScheduledMessage jitter', () {
+    final at = DateTime(2026, 6, 1, 9);
+
+    test('no jitter sends exactly at the scheduled time', () {
+      final m = _msg(at: at);
+      expect(m.jitterOffset, Duration.zero);
+      expect(m.effectiveSendAt, at);
+      expect(m.isDueAt(at), isTrue);
+    });
+
+    test('the offset stays inside the window and never moves', () {
+      final m = _msg(at: at, jitter: JitterWindow.thirtyMin);
+      expect(m.jitterOffset.inMinutes, inInclusiveRange(0, 30));
+      // Same row read twice (e.g. two deliverer ticks) must agree, otherwise a
+      // message could slip past its window or fire early.
+      expect(_msg(at: at, jitter: JitterWindow.thirtyMin).jitterOffset,
+          m.jitterOffset);
+    });
+
+    test('is not due before its jittered instant', () {
+      final m = _msg(at: at, jitter: JitterWindow.sixtyMin);
+      final offset = m.jitterOffset;
+      if (offset > Duration.zero) {
+        expect(m.isDueAt(at), isFalse);
+        expect(
+          m.isDueAt(at.add(offset - const Duration(minutes: 1))),
+          isFalse,
+        );
+      }
+      expect(m.isDueAt(at.add(offset)), isTrue);
+    });
+
+    test('each occurrence of a repeat gets its own offset', () {
+      final first = _msg(
+        at: at,
+        repeat: ScheduleRepeat.daily,
+        jitter: JitterWindow.sixtyMin,
+      );
+      final second = first.copyWith(
+        scheduledAt: at.add(const Duration(days: 1)),
+        occurrenceCount: 1,
+      );
+      // Not a hard guarantee that they differ, but both must be in-window and
+      // derived from the occurrence rather than fixed for the row.
+      expect(second.jitterOffset.inMinutes, inInclusiveRange(0, 60));
+      expect(second.effectiveSendAt.difference(second.scheduledAt),
+          second.jitterOffset);
     });
   });
 }
