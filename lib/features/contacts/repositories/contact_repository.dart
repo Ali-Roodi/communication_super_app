@@ -64,12 +64,15 @@ class ContactRepository {
             .map((p) => p.number)
             .where((p) => p.isNotEmpty)
             .toList();
-        if (phones.isEmpty) continue;
+        // Contacts without a number are kept: Google Contacts lists them too
+        // (their call/message actions simply grey out). Call sites that *need*
+        // a number — the SMS recipient picker, the favourites picker — filter
+        // on `phoneNumbers` themselves.
         list.add(
           ContactModel(
             id: c.id,
             name: c.displayName.isNotEmpty ? c.displayName : 'بدون نام',
-            phoneNumber: phones.first,
+            phoneNumber: phones.isNotEmpty ? phones.first : '',
             phoneNumbers: phones,
             email: c.emails.isNotEmpty ? c.emails.first.address : null,
             createdAt: now,

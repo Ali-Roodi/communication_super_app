@@ -241,5 +241,18 @@
             <action android:name="android.intent.action.VIEW"/>
             <data android:scheme="http"/>
         </intent>
+        <!-- «برنامه‌های متصل» on a contact: the rows a messenger writes onto a
+             contact belong to its sync account. Without these two entries the
+             package-visibility filter (targetSdk 30+) hides the authenticator
+             from AccountManager.getAuthenticatorTypes() and makes
+             PackageManager.getApplicationInfo() throw, so every third-party row
+             would be dropped and the section would render empty. -->
+        <intent>
+            <action android:name="android.accounts.AccountAuthenticator"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:mimeType="vnd.android.cursor.item/*"/>
+        </intent>
     </queries>
 </manifest>
