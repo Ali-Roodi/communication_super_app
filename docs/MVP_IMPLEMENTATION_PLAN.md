@@ -1,4 +1,4 @@
-# پلن اجرایی MVP — قاسم
+# پلن اجرایی MVP — هم‌رسان
 ### قدم‌به‌قدم · بر اساس پروژه موجود · ظاهر Google Phone
 
 > **پیش‌فرض:** پروژه موجود کار می‌کند. این سند دقیقاً چه فایلی را عوض کنید، چه فایلی را بسازید، و کد دقیق هر مرحله را مشخص می‌کند.  
@@ -441,7 +441,7 @@ class GhasemApp extends StatelessWidget {
       child: BlocBuilder<ThemeBloc, ThemeState>(
         builder: (context, themeState) {
           return MaterialApp(
-            title: 'قاسم',
+            title: 'هم‌رسان',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.light,
             darkTheme: AppTheme.dark,

@@ -86,7 +86,7 @@ than the jank it removes.
 **Decision:** all UI is Persian; screens wrap their root in
 `Directionality(rtl)` or use `RtlAppBar`; digits go through `PersianUtils`.
 Brand font is **Vazirmatn**.
-**Why:** the product is Persian-first (internal name قاسم).
+**Why:** the product is Persian-first (internal name هم‌رسان).
 **Trade-off:** every new screen must remember the RTL wrapper; there is no
 localization (l10n) layer — strings are inline Persian literals (see
 `KNOWN_ISSUES` K4).

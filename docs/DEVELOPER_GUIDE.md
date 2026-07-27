@@ -17,7 +17,7 @@ flutter test test/widget_test.dart  # Run a single test file
 
 ## Architecture
 
-This is a Flutter Android SMS/phone app with a Persian (RTL) UI. The internal app name is **قاسم** (Ghasem).
+This is a Flutter Android SMS/phone app with a Persian (RTL) UI. The internal app name is **هم‌رسان**.
 
 ### Entry flow
 
@@ -102,6 +102,8 @@ The app requests the **default-SMS-app role** (ROLE_SMS) — banner in the inbox
 
 **Call-log sync:** `CallLogSyncHandler.kt` registers a ContentObserver on `CallLog.Calls` and pushes debounced change events (`call_log_events` EventChannel) → `CallLogBloc` runs a silent `SyncCallLogs` (no flicker, keeps pagination). `CallLogService.syncFromDevice()` mirrors: upsert device rows, delete numeric-id local rows missing from the device. In-app deletes use `deleteCallLogsGlobally` (provider delete via `WRITE_CALL_LOG`, then local). `NativeCallLogService.initialize()` is re-invoked on `LoadCallLogs` because the first observer registration can predate the READ_CALL_LOG grant.
 
+**Contact extras / «برنامه‌های متصل»:** `ContactExtrasHandler.kt` reads the third-party Data rows on a contact (rows whose MIME type is outside the standard set). Two things this depends on, both easy to break: the manifest `<queries>` entries for `android.accounts.AccountAuthenticator` and `VIEW`+`vnd.android.cursor.item/*` (targetSdk 30+ package visibility otherwise hides the authenticator, `packageForAccountType` returns null and the whole section renders empty), and resolving the row's action to a **concrete component** before launching — messengers register several activity-aliases per custom MIME type, so an implicit intent (even with `setPackage`) pops an "Open with" sheet listing the same app twice.
+
 **Contacts:** all writes go straight to the device address book via `flutter_contacts` (`AddEditContactScreen`); there are deliberately NO create/update/delete bloc events. `ContactRepository.getContactByPhoneNumber` resolves against the device-contact cache (normalized-number match) — the local `contacts` table is legacy and nothing writes to it.
 
 ### Default dialer role & in-call UI
@@ -114,7 +116,12 @@ The app also requests the **default-dialer role** (ROLE_DIALER) — `CallHandler
 - `CallHandler` actions prefer `CallInCallService.currentCall` (telecom) and fall back to the legacy `CallConnection` (VoIP path). Mute/speaker go through `InCallService.setMuted`/`setAudioRoute` — AudioManager alone does not affect telecom-managed calls. DTMF uses `Call.playDtmfTone` (remote) plus a local ToneGenerator beep.
 - **NEVER request ROLE_DIALER unless `CallInCallService` is declared and functional** — incoming calls would have no UI at all.
 
-**First-entry role prompts** (`PermissionGate`): after the runtime permissions, the SMS-role dialog then the dialer-role dialog are each shown exactly once (SharedPreferences flags `default_sms_role_requested_v1` / `default_dialer_role_requested_v1`, set BEFORE the dialog). Never re-prompt automatically — Android permanently auto-denies a role after two refusals; later requests go through the inbox banner (SMS) or Settings → Default apps (`openDefaultAppsSettings`).
+**Role prompts** (`DefaultAppGate`, `lib/core/widgets/default_app_gate.dart`, wraps `MainNavigation` inside `PermissionGate`): a Google-Messages/Phone-style request page, SMS first then dialer. `PermissionGate` NEVER fires a role request itself — the system sheet only opens on the user's tap, which is what makes re-asking safe (Android permanently auto-denies a role after two refusals of the *system* sheet, so the nagging has to live in our own UI).
+
+- It re-checks on every `resumed`, so making another app default elsewhere and coming back asks again; «فعلاً نه» only lasts until the next resume.
+- Before the app has been shown once it renders in place; after that it is **pushed as a route** on the root navigator — an inline widget would sit under any conversation/contact page already pushed there.
+- On acquiring both roles it dispatches `SyncDeviceMessages` + `SyncCallLogs` + `RefreshContacts` (not `LoadContacts` — the cache predates the role change).
+- The inbox banner (SMS) and `openDefaultAppsSettings` remain as the alternate entry points.
 
 ### SMS notifications (single native pipeline)
 
