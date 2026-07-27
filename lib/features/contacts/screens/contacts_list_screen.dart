@@ -1,16 +1,23 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/contact_bloc.dart';
 import '../bloc/contact_event.dart';
 import '../bloc/contact_state.dart';
+import 'package:communication_super_app/core/theme/surface_roles.dart';
+import 'package:communication_super_app/core/widgets/google_list.dart';
 import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
+import 'package:communication_super_app/features/settings/screens/settings_screen.dart';
 import 'add_edit_contact_screen.dart';
 import '../models/contact_model.dart';
 
-// Fixed extents so the fast-scroll index bar can compute jump offsets.
-const double _kRowHeight = 64;
-const double _kHeaderHeight = 32;
+// Fixed extents so the fast-scroll index bar can compute jump offsets. A row
+// occupies [_kRowHeight]; the card itself is that minus the group gap, so the
+// cards of a section read as one run with hairline seams.
+const double _kRowHeight = 68;
+const double _kHeaderHeight = 44;
 
 // Stock-phone style fast-scroll index. Which alphabet is shown follows the
 // device language: Persian phone → Persian letters + '#', otherwise A–Z + '#'.
@@ -54,6 +61,11 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
   bool _hasLoaded = false;
   String _query = '';
 
+  /// The fast-scroll alphabet is transient: it fades in while the list moves
+  /// and fades back out a moment after it stops (Google Contacts' behaviour).
+  bool _indexVisible = false;
+  Timer? _indexHideTimer;
+
   // Memoized section grouping (rebuilt only when the contact list or the active
   // alphabet changes).
   List<ContactModel>? _lastContacts;
@@ -95,6 +107,7 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
 
   @override
   void dispose() {
+    _indexHideTimer?.cancel();
     _searchController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -137,15 +150,16 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
             ),
           ],
         ),
-        // Extended pill "افزودن مخاطب" per Figma 627:4074.
-        floatingActionButton: FloatingActionButton.extended(
+        // Compact tonal «+» — Google Contacts' create button is an icon FAB,
+        // not an extended pill.
+        floatingActionButton: FloatingActionButton(
           heroTag: 'contacts_fab',
+          tooltip: 'افزودن مخاطب',
           onPressed: () => Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const AddEditContactScreen()),
           ),
-          icon: const Icon(Icons.add),
-          label: const Text('افزودن مخاطب'),
+          child: const Icon(Icons.add),
         ),
         floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       ),
@@ -154,29 +168,72 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
 
   // ── Search ──────────────────────────────────────────────────────────────
 
+  /// The 56 px search pill Google Phone puts at the top of its home screens —
+  /// same shape as [HomeSearchHeader], but a live filter field rather than a
+  /// button, because filtering the address book in place is what this tab is
+  /// for.
   Widget _buildSearchField(ThemeData theme) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-      child: TextField(
-        controller: _searchController,
-        onChanged: (v) => setState(() => _query = v),
-        decoration: InputDecoration(
-          hintText: 'جستجوی مخاطبین',
-          prefixIcon: const Icon(Icons.search),
-          isDense: true,
-          filled: true,
-          suffixIcon: _query.isEmpty
-              ? null
-              : IconButton(
-                  icon: const Icon(Icons.clear),
-                  onPressed: () {
-                    _searchController.clear();
-                    setState(() => _query = '');
-                  },
+    final scheme = theme.colorScheme;
+    return SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        child: Material(
+          color: scheme.cardSurface,
+          borderRadius: BorderRadius.circular(28),
+          clipBehavior: Clip.antiAlias,
+          child: SizedBox(
+            height: 56,
+            child: Row(
+              children: [
+                const SizedBox(width: 4),
+                PopupMenuButton<VoidCallback>(
+                  icon: Icon(Icons.menu, color: scheme.onSurface),
+                  tooltip: 'گزینه‌های بیشتر',
+                  position: PopupMenuPosition.under,
+                  onSelected: (action) => action(),
+                  itemBuilder: (_) => [
+                    PopupMenuItem<VoidCallback>(
+                      value: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const SettingsScreen(),
+                        ),
+                      ),
+                      child: const Text('تنظیمات'),
+                    ),
+                  ],
                 ),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(28),
-            borderSide: BorderSide.none,
+                const SizedBox(width: 4),
+                Expanded(
+                  child: TextField(
+                    controller: _searchController,
+                    onChanged: (v) => setState(() => _query = v),
+                    style: TextStyle(fontSize: 16, color: scheme.onSurface),
+                    decoration: InputDecoration(
+                      hintText: 'جستجوی مخاطبین',
+                      isDense: true,
+                      filled: false,
+                      contentPadding: EdgeInsets.zero,
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                    ),
+                  ),
+                ),
+                if (_query.isEmpty)
+                  Icon(Icons.search, color: scheme.onSurfaceVariant)
+                else
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    color: scheme.onSurfaceVariant,
+                    onPressed: () {
+                      _searchController.clear();
+                      setState(() => _query = '');
+                    },
+                  ),
+                const SizedBox(width: 12),
+              ],
+            ),
           ),
         ),
       ),
@@ -201,9 +258,9 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
       );
     }
     return ListView.builder(
-      padding: const EdgeInsets.only(bottom: 96),
+      padding: const EdgeInsets.fromLTRB(0, 4, 0, 110),
       itemCount: results.length,
-      itemBuilder: (_, i) => _ContactRow(contact: results[i]),
+      itemBuilder: (_, i) => _ContactRow(contact: results[i], query: _query),
     );
   }
 
@@ -235,15 +292,28 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
     return Stack(
       children: [
         // Reserve the alphabet-bar width at the (RTL) end edge so long contact
-        // names never run underneath the letters.
+        // names never run underneath the letters while it is showing.
         Padding(
           padding: const EdgeInsetsDirectional.only(end: 24),
-          child: CustomScrollView(
-            controller: _scrollController,
-            slivers: [
-              ...slivers,
-              const SliverToBoxAdapter(child: SizedBox(height: 96)),
-            ],
+          child: NotificationListener<ScrollNotification>(
+            // Google reveals its index only while the list is moving, so the
+            // letters never sit on top of a resting list.
+            onNotification: (n) {
+              if (n is ScrollStartNotification ||
+                  n is ScrollUpdateNotification) {
+                _revealIndex();
+              } else if (n is ScrollEndNotification) {
+                _scheduleHideIndex();
+              }
+              return false;
+            },
+            child: CustomScrollView(
+              controller: _scrollController,
+              slivers: [
+                ...slivers,
+                const SliverToBoxAdapter(child: SizedBox(height: 96)),
+              ],
+            ),
           ),
         ),
         Positioned(
@@ -252,14 +322,42 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
           // start/left edge in this RTL layout).
           bottom: 88,
           left: 0, // mirrored to the left edge for the RTL layout
-          child: _AlphabetBar(
-            letters: _indexLetters,
-            available: sections.map((s) => s.letter).toSet(),
-            onSelect: _jumpToLetter,
+          child: IgnorePointer(
+            ignoring: !_indexVisible,
+            child: AnimatedOpacity(
+              opacity: _indexVisible ? 1 : 0,
+              duration: Duration(milliseconds: _indexVisible ? 120 : 320),
+              curve: Curves.easeOut,
+              child: _AlphabetBar(
+                letters: _indexLetters,
+                available: sections.map((s) => s.letter).toSet(),
+                onSelect: _jumpToLetter,
+                // Dragging the bar counts as activity, so it doesn't fade out
+                // from under the finger.
+                onInteract: _revealIndex,
+                onInteractEnd: _scheduleHideIndex,
+              ),
+            ),
           ),
         ),
       ],
     );
+  }
+
+  // ── Fast-scroll index visibility ────────────────────────────────────────
+
+  /// Shows the alphabet index and cancels any pending fade-out.
+  void _revealIndex() {
+    _indexHideTimer?.cancel();
+    if (!_indexVisible) setState(() => _indexVisible = true);
+  }
+
+  /// Fades the index out shortly after the last scroll/drag.
+  void _scheduleHideIndex() {
+    _indexHideTimer?.cancel();
+    _indexHideTimer = Timer(const Duration(milliseconds: 1400), () {
+      if (mounted) setState(() => _indexVisible = false);
+    });
   }
 
   void _jumpToLetter(String letter) {
@@ -311,19 +409,11 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
     return letters.contains(folded) && folded != '#' ? folded : '#';
   }
 
-  Widget _buildEmptyState(ThemeData theme) {
-    final dim = theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.6);
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.person_outline, size: 96, color: dim),
-          const SizedBox(height: 16),
-          Text('مخاطبی یافت نشد', style: theme.textTheme.titleMedium),
-        ],
-      ),
-    );
-  }
+  Widget _buildEmptyState(ThemeData theme) => const EmptyState(
+    icon: Icons.person_outline,
+    title: 'مخاطبی یافت نشد',
+    subtitle: 'مخاطبین ذخیره‌شده روی گوشی اینجا نمایش داده می‌شوند',
+  );
 }
 
 // ── Section model ─────────────────────────────────────────────────────────────
@@ -356,15 +446,16 @@ class _SectionHeaderDelegate extends SliverPersistentHeaderDelegate {
       height: _kHeaderHeight,
       width: double.infinity,
       alignment: AlignmentDirectional.centerStart,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 24),
       color: theme.scaffoldBackgroundColor,
       child: Text(
-        // Dim-gray section letters per Figma 627:4074 (not the accent colour).
+        // Grey, not tinted — Google Contacts keeps its alphabet letters neutral
+        // and reserves the primary colour for settings headings.
         letter,
         style: TextStyle(
-          fontSize: 13,
+          fontSize: 14,
           fontWeight: FontWeight.w600,
-          color: theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.7),
+          color: theme.colorScheme.onSurfaceVariant,
         ),
       ),
     );
@@ -379,44 +470,94 @@ class _SectionHeaderDelegate extends SliverPersistentHeaderDelegate {
 
 class _ContactRow extends StatelessWidget {
   final ContactModel contact;
-  const _ContactRow({required this.contact});
+
+  /// Active search text — the matching run of the name is highlighted, the way
+  /// Google Contacts bolds it in the primary colour.
+  final String query;
+
+  const _ContactRow({required this.contact, this.query = ''});
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return InkWell(
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => DeviceContactDetailScreen(contact: contact),
-        ),
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsetsDirectional.fromSTEB(
+        12,
+        0,
+        12,
+        GroupRadius.gap,
       ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Row(
-          children: [
-            LazyContactAvatar(
-              contactId: contact.id,
-              name: contact.name,
-              size: 48,
+      child: Material(
+        color: scheme.cardSurface,
+        clipBehavior: Clip.antiAlias,
+        // Google Contacts rounds every row of the list identically — the
+        // "big outer / tight inner" run is reserved for settings groups.
+        borderRadius: BorderRadius.circular(GroupRadius.outer),
+        child: InkWell(
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => DeviceContactDetailScreen(contact: contact),
             ),
-            const SizedBox(width: 16),
-            // Name-only rows per Figma 627:4074 (number shows on the detail).
-            Expanded(
-              child: Text(
-                contact.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                  color: theme.textTheme.bodyLarge?.color,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                LazyContactAvatar(
+                  contactId: contact.id,
+                  name: contact.name,
+                  size: 44,
                 ),
-              ),
+                const SizedBox(width: 14),
+                // Name-only rows, like Google Contacts (the number lives on the
+                // detail page).
+                Expanded(child: _name(scheme)),
+              ],
             ),
-          ],
+          ),
         ),
       ),
+    );
+  }
+
+  Widget _name(ColorScheme scheme) {
+    final base = TextStyle(fontSize: 16, color: scheme.onSurface);
+    final q = query.trim();
+    if (q.isEmpty) {
+      return Text(
+        contact.name,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: base,
+      );
+    }
+    final start = contact.name.toLowerCase().indexOf(q.toLowerCase());
+    if (start < 0) {
+      return Text(
+        contact.name,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: base,
+      );
+    }
+    final end = start + q.length;
+    return Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(text: contact.name.substring(0, start), style: base),
+          TextSpan(
+            text: contact.name.substring(start, end),
+            style: base.copyWith(
+              color: scheme.primary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          TextSpan(text: contact.name.substring(end), style: base),
+        ],
+      ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
     );
   }
 }
@@ -430,10 +571,17 @@ class _AlphabetBar extends StatelessWidget {
   final Set<String> available;
   final ValueChanged<String> onSelect;
 
+  /// Called while the bar is being touched / dragged, and once the gesture
+  /// ends, so the owner can keep it visible for the duration.
+  final VoidCallback onInteract;
+  final VoidCallback onInteractEnd;
+
   const _AlphabetBar({
     required this.letters,
     required this.available,
     required this.onSelect,
+    required this.onInteract,
+    required this.onInteractEnd,
   });
 
   @override
@@ -464,8 +612,19 @@ class _AlphabetBar extends StatelessWidget {
 
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTapDown: (d) => handle(d.localPosition),
-          onVerticalDragUpdate: (d) => handle(d.localPosition),
+          onTapDown: (d) {
+            onInteract();
+            handle(d.localPosition);
+          },
+          onTapUp: (_) => onInteractEnd(),
+          onTapCancel: onInteractEnd,
+          onVerticalDragStart: (_) => onInteract(),
+          onVerticalDragUpdate: (d) {
+            onInteract();
+            handle(d.localPosition);
+          },
+          onVerticalDragEnd: (_) => onInteractEnd(),
+          onVerticalDragCancel: onInteractEnd,
           child: SizedBox(
             width: 24,
             height: constraints.maxHeight,
