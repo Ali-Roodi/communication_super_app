@@ -199,15 +199,19 @@ class MessageSendButton extends StatelessWidget {
   final bool enabled;
   final VoidCallback onSend;
 
-  /// Long-press action: opens the scheduler prefilled with the composer text
-  /// (ارسال زمان‌بندی‌شده). Null disables the gesture.
+  /// Long-press action: opens the «زمان‌بندی ارسال» sheet. Null disables the
+  /// gesture.
   final VoidCallback? onSchedule;
+
+  /// The composer is armed with a time, so tapping schedules instead of sends.
+  final bool scheduled;
 
   const MessageSendButton({
     super.key,
     required this.enabled,
     required this.onSend,
     this.onSchedule,
+    this.scheduled = false,
   });
 
   @override
@@ -227,7 +231,7 @@ class MessageSendButton extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Icon(
-            Icons.send,
+            scheduled ? Icons.schedule_send : Icons.send,
             color: enabled ? cs.onPrimaryContainer : cs.onSurfaceVariant,
             size: 24,
           ),

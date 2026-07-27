@@ -59,6 +59,8 @@ Migrations live in `DatabaseHelper._onUpgrade`. When bumping `AppConstants.datab
 
 ### Scheduled messages
 
+**UI: one sheet, no screen.** Long-pressing send (or «زمان‌بندی ارسال» in the «+» sheet) opens `showScheduleSendSheet` — quick times, a full date/time pick, and the repeat / jitter / end rules behind «تکرار». It only *returns* a `ScheduleChoice`; the composer then shows a banner and the send button becomes `schedule_send`, and the row is written when send is pressed — the Google Messages flow. There is deliberately **no** separate scheduling screen (the old `ScheduleMessageScreen` was deleted); rescheduling from the bubble sheet or the schedules list re-opens the same sheet seeded via `ScheduleChoice.fromMessage`.
+
 Two deliverers exist:
 - **Dart** — `ScheduledMessageBloc` ticks every 30 s and calls `ScheduledDeliveryService.deliverDue()`.
 - **Native** — `ScheduledSmsWorker.processDue()` runs from an AlarmManager broadcast when the app is dead.
@@ -66,6 +68,8 @@ Two deliverers exist:
 When the alarm fires and the Flutter engine is alive, `ScheduledSmsAlarmReceiver` hands the delivery *back to Dart* over `ScheduledSmsChannel` (`deliverDue`) instead of sending natively. This is load-bearing: the native worker writes straight to SQLite, so a native send while the app is running leaves `ScheduledMessageBloc` and `MessageBloc` stale — the chat keeps its scheduled ghost bubble and never shows the sent message. `MainActivity` publishes the channel in `configureFlutterEngine` and clears it in `onDestroy`.
 
 Still, they coordinate through `ScheduledMessageRepository.claimDue(now, token)`: one atomic `UPDATE … SET status='sending', claim_token=?` stamps the due rows, and each deliverer only processes rows carrying its own token. **Never send a scheduled message without claiming it first.** A row stuck in `sending` past `ScheduledMessage.staleClaimTimeout` is released back to `pending`.
+
+**Jitter is enforced, not decorative.** `ScheduledMessage.jitterOffset` derives a *deterministic* offset inside the window from (id, scheduledAt, occurrenceCount) — a re-rolled offset would let a row fire early on the next tick — and `isDueAt` compares against `effectiveSendAt`. The window can't be expressed in SQL, so `ScheduledDeliveryService` reads `getDue`, filters, and passes the surviving ids to `claimDue(…, restrictTo:)`. `ScheduledSmsWorker.claimDue` (Kotlin) applies the same gate and hands rows whose window hasn't opened back to `pending`. «ارسال فوری» must bypass all of this: `SendScheduledNow` calls `deliverDue(force: {id})`.
 
 Other invariants:
 - A failed send backs off (`next_attempt_at`) and retries; only after `ScheduledMessage.maxAttempts` does it become `failed`.

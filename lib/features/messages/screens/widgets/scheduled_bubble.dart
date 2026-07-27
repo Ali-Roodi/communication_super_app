@@ -3,6 +3,7 @@ import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import '../../models/scheduled_message_model.dart';
+import 'schedule_send_sheet.dart';
 
 /// A not-yet-sent scheduled message, rendered inline at the end of the
 /// conversation (Google Messages style).
@@ -23,15 +24,17 @@ class ScheduledBubble extends StatelessWidget {
     required this.onTap,
   });
 
-  /// «ارسال در ۱۴:۳۰» / «ارسال در ۱۰ تیر ۱۴:۳۰» — today's schedules only need
-  /// the time.
+  /// «ارسال در ۱۴:۳۰» / «ارسال در فردا، ۰۸:۰۰» — today's schedules only need
+  /// the time; anything further out names the day the way the composer banner
+  /// and the options sheet do.
   String _sendAtLabel() {
     final at = message.scheduledAt;
     final now = DateTime.now();
-    final isToday = at.year == now.year && at.month == now.month && at.day == now.day;
+    final isToday =
+        at.year == now.year && at.month == now.month && at.day == now.day;
     final when = isToday
-        ? DateFormatter.formatTime(at)
-        : DateFormatter.formatDatePersian(at);
+        ? PersianUtils.toPersianNumber(DateFormatter.formatTime(at))
+        : formatScheduleLabel(at);
     return 'ارسال در $when';
   }
 

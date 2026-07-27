@@ -152,11 +152,33 @@ class ScheduledMessage extends Equatable {
   /// `messages.thread_id`, so the chat screen can match them up.
   String get threadId => PhoneNormalizer.toThreadId(phoneNumber);
 
+  /// Offset inside the [jitter] window for *this* occurrence.
+  ///
+  /// Derived from the id and the occurrence rather than rolled fresh, so every
+  /// tick of the deliverer agrees on when the message goes out — a re-rolled
+  /// offset would let a row slip past its window or fire early on the next
+  /// tick. `ScheduledSmsScheduler` (native) spreads the alarm the same way; it
+  /// picks its own point in the window, which is equally valid because the only
+  /// contract is "somewhere inside the window".
+  Duration get jitterOffset {
+    if (jitter.minutes <= 0) return Duration.zero;
+    final seed = Object.hash(
+      id,
+      scheduledAt.millisecondsSinceEpoch,
+      occurrenceCount,
+    );
+    return Duration(minutes: seed.abs() % (jitter.minutes + 1));
+  }
+
+  /// When this occurrence actually goes out: its scheduled time plus the
+  /// jitter offset.
+  DateTime get effectiveSendAt => scheduledAt.add(jitterOffset);
+
   /// True when this schedule should be sent at [now]: still pending, its time
-  /// has arrived, and any retry backoff has elapsed.
+  /// (including any jitter) has arrived, and any retry backoff has elapsed.
   bool isDueAt(DateTime now) =>
       status == ScheduleStatus.pending &&
-      !scheduledAt.isAfter(now) &&
+      !effectiveSendAt.isAfter(now) &&
       (nextAttemptAt == null || !nextAttemptAt!.isAfter(now));
 
   /// The next fire time strictly after [scheduledAt] per the repeat rule, or

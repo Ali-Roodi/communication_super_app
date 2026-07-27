@@ -26,12 +26,12 @@ import '../bloc/scheduled_state.dart';
 import '../models/scheduled_message_model.dart';
 import 'drafts_list_screen.dart';
 import 'template_picker_screen.dart';
-import 'schedule_message_screen.dart';
 import 'widgets/message_bubble.dart';
 import 'contact_selector_screen.dart';
 import 'widgets/conversation_app_bars.dart';
 import 'widgets/conversation_sheets.dart';
 import 'widgets/message_composer.dart';
+import 'widgets/schedule_send_sheet.dart';
 import 'widgets/scheduled_bubble.dart';
 
 /// Google Messages style chat screen.
@@ -78,6 +78,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
   bool _isLoadingMore = false;
   bool _showScrollToBottom = false;
   bool _showStickers = false;
+
+  /// Set once the user picks a time in the «زمان‌بندی ارسال» sheet: the
+  /// composer then schedules on send instead of sending now. Cleared after the
+  /// schedule is saved or when the banner's ✕ is tapped.
+  ScheduleChoice? _pendingSchedule;
 
   // Per-thread unsent composer text, so leaving the chat doesn't lose it and
   // the inbox can surface it as a draft.
@@ -184,9 +189,40 @@ class _ConversationScreenState extends State<ConversationScreen> {
   void _sendMessage() {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
+    // Armed with a time (long-press send → «زمان‌بندی ارسال») the same button
+    // schedules instead of sending, the way Google Messages does it.
+    final schedule = _pendingSchedule;
+    if (schedule != null) {
+      _scheduleMessage(text, schedule);
+      return;
+    }
     _messageController.clear();
     _draftStore.remove(widget.threadId);
     _messageBloc.add(SendMessage(phoneNumber: widget.phoneNumber, body: text));
+  }
+
+  void _scheduleMessage(String body, ScheduleChoice schedule) {
+    context.read<ScheduledMessageBloc>().add(
+      SaveScheduled(
+        phoneNumber: widget.phoneNumber,
+        contactName: widget.contactName,
+        body: body,
+        scheduledAt: schedule.at,
+        repeat: schedule.repeat,
+        repeatEvery: schedule.repeatEvery,
+        weekdays: schedule.weekdays,
+        jitter: schedule.jitter,
+        endType: schedule.endType,
+        endDate: schedule.endDate,
+        maxOccurrences: schedule.maxOccurrences,
+      ),
+    );
+    _messageController.clear();
+    _draftStore.remove(widget.threadId);
+    setState(() => _pendingSchedule = null);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('ارسال در ${formatScheduleLabel(schedule.at)}')),
+    );
   }
 
   void _scrollToBottom() {
@@ -417,7 +453,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       context,
       message: msg,
       onSendNow: () => bloc.add(SendScheduledNow(msg.id)),
-      onEdit: () => _editScheduled(msg),
+      onReschedule: () => _rescheduleScheduled(msg),
       onCopy: () {
         Clipboard.setData(ClipboardData(text: msg.body));
         ScaffoldMessenger.of(
@@ -428,14 +464,29 @@ class _ConversationScreenState extends State<ConversationScreen> {
     );
   }
 
-  void _editScheduled(ScheduledMessage msg) {
-    final scheduledBloc = context.read<ScheduledMessageBloc>();
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => BlocProvider.value(
-          value: scheduledBloc,
-          child: ScheduleMessageScreen(existing: msg, settingsOnly: true),
-        ),
+  /// Re-opens the quick sheet for an already-scheduled message and saves it
+  /// back under the same id — Google's «Reschedule».
+  Future<void> _rescheduleScheduled(ScheduledMessage msg) async {
+    final bloc = context.read<ScheduledMessageBloc>();
+    final choice = await showScheduleSendSheet(
+      context,
+      initial: ScheduleChoice.fromMessage(msg),
+    );
+    if (choice == null || !mounted) return;
+    bloc.add(
+      SaveScheduled(
+        id: msg.id,
+        phoneNumber: msg.phoneNumber,
+        contactName: msg.contactName,
+        body: msg.body,
+        scheduledAt: choice.at,
+        repeat: choice.repeat,
+        repeatEvery: choice.repeatEvery,
+        weekdays: choice.weekdays,
+        jitter: choice.jitter,
+        endType: choice.endType,
+        endDate: choice.endDate,
+        maxOccurrences: choice.maxOccurrences,
       ),
     );
   }
@@ -767,9 +818,25 @@ class _ConversationScreenState extends State<ConversationScreen> {
       onAttach: _showAttachmentSheet,
       onSend: _sendMessage,
       onStickerSelected: _insertSticker,
-      // Long-press send → scheduler prefilled with the typed message.
-      onSchedule: _openScheduler,
+      // Long-press send → the quick «زمان‌بندی ارسال» sheet.
+      onSchedule: _armSchedule,
+      scheduledAt: _pendingSchedule?.at,
+      scheduleSummary: _pendingSchedule == null
+          ? null
+          : repeatSummary(_pendingSchedule!),
+      onClearSchedule: () => setState(() => _pendingSchedule = null),
     );
+  }
+
+  /// Picks the time and arms the composer; the message itself is scheduled
+  /// when send is pressed.
+  Future<void> _armSchedule() async {
+    final choice = await showScheduleSendSheet(
+      context,
+      initial: _pendingSchedule,
+    );
+    if (choice == null || !mounted) return;
+    setState(() => _pendingSchedule = choice);
   }
 
   /// Inserts an emoji at the cursor so several can be picked before sending
@@ -791,34 +858,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
       context,
       onInsertDraft: _insertDraft,
       onInsertTemplate: _insertTemplate,
-      onSchedule: _openScheduler,
+      onSchedule: _armSchedule,
       onComingSoon: () => ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('به‌زودی'))),
     );
-  }
-
-  /// Opens the scheduler prefilled with this conversation's recipient and the
-  /// current composer text. Clears the composer once the schedule is saved —
-  /// the text now lives in the scheduled message, not the draft box.
-  Future<void> _openScheduler() async {
-    final scheduledBloc = context.read<ScheduledMessageBloc>();
-    final saved = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => BlocProvider.value(
-          value: scheduledBloc,
-          // settingsOnly: launched from inside the chat, the recipient and the
-          // typed text are already known — show only the scheduling settings.
-          child: ScheduleMessageScreen(
-            phoneNumber: widget.phoneNumber,
-            contactName: widget.contactName,
-            initialBody: _messageController.text.trim(),
-            settingsOnly: true,
-          ),
-        ),
-      ),
-    );
-    if (saved == true && mounted) _messageController.clear();
   }
 
   /// Opens the drafts picker and inserts the chosen draft's body into the

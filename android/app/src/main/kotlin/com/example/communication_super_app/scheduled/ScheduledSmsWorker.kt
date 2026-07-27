@@ -171,6 +171,7 @@ object ScheduledSmsWorker {
         if (claimed == 0) return emptyList()
 
         val out = mutableListOf<Row>()
+        val notYet = mutableListOf<String>()
         db.query(
             TABLE,
             null,
@@ -180,9 +181,43 @@ object ScheduledSmsWorker {
             null,
             "scheduled_at ASC",
         ).use { c ->
-            while (c.moveToNext()) out.add(readRow(c))
+            while (c.moveToNext()) {
+                val row = readRow(c)
+                // A jittered row must not go out at its nominal instant: this
+                // worker can run for one message's alarm while another's window
+                // has not opened yet. Mirrors ScheduledMessage.isDueAt in Dart.
+                if (now < row.scheduledAt + jitterOffsetMs(row)) {
+                    notYet.add(row.id)
+                } else {
+                    out.add(row)
+                }
+            }
+        }
+        // Hand the ones whose window hasn't opened back, so the next alarm (or
+        // the Dart deliverer) can take them.
+        for (id in notYet) {
+            db.execSQL(
+                "UPDATE $TABLE SET status = 'pending', claim_token = NULL, " +
+                    "claimed_at = NULL WHERE id = ?",
+                arrayOf(id),
+            )
         }
         return out
+    }
+
+    /**
+     * Offset inside the row's jitter window, derived from the id and the
+     * occurrence so every pass agrees — a re-rolled offset would let a row
+     * fire early on the next sweep. Dart's `ScheduledMessage.jitterOffset`
+     * does the same with its own hash; the contract is only "somewhere inside
+     * the window".
+     */
+    private fun jitterOffsetMs(row: Row): Long {
+        val window = jitterMinutes(row.jitter)
+        if (window <= 0) return 0L
+        val seed = (row.id.hashCode().toLong() * 31 + row.occurrenceCount) xor row.scheduledAt
+        val minutes = Math.floorMod(seed, (window + 1).toLong())
+        return minutes * 60_000L
     }
 
     // ── Query ────────────────────────────────────────────────────────────────
@@ -200,6 +235,7 @@ object ScheduledSmsWorker {
         val maxOccurrences: Int?,
         val occurrenceCount: Int,
         val attemptCount: Int,
+        val jitter: String,
     )
 
     private fun readRow(c: Cursor): Row {
@@ -229,6 +265,7 @@ object ScheduledSmsWorker {
             maxOccurrences = intOrNull("max_occurrences"),
             occurrenceCount = intOrNull("occurrence_count") ?: 0,
             attemptCount = intOrNull("attempt_count") ?: 0,
+            jitter = strOrNull("jitter") ?: "none",
         )
     }
 

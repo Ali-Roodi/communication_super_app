@@ -31,15 +31,31 @@ ScheduledMessage _due({
   String id = 's1',
   ScheduleRepeat repeat = ScheduleRepeat.none,
   int attemptCount = 0,
+  JitterWindow jitter = JitterWindow.none,
+  DateTime? at,
 }) => ScheduledMessage(
   id: id,
   phoneNumber: '09120000000',
   body: 'سلام',
-  scheduledAt: DateTime(2026, 1, 1, 9),
+  scheduledAt: at ?? DateTime(2026, 1, 1, 9),
   repeat: repeat,
   attemptCount: attemptCount,
+  jitter: jitter,
   createdAt: DateTime(2026, 1, 1),
 );
+
+/// A jittered schedule whose window has *not* elapsed yet: nominally due, but
+/// its own offset puts the send a few minutes out.
+ScheduledMessage _jitteredNotYetDue() {
+  for (var minute = 0; minute < 60; minute++) {
+    final row = _due(
+      jitter: JitterWindow.sixtyMin,
+      at: DateTime.now().subtract(Duration(minutes: minute)),
+    );
+    if (!row.isDueAt(DateTime.now())) return row;
+  }
+  throw StateError('no jittered row landed outside its window');
+}
 
 void main() {
   setUpAll(() {
@@ -60,7 +76,10 @@ void main() {
     when(() => repo.cancel(any())).thenAnswer((_) async {});
     when(() => repo.delete(any())).thenAnswer((_) async {});
     when(() => repo.reschedule(any(), any())).thenAnswer((_) async {});
-    when(() => repo.claimDue(any(), any())).thenAnswer((_) async => const []);
+    when(() => repo.getDue(any())).thenAnswer((_) async => const []);
+    when(
+      () => repo.claimDue(any(), any(), restrictTo: any(named: 'restrictTo')),
+    ).thenAnswer((_) async => const []);
   });
 
   ScheduledMessageBloc build() => ScheduledMessageBloc(
@@ -74,7 +93,12 @@ void main() {
   /// is what stops a message being sent twice.
   void claimYieldsOnce(List<ScheduledMessage> rows) {
     var first = true;
-    when(() => repo.claimDue(any(), any())).thenAnswer((_) async {
+    // The deliverer reads the due rows first (jitter is decided per row) and
+    // only then claims the ids it picked.
+    when(() => repo.getDue(any())).thenAnswer((_) async => first ? rows : const []);
+    when(
+      () => repo.claimDue(any(), any(), restrictTo: any(named: 'restrictTo')),
+    ).thenAnswer((_) async {
       if (!first) return const [];
       first = false;
       return rows;
@@ -231,6 +255,39 @@ void main() {
       verify: (_) {
         verifyNever(() => repo.reschedule(any(), any()));
         verifyNever(() => sms.sendSms(any(), any()));
+      },
+    );
+  });
+
+  group('jitter and delivery', () {
+    blocTest<ScheduledMessageBloc, ScheduledState>(
+      'a due row still inside its jitter window is left alone',
+      setUp: () {
+        final row = _jitteredNotYetDue();
+        when(() => repo.getDue(any())).thenAnswer((_) async => [row]);
+      },
+      build: build,
+      act: (b) => b.add(const DeliverDueScheduled()),
+      wait: const Duration(milliseconds: 10),
+      verify: (_) {
+        verifyNever(() => sms.sendSms(any(), any()));
+      },
+    );
+
+    blocTest<ScheduledMessageBloc, ScheduledState>(
+      'ارسال فوری sends through an unelapsed jitter window',
+      setUp: () {
+        final row = _jitteredNotYetDue();
+        when(() => repo.getById('s1')).thenAnswer((_) async => row);
+        claimYieldsOnce([row]);
+        when(
+          () => sms.sendSms(any(), any()),
+        ).thenAnswer((_) async => const SmsServiceResult.ok());
+      },
+      build: build,
+      act: (b) => b.add(const SendScheduledNow('s1')),
+      verify: (_) {
+        verify(() => sms.sendSms('09120000000', 'سلام')).called(1);
       },
     );
   });
