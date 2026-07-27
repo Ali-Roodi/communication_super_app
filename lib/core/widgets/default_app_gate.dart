@@ -1,0 +1,355 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+import 'package:communication_super_app/features/call_history/bloc/call_log_bloc.dart';
+import 'package:communication_super_app/features/call_history/bloc/call_log_event.dart';
+import 'package:communication_super_app/features/contacts/bloc/contact_bloc.dart';
+import 'package:communication_super_app/features/contacts/bloc/contact_event.dart';
+import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
+import 'package:communication_super_app/features/messages/bloc/message_bloc.dart';
+import 'package:communication_super_app/features/messages/bloc/message_event.dart';
+import 'package:communication_super_app/features/messages/services/native_sms_service.dart';
+
+/// The two default-app roles the app cannot work without.
+enum DefaultRole { sms, dialer }
+
+/// Google Messages / Google Phone style onboarding for the two default-app
+/// roles, shown between [PermissionGate] and the app itself.
+///
+/// Unlike the old one-shot system dialogs, this screen never fires a role
+/// request on its own — the system sheet only opens when the user taps the
+/// button. That is what makes re-asking safe: Android permanently auto-denies a
+/// role after two refusals of the *system* sheet, so the nagging has to live in
+/// our own UI.
+///
+/// It re-checks on every resume, so setting another app as default elsewhere
+/// and coming back lands straight on the request screen again. Dismissing with
+/// «فعلاً نه» only lasts until the next resume.
+///
+/// The moment both roles are held, the device data the app could not see while
+/// it was not the default (SMS mirror-sync, call log, contacts) is pulled in.
+class DefaultAppGate extends StatefulWidget {
+  final Widget child;
+
+  const DefaultAppGate({super.key, required this.child});
+
+  @override
+  State<DefaultAppGate> createState() => _DefaultAppGateState();
+}
+
+class _DefaultAppGateState extends State<DefaultAppGate>
+    with WidgetsBindingObserver {
+  /// Null while the first check runs — the app underneath stays hidden so the
+  /// screen never flashes in after the UI is already up.
+  bool? _isDefaultSms;
+  bool? _isDefaultDialer;
+
+  /// Dismissed for now; cleared on the next resume so returning to the app
+  /// asks again.
+  bool _skipped = false;
+
+  /// Guards the post-grant sync so it runs once per acquisition, not on every
+  /// resume that happens to find the roles held.
+  bool _syncedForRoles = false;
+
+  bool _requesting = false;
+
+  /// True once the app itself has been shown. From then on the request page can
+  /// no longer be rendered in place — a conversation or contact pushed onto the
+  /// root navigator would cover it — so it is pushed as a route instead.
+  bool _appShown = false;
+
+  /// The pushed request route, while one is open.
+  Route<void>? _openRoute;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _check();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _skipped = false;
+      _check();
+    }
+  }
+
+  Future<void> _check() async {
+    final sms = await NativeSmsService().isDefaultSmsApp();
+    final dialer = await NativeCallService.instance.isDefaultDialer();
+    if (!mounted) return;
+
+    final hadAll = (_isDefaultSms ?? false) && (_isDefaultDialer ?? false);
+    _requesting = false;
+    setState(() {
+      _isDefaultSms = sms;
+      _isDefaultDialer = dialer;
+    });
+
+    if (sms && dialer) {
+      // First time we see both roles held in this session: pull everything the
+      // app was blind to while another app owned them.
+      if (!hadAll || !_syncedForRoles) _syncDeviceData();
+      _closeRoute();
+    } else {
+      _syncedForRoles = false;
+      if (_appShown && !_skipped) _openRouteIfNeeded();
+    }
+  }
+
+  /// Puts the request page on top of whatever screen the user came back to.
+  void _openRouteIfNeeded() {
+    if (_openRoute != null) return;
+    final navigator = Navigator.maybeOf(context, rootNavigator: true);
+    if (navigator == null) return;
+    final role = (_isDefaultSms ?? false) ? DefaultRole.dialer : DefaultRole.sms;
+    final route = MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder: (_) => _DefaultRoleScreen(
+        role: role,
+        onRequest: () => _request(role),
+        onSkip: () {
+          _skipped = true;
+          _closeRoute();
+        },
+      ),
+    );
+    _openRoute = route;
+    navigator.push(route);
+  }
+
+  void _closeRoute() {
+    final route = _openRoute;
+    if (route == null) return;
+    _openRoute = null;
+    final navigator = Navigator.maybeOf(context, rootNavigator: true);
+    if (route.isActive) navigator?.removeRoute(route);
+  }
+
+  /// Re-reads the phone's own stores so the app matches the device after the
+  /// role change: the SMS mirror-sync, the call log, and the address book.
+  void _syncDeviceData() {
+    _syncedForRoles = true;
+    try {
+      context.read<MessageBloc>().add(const SyncDeviceMessages());
+      context.read<CallLogBloc>().add(const SyncCallLogs());
+      // RefreshContacts, not LoadContacts: the cache built before the role
+      // change would just be served back.
+      context.read<ContactBloc>().add(const RefreshContacts());
+    } catch (e) {
+      debugPrint('DefaultAppGate: post-role sync failed: $e');
+    }
+  }
+
+  Future<void> _request(DefaultRole role) async {
+    if (_requesting) return;
+    _requesting = true;
+    try {
+      switch (role) {
+        case DefaultRole.sms:
+          await NativeSmsService().requestDefaultSmsRole();
+        case DefaultRole.dialer:
+          await NativeCallService.instance.requestDefaultDialerRole();
+      }
+    } catch (e) {
+      debugPrint('DefaultAppGate: role request failed: $e');
+    }
+    // Granting a role can restart the process; if it doesn't, the resume
+    // callback re-checks. This covers the sheet being dismissed in place.
+    await _check();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sms = _isDefaultSms;
+    final dialer = _isDefaultDialer;
+    if (sms == null || dialer == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (_appShown || _skipped || (sms && dialer)) {
+      _appShown = true;
+      return widget.child;
+    }
+
+    // SMS first, then the dialer — the same order the roles were requested in.
+    final role = sms ? DefaultRole.dialer : DefaultRole.sms;
+    return _DefaultRoleScreen(
+      role: role,
+      onRequest: () => _request(role),
+      onSkip: () => setState(() => _skipped = true),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+
+/// The request page itself: a tonal icon, a headline, the reasons, and a bottom
+/// button bar — the shape Google Messages and Google Phone use for this prompt.
+class _DefaultRoleScreen extends StatefulWidget {
+  final DefaultRole role;
+
+  /// Opens the system sheet; the page shows a spinner until it returns.
+  final Future<void> Function() onRequest;
+  final VoidCallback onSkip;
+
+  const _DefaultRoleScreen({
+    required this.role,
+    required this.onRequest,
+    required this.onSkip,
+  });
+
+  @override
+  State<_DefaultRoleScreen> createState() => _DefaultRoleScreenState();
+}
+
+class _DefaultRoleScreenState extends State<_DefaultRoleScreen> {
+  bool _busy = false;
+
+  Future<void> _request() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    await widget.onRequest();
+    if (mounted) setState(() => _busy = false);
+  }
+
+  bool get _isSms => widget.role == DefaultRole.sms;
+
+  String get _title => _isSms
+      ? 'هم‌رسان را پیام‌رسان پیش‌فرض کنید'
+      : 'هم‌رسان را برنامه تماس پیش‌فرض کنید';
+
+  String get _body => _isSms
+      ? 'برای ارسال و دریافت پیامک و همگام ماندن با پیام‌های گوشی، هم‌رسان باید برنامه پیش‌فرض پیامک باشد.'
+      : 'برای برقراری تماس و نمایش صفحه تماس ورودی، هم‌رسان باید برنامه پیش‌فرض تماس باشد.';
+
+  List<({IconData icon, String text})> get _points => _isSms
+      ? const [
+          (icon: Icons.sync_rounded, text: 'همه پیامک‌های گوشی همگام می‌شوند'),
+          (
+            icon: Icons.notifications_active_outlined,
+            text: 'اعلان پیام‌های تازه با پاسخ سریع',
+          ),
+          (icon: Icons.lock_outline, text: 'پیام‌ها روی همین گوشی می‌مانند'),
+        ]
+      : const [
+          (icon: Icons.call_outlined, text: 'صفحه تماس ورودی و خروجی هم‌رسان'),
+          (icon: Icons.history_rounded, text: 'سابقه تماس‌ها همگام می‌شود'),
+          (icon: Icons.block_outlined, text: 'مسدودسازی شماره‌های مزاحم'),
+        ];
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        body: SafeArea(
+          child: Column(
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(32, 48, 32, 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 96,
+                          height: 96,
+                          decoration: BoxDecoration(
+                            color: scheme.primaryContainer,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            _isSms
+                                ? Icons.chat_bubble_outline_rounded
+                                : Icons.phone_in_talk_outlined,
+                            size: 44,
+                            color: scheme.onPrimaryContainer,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+                      Text(
+                        _title,
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        _body,
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          height: 1.6,
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+                      for (final p in _points)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          child: Row(
+                            children: [
+                              Icon(p.icon, size: 22, color: scheme.primary),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Text(
+                                  p.text,
+                                  style: theme.textTheme.bodyMedium,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    TextButton(
+                      onPressed: _busy ? null : widget.onSkip,
+                      child: const Text('فعلاً نه'),
+                    ),
+                    FilledButton(
+                      onPressed: _busy ? null : _request,
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 28,
+                          vertical: 14,
+                        ),
+                      ),
+                      child: _busy
+                          ? const SizedBox(
+                              height: 18,
+                              width: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('تنظیم به عنوان پیش‌فرض'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
