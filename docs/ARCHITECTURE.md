@@ -1,6 +1,6 @@
 # ARCHITECTURE
 
-> Communication Super App — internal name **قاسم (Ghasem)**.
+> Communication Super App — internal name **هم‌رسان**.
 > A Flutter Android SMS / phone "super-app" with a Persian (RTL) UI.
 
 ## 1. Overview
