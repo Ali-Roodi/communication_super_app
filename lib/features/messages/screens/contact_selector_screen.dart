@@ -4,6 +4,7 @@ import 'package:communication_super_app/features/contacts/bloc/contact_bloc.dart
 import 'package:communication_super_app/features/contacts/bloc/contact_state.dart';
 import 'package:communication_super_app/features/contacts/bloc/contact_event.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
+import 'package:communication_super_app/features/contacts/widgets/phone_number_picker.dart';
 import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
@@ -295,12 +296,21 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
     final displayPhone = PersianUtils.displayPhone(
       PhoneNormalizer.toNational(contact.phoneNumber),
     );
+    final numbers = contact.phoneNumbers.isEmpty
+        ? [contact.phoneNumber]
+        : contact.phoneNumbers;
 
     return InkWell(
-      onTap: () => _choose(
-        phoneNumber: contact.phoneNumber,
-        name: contact.name,
-      ),
+      // A message goes to one number, so a contact with several asks which.
+      onTap: () async {
+        final picked = await pickContactNumber(
+          context,
+          numbers: numbers,
+          title: 'پیام به ${contact.name}',
+        );
+        if (picked == null || !context.mounted) return;
+        _choose(phoneNumber: picked, name: contact.name);
+      },
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(

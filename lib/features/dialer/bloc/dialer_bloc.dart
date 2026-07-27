@@ -86,7 +86,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     emit(
       state.copyWith(
         dialedNumber: '',
-        matchingContacts: [],
+        matchingNumbers: [],
         isNumberInContacts: false,
         isLoadingContacts: false,
         clearError: true,
@@ -106,7 +106,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
       emit(
         state.copyWith(
           dialedNumber: '',
-          matchingContacts: [],
+          matchingNumbers: [],
           isNumberInContacts: false,
           isLoadingContacts: false,
         ),
@@ -126,7 +126,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     if (event.query.isEmpty) {
       emit(
         state.copyWith(
-          matchingContacts: [],
+          matchingNumbers: [],
           isNumberInContacts: false,
           isLoadingContacts: false,
         ),
@@ -134,18 +134,16 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
       return;
     }
     try {
-      final matches = _contactRepository.filterContactsByPhoneDigits(
+      final matches = _contactRepository.matchPhoneDigits(
         _allContacts,
         event.query,
       );
       final inContacts = matches.any(
-        (c) => c.phoneNumbers.any(
-          (p) => _digitsOnly(p) == _digitsOnly(event.query),
-        ),
+        (m) => _digitsOnly(m.number) == _digitsOnly(event.query),
       );
       emit(
         state.copyWith(
-          matchingContacts: matches,
+          matchingNumbers: matches,
           isNumberInContacts: inContacts,
           isLoadingContacts: false,
         ),
@@ -166,7 +164,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
       emit(
         state.copyWith(
           dialedNumber: '',
-          matchingContacts: [],
+          matchingNumbers: [],
           isNumberInContacts: false,
           clearError: true,
         ),

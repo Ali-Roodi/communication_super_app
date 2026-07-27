@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter_contacts/flutter_contacts.dart' as device_contacts;
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import '../models/contact_model.dart';
+import '../models/phone_match.dart';
 
 class ContactRepository {
   static List<ContactModel>? _cache;
@@ -170,5 +171,39 @@ class ContactRepository {
         return normalizedPhone.contains(normalizedQuery);
       });
     }).toList();
+  }
+
+  /// Same match as [filterContactsByPhoneDigits], but resolved down to the
+  /// individual numbers: a contact whose second number was typed yields that
+  /// number, and a contact matching on two of its numbers yields both.
+  ///
+  /// This is what the dialer and the search screen render — showing the
+  /// contact's first number instead would answer a search for one number with
+  /// a different one.
+  List<PhoneMatch> matchPhoneDigits(
+    List<ContactModel> contacts,
+    String digits,
+  ) {
+    final normalizedQuery = digits.replaceAll(_nonDigits, '');
+    if (normalizedQuery.isEmpty) return [];
+
+    final matches = <PhoneMatch>[];
+    for (final contact in contacts) {
+      for (final phone in contact.phoneNumbers) {
+        final phoneDigits = phone.replaceAll(_nonDigits, '');
+        final at = phoneDigits.indexOf(normalizedQuery);
+        if (at < 0) continue;
+        matches.add(
+          PhoneMatch(
+            contact: contact,
+            number: phone,
+            digits: phoneDigits,
+            matchStart: at,
+            matchLength: normalizedQuery.length,
+          ),
+        );
+      }
+    }
+    return matches;
   }
 }

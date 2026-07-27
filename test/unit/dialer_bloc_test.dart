@@ -7,6 +7,7 @@ import 'package:communication_super_app/features/dialer/bloc/dialer_state.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
+import 'package:communication_super_app/features/contacts/models/phone_match.dart';
 
 class _MockContactRepository extends Mock implements ContactRepository {}
 
@@ -24,8 +25,8 @@ void main() {
     // constructor; stub both so it can be built in isolation.
     when(() => repo.getAllContacts()).thenAnswer((_) async => <ContactModel>[]);
     when(
-      () => repo.filterContactsByPhoneDigits(any(), any()),
-    ).thenReturn(<ContactModel>[]);
+      () => repo.matchPhoneDigits(any(), any()),
+    ).thenReturn(<PhoneMatch>[]);
     when(
       () => callService.callEvents,
     ).thenAnswer((_) => const Stream<CallInfo>.empty());
@@ -76,7 +77,7 @@ void main() {
       bloc.add(const DialerNumberCleared());
       await settle();
       expect(bloc.state.dialedNumber, '');
-      expect(bloc.state.matchingContacts, isEmpty);
+      expect(bloc.state.matchingNumbers, isEmpty);
       expect(bloc.state.isNumberInContacts, isFalse);
       await bloc.close();
     });

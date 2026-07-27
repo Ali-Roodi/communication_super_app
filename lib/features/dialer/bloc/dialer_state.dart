@@ -1,5 +1,5 @@
 import 'package:equatable/equatable.dart';
-import 'package:communication_super_app/features/contacts/models/contact_model.dart';
+import 'package:communication_super_app/features/contacts/models/phone_match.dart';
 
 /// وضعیت چرخه‌حیات تماس
 enum CallStatus { idle, connecting, ringing, active, incoming, onHold }
@@ -8,7 +8,9 @@ enum CallStatus { idle, connecting, ringing, active, incoming, onHold }
 class DialerState extends Equatable {
   // ── Keypad ────────────────────────────────────────────────
   final String dialedNumber;
-  final List<ContactModel> matchingContacts;
+  /// One entry per contact phone number matching [dialedNumber] — a contact
+  /// with two matching numbers appears twice, each row showing its own number.
+  final List<PhoneMatch> matchingNumbers;
   final bool isNumberInContacts;
   final bool isLoadingContacts;
 
@@ -28,7 +30,7 @@ class DialerState extends Equatable {
 
   const DialerState({
     this.dialedNumber = '',
-    this.matchingContacts = const [],
+    this.matchingNumbers = const [],
     this.isNumberInContacts = false,
     this.isLoadingContacts = false,
     this.callStatus = CallStatus.idle,
@@ -49,7 +51,7 @@ class DialerState extends Equatable {
 
   DialerState copyWith({
     String? dialedNumber,
-    List<ContactModel>? matchingContacts,
+    List<PhoneMatch>? matchingNumbers,
     bool? isNumberInContacts,
     bool? isLoadingContacts,
     CallStatus? callStatus,
@@ -64,7 +66,7 @@ class DialerState extends Equatable {
   }) {
     return DialerState(
       dialedNumber: dialedNumber ?? this.dialedNumber,
-      matchingContacts: matchingContacts ?? this.matchingContacts,
+      matchingNumbers: matchingNumbers ?? this.matchingNumbers,
       isNumberInContacts: isNumberInContacts ?? this.isNumberInContacts,
       isLoadingContacts: isLoadingContacts ?? this.isLoadingContacts,
       callStatus: callStatus ?? this.callStatus,
@@ -81,7 +83,7 @@ class DialerState extends Equatable {
   @override
   List<Object?> get props => [
     dialedNumber,
-    matchingContacts,
+    matchingNumbers,
     isNumberInContacts,
     isLoadingContacts,
     callStatus,
