@@ -16,10 +16,6 @@ import 'package:communication_super_app/features/call_history/bloc/call_log_bloc
 import 'package:communication_super_app/features/call_history/bloc/call_log_event.dart';
 import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
 import 'package:communication_super_app/core/services/deep_link_service.dart';
-import 'package:communication_super_app/core/theme/app_colors.dart';
-import 'package:communication_super_app/features/search/screens/search_screen.dart';
-import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
-import 'package:communication_super_app/features/settings/screens/settings_screen.dart';
 import 'widgets/message_nav_icon.dart';
 
 class MainNavigation extends StatefulWidget {
@@ -43,13 +39,6 @@ class _MainNavigationState extends State<MainNavigation>
     FavoritesScreen(),
     ContactsListScreen(),
     MessagesListScreen(),
-  ];
-
-  static const List<String> _titles = [
-    'اخیر',
-    'موردعلاقه‌ها',
-    'مخاطبین',
-    'پیام‌ها',
   ];
 
   /// Tabs that show the dialer FAB (Recents + Favorites, per Google Phone).
@@ -123,47 +112,13 @@ class _MainNavigationState extends State<MainNavigation>
     // Call-screen navigation lives in CallUiCoordinator (above the auth flow,
     // see main.dart) so incoming calls surface even on the PIN screen.
     return Scaffold(
-        // The Messages tab (index 3) hosts its own contextual app bar (inline
-        // search, multi-select, archived menu), so the shared header is hidden
-        // there to avoid a duplicate header.
-        appBar: _currentIndex == 3
-            ? null
-            : RtlAppBar(
-                title: _titles[_currentIndex],
-                showSearch: true,
-                showLock: false,
-                onSearchPressed: () => Navigator.of(
-                  context,
-                ).push(MaterialPageRoute(builder: (_) => const SearchScreen())),
-                actions: [
-                  // 3-dot overflow menu (Google Phone style) → Settings.
-                  PopupMenuButton<String>(
-                    icon: const Icon(Icons.more_vert),
-                    tooltip: 'گزینه‌های بیشتر',
-                    onSelected: (value) {
-                      if (value == 'settings') {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const SettingsScreen(),
-                          ),
-                        );
-                      }
-                    },
-                    itemBuilder: (_) => const [
-                      PopupMenuItem<String>(
-                        value: 'settings',
-                        child: Text('تنظیمات'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+        // No shared app bar: like Google Phone / Google Messages, every tab
+        // owns its header (a search pill, or the Messages collapsing header).
+        appBar: null,
         drawer: null,
         floatingActionButton: _showDialerFab
             ? FloatingActionButton(
                 onPressed: () => showDialerBottomSheet(context),
-                backgroundColor: AppColors.callAnswerGreen,
-                foregroundColor: Colors.white,
                 tooltip: 'شماره‌گیری',
                 child: const Icon(Icons.dialpad),
               )

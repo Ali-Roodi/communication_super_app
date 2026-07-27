@@ -107,6 +107,7 @@ class NativeSmsService {
     required String message,
     int? subscriptionId,
     String? trackingId,
+    bool deliveryReport = true,
   }) async {
     try {
       if (phoneNumber.trim().isEmpty) {
@@ -122,6 +123,8 @@ class NativeSmsService {
         'message': message,
         'subscriptionId': subscriptionId ?? -1,
         'trackingId': trackingId ?? '',
+        // Off → no delivery PendingIntent, so the bubble stops at ✓ (sent).
+        'deliveryReport': deliveryReport,
       };
 
       final result = await _methodChannel.invokeMethod<Map>('sendSms', params);

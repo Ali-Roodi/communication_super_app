@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
+import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import '../../models/message_model.dart';
 import 'link_preview_card.dart';
@@ -21,6 +22,11 @@ class MessageBubble extends StatelessWidget {
   final VoidCallback onLongPress;
   final VoidCallback? onRetry;
 
+  /// Whether a message containing a URL renders the link-preview card. Comes
+  /// from «پیش‌نمایش خودکار پیوند» in Settings; passed in rather than read from
+  /// a bloc so this widget stays presentation-only.
+  final bool showLinkPreview;
+
   const MessageBubble({
     super.key,
     required this.message,
@@ -31,6 +37,7 @@ class MessageBubble extends StatelessWidget {
     required this.onTap,
     required this.onLongPress,
     this.onRetry,
+    this.showLinkPreview = true,
   });
 
   @override
@@ -39,8 +46,11 @@ class MessageBubble extends StatelessWidget {
     final cs = theme.colorScheme;
     final isSent = message.type == MessageType.sent;
 
-    final bubbleColor = isSent ? cs.primary : cs.surfaceContainerHighest;
-    final textColor = isSent ? cs.onPrimary : cs.onSurface;
+    // Google Messages never fills a bubble with the saturated primary: sent
+    // messages use the tonal primary container, received ones a neutral
+    // container. Both keep body text at full contrast.
+    final bubbleColor = isSent ? cs.bubbleOutgoing : cs.bubbleIncoming;
+    final textColor = isSent ? cs.onBubbleOutgoing : cs.onSurface;
 
     const r = Radius.circular(20);
     const tail = Radius.circular(4);
@@ -96,7 +106,9 @@ class MessageBubble extends StatelessWidget {
                     ),
                     child: Builder(
                       builder: (context) {
-                        final previewUrl = LinkifiedText.firstUrl(message.body);
+                        final previewUrl = showLinkPreview
+                            ? LinkifiedText.firstUrl(message.body)
+                            : null;
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
@@ -104,10 +116,9 @@ class MessageBubble extends StatelessWidget {
                             LinkifiedText(
                               text: message.body,
                               style: TextStyle(color: textColor),
-                              // Sent bubbles sit on the primary color — keep
-                              // links onPrimary (underline distinguishes
-                              // them); received bubbles get the brand color.
-                              linkColor: isSent ? cs.onPrimary : cs.primary,
+                              // Both bubbles are tonal, so the brand colour has
+                              // enough contrast on either.
+                              linkColor: cs.primary,
                               enableTaps: !selectionMode,
                             ),
                             if (previewUrl != null)
@@ -128,10 +139,16 @@ class MessageBubble extends StatelessWidget {
                   children: [
                     Text(
                       DateFormatter.formatTime(message.timestamp),
-                      style: theme.textTheme.bodySmall?.copyWith(fontSize: 11),
+                      style: theme.textTheme.bodySmall?.copyWith(fontSize: 12),
                     ),
                     if (isSent) ...[
-                      const SizedBox(width: 4),
+                      const SizedBox(width: 6),
+                      // Google labels the transport under the sent bubble.
+                      Text(
+                        'پیامک',
+                        style: theme.textTheme.bodySmall?.copyWith(fontSize: 12),
+                      ),
+                      const SizedBox(width: 5),
                       _statusIcon(context),
                     ],
                   ],
@@ -196,16 +213,24 @@ class MessageSendButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    // Tonal circle, matching the composer's «ارسال» affordance in Google
+    // Messages (it is never a saturated fill).
     return Material(
-      color: enabled ? cs.primary : cs.primary.withValues(alpha: 0.4),
+      color: enabled
+          ? cs.primaryContainer
+          : cs.surfaceContainerHighest,
       shape: const CircleBorder(),
       child: InkWell(
         customBorder: const CircleBorder(),
         onTap: enabled ? onSend : null,
         onLongPress: enabled && onSchedule != null ? onSchedule : null,
         child: Padding(
-          padding: const EdgeInsets.all(10),
-          child: Icon(Icons.send, color: cs.onPrimary, size: 24),
+          padding: const EdgeInsets.all(14),
+          child: Icon(
+            Icons.send,
+            color: enabled ? cs.onPrimaryContainer : cs.onSurfaceVariant,
+            size: 24,
+          ),
         ),
       ),
     );

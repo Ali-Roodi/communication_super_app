@@ -189,6 +189,25 @@ class DatabaseHelper {
     if (oldVersion < 12) {
       await _createThreadQueryIndexes(db);
     }
+
+    // Migration from version 12 to 13: messages.is_starred — «ستاره‌دار», the
+    // per-message bookmark Google Messages keeps. Purely local metadata: the
+    // mirror-sync inserts with ConflictAlgorithm.ignore, so it never clears it.
+    if (oldVersion < 13) {
+      await db.execute('''
+        ALTER TABLE ${AppConstants.messagesTable}
+        ADD COLUMN is_starred INTEGER DEFAULT 0
+      ''');
+      await _createStarredIndex(db);
+    }
+  }
+
+  /// v13 index backing the «ستاره‌دار» screen.
+  Future<void> _createStarredIndex(Database db) async {
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_messages_is_starred
+      ON ${AppConstants.messagesTable}(is_starred, timestamp DESC)
+    ''');
   }
 
   /// v12 composite indexes (also created on fresh installs in `_createDB`).
@@ -345,6 +364,7 @@ class DatabaseHelper {
           is_read INTEGER DEFAULT 0,
           is_deleted INTEGER NOT NULL DEFAULT 0,
           device_sms_id INTEGER,
+          is_starred INTEGER DEFAULT 0,
           FOREIGN KEY (contact_id) REFERENCES ${AppConstants.contactsTable}(id) ON DELETE SET NULL
         )
       ''');
@@ -382,6 +402,9 @@ class DatabaseHelper {
 
       // Inbox thread-query composite indexes (v12)
       await _createThreadQueryIndexes(db);
+
+      // «ستاره‌دار» index (v13)
+      await _createStarredIndex(db);
 
       // Call logs table (local cache)
       await db.execute('''

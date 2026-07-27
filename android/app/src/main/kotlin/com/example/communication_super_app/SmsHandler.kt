@@ -262,7 +262,10 @@ class SmsHandler(
         phoneNumber: String,
         message: String,
         subscriptionId: Int = -1,
-        trackingId: String = ""
+        trackingId: String = "",
+        /** When false no delivery PendingIntent is attached, so the carrier is
+         *  never asked for a delivery report («گزارش تحویل» in Settings). */
+        requestDeliveryReport: Boolean = true,
     ): Result<Map<String, Any>> = withContext(Dispatchers.IO) {
         try {
             if (phoneNumber.isBlank()) {
@@ -306,12 +309,16 @@ class SmsHandler(
                     .putExtra(EXTRA_TRACKING_ID, trackingId),
                 flags
             )
-            val deliveredIntent = PendingIntent.getBroadcast(
-                context, requestCode,
-                Intent(SMS_DELIVERED_ACTION).setPackage(context.packageName)
-                    .putExtra(EXTRA_TRACKING_ID, trackingId),
-                flags
-            )
+            val deliveredIntent = if (requestDeliveryReport) {
+                PendingIntent.getBroadcast(
+                    context, requestCode,
+                    Intent(SMS_DELIVERED_ACTION).setPackage(context.packageName)
+                        .putExtra(EXTRA_TRACKING_ID, trackingId),
+                    flags
+                )
+            } else {
+                null
+            }
 
             // Handle multipart messages
             val parts = smsManager.divideMessage(message)
@@ -329,18 +336,19 @@ class SmsHandler(
                 // Multipart message
                 val sentIntents = ArrayList<PendingIntent>()
                 val deliveredIntents = ArrayList<PendingIntent>()
-                
+
                 repeat(parts.size) {
                     sentIntents.add(sentIntent)
-                    deliveredIntents.add(deliveredIntent)
+                    deliveredIntent?.let { deliveredIntents.add(it) }
                 }
-                
+
                 smsManager.sendMultipartTextMessage(
                     phoneNumber,
                     null,
                     parts,
                     sentIntents,
-                    deliveredIntents
+                    // The list must be null (not empty) to mean "no reports".
+                    deliveredIntents.takeIf { it.isNotEmpty() }
                 )
             }
 
@@ -725,6 +733,8 @@ class SmsHandler(
                     val message = call.argument<String>("message")
                     val subscriptionId = call.argument<Int>("subscriptionId") ?: -1
                     val trackingId = call.argument<String>("trackingId") ?: ""
+                    val deliveryReport =
+                        call.argument<Boolean>("deliveryReport") ?: true
 
                     if (phoneNumber == null || message == null) {
                         result.error("INVALID_ARGUMENTS", "Phone number and message are required", null)
@@ -733,7 +743,13 @@ class SmsHandler(
 
                     coroutineScope.launch {
                         try {
-                            val sendResult = sendSms(phoneNumber, message, subscriptionId, trackingId)
+                            val sendResult = sendSms(
+                                phoneNumber,
+                                message,
+                                subscriptionId,
+                                trackingId,
+                                deliveryReport,
+                            )
                             
                             if (sendResult.isSuccess) {
                                 result.success(sendResult.getOrNull())

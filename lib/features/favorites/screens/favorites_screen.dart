@@ -3,6 +3,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
+import 'package:communication_super_app/core/widgets/google_list.dart';
+import 'package:communication_super_app/core/widgets/home_search_header.dart';
 import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
@@ -13,9 +15,11 @@ import '../bloc/favorites_event.dart';
 import '../bloc/favorites_state.dart';
 import '../models/favorite_model.dart';
 
-/// Favorites (موردعلاقه‌ها) tab — a 2-column grid of starred numbers.
-/// Tap a card to open the saved contact; long-press to remove from favorites.
-/// The empty state and the "+" card both open a contact picker.
+/// Favorites (موردعلاقه‌ها) tab — the circular-avatar grid Google Phone shows
+/// under «موارد دلخواه»: a leading «افزودن» circle followed by one circle per
+/// starred number, name underneath.
+///
+/// Tap a favourite to open the saved contact; long-press to remove it.
 class FavoritesScreen extends StatelessWidget {
   const FavoritesScreen({super.key});
 
@@ -23,39 +27,47 @@ class FavoritesScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: BlocBuilder<FavoritesBloc, FavoritesState>(
-        builder: (context, state) {
-          if (state is FavoritesLoading || state is FavoritesInitial) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (state is FavoritesError) {
-            return Center(child: Text('خطا: ${state.message}'));
-          }
-          final favorites = state is FavoritesLoaded
-              ? state.favorites
-              : const <FavoriteModel>[];
+      child: Column(
+        children: [
+          const HomeSearchHeader(),
+          Expanded(
+            child: BlocBuilder<FavoritesBloc, FavoritesState>(
+              builder: (context, state) {
+                if (state is FavoritesLoading || state is FavoritesInitial) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (state is FavoritesError) {
+                  return Center(child: Text('خطا: ${state.message}'));
+                }
+                final favorites = state is FavoritesLoaded
+                    ? state.favorites
+                    : const <FavoriteModel>[];
 
-          if (favorites.isEmpty) {
-            return _EmptyState(onAdd: () => _openPicker(context));
-          }
+                if (favorites.isEmpty) {
+                  return _EmptyState(onAdd: () => _openPicker(context));
+                }
 
-          return GridView.builder(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: 0.95,
+                return GridView.builder(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 110),
+                  gridDelegate:
+                      const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        mainAxisSpacing: 8,
+                        crossAxisSpacing: 8,
+                        childAspectRatio: 0.82,
+                      ),
+                  itemCount: favorites.length + 1,
+                  itemBuilder: (context, index) {
+                    if (index == 0) {
+                      return _AddCard(onTap: () => _openPicker(context));
+                    }
+                    return _FavoriteCard(favorite: favorites[index - 1]);
+                  },
+                );
+              },
             ),
-            itemCount: favorites.length + 1,
-            itemBuilder: (context, index) {
-              if (index == favorites.length) {
-                return _AddCard(onTap: () => _openPicker(context));
-              }
-              return _FavoriteCard(favorite: favorites[index]);
-            },
-          );
-        },
+          ),
+        ],
       ),
     );
   }
@@ -79,56 +91,31 @@ class _FavoriteCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      color: theme.brightness == Brightness.dark
-          ? AppColors.keypadDark
-          : AppColors.keypadLight,
-      child: InkWell(
-        // Tap: open the saved contact. Long-press: remove from favorites.
-        onTap: () => _openContact(context),
-        onLongPress: () => _confirmRemove(context),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Stack(
-                children: [
-                  AvatarWidget(name: favorite.displayName, size: 64),
-                  Positioned(
-                    bottom: 0,
-                    right: 0,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: AppColors.callAnswerGreen,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: theme.cardColor, width: 2),
-                      ),
-                      child: const Icon(
-                        Icons.phone,
-                        color: Colors.white,
-                        size: 12,
-                      ),
-                    ),
-                  ),
-                ],
+    final scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      // Tap: open the saved contact. Long-press: remove from favorites.
+      onTap: () => _openContact(context),
+      onLongPress: () => _confirmRemove(context),
+      borderRadius: BorderRadius.circular(20),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AvatarWidget(name: favorite.displayName, size: 72),
+            const SizedBox(height: 10),
+            Text(
+              favorite.displayName,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.3,
+                color: scheme.onSurface,
               ),
-              const SizedBox(height: 10),
-              Text(
-                favorite.displayName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -194,25 +181,32 @@ class _AddCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      color: Colors.transparent,
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: theme.dividerColor),
-      ),
-      child: InkWell(
-        onTap: onTap,
+    final scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.add, size: 32, color: theme.colorScheme.primary),
-            const SizedBox(height: 8),
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHighest,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.person_add_alt,
+                size: 30,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 10),
             Text(
-              'افزودن موردعلاقه',
-              style: TextStyle(color: theme.colorScheme.primary),
+              'افزودن',
+              style: TextStyle(fontSize: 13, color: scheme.onSurface),
             ),
           ],
         ),
@@ -229,39 +223,14 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final dim = theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.6);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.star_outline,
-              size: 96,
-              color: theme.colorScheme.primary.withValues(alpha: 0.5),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'مخاطبین موردعلاقه شما اینجا نمایش داده می‌شوند',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'برای دسترسی سریع، مخاطبین پرتماس را به موردعلاقه‌ها اضافه کنید',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(color: dim),
-            ),
-            const SizedBox(height: 24),
-            FilledButton.tonalIcon(
-              onPressed: onAdd,
-              icon: const Icon(Icons.add),
-              label: const Text('افزودن موردعلاقه'),
-            ),
-          ],
-        ),
+    return EmptyState(
+      icon: Icons.star_outline,
+      title: 'موردعلاقه‌ای ندارید',
+      subtitle: 'برای دسترسی سریع، مخاطبین پرتماس را به موردعلاقه‌ها اضافه کنید',
+      action: FilledButton.tonalIcon(
+        onPressed: onAdd,
+        icon: const Icon(Icons.add),
+        label: const Text('افزودن موردعلاقه'),
       ),
     );
   }
@@ -324,9 +293,14 @@ class _FavoritePickerSheetState extends State<_FavoritePickerSheet> {
                       return const Center(child: CircularProgressIndicator());
                     }
                     final q = _query.trim().toLowerCase();
+                    // A favourite is a number to call, so contacts without one
+                    // are not offered here.
+                    final reachable = snapshot.data!.where(
+                      (c) => c.phoneNumbers.isNotEmpty,
+                    );
                     final contacts = q.isEmpty
-                        ? snapshot.data!
-                        : snapshot.data!
+                        ? reachable.toList()
+                        : reachable
                               .where(
                                 (c) =>
                                     c.name.toLowerCase().contains(q) ||

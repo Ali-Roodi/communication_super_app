@@ -1,48 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:communication_super_app/core/widgets/google_list.dart';
 
 /// Full-screen placeholder shown when the inbox has no conversations yet.
 class MessagesEmptyState extends StatelessWidget {
   const MessagesEmptyState({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      color: theme.scaffoldBackgroundColor,
-      padding: const EdgeInsets.all(24),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.chat_bubble_outline,
-              size: 64,
-              color: theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.5),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'هیچ پیامکی موجود نیست',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w500,
-                color: theme.textTheme.bodyLarge?.color,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'پیام‌های شما در اینجا نمایش داده خواهند شد',
-              style: TextStyle(
-                fontSize: 14,
-                color: theme.textTheme.bodyMedium?.color,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => const EmptyState(
+    icon: Icons.chat_bubble_outline,
+    title: 'هیچ پیامکی موجود نیست',
+    subtitle: 'پیام‌های شما در اینجا نمایش داده خواهند شد',
+  );
 }
 
 /// Centered "no search results" message.
@@ -50,15 +18,10 @@ class MessagesNoResults extends StatelessWidget {
   const MessagesNoResults({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
-      child: Text(
-        'نتیجه‌ای یافت نشد',
-        style: TextStyle(color: theme.textTheme.bodyMedium?.color),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => const EmptyState(
+    icon: Icons.search_off,
+    title: 'نتیجه‌ای یافت نشد',
+  );
 }
 
 /// Full-screen error state with a retry button.

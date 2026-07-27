@@ -17,6 +17,7 @@ import 'package:communication_super_app/features/messages/screens/widgets/messag
 import 'package:communication_super_app/features/messages/screens/widgets/scheduled_bubble.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
+import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
 import 'package:communication_super_app/features/settings/repositories/blocked_numbers_repository.dart';
 
 class _MockMessageRepository extends Mock implements MessageRepository {}
@@ -117,6 +118,8 @@ void main() {
           BlocProvider.value(value: messageBloc),
           BlocProvider.value(value: scheduledBloc),
           BlocProvider(create: (_) => BlockedNumbersBloc(blockedRepo)),
+          // The composer/bubbles read «پیش‌نمایش خودکار پیوند» from here.
+          BlocProvider(create: (_) => SettingsBloc()),
         ],
         child: const ConversationScreen(
           threadId: '09120000000',
@@ -196,8 +199,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(MessageBubble), findsNWidgets(2));
-    expect(find.text('امروز'), findsOneWidget);
-    expect(find.text('دیروز'), findsOneWidget);
+    // The separator reads «امروز • ۰۹:۰۰» (label + time), like Google Messages.
+    // Anchored so a message body that happens to contain the word doesn't match.
+    expect(find.textContaining(RegExp('^امروز • ')), findsOneWidget);
+    expect(find.textContaining(RegExp('^دیروز • ')), findsOneWidget);
   });
 
   testWidgets('a pending schedule for this thread renders as a ghost bubble', (

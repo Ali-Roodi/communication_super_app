@@ -17,6 +17,15 @@ Widget _appBarHarness(PreferredSizeWidget appBar) => MaterialApp(
   ),
 );
 
+/// The inbox headers are slivers (the default one collapses), so they need a
+/// scroll view rather than `Scaffold.appBar`.
+Widget _sliverAppBarHarness(Widget sliver) => MaterialApp(
+  home: Directionality(
+    textDirection: TextDirection.rtl,
+    child: Scaffold(body: CustomScrollView(slivers: [sliver])),
+  ),
+);
+
 Widget _bodyHarness(Widget child) => MaterialApp(
   home: Directionality(
     textDirection: TextDirection.rtl,
@@ -141,7 +150,7 @@ void main() {
     ) async {
       var read = 0, archive = 0, del = 0;
       await tester.pumpWidget(
-        _appBarHarness(
+        _sliverAppBarHarness(
           MessagesSelectionAppBar(
             selectedCount: 3,
             onClear: () {},
@@ -151,6 +160,7 @@ void main() {
             onSelectAll: () {},
             onMarkUnread: () {},
             onBlock: () {},
+            onPin: () {},
           ),
         ),
       );
@@ -164,7 +174,7 @@ void main() {
     testWidgets('overflow menu fires block', (tester) async {
       var blocked = 0;
       await tester.pumpWidget(
-        _appBarHarness(
+        _sliverAppBarHarness(
           MessagesSelectionAppBar(
             selectedCount: 1,
             onClear: () {},
@@ -174,6 +184,7 @@ void main() {
             onSelectAll: () {},
             onMarkUnread: () {},
             onBlock: () => blocked++,
+            onPin: () {},
           ),
         ),
       );
@@ -268,6 +279,8 @@ void main() {
                   onInfo: () {},
                   onSelect: () {},
                   onDelete: () {},
+                  isStarred: false,
+                  onToggleStar: () {},
                 ),
                 child: const Text('open'),
               ),

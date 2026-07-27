@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:communication_super_app/core/theme/app_colors.dart';
+import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/features/dialer/widgets/dialer_widgets.dart'
     show DialKey;
 
@@ -71,11 +71,6 @@ class PinKeypad extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    // Same key pill background as the dialer (Figma tokens).
-    final keyColor = isDark ? AppColors.cardDark : AppColors.surfaceLight;
-
     void press(String value) {
       if (!enabled) return;
       HapticFeedback.lightImpact();
@@ -101,13 +96,7 @@ class PinKeypad extends StatelessWidget {
               Row(
                 children: [
                   for (final k in row)
-                    cell(
-                      DialKey(
-                        display: k[0],
-                        keyColor: keyColor,
-                        onTap: () => press(k[1]),
-                      ),
-                    ),
+                    cell(DialKey(display: k[0], onTap: () => press(k[1]))),
                 ],
               ),
               const SizedBox(height: 12),
@@ -116,14 +105,8 @@ class PinKeypad extends StatelessWidget {
               children: [
                 // Empty slot keeps 0 centred (dialer has * here; PIN doesn't).
                 cell(const SizedBox(height: 62)),
-                cell(
-                  DialKey(
-                    display: '۰',
-                    keyColor: keyColor,
-                    onTap: () => press('0'),
-                  ),
-                ),
-                cell(_BackspaceKey(keyColor: keyColor, enabled: enabled, onDelete: onDelete)),
+                cell(DialKey(display: '۰', onTap: () => press('0'))),
+                cell(_BackspaceKey(enabled: enabled, onDelete: onDelete)),
               ],
             ),
           ],
@@ -135,27 +118,19 @@ class PinKeypad extends StatelessWidget {
 
 /// Backspace key styled like a [DialKey] pill (icon instead of a digit).
 class _BackspaceKey extends StatelessWidget {
-  final Color keyColor;
   final bool enabled;
   final VoidCallback onDelete;
 
-  const _BackspaceKey({
-    required this.keyColor,
-    required this.enabled,
-    required this.onDelete,
-  });
+  const _BackspaceKey({required this.enabled, required this.onDelete});
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final scheme = Theme.of(context).colorScheme;
     return Material(
-      color: keyColor,
-      elevation: 1,
-      shadowColor: Colors.black.withValues(alpha: 0.12),
-      borderRadius: BorderRadius.circular(16),
+      color: scheme.keySurface,
+      borderRadius: BorderRadius.circular(34),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
         onTap: enabled
             ? () {
                 HapticFeedback.lightImpact();
@@ -167,7 +142,7 @@ class _BackspaceKey extends StatelessWidget {
           child: Icon(
             Icons.backspace_outlined,
             size: 24,
-            color: theme.textTheme.bodyLarge?.color,
+            color: scheme.onSurfaceVariant,
           ),
         ),
       ),

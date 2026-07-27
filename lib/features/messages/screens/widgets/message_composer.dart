@@ -97,59 +97,61 @@ class MessageComposer extends StatelessWidget {
                   ],
                 ),
               ),
+            // Google Messages' composer: everything except the send button
+            // lives inside one filled pill; the circular send sits beside it.
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                // Attach — far right in the RTL layout.
-                IconButton(
-                  icon: const Icon(Icons.add_circle_outline),
-                  tooltip: 'پیوست',
-                  onPressed: onAttach,
-                ),
-                // Outlined text field: a thin rounded border, no gray fill.
                 Expanded(
-                  child: TextField(
-                    controller: controller,
-                    minLines: 1,
-                    maxLines: 4,
-                    textInputAction: TextInputAction.newline,
-                    decoration: InputDecoration(
-                      hintText: 'پیام',
-                      isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(
-                        vertical: 10,
-                        horizontal: 14,
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(24),
-                        borderSide: BorderSide(color: theme.colorScheme.outline),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(24),
-                        borderSide: BorderSide(
-                          color: theme.colorScheme.primary,
-                          width: 1.5,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHigh,
+                      borderRadius: BorderRadius.circular(28),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.add_circle_outline),
+                          tooltip: 'پیوست',
+                          onPressed: onAttach,
                         ),
-                      ),
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            child: TextField(
+                              controller: controller,
+                              minLines: 1,
+                              maxLines: 4,
+                              textInputAction: TextInputAction.newline,
+                              style: const TextStyle(fontSize: 16),
+                              decoration: const InputDecoration(
+                                hintText: 'پیامک',
+                                isDense: true,
+                                filled: false,
+                                contentPadding: EdgeInsets.zero,
+                                border: InputBorder.none,
+                                enabledBorder: InputBorder.none,
+                                focusedBorder: InputBorder.none,
+                              ),
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            showStickers
+                                ? Icons.keyboard
+                                : Icons.emoji_emotions_outlined,
+                          ),
+                          tooltip: 'استیکر',
+                          onPressed: onToggleStickers,
+                        ),
+                      ],
                     ),
                   ),
                 ),
-                // Emoji toggle in its own tidy gray pill, left of the text.
-                IconButton(
-                  icon: Icon(
-                    showStickers
-                        ? Icons.keyboard
-                        : Icons.emoji_emotions_outlined,
-                  ),
-                  tooltip: 'استیکر',
-                  onPressed: onToggleStickers,
-                  style: IconButton.styleFrom(
-                    backgroundColor: theme.brightness == Brightness.dark
-                        ? theme.colorScheme.surfaceContainerHighest
-                        : Colors.grey[200],
-                  ),
-                ),
-                const SizedBox(width: 4),
+                const SizedBox(width: 8),
                 MessageSendButton(
                   enabled: hasText,
                   onSend: onSend,

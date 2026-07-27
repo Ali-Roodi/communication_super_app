@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:communication_super_app/core/widgets/google_list.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
@@ -114,19 +115,22 @@ class _BlockedNumbersScreenState extends State<BlockedNumbersScreen> {
                   }
                   if (state is BlockedNumbersLoaded) {
                     if (state.numbers.isEmpty) {
-                      return Center(
-                        child: Text(
-                          'شماره مسدودی وجود ندارد',
-                          style: theme.textTheme.bodyLarge?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
+                      return const EmptyState(
+                        icon: Icons.block,
+                        title: 'شماره مسدودی وجود ندارد',
+                        subtitle:
+                            'شماره‌هایی که مسدود کنید اینجا فهرست می‌شوند',
                       );
                     }
-                    return ListView.builder(
-                      itemCount: state.numbers.length,
-                      itemBuilder: (context, i) =>
-                          _BlockedTile(number: state.numbers[i]),
+                    return ListView(
+                      padding: const EdgeInsets.only(top: 4, bottom: 24),
+                      children: [
+                        GroupedList(
+                          children: [
+                            for (final n in state.numbers) _BlockedTile(number: n),
+                          ],
+                        ),
+                      ],
                     );
                   }
                   return const SizedBox.shrink();
