@@ -16,6 +16,7 @@ import 'package:communication_super_app/features/contacts/models/contact_model.d
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
 import 'package:communication_super_app/features/contacts/services/contact_extras_service.dart';
+import 'package:communication_super_app/features/contacts/widgets/phone_number_picker.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_bloc.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_event.dart';
@@ -268,6 +269,38 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
 
   // ── Action row ──────────────────────────────────────────────────────────
 
+  /// Every number this contact has, in address-book order.
+  List<String> get _allPhones {
+    final loaded = _full?.phones.map((p) => p.number).toList() ?? const [];
+    if (loaded.isNotEmpty) return loaded;
+    if (widget.contact.phoneNumbers.isNotEmpty) {
+      return widget.contact.phoneNumbers;
+    }
+    return [widget.contact.primaryPhone];
+  }
+
+  /// Header call/message act on the contact as a whole, so a contact with more
+  /// than one number is asked which one — the same as Google Contacts.
+  Future<void> _callFromHeader() async {
+    final number = await pickContactNumber(
+      context,
+      numbers: _allPhones,
+      title: 'تماس با $_name',
+    );
+    if (number == null) return;
+    await NativeCallService.instance.makeCall(number);
+  }
+
+  Future<void> _messageFromHeader() async {
+    final number = await pickContactNumber(
+      context,
+      numbers: _allPhones,
+      title: 'پیام به $_name',
+    );
+    if (number == null || !mounted) return;
+    _openSms(number);
+  }
+
   /// The wide tonal capsules under the header — Google Contacts' action row.
   /// They stretch to fill the width, carry the icon inside the capsule and the
   /// label underneath, and grey out when the contact can't be reached that way.
@@ -285,9 +318,7 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
             child: _ActionButton(
               icon: Icons.call,
               label: 'تماس',
-              onTap: hasPhone
-                  ? () => NativeCallService.instance.makeCall(_primaryPhone)
-                  : null,
+              onTap: hasPhone ? _callFromHeader : null,
             ),
           ),
           const SizedBox(width: 8),
@@ -295,7 +326,7 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
             child: _ActionButton(
               icon: Icons.chat_bubble,
               label: 'پیام',
-              onTap: hasPhone ? () => _openSms(_primaryPhone) : null,
+              onTap: hasPhone ? _messageFromHeader : null,
             ),
           ),
           const SizedBox(width: 8),

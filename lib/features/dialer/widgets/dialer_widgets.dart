@@ -5,8 +5,10 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
+import 'package:communication_super_app/core/widgets/highlighted_phone.dart';
 import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
+import 'package:communication_super_app/features/contacts/models/phone_match.dart';
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_bloc.dart';
@@ -315,18 +317,22 @@ class DialerCallPill extends StatelessWidget {
 
 // ── Contact suggestion rows ──────────────────────────────────────────────────
 
-/// A matched contact shown above the keypad while a number is being typed.
+/// A matched contact number shown above the keypad while a number is typed.
+///
+/// The row renders [PhoneMatch.number] — the number that actually matched —
+/// not the contact's first number: searching for someone's second number and
+/// being shown their first is the wrong answer.
 class DialerContactRow extends StatelessWidget {
-  final ContactModel contact;
+  final PhoneMatch match;
 
-  const DialerContactRow({super.key, required this.contact});
+  const DialerContactRow({super.key, required this.match});
+
+  ContactModel get contact => match.contact;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final phone = contact.phoneNumbers.isNotEmpty
-        ? contact.phoneNumbers.first
-        : contact.phoneNumber;
+    final phone = match.number;
 
     return InkWell(
       onTap: () => Navigator.push(
@@ -367,8 +373,16 @@ class DialerContactRow extends StatelessWidget {
                       ),
                       Directionality(
                         textDirection: TextDirection.ltr,
-                        child: Text(
-                          PersianUtils.displayPhone(phone),
+                        child: HighlightedPhone(
+                          number: phone,
+                          query: match.digits.isEmpty
+                              ? ''
+                              : match.digits.substring(
+                                  match.matchStart < 0 ? 0 : match.matchStart,
+                                  match.matchStart < 0
+                                      ? 0
+                                      : match.matchStart + match.matchLength,
+                                ),
                           style: TextStyle(
                             fontSize: 14,
                             color: scheme.onSurfaceVariant,

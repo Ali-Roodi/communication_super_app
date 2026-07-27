@@ -9,6 +9,7 @@ import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
+import 'package:communication_super_app/features/contacts/widgets/phone_number_picker.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import '../bloc/favorites_bloc.dart';
 import '../bloc/favorites_event.dart';
@@ -314,9 +315,13 @@ class _FavoritePickerSheetState extends State<_FavoritePickerSheet> {
                       itemCount: contacts.length,
                       itemBuilder: (context, i) {
                         final c = contacts[i];
+                        // A favourite is one specific number; the subtitle
+                        // shows the first, and a contact with several asks
+                        // which one on tap (Google Phone does the same).
                         final phone = c.phoneNumbers.isNotEmpty
                             ? c.phoneNumbers.first
                             : c.phoneNumber;
+                        final multiple = c.phoneNumbers.length > 1;
                         return ListTile(
                           leading: LazyContactAvatar(
                             contactId: c.id,
@@ -327,17 +332,28 @@ class _FavoritePickerSheetState extends State<_FavoritePickerSheet> {
                           subtitle: Directionality(
                             textDirection: TextDirection.ltr,
                             child: Text(
-                              PersianUtils.displayPhone(phone),
+                              multiple
+                                  ? '${PersianUtils.displayPhone(phone)} '
+                                        '+${PersianUtils.toPersianNumber('${c.phoneNumbers.length - 1}')}'
+                                  : PersianUtils.displayPhone(phone),
                               textAlign: TextAlign.right,
                               style: TextStyle(
                                 color: theme.textTheme.bodyMedium?.color,
                               ),
                             ),
                           ),
-                          onTap: () {
+                          onTap: () async {
+                            final picked = await pickContactNumber(
+                              context,
+                              numbers: c.phoneNumbers.isEmpty
+                                  ? [phone]
+                                  : c.phoneNumbers,
+                              title: 'کدام شماره ${c.name}؟',
+                            );
+                            if (picked == null || !context.mounted) return;
                             widget.favoritesBloc.add(
                               AddFavorite(
-                                phoneNumber: phone,
+                                phoneNumber: picked,
                                 name: c.name,
                                 contactId: c.id,
                               ),

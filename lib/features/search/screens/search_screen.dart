@@ -4,10 +4,12 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
+import 'package:communication_super_app/core/widgets/highlighted_phone.dart';
 import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
+import 'package:communication_super_app/features/contacts/widgets/phone_number_picker.dart';
 import 'package:communication_super_app/features/call_history/models/call_log_model.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import '../bloc/search_bloc.dart';
@@ -93,7 +95,8 @@ class _SearchScreenState extends State<SearchScreen> {
                   const SectionLabel('مخاطبین'),
                   GroupedList(
                     children: [
-                      for (final c in state.contacts) _ContactResult(contact: c),
+                      for (final c in state.contacts)
+                        _ContactResult(contact: c, query: state.query),
                     ],
                   ),
                 ],
@@ -129,7 +132,44 @@ class _SearchPrompt extends StatelessWidget {
 
 class _ContactResult extends StatelessWidget {
   final ContactModel contact;
-  const _ContactResult({required this.contact});
+
+  /// What was typed — a digit query shows (and dials) the number it matched
+  /// rather than the contact's first one.
+  final String query;
+
+  const _ContactResult({required this.contact, required this.query});
+
+  String get _queryDigits => query.replaceAll(RegExp(r'[^\d]'), '');
+
+  /// The number this row is about: the one the digits matched, else the
+  /// contact's primary number.
+  String get _shownNumber {
+    final digits = _queryDigits;
+    if (digits.isNotEmpty) {
+      for (final phone in contact.phoneNumbers) {
+        if (phone.replaceAll(RegExp(r'[^\d]'), '').contains(digits)) {
+          return phone;
+        }
+      }
+    }
+    return contact.primaryPhone;
+  }
+
+  /// A name search on a multi-number contact has no matched number, so the
+  /// call button asks which one.
+  Future<void> _call(BuildContext context) async {
+    if (_queryDigits.isEmpty && contact.phoneNumbers.length > 1) {
+      final picked = await pickContactNumber(
+        context,
+        numbers: contact.phoneNumbers,
+        title: 'تماس با ${contact.name}',
+      );
+      if (picked == null) return;
+      await NativeCallService.instance.makeCall(picked);
+      return;
+    }
+    await NativeCallService.instance.makeCall(_shownNumber);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -143,16 +183,15 @@ class _ContactResult extends StatelessWidget {
       title: Text(contact.name),
       subtitle: Directionality(
         textDirection: TextDirection.ltr,
-        child: Text(
-          PersianUtils.displayPhone(contact.primaryPhone),
-          textAlign: TextAlign.right,
+        child: HighlightedPhone(
+          number: _shownNumber,
+          query: _queryDigits,
           style: TextStyle(color: theme.textTheme.bodyMedium?.color),
         ),
       ),
       trailing: IconButton(
         icon: const Icon(Icons.call, color: AppColors.callAnswerGreen),
-        onPressed: () =>
-            NativeCallService.instance.makeCall(contact.primaryPhone),
+        onPressed: () => _call(context),
       ),
       onTap: () => Navigator.push(
         context,

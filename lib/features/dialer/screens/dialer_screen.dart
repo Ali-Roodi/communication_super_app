@@ -76,7 +76,7 @@ class _Suggestions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final contacts = state.matchingContacts;
+    final matches = state.matchingNumbers;
     return ListView(
       padding: const EdgeInsets.only(bottom: 8),
       children: [
@@ -85,8 +85,8 @@ class _Suggestions extends StatelessWidget {
           padding: EdgeInsets.fromLTRB(24, 8, 24, 8),
         ),
         GroupedList(
-          children: contacts.isNotEmpty
-              ? [for (final c in contacts) DialerContactRow(contact: c)]
+          children: matches.isNotEmpty
+              ? [for (final m in matches) DialerContactRow(match: m)]
               : [DialerUnknownRow(phone: state.dialedNumber)],
         ),
       ],

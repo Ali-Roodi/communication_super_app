@@ -352,6 +352,48 @@ void main() {
     });
   });
 
+  group('ContactRepository.matchPhoneDigits (pure)', () {
+    final repo = ContactRepository();
+    final ali = ContactModel(
+      id: 'ali',
+      name: 'علی',
+      phoneNumber: '09121112233',
+      phoneNumbers: const ['09121112233', '09034853204'],
+      createdAt: DateTime(2026, 1, 1),
+      updatedAt: DateTime(2026, 1, 1),
+    );
+
+    test('reports the number that matched, not the contact\'s first', () {
+      final matches = repo.matchPhoneDigits([ali], '09034853204');
+      expect(matches, hasLength(1));
+      expect(matches.single.number, '09034853204');
+      expect(matches.single.contact.id, 'ali');
+    });
+
+    test('a contact matching on two numbers yields both', () {
+      final matches = repo.matchPhoneDigits([ali], '090');
+      expect(matches.map((m) => m.number), ['09034853204']);
+      expect(repo.matchPhoneDigits([ali], '0912').map((m) => m.number), [
+        '09121112233',
+      ]);
+      expect(repo.matchPhoneDigits([ali], '09').map((m) => m.number), [
+        '09121112233',
+        '09034853204',
+      ]);
+    });
+
+    test('carries the offset of the typed digits for highlighting', () {
+      final match = repo.matchPhoneDigits([ali], '4853').single;
+      expect(match.matchStart, 4);
+      expect(match.matchLength, 4);
+    });
+
+    test('empty / digit-less query matches nothing', () {
+      expect(repo.matchPhoneDigits([ali], ''), isEmpty);
+      expect(repo.matchPhoneDigits([ali], 'abc'), isEmpty);
+    });
+  });
+
   group('ScheduledMessageRepository', () {
     test('upsert then getAll returns the schedule', () async {
       final repo = ScheduledMessageRepository();
