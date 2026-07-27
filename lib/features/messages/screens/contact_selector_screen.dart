@@ -10,8 +10,22 @@ import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'conversation_screen.dart';
 
+/// The recipient picker for «پیام جدید».
+///
+/// In the default mode picking a row *replaces* this screen with the
+/// conversation. In [pickOnly] mode it instead pops with the chosen
+/// [PickedRecipient], which is what «هدایت» (forward) needs so it can open the
+/// target chat with the forwarded text already in the composer.
+class PickedRecipient {
+  final String phoneNumber;
+  final String? name;
+  const PickedRecipient({required this.phoneNumber, this.name});
+}
+
 class ContactSelectorScreen extends StatefulWidget {
-  const ContactSelectorScreen({super.key});
+  final bool pickOnly;
+
+  const ContactSelectorScreen({super.key, this.pickOnly = false});
 
   @override
   State<ContactSelectorScreen> createState() => _ContactSelectorScreenState();
@@ -34,13 +48,14 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
   }
 
   List<ContactModel> _filterContacts(List<ContactModel> contacts) {
-    if (_searchQuery.isEmpty) {
-      return contacts;
-    }
-    return contacts.where((contact) {
+    // You can't text a contact with no number, so this picker — unlike the
+    // contacts tab — only lists the ones that have one.
+    final reachable = contacts.where((c) => c.phoneNumbers.isNotEmpty);
+    if (_searchQuery.isEmpty) return reachable.toList();
+    final queryLower = _searchQuery.toLowerCase();
+    return reachable.where((contact) {
       final nameLower = contact.name.toLowerCase();
       final phoneLower = contact.phoneNumber.toLowerCase();
-      final queryLower = _searchQuery.toLowerCase();
       return nameLower.contains(queryLower) || phoneLower.contains(queryLower);
     }).toList();
   }
@@ -244,14 +259,31 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
           textAlign: TextAlign.right,
         ),
       ),
-      onTap: () {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => ConversationScreen.forPhone(national),
-          ),
-        );
-      },
+      onTap: () => _choose(phoneNumber: national),
+    );
+  }
+
+  /// Either hands the picked recipient back to the caller ([ContactSelectorScreen.pickOnly])
+  /// or opens the conversation in place of this screen.
+  void _choose({required String phoneNumber, String? name}) {
+    if (widget.pickOnly) {
+      Navigator.pop(
+        context,
+        PickedRecipient(phoneNumber: phoneNumber, name: name),
+      );
+      return;
+    }
+    // pushReplacement pops this screen off the stack so back returns straight
+    // to the inbox.
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ConversationScreen(
+          threadId: PhoneNormalizer.toThreadId(phoneNumber),
+          phoneNumber: phoneNumber,
+          contactName: name,
+        ),
+      ),
     );
   }
 
@@ -260,29 +292,15 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
     ContactModel contact,
     ThemeData theme,
   ) {
-    // The threadId must use the same normalization as SmsService._normalizePhoneNumber
-    // (pure digits) so that LoadMessages(threadId) finds the message that was just saved.
-    final threadId = PhoneNormalizer.toThreadId(contact.phoneNumber);
     final displayPhone = PersianUtils.displayPhone(
       PhoneNormalizer.toNational(contact.phoneNumber),
     );
 
     return InkWell(
-      onTap: () {
-        // Navigate to conversation screen with the selected contact.
-        // pushReplacement pops ContactSelectorScreen off the stack so the user
-        // returns directly to MessagesListScreen when they press back.
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ConversationScreen(
-              threadId: threadId,
-              phoneNumber: contact.phoneNumber,
-              contactName: contact.name,
-            ),
-          ),
-        );
-      },
+      onTap: () => _choose(
+        phoneNumber: contact.phoneNumber,
+        name: contact.name,
+      ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(

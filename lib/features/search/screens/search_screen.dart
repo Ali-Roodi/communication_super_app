@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
+import 'package:communication_super_app/core/widgets/google_list.dart';
 import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
@@ -79,21 +80,31 @@ class _SearchScreenState extends State<SearchScreen> {
               return _SearchPrompt();
             }
             if (state.isEmpty) {
-              return Center(
-                child: Text('نتیجه‌ای برای «${state.query}» یافت نشد'),
+              return EmptyState(
+                icon: Icons.search_off,
+                title: 'نتیجه‌ای یافت نشد',
+                subtitle: 'برای «${state.query}» چیزی پیدا نشد',
               );
             }
             return ListView(
+              padding: const EdgeInsets.only(bottom: 24),
               children: [
                 if (state.contacts.isNotEmpty) ...[
-                  _header('مخاطبین'),
-                  ...state.contacts.map((c) => _ContactResult(contact: c)),
+                  const SectionLabel('مخاطبین'),
+                  GroupedList(
+                    children: [
+                      for (final c in state.contacts) _ContactResult(contact: c),
+                    ],
+                  ),
                 ],
                 if (state.callLogs.isNotEmpty) ...[
-                  _header('تماس‌های اخیر'),
-                  ...state.callLogs.map((l) => _CallLogResult(log: l)),
+                  const SectionLabel('تماس‌های اخیر'),
+                  GroupedList(
+                    children: [
+                      for (final l in state.callLogs) _CallLogResult(log: l),
+                    ],
+                  ),
                 ],
-                const SizedBox(height: 24),
               ],
             );
           },
@@ -102,45 +113,16 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  Widget _header(String title) {
-    return Builder(
-      builder: (context) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-        child: Text(
-          title,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: Theme.of(context).colorScheme.primary,
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 // ── Empty prompt shown before the user types ──────────────────────────────────
 
 class _SearchPrompt extends StatelessWidget {
   @override
-  Widget build(BuildContext context) {
-    final dim = Theme.of(
-      context,
-    ).textTheme.bodyMedium?.color?.withValues(alpha: 0.5);
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.search, size: 72, color: dim),
-          const SizedBox(height: 12),
-          Text(
-            'مخاطبین و تماس‌ها را جستجو کنید',
-            style: TextStyle(color: dim),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => const EmptyState(
+    icon: Icons.search,
+    title: 'مخاطبین و تماس‌ها را جستجو کنید',
+  );
 }
 
 // ── Contact result → opens detail; trailing call icon dials ───────────────────

@@ -89,6 +89,11 @@ class CallHandler(
                     )
                     "isDefaultDialer" -> result.success(isDefaultDialer())
                     "requestDefaultDialerRole" -> requestDefaultDialerRole(result)
+                    "getVoicemailNumber" -> result.success(voicemailNumber())
+                    "openNotificationSettings" -> {
+                        openNotificationSettings()
+                        result.success(true)
+                    }
                     else              -> result.notImplemented()
                 }
             } catch (e: SecurityException) {
@@ -113,6 +118,32 @@ class CallHandler(
     fun isDefaultDialer(): Boolean {
         val tm = context.getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
         return tm?.defaultDialerPackage == context.packageName
+    }
+
+    /**
+     * The SIM's voicemail number, so long-pressing «۱» dials it the way every
+     * stock dialer does. Null when the carrier never provisioned one (common on
+     * Iranian SIMs) or READ_PHONE_STATE was refused — the caller then tells the
+     * user instead of dialing something wrong.
+     */
+    private fun voicemailNumber(): String? = try {
+        val tm = context.getSystemService(Context.TELEPHONY_SERVICE)
+            as? android.telephony.TelephonyManager
+        tm?.voiceMailNumber?.takeIf { it.isNotBlank() }
+    } catch (e: SecurityException) {
+        Log.w(TAG, "voicemail number denied: ${e.message}")
+        null
+    }
+
+    /**
+     * Opens this app's notification settings — the system screen Google
+     * Messages links to from «اعلان‌ها».
+     */
+    private fun openNotificationSettings() {
+        val intent = Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+            .apply { if (activity == null) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+        (activity ?: context).startActivity(intent)
     }
 
     /**

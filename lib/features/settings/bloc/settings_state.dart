@@ -17,6 +17,15 @@ enum BoolSetting {
   noiseReduction,
   callerIdSpam,
   filterSpam,
+
+  /// Render the link-preview card under a message that contains a URL.
+  linkPreviews,
+
+  /// Enable swipe-to-archive / swipe-to-toggle-read on inbox rows.
+  swipeActions,
+
+  /// Ask the carrier for an SMS delivery report (the ✓✓ tick).
+  deliveryReports,
 }
 
 class SettingsState extends Equatable {
@@ -30,6 +39,9 @@ class SettingsState extends Equatable {
   final bool noiseReduction;
   final bool callerIdSpam;
   final bool filterSpam;
+  final bool linkPreviews;
+  final bool swipeActions;
+  final bool deliveryReports;
   final TtyMode ttyMode;
   final CalendarType calendarType;
   final List<String> quickReplies;
@@ -45,6 +57,9 @@ class SettingsState extends Equatable {
     this.noiseReduction = false,
     this.callerIdSpam = false,
     this.filterSpam = false,
+    this.linkPreviews = true,
+    this.swipeActions = true,
+    this.deliveryReports = true,
     this.ttyMode = TtyMode.off,
     this.calendarType = CalendarType.jalali,
     this.quickReplies = defaultQuickReplies,
@@ -79,6 +94,12 @@ class SettingsState extends Equatable {
         return callerIdSpam;
       case BoolSetting.filterSpam:
         return filterSpam;
+      case BoolSetting.linkPreviews:
+        return linkPreviews;
+      case BoolSetting.swipeActions:
+        return swipeActions;
+      case BoolSetting.deliveryReports:
+        return deliveryReports;
     }
   }
 
@@ -93,6 +114,9 @@ class SettingsState extends Equatable {
     bool? noiseReduction,
     bool? callerIdSpam,
     bool? filterSpam,
+    bool? linkPreviews,
+    bool? swipeActions,
+    bool? deliveryReports,
     TtyMode? ttyMode,
     CalendarType? calendarType,
     List<String>? quickReplies,
@@ -108,6 +132,9 @@ class SettingsState extends Equatable {
       noiseReduction: noiseReduction ?? this.noiseReduction,
       callerIdSpam: callerIdSpam ?? this.callerIdSpam,
       filterSpam: filterSpam ?? this.filterSpam,
+      linkPreviews: linkPreviews ?? this.linkPreviews,
+      swipeActions: swipeActions ?? this.swipeActions,
+      deliveryReports: deliveryReports ?? this.deliveryReports,
       ttyMode: ttyMode ?? this.ttyMode,
       calendarType: calendarType ?? this.calendarType,
       quickReplies: quickReplies ?? this.quickReplies,
@@ -136,6 +163,12 @@ class SettingsState extends Equatable {
         return copyWith(callerIdSpam: value);
       case BoolSetting.filterSpam:
         return copyWith(filterSpam: value);
+      case BoolSetting.linkPreviews:
+        return copyWith(linkPreviews: value);
+      case BoolSetting.swipeActions:
+        return copyWith(swipeActions: value);
+      case BoolSetting.deliveryReports:
+        return copyWith(deliveryReports: value);
     }
   }
 
@@ -151,6 +184,9 @@ class SettingsState extends Equatable {
     noiseReduction,
     callerIdSpam,
     filterSpam,
+    linkPreviews,
+    swipeActions,
+    deliveryReports,
     ttyMode,
     calendarType,
     quickReplies,

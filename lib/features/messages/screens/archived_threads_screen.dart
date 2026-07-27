@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:communication_super_app/core/theme/surface_roles.dart';
+import 'package:communication_super_app/core/widgets/google_list.dart';
 import '../bloc/message_bloc.dart';
 import '../bloc/message_event.dart';
 import '../bloc/message_state.dart';
@@ -44,26 +46,29 @@ class _ArchivedThreadsScreenState extends State<ArchivedThreadsScreen> {
               return const Center(child: CircularProgressIndicator());
             }
             if (state.threads.isEmpty) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.archive_outlined,
-                      size: 56,
-                      color: theme.textTheme.bodyMedium?.color?.withValues(
-                        alpha: 0.5,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    const Text('گفتگوی بایگانی‌شده‌ای نیست'),
-                  ],
-                ),
+              return const EmptyState(
+                icon: Icons.archive_outlined,
+                title: 'گفتگوی بایگانی‌شده‌ای نیست',
+                subtitle: 'گفتگوهایی که بایگانی کنید اینجا نگه داشته می‌شوند',
               );
             }
-            return ListView.builder(
-              itemCount: state.threads.length,
-              itemBuilder: (context, i) => _buildRow(context, state.threads[i]),
+            // Same rounded sheet the inbox uses, so archived reads as the
+            // same surface one level down.
+            return Container(
+              margin: const EdgeInsets.only(top: 4),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.cardSurface,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(28),
+                ),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                itemCount: state.threads.length,
+                itemBuilder: (context, i) =>
+                    _buildRow(context, state.threads[i]),
+              ),
             );
           },
         ),

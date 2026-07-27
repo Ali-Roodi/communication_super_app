@@ -1,18 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/theme/theme_bloc.dart';
+import 'package:communication_super_app/core/widgets/google_list.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_bloc.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_event.dart';
 import 'package:communication_super_app/features/authentication/models/auth_type.dart';
 import 'package:communication_super_app/features/authentication/repositories/auth_repository.dart';
 import 'package:communication_super_app/features/authentication/screens/pin_setup_screen.dart';
+import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
+import 'package:communication_super_app/features/messages/services/native_sms_service.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
-import 'package:communication_super_app/features/settings/bloc/settings_event.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_state.dart';
 import 'package:communication_super_app/features/settings/screens/blocked_numbers_screen.dart';
+import 'package:communication_super_app/features/settings/screens/settings_subpages.dart';
 
+/// The settings hub, laid out the way Google Phone's is: tinted section labels
+/// over grouped cards, one entry per row with a leading icon, and the actual
+/// options living on plain sub-pages (see `settings_subpages.dart`).
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
@@ -22,251 +27,188 @@ class SettingsScreen extends StatelessWidget {
       textDirection: TextDirection.rtl,
       child: Scaffold(
         appBar: const RtlAppBar(title: 'تنظیمات'),
-        body: BlocBuilder<SettingsBloc, SettingsState>(
-          builder: (context, s) {
-            final bloc = context.read<SettingsBloc>();
-            return ListView(
+        body: ListView(
+          padding: const EdgeInsets.only(bottom: 32),
+          children: [
+            // ── Call assist ────────────────────────────────
+            const SectionLabel('کمک‌های تماس'),
+            GroupedList(
               children: [
-                // ── Display options ───────────────────────────────
-                const _SectionHeader('نمایش'),
-                SwitchListTile(
-                  title: const Text('نمایش صفحه‌کلید هنگام شروع'),
-                  value: s.showDialpadOnStart,
-                  onChanged: (v) => bloc.add(
-                    SetBoolSetting(BoolSetting.showDialpadOnStart, v),
-                  ),
+                SettingsRow(
+                  icon: Icons.error_outline,
+                  title: 'شناسه تماس‌گیرنده و هرزتماس',
+                  onTap: () => _push(context, const CallerIdSettingsPage()),
                 ),
-                _ChoiceTile<bool>(
-                  title: 'مرتب‌سازی بر اساس',
-                  current: s.sortByLastName,
-                  options: const {false: 'نام', true: 'نام خانوادگی'},
-                  onSelected: (v) =>
-                      bloc.add(SetBoolSetting(BoolSetting.sortByLastName, v)),
-                ),
-                _ChoiceTile<bool>(
-                  title: 'قالب نام',
-                  current: s.nameFormatLastFirst,
-                  options: const {
-                    false: 'نام، نام خانوادگی',
-                    true: 'نام خانوادگی، نام',
-                  },
-                  onSelected: (v) => bloc.add(
-                    SetBoolSetting(BoolSetting.nameFormatLastFirst, v),
-                  ),
-                ),
-                _ChoiceTile<CalendarType>(
-                  title: 'تقویم',
-                  current: s.calendarType,
-                  options: const {
-                    CalendarType.jalali: 'شمسی (هجری خورشیدی)',
-                    CalendarType.gregorian: 'میلادی',
-                  },
-                  onSelected: (c) => bloc.add(SetCalendarType(c)),
-                ),
-                BlocBuilder<ThemeBloc, ThemeState>(
-                  builder: (context, t) => _ChoiceTile<AppThemeMode>(
-                    title: 'پوسته',
-                    current: t.mode,
-                    options: const {
-                      AppThemeMode.light: 'روشن',
-                      AppThemeMode.dark: 'تاریک',
-                      AppThemeMode.system: 'پیش‌فرض سیستم',
-                    },
-                    onSelected: (m) =>
-                        context.read<ThemeBloc>().add(SetThemeMode(m)),
-                  ),
-                ),
-                const _Divider(),
+              ],
+            ),
 
-                // ── Sounds and vibration ──────────────────────────
-                const _SectionHeader('صدا و لرزش'),
-                ListTile(
-                  title: const Text('آهنگ زنگ تلفن'),
-                  trailing: const Icon(Icons.chevron_left),
-                  onTap: () => _snack(context, 'انتخاب آهنگ زنگ به‌زودی'),
+            // ── General ────────────────────────────────────
+            const SectionLabel('عمومی'),
+            GroupedList(
+              children: [
+                SettingsRow(
+                  icon: Icons.block,
+                  title: 'شماره‌های مسدودشده',
+                  onTap: () => _push(context, const BlockedNumbersScreen()),
                 ),
-                SwitchListTile(
-                  title: const Text('لرزش هنگام تماس'),
-                  value: s.alsoVibrate,
-                  onChanged: (v) =>
-                      bloc.add(SetBoolSetting(BoolSetting.alsoVibrate, v)),
+                SettingsRow(
+                  icon: Icons.list,
+                  title: 'گزینه‌های نمایش',
+                  onTap: () => _push(context, const DisplayOptionsPage()),
                 ),
-                SwitchListTile(
-                  title: const Text('صدای صفحه‌کلید'),
-                  value: s.keypadTones,
-                  onChanged: (v) =>
-                      bloc.add(SetBoolSetting(BoolSetting.keypadTones, v)),
+                SettingsRow(
+                  icon: Icons.volume_up_outlined,
+                  title: 'صدا و لرزش',
+                  onTap: () => _push(context, const SoundSettingsPage()),
                 ),
-                SwitchListTile(
-                  title: const Text('صدای شماره‌گیر'),
-                  value: s.dialpadTones,
-                  onChanged: (v) =>
-                      bloc.add(SetBoolSetting(BoolSetting.dialpadTones, v)),
+                SettingsRow(
+                  icon: Icons.chat_bubble_outline,
+                  title: 'پیامک‌ها',
+                  onTap: () => _push(context, const MessageSettingsPage()),
                 ),
-                const _Divider(),
+                SettingsRow(
+                  icon: Icons.quickreply_outlined,
+                  title: 'پاسخ‌های سریع',
+                  onTap: () => _push(context, const QuickRepliesPage()),
+                ),
+                SettingsRow(
+                  icon: Icons.accessibility_new_outlined,
+                  title: 'دسترس‌پذیری',
+                  onTap: () => _push(context, const AccessibilityPage()),
+                ),
+              ],
+            ),
 
-                // ── Quick responses ───────────────────────────────
-                const _SectionHeader('پاسخ‌های سریع'),
-                for (var i = 0; i < s.quickReplies.length; i++)
-                  ListTile(
-                    leading: const Icon(Icons.message_outlined),
-                    title: Text(s.quickReplies[i]),
-                    onTap: () =>
-                        _editQuickReply(context, bloc, i, s.quickReplies[i]),
-                  ),
-                const _Divider(),
+            // ── Default apps ───────────────────────────────
+            const SectionLabel('برنامه‌های پیش‌فرض'),
+            const _DefaultAppsGroup(),
 
-                // ── Accessibility ─────────────────────────────────
-                const _SectionHeader('دسترس‌پذیری'),
-                _ChoiceTile<TtyMode>(
-                  title: 'حالت TTY',
-                  current: s.ttyMode,
-                  options: const {
-                    TtyMode.off: 'خاموش',
-                    TtyMode.full: 'کامل',
-                    TtyMode.hco: 'HCO',
-                    TtyMode.vco: 'VCO',
-                  },
-                  onSelected: (m) => bloc.add(SetTtyMode(m)),
-                ),
-                SwitchListTile(
-                  title: const Text('سمعک'),
-                  value: s.hearingAids,
-                  onChanged: (v) =>
-                      bloc.add(SetBoolSetting(BoolSetting.hearingAids, v)),
-                ),
-                SwitchListTile(
-                  title: const Text('کاهش نویز'),
-                  value: s.noiseReduction,
-                  onChanged: (v) =>
-                      bloc.add(SetBoolSetting(BoolSetting.noiseReduction, v)),
-                ),
-                const _Divider(),
+            // ── Security ───────────────────────────────────
+            const SectionLabel('امنیت'),
+            const _SecurityGroup(),
 
-                // ── Caller ID & spam ──────────────────────────────
-                const _SectionHeader('شناسه تماس‌گیرنده و هرزتماس'),
-                SwitchListTile(
-                  title: const Text('نمایش شناسه و هرزتماس'),
-                  value: s.callerIdSpam,
-                  onChanged: (v) =>
-                      bloc.add(SetBoolSetting(BoolSetting.callerIdSpam, v)),
+            // ── About ──────────────────────────────────────
+            const SectionLabel('درباره برنامه'),
+            GroupedList(
+              children: [
+                const SettingsRow(
+                  icon: Icons.info_outline,
+                  title: 'نام برنامه',
+                  summary: 'هم‌رسان',
                 ),
-                SwitchListTile(
-                  title: const Text('فیلتر هرزتماس‌ها'),
-                  subtitle: const Text('نیازمند فعال بودن شناسه تماس‌گیرنده'),
-                  value: s.filterSpam,
-                  onChanged: s.callerIdSpam
-                      ? (v) =>
-                            bloc.add(SetBoolSetting(BoolSetting.filterSpam, v))
-                      : null,
+                const SettingsRow(
+                  icon: Icons.tag,
+                  title: 'نسخه',
+                  summary: '۱.۰.۰',
                 ),
-                const _Divider(),
-
-                // ── Blocked numbers ───────────────────────────────
-                const _SectionHeader('شماره‌های مسدود'),
-                ListTile(
-                  leading: const Icon(Icons.block),
-                  title: const Text('شماره‌های مسدود'),
-                  trailing: const Icon(Icons.chevron_left),
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const BlockedNumbersScreen(),
-                    ),
-                  ),
-                ),
-                const _Divider(),
-
-                // ── Security (optional app lock) ──────────────────
-                const _SectionHeader('امنیت'),
-                const _SecuritySection(),
-                const _Divider(),
-
-                // ── About ─────────────────────────────────────────
-                const _SectionHeader('درباره برنامه'),
-                const ListTile(
-                  leading: Icon(Icons.info_outline),
-                  title: Text('نام برنامه'),
-                  trailing: Text('هم‌رسان', style: TextStyle(color: Colors.grey)),
-                ),
-                const ListTile(
-                  leading: Icon(Icons.tag),
-                  title: Text('نسخه'),
-                  trailing: Text('۱.۰.۰', style: TextStyle(color: Colors.grey)),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.description_outlined),
-                  title: const Text('مجوزهای متن‌باز'),
-                  trailing: const Icon(Icons.chevron_left),
+                SettingsRow(
+                  icon: Icons.description_outlined,
+                  title: 'مجوزهای متن‌باز',
                   onTap: () => showLicensePage(
                     context: context,
                     applicationName: 'هم‌رسان',
                     applicationVersion: '۱.۰.۰',
                   ),
                 ),
-                const SizedBox(height: 32),
               ],
-            );
-          },
-        ),
-      ),
-    );
-  }
-
-  // ── Quick reply edit ────────────────────────────────────────────────────
-
-  Future<void> _editQuickReply(
-    BuildContext context,
-    SettingsBloc bloc,
-    int index,
-    String current,
-  ) async {
-    final controller = TextEditingController(text: current);
-    final result = await showDialog<String>(
-      context: context,
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          title: const Text('ویرایش پاسخ سریع'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            maxLines: 2,
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('لغو'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(controller.text),
-              child: const Text('ذخیره'),
             ),
           ],
         ),
       ),
     );
-    if (result != null && result.trim().isNotEmpty) {
-      bloc.add(UpdateQuickReply(index, result.trim()));
+  }
+
+  static void _push(BuildContext context, Widget page) =>
+      Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
+}
+
+// ── Default apps ─────────────────────────────────────────────────────────────
+
+/// Shows whether the app currently holds the SMS / dialer roles and offers the
+/// system flow to change them. The state is re-read every time the page is
+/// built and after each request, because granting a role restarts the process.
+class _DefaultAppsGroup extends StatefulWidget {
+  const _DefaultAppsGroup();
+
+  @override
+  State<_DefaultAppsGroup> createState() => _DefaultAppsGroupState();
+}
+
+class _DefaultAppsGroupState extends State<_DefaultAppsGroup> {
+  final NativeSmsService _sms = NativeSmsService();
+  bool? _isDefaultSms;
+  bool? _isDefaultDialer;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  Future<void> _refresh() async {
+    final sms = await _sms.isDefaultSmsApp();
+    final dialer = await NativeCallService.instance.isDefaultDialer();
+    if (mounted) {
+      setState(() {
+        _isDefaultSms = sms;
+        _isDefaultDialer = dialer;
+      });
     }
   }
 
-  void _snack(BuildContext context, String msg) =>
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  String _summary(bool? value) {
+    if (value == null) return '…';
+    return value ? 'این برنامه پیش‌فرض است' : 'برنامه دیگری پیش‌فرض است';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GroupedList(
+      children: [
+        SettingsRow(
+          icon: Icons.sms_outlined,
+          title: 'پیام‌رسان پیش‌فرض',
+          summary: _summary(_isDefaultSms),
+          onTap: () async {
+            if (_isDefaultSms == true) {
+              await _sms.openDefaultAppsSettings();
+            } else {
+              await _sms.requestDefaultSmsRole();
+            }
+            await _refresh();
+          },
+        ),
+        SettingsRow(
+          icon: Icons.dialpad,
+          title: 'برنامه تلفن پیش‌فرض',
+          summary: _summary(_isDefaultDialer),
+          onTap: () async {
+            if (_isDefaultDialer == true) {
+              await _sms.openDefaultAppsSettings();
+            } else {
+              await NativeCallService.instance.requestDefaultDialerRole();
+            }
+            await _refresh();
+          },
+        ),
+      ],
+    );
+  }
 }
 
-// ── Security section (optional PIN: set / change / remove) ───────────────────
+// ── Security (optional app lock) ─────────────────────────────────────────────
 
 /// Reads the auth type straight from the repository (the bloc's
 /// `AuthAuthenticated` state carries no type, so it can't tell "PIN set"
 /// from "skipped") and reloads after every action.
-class _SecuritySection extends StatefulWidget {
-  const _SecuritySection();
+class _SecurityGroup extends StatefulWidget {
+  const _SecurityGroup();
 
   @override
-  State<_SecuritySection> createState() => _SecuritySectionState();
+  State<_SecurityGroup> createState() => _SecurityGroupState();
 }
 
-class _SecuritySectionState extends State<_SecuritySection> {
+class _SecurityGroupState extends State<_SecurityGroup> {
   final AuthRepository _repository = AuthRepository();
   AuthType _authType = AuthType.none;
 
@@ -312,7 +254,9 @@ class _SecuritySectionState extends State<_SecuritySection> {
               child: const Text('انصراف'),
             ),
             TextButton(
-              style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+              style: TextButton.styleFrom(
+                foregroundColor: Theme.of(dialogCtx).colorScheme.error,
+              ),
               onPressed: () => Navigator.of(dialogCtx).pop(true),
               child: const Text('حذف رمز'),
             ),
@@ -337,31 +281,21 @@ class _SecuritySectionState extends State<_SecuritySection> {
   @override
   Widget build(BuildContext context) {
     final hasPin = _authType == AuthType.pin;
-    return Column(
+    final scheme = Theme.of(context).colorScheme;
+    return GroupedList(
       children: [
-        ListTile(
-          leading: Icon(
-            Icons.pin_outlined,
-            color: hasPin ? Theme.of(context).colorScheme.primary : null,
-          ),
-          title: Text(hasPin ? 'تغییر رمز عبور' : 'تنظیم رمز عبور'),
-          subtitle: Text(
-            hasPin ? 'قفل برنامه فعال است' : 'برنامه بدون قفل باز می‌شود',
-          ),
-          trailing: const Icon(Icons.chevron_left),
+        SettingsRow(
+          icon: Icons.pin_outlined,
+          title: hasPin ? 'تغییر رمز عبور' : 'تنظیم رمز عبور',
+          summary: hasPin ? 'قفل برنامه فعال است' : 'برنامه بدون قفل باز می‌شود',
           onTap: () => _openPinSetup(context),
         ),
         if (hasPin)
-          ListTile(
-            leading: const Icon(
-              Icons.no_encryption_outlined,
-              color: AppColors.danger,
-            ),
-            title: const Text(
-              'حذف رمز عبور',
-              style: TextStyle(color: AppColors.danger),
-            ),
-            subtitle: const Text('بدون قفل وارد برنامه می‌شوید'),
+          SettingsRow(
+            icon: Icons.no_encryption_outlined,
+            title: 'حذف رمز عبور',
+            summary: 'بدون قفل وارد برنامه می‌شوید',
+            titleColor: scheme.error,
             onTap: () => _confirmRemovePin(context),
           ),
       ],
@@ -369,15 +303,80 @@ class _SecuritySectionState extends State<_SecuritySection> {
   }
 }
 
-// ── Choice tile (opens a radio dialog) ────────────────────────────────────────
+// ── Shared sub-page building blocks ──────────────────────────────────────────
 
-class _ChoiceTile<T> extends StatelessWidget {
+/// A plain (card-less) switch row — the layout Google uses *inside* a settings
+/// sub-page, where rows sit directly on the page instead of on cards.
+class SettingsSwitch extends StatelessWidget {
+  final String title;
+  final String? summary;
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+
+  const SettingsSwitch({
+    super.key,
+    required this.title,
+    required this.value,
+    required this.onChanged,
+    this.summary,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final enabled = onChanged != null;
+    return InkWell(
+      onTap: enabled ? () => onChanged!(!value) : null,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 16, 20, 16),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 17,
+                      color: enabled
+                          ? scheme.onSurface
+                          : scheme.onSurface.withValues(alpha: 0.38),
+                    ),
+                  ),
+                  if (summary != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      summary!,
+                      style: TextStyle(
+                        fontSize: 14,
+                        height: 1.4,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 16),
+            Switch(value: value, onChanged: onChanged),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A plain sub-page row that opens a radio dialog and shows the current choice
+/// as its summary — Google's «Choose theme / Light» pattern.
+class SettingsChoice<T> extends StatelessWidget {
   final String title;
   final T current;
   final Map<T, String> options;
   final ValueChanged<T> onSelected;
 
-  const _ChoiceTile({
+  const SettingsChoice({
+    super.key,
     required this.title,
     required this.current,
     required this.options,
@@ -386,71 +385,70 @@ class _ChoiceTile<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      title: Text(title),
-      subtitle: Text(options[current] ?? ''),
-      trailing: const Icon(Icons.chevron_left),
-      onTap: () async {
-        final selected = await showDialog<T>(
-          context: context,
-          builder: (ctx) => Directionality(
-            textDirection: TextDirection.rtl,
-            child: SimpleDialog(
-              title: Text(title),
-              children: [
-                RadioGroup<T>(
-                  groupValue: current,
-                  onChanged: (v) => Navigator.of(ctx).pop(v),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: options.entries
-                        .map(
-                          (e) => RadioListTile<T>(
-                            value: e.key,
-                            title: Text(e.value),
-                          ),
-                        )
-                        .toList(),
-                  ),
-                ),
-              ],
+    final scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: () => _open(context),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: TextStyle(fontSize: 17, color: scheme.onSurface)),
+            const SizedBox(height: 4),
+            Text(
+              options[current] ?? '',
+              style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant),
             ),
-          ),
-        );
-        if (selected != null) onSelected(selected);
-      },
-    );
-  }
-}
-
-// ── Section header & divider ──────────────────────────────────────────────────
-
-class _SectionHeader extends StatelessWidget {
-  final String title;
-  const _SectionHeader(this.title);
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
-      child: Text(
-        title,
-        style: TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-          color: Theme.of(context).colorScheme.primary,
-          letterSpacing: 0.3,
+          ],
         ),
       ),
     );
   }
+
+  Future<void> _open(BuildContext context) async {
+    var pending = current;
+    final selected = await showDialog<T>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: StatefulBuilder(
+          builder: (ctx, setLocal) => AlertDialog(
+            title: Text(title),
+            contentPadding: const EdgeInsets.only(top: 12),
+            content: RadioGroup<T>(
+              groupValue: pending,
+              onChanged: (v) {
+                if (v != null) setLocal(() => pending = v);
+              },
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final e in options.entries)
+                    RadioListTile<T>(value: e.key, title: Text(e.value)),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('انصراف'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(pending),
+                child: const Text('تأیید'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (selected != null) onSelected(selected);
+  }
 }
 
-class _Divider extends StatelessWidget {
-  const _Divider();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Divider(height: 1, thickness: 0.5, indent: 16, endIndent: 16);
-  }
+/// Convenience accessors used by the sub-pages.
+extension SettingsContext on BuildContext {
+  SettingsBloc get settingsBloc => read<SettingsBloc>();
+  SettingsState get settings => watch<SettingsBloc>().state;
+  ThemeBloc get themeBloc => read<ThemeBloc>();
 }

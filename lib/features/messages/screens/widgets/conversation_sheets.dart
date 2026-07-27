@@ -118,8 +118,9 @@ class _ScheduledSheetHeader extends StatelessWidget {
   }
 }
 
-/// Long-press options for a single message (copy / forward / info / select /
-/// delete). Each row pops the sheet, then invokes the matching callback.
+/// Long-press options for a single message (star / copy / forward / info /
+/// select / delete). Each row pops the sheet, then invokes the matching
+/// callback.
 Future<void> showMessageOptionsSheet(
   BuildContext context, {
   required VoidCallback onCopy,
@@ -128,6 +129,8 @@ Future<void> showMessageOptionsSheet(
   required VoidCallback onInfo,
   required VoidCallback onSelect,
   required VoidCallback onDelete,
+  required VoidCallback onToggleStar,
+  required bool isStarred,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -141,6 +144,19 @@ Future<void> showMessageOptionsSheet(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              ListTile(
+                leading: Icon(
+                  isStarred ? Icons.star : Icons.star_border,
+                  color: isStarred ? AppColors.callHoldOrange : null,
+                ),
+                title: Text(
+                  isStarred ? 'حذف از ستاره‌دارها' : 'افزودن به ستاره‌دارها',
+                ),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  onToggleStar();
+                },
+              ),
               ListTile(
                 leading: const Icon(Icons.copy_outlined),
                 title: const Text('کپی'),

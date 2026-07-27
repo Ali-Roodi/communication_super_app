@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 
-/// The default inbox app bar (title + search + overflow menu).
+/// The inbox headers, as **slivers** so the default one can collapse the way
+/// Google Messages' does: a tall, centred title that shrinks into a compact bar
+/// as the conversation sheet scrolls up under it.
 ///
 /// Presentation-only: every action is a callback owned by
 /// `MessagesListScreen`, which holds the search/selection state.
-class MessagesDefaultAppBar extends StatelessWidget
-    implements PreferredSizeWidget {
+class MessagesDefaultAppBar extends StatelessWidget {
   const MessagesDefaultAppBar({
     super.key,
     required this.onSearch,
@@ -14,6 +15,7 @@ class MessagesDefaultAppBar extends StatelessWidget
     required this.onOpenDrafts,
     required this.onOpenScheduled,
     required this.onOpenSettings,
+    required this.onOpenStarred,
   });
 
   final VoidCallback onSearch;
@@ -21,14 +23,34 @@ class MessagesDefaultAppBar extends StatelessWidget
   final VoidCallback onOpenDrafts;
   final VoidCallback onOpenScheduled;
   final VoidCallback onOpenSettings;
-
-  @override
-  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
+  final VoidCallback onOpenStarred;
 
   @override
   Widget build(BuildContext context) {
-    return AppBar(
-      title: const Text('پیام‌ها'),
+    final scheme = Theme.of(context).colorScheme;
+    return SliverAppBar(
+      pinned: true,
+      expandedHeight: 168,
+      collapsedHeight: kToolbarHeight,
+      backgroundColor: scheme.surfaceContainer,
+      surfaceTintColor: Colors.transparent,
+      automaticallyImplyLeading: false,
+      flexibleSpace: FlexibleSpaceBar(
+        centerTitle: true,
+        titlePadding: const EdgeInsetsDirectional.only(
+          start: 16,
+          end: 16,
+          bottom: 14,
+        ),
+        title: Text(
+          'پیام‌ها',
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w400,
+            color: scheme.onSurface,
+          ),
+        ),
+      ),
       actions: [
         IconButton(
           icon: const Icon(Icons.search),
@@ -36,8 +58,13 @@ class MessagesDefaultAppBar extends StatelessWidget
           onPressed: onSearch,
         ),
         PopupMenuButton<String>(
+          icon: const Icon(Icons.more_vert),
+          tooltip: 'گزینه‌های بیشتر',
+          position: PopupMenuPosition.under,
           onSelected: (v) {
             switch (v) {
+              case 'starred':
+                onOpenStarred();
               case 'archived':
                 onOpenArchived();
               case 'drafts':
@@ -49,20 +76,21 @@ class MessagesDefaultAppBar extends StatelessWidget
             }
           },
           itemBuilder: (_) => const [
+            PopupMenuItem(value: 'starred', child: Text('ستاره‌دار')),
             PopupMenuItem(value: 'archived', child: Text('بایگانی')),
             PopupMenuItem(value: 'drafts', child: Text('پیش‌نویس‌ها')),
             PopupMenuItem(value: 'scheduled', child: Text('زمان‌بندی‌شده‌ها')),
             PopupMenuItem(value: 'settings', child: Text('تنظیمات')),
           ],
         ),
+        const SizedBox(width: 4),
       ],
     );
   }
 }
 
-/// The inline-search app bar shown while searching the inbox.
-class MessagesSearchAppBar extends StatelessWidget
-    implements PreferredSizeWidget {
+/// The inline-search header shown while searching the inbox.
+class MessagesSearchAppBar extends StatelessWidget {
   const MessagesSearchAppBar({
     super.key,
     required this.controller,
@@ -79,11 +107,12 @@ class MessagesSearchAppBar extends StatelessWidget
   final ValueChanged<String> onChanged;
 
   @override
-  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
-
-  @override
   Widget build(BuildContext context) {
-    return AppBar(
+    final scheme = Theme.of(context).colorScheme;
+    return SliverAppBar(
+      pinned: true,
+      backgroundColor: scheme.surfaceContainer,
+      surfaceTintColor: Colors.transparent,
       leading: IconButton(
         icon: const Icon(Icons.arrow_forward),
         onPressed: onBack,
@@ -92,9 +121,15 @@ class MessagesSearchAppBar extends StatelessWidget
         controller: controller,
         autofocus: true,
         textInputAction: TextInputAction.search,
+        style: TextStyle(fontSize: 16, color: scheme.onSurface),
         decoration: const InputDecoration(
           hintText: 'جستجو در پیام‌ها',
+          filled: false,
+          isDense: true,
+          contentPadding: EdgeInsets.zero,
           border: InputBorder.none,
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
         ),
         onChanged: onChanged,
       ),
@@ -106,9 +141,10 @@ class MessagesSearchAppBar extends StatelessWidget
   }
 }
 
-/// The contextual app bar shown while one or more threads are multi-selected.
-class MessagesSelectionAppBar extends StatelessWidget
-    implements PreferredSizeWidget {
+/// The contextual header shown while one or more threads are multi-selected —
+/// count on the leading side, the frequent actions inline, the rest behind the
+/// overflow, mirroring Google Messages' selection bar.
+class MessagesSelectionAppBar extends StatelessWidget {
   const MessagesSelectionAppBar({
     super.key,
     required this.selectedCount,
@@ -119,6 +155,7 @@ class MessagesSelectionAppBar extends StatelessWidget
     required this.onSelectAll,
     required this.onMarkUnread,
     required this.onBlock,
+    required this.onPin,
   });
 
   final int selectedCount;
@@ -129,16 +166,23 @@ class MessagesSelectionAppBar extends StatelessWidget
   final VoidCallback onSelectAll;
   final VoidCallback onMarkUnread;
   final VoidCallback onBlock;
-
-  @override
-  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
+  final VoidCallback onPin;
 
   @override
   Widget build(BuildContext context) {
-    return AppBar(
+    final scheme = Theme.of(context).colorScheme;
+    return SliverAppBar(
+      pinned: true,
+      backgroundColor: scheme.surfaceContainer,
+      surfaceTintColor: Colors.transparent,
       leading: IconButton(icon: const Icon(Icons.close), onPressed: onClear),
       title: Text(PersianUtils.toPersianNumber('$selectedCount')),
       actions: [
+        IconButton(
+          icon: const Icon(Icons.push_pin_outlined),
+          tooltip: 'سنجاق',
+          onPressed: onPin,
+        ),
         IconButton(
           icon: const Icon(Icons.mark_chat_read_outlined),
           tooltip: 'علامت‌گذاری خوانده‌شده',
@@ -155,6 +199,8 @@ class MessagesSelectionAppBar extends StatelessWidget
           onPressed: onDelete,
         ),
         PopupMenuButton<String>(
+          icon: const Icon(Icons.more_vert),
+          position: PopupMenuPosition.under,
           onSelected: (v) {
             switch (v) {
               case 'select_all':
@@ -174,6 +220,7 @@ class MessagesSelectionAppBar extends StatelessWidget
             PopupMenuItem(value: 'block', child: Text('مسدود کردن')),
           ],
         ),
+        const SizedBox(width: 4),
       ],
     );
   }

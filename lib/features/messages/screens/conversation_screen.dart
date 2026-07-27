@@ -7,12 +7,15 @@ import '../bloc/message_bloc.dart';
 import '../bloc/message_event.dart';
 import '../bloc/message_state.dart';
 import '../models/message_model.dart';
+import '../repositories/message_repository.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
+import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
+import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
@@ -25,6 +28,7 @@ import 'drafts_list_screen.dart';
 import 'template_picker_screen.dart';
 import 'schedule_message_screen.dart';
 import 'widgets/message_bubble.dart';
+import 'contact_selector_screen.dart';
 import 'widgets/conversation_app_bars.dart';
 import 'widgets/conversation_sheets.dart';
 import 'widgets/message_composer.dart';
@@ -40,11 +44,17 @@ class ConversationScreen extends StatefulWidget {
   final String phoneNumber;
   final String? contactName;
 
+  /// Text to seed the composer with — used by «هدایت» (forward), which opens
+  /// the target chat with the forwarded body already typed. A saved draft for
+  /// the thread wins over this, so forwarding never eats unsent text.
+  final String? initialText;
+
   const ConversationScreen({
     super.key,
     required this.threadId,
     required this.phoneNumber,
     this.contactName,
+    this.initialText,
   });
 
   /// Opens a conversation for any phone number — saved or not. The thread ID is
@@ -54,6 +64,7 @@ class ConversationScreen extends StatefulWidget {
     this.phoneNumber, {
     super.key,
     String? contactName,
+    this.initialText,
   }) : threadId = PhoneNormalizer.toThreadId(phoneNumber),
        contactName = (contactName?.isNotEmpty ?? false) ? contactName : null;
 
@@ -114,14 +125,18 @@ class _ConversationScreenState extends State<ConversationScreen> {
     setState(() {});
   }
 
-  /// Restores any unsent text saved for this thread when re-entering the chat.
+  /// Restores any unsent text saved for this thread when re-entering the chat,
+  /// falling back to [ConversationScreen.initialText] (a forwarded body).
   Future<void> _restoreComposerDraft() async {
     final saved = await _draftStore.loadText(widget.threadId);
     if (!mounted) return;
-    if (saved != null && saved.isNotEmpty && _messageController.text.isEmpty) {
-      _messageController.text = saved;
+    final text = (saved != null && saved.isNotEmpty)
+        ? saved
+        : (widget.initialText ?? '');
+    if (text.isNotEmpty && _messageController.text.isEmpty) {
+      _messageController.text = text;
       _messageController.selection = TextSelection.collapsed(
-        offset: saved.length,
+        offset: text.length,
       );
     }
   }
@@ -232,7 +247,19 @@ class _ConversationScreenState extends State<ConversationScreen> {
           },
           child: Column(
             children: [
-              Expanded(child: _buildMessageList()),
+              // The thread sits on its own rounded sheet, one plane above the
+              // page the header shares — Google Messages' conversation surface.
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(28),
+                  ),
+                  child: ColoredBox(
+                    color: Theme.of(context).colorScheme.cardSurface,
+                    child: _buildMessageList(),
+                  ),
+                ),
+              ),
               _buildComposer(),
             ],
           ),
@@ -473,6 +500,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
           showTimestamp: showTimestamp,
           selected: selected,
           selectionMode: _selectionMode,
+          showLinkPreview: context.watch<SettingsBloc>().state.linkPreviews,
           onTap: () {
             if (_selectionMode) _toggleSelect(msg.id);
           },
@@ -507,19 +535,17 @@ class _ConversationScreenState extends State<ConversationScreen> {
       label = DateFormatter.formatChatSeparator(dt);
     }
     final theme = Theme.of(context);
+    // Google Messages writes the separator as plain centred text — «دیروز •
+    // ۲۳:۴۰» — with no chip behind it.
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
       child: Center(
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(12),
+        child: Text(
+          PersianUtils.toPersianNumber(
+            '$label • ${DateFormatter.formatTime(dt)}',
           ),
-          child: Text(
-            PersianUtils.toPersianNumber(label),
-            style: theme.textTheme.bodySmall,
-          ),
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall?.copyWith(fontSize: 13),
         ),
       ),
     );
@@ -538,12 +564,50 @@ class _ConversationScreenState extends State<ConversationScreen> {
       context,
       onCopy: () => _copyMessage(msg),
       onSelectText: () => _showSelectableText(msg),
-      onForward: () => ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('به‌زودی'))),
+      onForward: () => _forwardMessage(msg),
       onInfo: () => _showMessageInfo(msg),
       onSelect: () => _toggleSelect(msg.id),
       onDelete: () => _confirmDeleteMessages([msg.id]),
+      isStarred: msg.isStarred,
+      onToggleStar: () => _toggleStar(msg),
+    );
+  }
+
+  /// Stars / unstars a message and reloads the thread so the bubble's marker
+  /// updates. Local metadata only — nothing is written to the SMS provider.
+  Future<void> _toggleStar(MessageModel msg) async {
+    final messenger = ScaffoldMessenger.of(context);
+    await MessageRepository().setStarred(msg.id, !msg.isStarred);
+    if (!mounted) return;
+    _messageBloc.add(LoadMessages(widget.threadId));
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          msg.isStarred ? 'از ستاره‌دارها حذف شد' : 'به ستاره‌دارها افزوده شد',
+        ),
+      ),
+    );
+  }
+
+  /// «هدایت»: pick a recipient, then open that chat with the body already in
+  /// the composer so the user can edit before sending — Google Messages'
+  /// forward flow.
+  Future<void> _forwardMessage(MessageModel msg) async {
+    final picked = await Navigator.of(context).push<PickedRecipient>(
+      MaterialPageRoute(
+        builder: (_) => const ContactSelectorScreen(pickOnly: true),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ConversationScreen(
+          threadId: PhoneNormalizer.toThreadId(picked.phoneNumber),
+          phoneNumber: picked.phoneNumber,
+          contactName: picked.name,
+          initialText: msg.body,
+        ),
+      ),
     );
   }
 

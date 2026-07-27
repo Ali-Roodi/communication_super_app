@@ -1,6 +1,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
+import 'package:communication_super_app/features/messages/services/sms_service.dart';
 import 'settings_event.dart';
 import 'settings_state.dart';
 
@@ -41,6 +42,9 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     // Mirror into the static formatter so every date rendered from now on uses
     // the persisted calendar, not just the widgets that read SettingsState.
     DateFormatter.calendar = calendar;
+    // Same reason for delivery reports: sends originate in plain services and
+    // in the native scheduled worker, neither of which can read this BLoC.
+    SmsService.deliveryReports = b(BoolSetting.deliveryReports);
 
     final replies =
         prefs.getStringList(_quickKey) ?? SettingsState.defaultQuickReplies;
@@ -57,6 +61,9 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
         noiseReduction: b(BoolSetting.noiseReduction),
         callerIdSpam: b(BoolSetting.callerIdSpam),
         filterSpam: b(BoolSetting.filterSpam),
+        linkPreviews: b(BoolSetting.linkPreviews),
+        swipeActions: b(BoolSetting.swipeActions),
+        deliveryReports: b(BoolSetting.deliveryReports),
         ttyMode: tty,
         calendarType: calendar,
         quickReplies: replies,
@@ -72,6 +79,9 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     // Spam filtering requires caller-ID to be on.
     if (event.key == BoolSetting.callerIdSpam && !event.value) {
       next = next.copyWith(filterSpam: false);
+    }
+    if (event.key == BoolSetting.deliveryReports) {
+      SmsService.deliveryReports = event.value;
     }
     emit(next);
     final prefs = await SharedPreferences.getInstance();

@@ -98,6 +98,12 @@ class SmsService {
     return sms.isGranted && phone.isGranted;
   }
 
+  /// «گزارش تحویل» from Settings → پیامک‌ها. Mirrored here (like
+  /// `DateFormatter.calendar`) because sends happen from plain services and
+  /// from the native scheduled worker, neither of which can read a BLoC.
+  /// Off → no delivery PendingIntent, so a bubble stops at ✓ instead of ✓✓.
+  static bool deliveryReports = true;
+
   Future<SmsServiceResult> sendSms(String phoneNumber, String message) async {
     try {
       final hasPermission = await requestPermissions();
@@ -118,6 +124,7 @@ class SmsService {
         phoneNumber: phoneNumber,
         message: message,
         trackingId: messageId,
+        deliveryReport: deliveryReports,
       );
 
       if (!result.success) {

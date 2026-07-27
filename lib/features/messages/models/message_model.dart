@@ -20,6 +20,10 @@ class MessageModel extends Equatable {
   /// lets a delete remove the exact provider row. Null when unknown.
   final int? deviceSmsId;
 
+  /// «ستاره‌دار» — a purely local bookmark. The mirror-sync inserts with
+  /// `ConflictAlgorithm.ignore`, so re-importing a message never clears it.
+  final bool isStarred;
+
   const MessageModel({
     required this.id,
     required this.threadId,
@@ -31,6 +35,7 @@ class MessageModel extends Equatable {
     required this.timestamp,
     this.isRead = false,
     this.deviceSmsId,
+    this.isStarred = false,
   });
 
   Map<String, dynamic> toMap() {
@@ -45,6 +50,7 @@ class MessageModel extends Equatable {
       'timestamp': timestamp.millisecondsSinceEpoch,
       'is_read': isRead ? 1 : 0,
       'device_sms_id': deviceSmsId,
+      'is_starred': isStarred ? 1 : 0,
     };
   }
 
@@ -66,8 +72,24 @@ class MessageModel extends Equatable {
       timestamp: DateTime.fromMillisecondsSinceEpoch(map['timestamp'] as int),
       isRead: (map['is_read'] as int?) == 1,
       deviceSmsId: (map['device_sms_id'] as num?)?.toInt(),
+      isStarred: (map['is_starred'] as int?) == 1,
     );
   }
+
+  MessageModel copyWith({bool? isStarred, MessageStatus? status}) =>
+      MessageModel(
+        id: id,
+        threadId: threadId,
+        contactId: contactId,
+        phoneNumber: phoneNumber,
+        body: body,
+        type: type,
+        status: status ?? this.status,
+        timestamp: timestamp,
+        isRead: isRead,
+        deviceSmsId: deviceSmsId,
+        isStarred: isStarred ?? this.isStarred,
+      );
 
   @override
   List<Object?> get props => [
@@ -81,6 +103,7 @@ class MessageModel extends Equatable {
     timestamp,
     isRead,
     deviceSmsId,
+    isStarred,
   ];
 }
 

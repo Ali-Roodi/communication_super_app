@@ -140,4 +140,25 @@ class NativeCallService {
       return false;
     }
   }
+
+  // ── Misc system hooks ──────────────────────────────────────
+
+  /// The SIM's voicemail number, or null when the carrier never provisioned
+  /// one. Callers must handle null rather than dialing a guess.
+  Future<String?> getVoicemailNumber() async {
+    try {
+      return await _method.invokeMethod<String>('getVoicemailNumber');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Opens this app's system notification settings.
+  Future<void> openNotificationSettings() async {
+    try {
+      await _method.invokeMethod('openNotificationSettings');
+    } catch (_) {
+      // A device with no such settings activity: nothing to do.
+    }
+  }
 }

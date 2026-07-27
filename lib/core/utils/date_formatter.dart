@@ -116,4 +116,13 @@ class DateFormatter {
   /// "۱۴۰۳/۰۲/۱۵ · ۱۴:۳۰" — full numeric date + time on the active calendar.
   static String formatDateAndTime(DateTime dateTime) =>
       '${formatDate(dateTime)} · ${formatTime(dateTime)}';
+
+  /// Day + spelled-out month with no year — «۱۵ خرداد».
+  ///
+  /// Used for contact events stored without a year (a birthday saved as
+  /// day+month only), where printing a year would invent data.
+  static String formatDayMonth(DateTime dateTime) {
+    final (_, _, d, name) = _parts(dateTime);
+    return '${PersianUtils.toPersianNumber('$d')} $name';
+  }
 }

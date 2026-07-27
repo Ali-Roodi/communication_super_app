@@ -89,6 +89,8 @@ void main() {
         'message': 'hello',
         'subscriptionId': -1,
         'trackingId': '',
+        // Delivery reports are on unless «گزارش تحویل» is switched off.
+        'deliveryReport': true,
       });
       expect(result.success, isTrue);
       expect(result.timestamp, 1700000000000);

@@ -52,6 +52,32 @@ class MessageRepository {
     return maps.map((map) => MessageModel.fromMap(map)).toList();
   }
 
+  // ── «ستاره‌دار» ─────────────────────────────────────────────────────────
+
+  /// Stars or unstars one message. Local-only metadata — nothing is written to
+  /// the device SMS provider.
+  Future<void> setStarred(String messageId, bool starred) async {
+    final db = await _dbHelper.database;
+    await db.update(
+      AppConstants.messagesTable,
+      {'is_starred': starred ? 1 : 0},
+      where: 'id = ?',
+      whereArgs: [messageId],
+    );
+  }
+
+  /// Every starred message, newest first, across all threads.
+  Future<List<MessageModel>> getStarredMessages({int limit = 200}) async {
+    final db = await _dbHelper.database;
+    final maps = await db.query(
+      AppConstants.messagesTable,
+      where: 'is_starred = 1 AND is_deleted = 0',
+      orderBy: 'timestamp DESC',
+      limit: limit,
+    );
+    return maps.map((map) => MessageModel.fromMap(map)).toList();
+  }
+
   Future<List<MessageThread>> getAllThreads({
     int? limit,
     int? offset,

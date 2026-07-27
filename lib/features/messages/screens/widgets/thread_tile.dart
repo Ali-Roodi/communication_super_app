@@ -5,11 +5,13 @@ import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:communication_super_app/features/messages/models/message_model.dart';
 
-/// A single conversation row in Google Messages style.
+/// A single conversation row, laid out like Google Messages: avatar · name over
+/// a two-line snippet · date and the unread badge stacked at the end.
 ///
-/// - Unread: bold title, primary-colored timestamp, unread-count badge,
-///   primary ring around the avatar, slightly elevated (surfaceVariant) tile.
-/// - Selected (multi-select mode): checkmark avatar + highlighted background.
+/// Rows are flat — the surrounding list already sits on the rounded sheet — so
+/// unread state is carried by weight, not by a tinted background. Selecting a
+/// row (multi-select) turns the avatar into a check and wraps the row in a
+/// stadium highlight, exactly as Google Messages does.
 class ThreadTile extends StatelessWidget {
   final MessageThread thread;
   final bool selected;
@@ -34,169 +36,152 @@ class ThreadTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final scheme = Theme.of(context).colorScheme;
     final unread = thread.hasUnread;
     final name = _displayName;
 
-    final Color? tileColor = selected
-        ? cs.primary.withValues(alpha: 0.14)
-        : (unread ? cs.surfaceContainerHighest.withValues(alpha: 0.5) : null);
-
-    return Material(
-      color: tileColor ?? Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          child: Row(
-            children: [
-              _buildLeading(context, name, unread),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        if (thread.isPinned)
-                          Padding(
-                            padding: const EdgeInsets.only(left: 4),
-                            child: Icon(
-                              Icons.push_pin,
-                              size: 14,
-                              color: theme.textTheme.bodyMedium?.color,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+      child: Material(
+        color: selected ? scheme.secondaryContainer : Colors.transparent,
+        borderRadius: BorderRadius.circular(28),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          onLongPress: onLongPress,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 12, 16, 12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildLeading(context, name),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          if (thread.isPinned)
+                            Padding(
+                              padding: const EdgeInsetsDirectional.only(end: 4),
+                              child: Icon(
+                                Icons.push_pin,
+                                size: 14,
+                                color: scheme.onSurfaceVariant,
+                              ),
                             ),
-                          ),
-                        Expanded(
-                          child: Text(
-                            name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: unread
-                                  ? FontWeight.w700
-                                  : FontWeight.w500,
-                              color: theme.textTheme.bodyLarge?.color,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          DateFormatter.formatRelative(thread.sortTime),
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: unread
-                                ? FontWeight.w600
-                                : FontWeight.w400,
-                            color: unread
-                                ? cs.primary
-                                : theme.textTheme.bodySmall?.color,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: thread.hasDraft
-                              ? Text.rich(
-                                  TextSpan(
-                                    children: [
-                                      TextSpan(
-                                        text: 'پیش‌نویس: ',
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w600,
-                                          color: cs.error,
-                                        ),
-                                      ),
-                                      TextSpan(
-                                        text: thread.draftText!.replaceAll(
-                                          '\n',
-                                          ' ',
-                                        ),
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          color:
-                                              theme.textTheme.bodyMedium?.color,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                )
-                              : Text(
-                                  thread.lastMessage,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: unread
-                                        ? FontWeight.w600
-                                        : FontWeight.w400,
-                                    color: unread
-                                        ? theme.textTheme.bodyLarge?.color
-                                        : theme.textTheme.bodyMedium?.color,
-                                  ),
-                                ),
-                        ),
-                        if (unread) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            constraints: const BoxConstraints(minWidth: 20),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: cs.primary,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
+                          Flexible(
                             child: Text(
-                              '${thread.unreadCount}',
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
+                              name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 16,
+                                height: 1.3,
+                                fontWeight: unread
+                                    ? FontWeight.w700
+                                    : FontWeight.w400,
+                                color: scheme.onSurface,
                               ),
                             ),
                           ),
                         ],
-                      ],
+                      ),
+                      const SizedBox(height: 2),
+                      _snippet(context, unread),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      DateFormatter.formatRelative(thread.sortTime),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: unread ? FontWeight.w700 : FontWeight.w400,
+                        color: unread ? scheme.onSurface : scheme.onSurfaceVariant,
+                      ),
                     ),
+                    if (unread) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        constraints: const BoxConstraints(minWidth: 22),
+                        height: 22,
+                        alignment: Alignment.center,
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        decoration: BoxDecoration(
+                          color: scheme.primary,
+                          borderRadius: BorderRadius.circular(11),
+                        ),
+                        child: Text(
+                          PersianUtils.toPersianNumber(
+                            '${thread.unreadCount}',
+                          ),
+                          style: TextStyle(
+                            color: scheme.onPrimary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildLeading(BuildContext context, String name, bool unread) {
-    final cs = Theme.of(context).colorScheme;
+  Widget _snippet(BuildContext context, bool unread) {
+    final scheme = Theme.of(context).colorScheme;
+    if (thread.hasDraft) {
+      return Text.rich(
+        TextSpan(
+          children: [
+            TextSpan(
+              text: 'پیش‌نویس: ',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: scheme.error,
+              ),
+            ),
+            TextSpan(
+              text: thread.draftText!.replaceAll('\n', ' '),
+              style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant),
+            ),
+          ],
+        ),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      );
+    }
+    return Text(
+      thread.lastMessage,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        fontSize: 14,
+        height: 1.35,
+        fontWeight: unread ? FontWeight.w600 : FontWeight.w400,
+        color: unread ? scheme.onSurface : scheme.onSurfaceVariant,
+      ),
+    );
+  }
+
+  Widget _buildLeading(BuildContext context, String name) {
+    final scheme = Theme.of(context).colorScheme;
     if (selected) {
       return CircleAvatar(
         radius: 24,
-        backgroundColor: cs.primary,
-        child: const Icon(Icons.check, color: Colors.white),
-      );
-    }
-    if (unread) {
-      // Colored ring around the avatar for unread threads.
-      return Container(
-        padding: const EdgeInsets.all(2),
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: cs.primary, width: 2),
-        ),
-        child: AvatarWidget(name: name, size: 44),
+        backgroundColor: scheme.primary,
+        child: Icon(Icons.check, color: scheme.onPrimary),
       );
     }
     return AvatarWidget(name: name, size: 48);

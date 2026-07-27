@@ -7,6 +7,7 @@ import android.graphics.BitmapFactory
 import android.os.Bundle
 import com.example.communication_super_app.call.CallHandler
 import com.example.communication_super_app.calllog.CallLogSyncHandler
+import com.example.communication_super_app.contacts.ContactExtrasHandler
 import com.example.communication_super_app.scheduled.ScheduledSmsChannel
 import com.example.communication_super_app.scheduled.ScheduledSmsScheduler
 import io.flutter.embedding.android.FlutterActivity
@@ -19,6 +20,7 @@ class MainActivity : FlutterActivity() {
     private var smsHandler: SmsHandler? = null
     private var callHandler: CallHandler? = null
     private var callLogSyncHandler: CallLogSyncHandler? = null
+    private var contactExtrasHandler: ContactExtrasHandler? = null
 
     /// Deep-link channel: SMS-notification taps carry a `threadId` extra.
     private var intentsChannel: MethodChannel? = null
@@ -78,6 +80,15 @@ class MainActivity : FlutterActivity() {
         )
         callLogSyncHandler?.setupEventChannel(
             EventChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL_CALL_LOG_EVENTS)
+        )
+
+        // ── Per-contact settings (آهنگ زنگ، پست صوتی، هم‌رسانی، برنامه‌های متصل)
+        contactExtrasHandler = ContactExtrasHandler(applicationContext, this)
+        contactExtrasHandler?.setup(
+            MethodChannel(
+                flutterEngine.dartExecutor.binaryMessenger,
+                ContactExtrasHandler.CHANNEL,
+            )
         )
 
         // ── Media picker (انتخاب عکس مخاطب) ─────────────────────────────
@@ -180,6 +191,7 @@ class MainActivity : FlutterActivity() {
         // pending Flutter calls.
         if (smsHandler?.handleRoleActivityResult(requestCode) == true) return
         if (callHandler?.handleRoleActivityResult(requestCode) == true) return
+        if (contactExtrasHandler?.handleActivityResult(requestCode, data) == true) return
         if (requestCode != REQUEST_PICK_IMAGE) return
         val result = pendingPickResult ?: return
         pendingPickResult = null
@@ -247,6 +259,7 @@ class MainActivity : FlutterActivity() {
         callHandler = null
         callLogSyncHandler?.dispose()
         callLogSyncHandler = null
+        contactExtrasHandler = null
         // The engine is going away: the alarm receiver must go back to delivering
         // scheduled messages natively.
         ScheduledSmsChannel.channel = null

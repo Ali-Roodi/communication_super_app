@@ -7,14 +7,17 @@ import '../models/message_model.dart';
 import 'package:communication_super_app/core/navigation/app_route_observer.dart';
 import 'package:communication_super_app/core/services/composer_draft_store.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
+import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
+import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
 import 'package:communication_super_app/features/settings/screens/settings_screen.dart';
 import 'conversation_screen.dart';
 import 'contact_selector_screen.dart';
 import 'archived_threads_screen.dart';
 import 'drafts_list_screen.dart';
 import 'scheduled_messages_screen.dart';
+import 'starred_messages_screen.dart';
 import 'widgets/thread_tile.dart';
 import 'widgets/message_list_states.dart';
 import 'widgets/messages_app_bars.dart';
@@ -239,18 +242,23 @@ class _MessagesListScreenState extends State<MessagesListScreen>
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: _buildAppBar(context),
-        body: Column(
-          children: [
+        // Google Messages has no app bar: the header is a collapsing sliver and
+        // the conversations sit on a rounded sheet that scrolls up under it.
+        body: CustomScrollView(
+          controller: _scrollController,
+          slivers: [
+            _buildAppBar(context),
             if (_showDefaultSmsBanner && !_selectionMode && !_searching)
-              DefaultSmsBanner(
-                onRequest: _requestDefaultSmsRole,
-                onDismiss: () => setState(() {
-                  _bannerDismissed = true;
-                  _showDefaultSmsBanner = false;
-                }),
+              SliverToBoxAdapter(
+                child: DefaultSmsBanner(
+                  onRequest: _requestDefaultSmsRole,
+                  onDismiss: () => setState(() {
+                    _bannerDismissed = true;
+                    _showDefaultSmsBanner = false;
+                  }),
+                ),
               ),
-            Expanded(child: _buildBody(context)),
+            ..._buildBodySlivers(context),
           ],
         ),
         floatingActionButton: _selectionMode || _searching
@@ -275,47 +283,71 @@ class _MessagesListScreenState extends State<MessagesListScreen>
     );
   }
 
-  Widget _buildBody(BuildContext context) {
-    return BlocConsumer<MessageBloc, MessageState>(
-          listener: (context, state) {
-            if (state is MessageSent || state is MessageSendFailed) {
-              context.read<MessageBloc>().add(const LoadThreads());
-            }
-          },
-          builder: (context, state) {
-            if (state is MessageLoading ||
-                state is MessageInitial ||
-                state is MessagesLoaded ||
-                state is MessageSent ||
-                state is MessageSendFailed) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (state is MessageError) {
-              return MessagesErrorState(
+  /// The conversation sheet: a rounded surface that the whole list sits on
+  /// (Google Messages' «صندوق» plane).
+  List<Widget> _buildBodySlivers(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return [
+      BlocConsumer<MessageBloc, MessageState>(
+        listener: (context, state) {
+          if (state is MessageSent || state is MessageSendFailed) {
+            context.read<MessageBloc>().add(const LoadThreads());
+          }
+        },
+        builder: (context, state) {
+          Widget filler(Widget child) => SliverFillRemaining(
+            hasScrollBody: false,
+            child: child,
+          );
+
+          if (state is MessageLoading ||
+              state is MessageInitial ||
+              state is MessagesLoaded ||
+              state is MessageSent ||
+              state is MessageSendFailed) {
+            return filler(const Center(child: CircularProgressIndicator()));
+          }
+          if (state is MessageError) {
+            return filler(
+              MessagesErrorState(
                 message: state.message,
                 onRetry: () => context.read<MessageBloc>().add(
                   const LoadThreads(forceRefresh: true),
                 ),
-              );
-            }
-            if (state is ThreadsLoaded) {
-              // The archived view is shown on its own screen; ignore that state
-              // here (it only briefly appears while that screen is pushed).
-              if (state.archived) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              final base = _visibleThreads(state.threads);
-              final threads = _query.isEmpty ? _mergeDrafts(base) : base;
-              if (threads.isEmpty) {
-                return _query.isEmpty
-                    ? const MessagesEmptyState()
-                    : const MessagesNoResults();
-              }
-              // Rows that exist only because of a draft (no real messages yet).
-              final realIds = {for (final t in state.threads) t.threadId};
-              return ListView.builder(
-                controller: _scrollController,
-                padding: const EdgeInsets.only(bottom: 88),
+              ),
+            );
+          }
+          if (state is! ThreadsLoaded) {
+            return filler(const Center(child: CircularProgressIndicator()));
+          }
+          // The archived view is shown on its own screen; ignore that state
+          // here (it only briefly appears while that screen is pushed).
+          if (state.archived) {
+            return filler(const Center(child: CircularProgressIndicator()));
+          }
+
+          final base = _visibleThreads(state.threads);
+          final threads = _query.isEmpty ? _mergeDrafts(base) : base;
+          if (threads.isEmpty) {
+            return filler(
+              _query.isEmpty
+                  ? const MessagesEmptyState()
+                  : const MessagesNoResults(),
+            );
+          }
+
+          // Rows that exist only because of a draft (no real messages yet).
+          final realIds = {for (final t in state.threads) t.threadId};
+          return DecoratedSliver(
+            decoration: BoxDecoration(
+              color: scheme.cardSurface,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(28),
+              ),
+            ),
+            sliver: SliverPadding(
+              padding: const EdgeInsets.only(top: 8, bottom: 96),
+              sliver: SliverList.builder(
                 itemCount: threads.length + (state.hasMore ? 1 : 0),
                 itemBuilder: (context, index) {
                   if (state.hasMore && index == threads.length) {
@@ -329,16 +361,17 @@ class _MessagesListScreenState extends State<MessagesListScreen>
                       thread.hasDraft && !realIds.contains(thread.threadId);
                   return _buildThreadRow(context, thread, draftOnly: draftOnly);
                 },
-              );
-            }
-            return const Center(child: CircularProgressIndicator());
-          },
-        );
+              ),
+            ),
+          );
+        },
+      ),
+    ];
   }
 
   // ── App bars ───────────────────────────────────────────────────────────
 
-  PreferredSizeWidget _buildAppBar(BuildContext context) {
+  Widget _buildAppBar(BuildContext context) {
     if (_selectionMode) {
       return MessagesSelectionAppBar(
         selectedCount: _selected.length,
@@ -349,6 +382,7 @@ class _MessagesListScreenState extends State<MessagesListScreen>
         onSelectAll: _selectAllVisible,
         onMarkUnread: () => _setSelectedRead(read: false),
         onBlock: _blockSelected,
+        onPin: _pinSelected,
       );
     }
     if (_searching) {
@@ -378,6 +412,10 @@ class _MessagesListScreenState extends State<MessagesListScreen>
         context,
         MaterialPageRoute(builder: (_) => const ScheduledMessagesScreen()),
       ),
+      onOpenStarred: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const StarredMessagesScreen()),
+      ),
       onOpenSettings: () => Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => const SettingsScreen()),
@@ -391,6 +429,27 @@ class _MessagesListScreenState extends State<MessagesListScreen>
     context.read<MessageBloc>().add(
       SetThreadRead(_selected.toList(), read: read),
     );
+    _clearSelection();
+  }
+
+  /// Pins every selected thread that isn't pinned yet; if they all already are,
+  /// the action unpins them (Google's toggle behaviour on a mixed selection is
+  /// "make them all pinned first").
+  void _pinSelected() {
+    final state = context.read<MessageBloc>().state;
+    final all = state is ThreadsLoaded
+        ? state.threads
+        : const <MessageThread>[];
+    final chosen = all.where((t) => _selected.contains(t.threadId)).toList();
+    if (chosen.isEmpty) {
+      _clearSelection();
+      return;
+    }
+    final pin = chosen.any((t) => !t.isPinned);
+    final bloc = context.read<MessageBloc>();
+    for (final t in chosen) {
+      if (t.isPinned != pin) bloc.add(PinThread(t.threadId, pin: pin));
+    }
     _clearSelection();
   }
 
@@ -448,6 +507,31 @@ class _MessagesListScreenState extends State<MessagesListScreen>
     final selected = _selected.contains(thread.threadId);
     final cs = Theme.of(context).colorScheme;
 
+    final tile = ThreadTile(
+      thread: thread,
+      selected: selected,
+      selectionMode: _selectionMode,
+      onTap: () {
+        if (_selectionMode) {
+          _toggleSelect(thread.threadId);
+        } else {
+          _openConversation(context, thread);
+        }
+      },
+      onLongPress: () {
+        if (_selectionMode) {
+          _toggleSelect(thread.threadId);
+        } else if (draftOnly) {
+          _discardDraft(context, thread);
+        } else {
+          _showThreadOptions(context, thread);
+        }
+      },
+    );
+
+    // «کشیدن برای بایگانی» (Settings → پیامک‌ها) turns the swipe gestures off.
+    if (!context.watch<SettingsBloc>().state.swipeActions) return tile;
+
     // A draft-only row has no conversation to archive / mark read — either swipe
     // simply discards the draft.
     if (draftOnly) {
@@ -469,25 +553,7 @@ class _MessagesListScreenState extends State<MessagesListScreen>
           label: 'حذف پیش‌نویس',
           alignStart: false,
         ),
-        child: ThreadTile(
-          thread: thread,
-          selected: selected,
-          selectionMode: _selectionMode,
-          onTap: () {
-            if (_selectionMode) {
-              _toggleSelect(thread.threadId);
-            } else {
-              _openConversation(context, thread);
-            }
-          },
-          onLongPress: () {
-            if (_selectionMode) {
-              _toggleSelect(thread.threadId);
-            } else {
-              _discardDraft(context, thread);
-            }
-          },
-        ),
+        child: tile,
       );
     }
 
@@ -519,25 +585,7 @@ class _MessagesListScreenState extends State<MessagesListScreen>
         label: thread.hasUnread ? 'خوانده‌شده' : 'نخوانده',
         alignStart: false,
       ),
-      child: ThreadTile(
-        thread: thread,
-        selected: selected,
-        selectionMode: _selectionMode,
-        onTap: () {
-          if (_selectionMode) {
-            _toggleSelect(thread.threadId);
-          } else {
-            _openConversation(context, thread);
-          }
-        },
-        onLongPress: () {
-          if (_selectionMode) {
-            _toggleSelect(thread.threadId);
-          } else {
-            _showThreadOptions(context, thread);
-          }
-        },
-      ),
+      child: tile,
     );
   }
 
