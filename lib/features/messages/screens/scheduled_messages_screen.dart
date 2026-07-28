@@ -172,6 +172,9 @@ class _ScheduledTile extends StatelessWidget {
           const SizedBox(height: 2),
           Text(
             '${_fa(DateFormatter.formatDateTime(message.scheduledAt))} · ${_repeatSummary()}'
+            // The window matters as much as the time — without it the row
+            // claims a precision the send does not have.
+            '${message.jitter == JitterWindow.none ? '' : ' · ${jitterLabel(message.jitter)} پراکندگی'}'
             '${isPending ? '' : ' · ${_statusLabel()}'}',
             style: theme.textTheme.bodySmall,
           ),

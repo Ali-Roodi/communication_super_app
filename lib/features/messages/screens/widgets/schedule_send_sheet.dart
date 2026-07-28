@@ -66,83 +66,128 @@ class ScheduleChoice {
 }
 
 /// Google Messages' «Schedule send» sheet: one-tap times plus a full date/time
-/// pick, opened by long-pressing the send button or from the «+» sheet.
+/// pick, opened by long-pressing the send button, from the «+» sheet, or by
+/// tapping the composer's schedule banner to edit an armed schedule.
 ///
 /// Returns the choice, or null when the user backed out. Nothing is scheduled
 /// here — the caller arms the composer and the save happens on send, exactly
-/// like Google. The repeat/jitter/end rules live in the same sheet (behind
-/// «تکرار»): there is deliberately no separate scheduling screen.
+/// like Google. The repeat / jitter / end rules live in the same sheet: there
+/// is deliberately no separate scheduling screen.
+///
+/// Two ways out, on purpose:
+/// * a **quick time** pops straight away (Google's one-tap flow), carrying
+///   whatever repeat/jitter was configured first;
+/// * «انتخاب تاریخ و ساعت» only *sets* the time and keeps the sheet open, so
+///   the rules below it stay reachable and «تأیید» closes.
+///
+/// The second path is what makes editing work: re-opened from the banner the
+/// sheet already has a time, so the user can change only the jitter and
+/// confirm without being forced to re-pick the moment.
 Future<ScheduleChoice?> showScheduleSendSheet(
   BuildContext context, {
   ScheduleChoice? initial,
 }) {
   final now = DateTime.now();
   var choice = initial ?? ScheduleChoice(at: _defaultTime(now));
+  // A fresh sheet has no moment yet (`at` is just "now" so the pickers open
+  // where the user is), so there is nothing to confirm until one is picked.
+  var hasTime = initial != null;
 
   return showModalBottomSheet<ScheduleChoice>(
     context: context,
     showDragHandle: true,
     isScrollControlled: true,
     builder: (sheetCtx) => StatefulBuilder(
-      builder: (sheetCtx, setSheetState) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: SafeArea(
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
-                  child: Text(
-                    'زمان‌بندی ارسال',
-                    style: Theme.of(sheetCtx).textTheme.titleMedium,
-                  ),
-                ),
-                for (final option in _quickOptions(now))
-                  ListTile(
-                    leading: const Icon(Icons.schedule_outlined),
-                    title: Text(option.label),
-                    trailing: Text(
-                      PersianUtils.toPersianNumber(
-                        DateFormatter.formatTime(option.at),
-                      ),
-                      style: Theme.of(sheetCtx).textTheme.bodyMedium,
+      builder: (sheetCtx, setSheetState) {
+        final theme = Theme.of(sheetCtx);
+
+        Future<void> pickDateTime() async {
+          final picked = await _pickDateTime(sheetCtx, choice.at);
+          if (!sheetCtx.mounted || picked == null) return;
+          // The pickers open on "now", so a couple of taps can land in the
+          // past; sending then happens instantly, which is never what
+          // «زمان‌بندی» meant.
+          if (!picked.isAfter(DateTime.now())) {
+            ScaffoldMessenger.of(sheetCtx).showSnackBar(
+              const SnackBar(content: Text('زمان انتخاب‌شده گذشته است')),
+            );
+            return;
+          }
+          setSheetState(() {
+            choice = choice.copyWith(at: picked);
+            hasTime = true;
+          });
+        }
+
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: SafeArea(
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
+                    child: Text(
+                      'زمان‌بندی ارسال',
+                      style: theme.textTheme.titleMedium,
                     ),
-                    onTap: () =>
-                        Navigator.pop(sheetCtx, choice.copyWith(at: option.at)),
                   ),
-                ListTile(
-                  leading: const Icon(Icons.event_outlined),
-                  title: const Text('انتخاب تاریخ و ساعت'),
-                  onTap: () async {
-                    final picked = await _pickDateTime(sheetCtx, choice.at);
-                    if (!sheetCtx.mounted || picked == null) return;
-                    // The pickers open on "now", so a couple of taps can land
-                    // in the past; sending then happens instantly, which is
-                    // never what «زمان‌بندی» meant.
-                    if (!picked.isAfter(DateTime.now())) {
-                      ScaffoldMessenger.of(sheetCtx).showSnackBar(
-                        const SnackBar(
-                          content: Text('زمان انتخاب‌شده گذشته است'),
+                  if (hasTime) ...[
+                    ListTile(
+                      leading: Icon(
+                        Icons.event_available_outlined,
+                        color: theme.colorScheme.primary,
+                      ),
+                      title: const Text('زمان ارسال'),
+                      subtitle: Text(
+                        formatScheduleLabel(choice.at),
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.primary,
+                          fontWeight: FontWeight.w600,
                         ),
-                      );
-                      return;
-                    }
-                    Navigator.pop(sheetCtx, choice.copyWith(at: picked));
-                  },
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.repeat),
-                  title: const Text('تکرار'),
-                  subtitle: Text(repeatSummary(choice)),
-                  onTap: () async {
-                    final updated = await _showRepeatSheet(sheetCtx, choice);
-                    if (updated != null) setSheetState(() => choice = updated);
-                  },
-                ),
-                if (choice.repeat != ScheduleRepeat.none) ...[
+                      ),
+                      trailing: const Icon(Icons.edit_outlined, size: 20),
+                      onTap: pickDateTime,
+                    ),
+                    const Divider(height: 1),
+                  ],
+                  for (final option in _quickOptions(now))
+                    ListTile(
+                      leading: const Icon(Icons.schedule_outlined),
+                      title: Text(option.label),
+                      trailing: Text(
+                        PersianUtils.toPersianNumber(
+                          DateFormatter.formatTime(option.at),
+                        ),
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                      onTap: () => Navigator.pop(
+                        sheetCtx,
+                        choice.copyWith(at: option.at),
+                      ),
+                    ),
+                  ListTile(
+                    leading: const Icon(Icons.event_outlined),
+                    title: const Text('انتخاب تاریخ و ساعت'),
+                    onTap: pickDateTime,
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.repeat),
+                    title: const Text('تکرار'),
+                    subtitle: Text(repeatSummary(choice)),
+                    onTap: () async {
+                      final updated = await _showRepeatSheet(sheetCtx, choice);
+                      if (updated != null) setSheetState(() => choice = updated);
+                    },
+                  ),
+                  // Jitter is NOT nested under «تکرار»: spreading a *one-shot*
+                  // send over a random window is the main reason the option
+                  // exists (a message that must not land on a round minute),
+                  // and hiding it behind a repeat rule made it unreachable for
+                  // exactly that case.
                   ListTile(
                     leading: const Icon(Icons.shuffle),
                     title: const Text('پراکندگی زمان ارسال'),
@@ -159,24 +204,33 @@ Future<ScheduleChoice?> showScheduleSendSheet(
                       }
                     },
                   ),
-                  ListTile(
-                    leading: const Icon(Icons.event_busy_outlined),
-                    title: const Text('پایان تکرار'),
-                    subtitle: Text(endSummary(choice)),
-                    onTap: () async {
-                      final updated = await _showEndSheet(sheetCtx, choice);
-                      if (updated != null) {
-                        setSheetState(() => choice = updated);
-                      }
-                    },
-                  ),
+                  if (choice.repeat != ScheduleRepeat.none)
+                    ListTile(
+                      leading: const Icon(Icons.event_busy_outlined),
+                      title: const Text('پایان تکرار'),
+                      subtitle: Text(endSummary(choice)),
+                      onTap: () async {
+                        final updated = await _showEndSheet(sheetCtx, choice);
+                        if (updated != null) {
+                          setSheetState(() => choice = updated);
+                        }
+                      },
+                    ),
+                  if (hasTime)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                      child: FilledButton(
+                        onPressed: () => Navigator.pop(sheetCtx, choice),
+                        child: const Text('تأیید'),
+                      ),
+                    ),
+                  const SizedBox(height: 8),
                 ],
-                const SizedBox(height: 8),
-              ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     ),
   );
 }
@@ -600,6 +654,18 @@ String repeatSummary(ScheduleChoice choice) {
     return '$base · $days';
   }
   return base;
+}
+
+/// What the composer banner prints after the time: the repeat rule and the
+/// jitter window, whichever are set. A one-shot with no jitter has nothing to
+/// add, so this returns null and the banner shows the time alone.
+String? scheduleDetailSummary(ScheduleChoice choice) {
+  final parts = <String>[
+    if (choice.repeat != ScheduleRepeat.none) repeatSummary(choice),
+    if (choice.jitter != JitterWindow.none)
+      '${jitterLabel(choice.jitter)} پراکندگی',
+  ];
+  return parts.isEmpty ? null : parts.join(' · ');
 }
 
 String endSummary(ScheduleChoice choice) => switch (choice.endType) {

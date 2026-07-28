@@ -16,12 +16,14 @@ enum ScheduleRepeat {
       .firstWhere((e) => e.value == v, orElse: () => ScheduleRepeat.none);
 }
 
-/// Send-time jitter window. The exact send time is spread randomly within the
-/// window so a recurring batch doesn't fire at the exact same instant.
+/// Send-time jitter window. The exact send time is spread inside the window so
+/// a send doesn't land on the round minute it was scheduled for (and a
+/// recurring batch doesn't fire at the exact same instant every time).
 ///
-/// Persisted and shown in the UI; **applied only by the future native
-/// background sender (PHASE 2)**. Foreground delivery (PHASE 1) sends as soon as
-/// the message is due, so the value is informational there.
+/// **Enforced, not informational** — on both deliverers. Dart gates on
+/// [ScheduledMessage.effectiveSendAt] via `isDueAt`, and `ScheduledSmsWorker`
+/// (Kotlin) applies the same gate before claiming a row. It applies to
+/// one-shots too, which is why the sheet offers it independently of «تکرار».
 enum JitterWindow {
   none('none', 0),
   tenMin('min10', 10),
