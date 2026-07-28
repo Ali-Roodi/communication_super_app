@@ -10,8 +10,13 @@ import 'package:communication_super_app/features/messages/bloc/message_bloc.dart
 import 'package:communication_super_app/features/messages/bloc/message_event.dart';
 import 'package:communication_super_app/features/messages/services/native_sms_service.dart';
 
-/// The two default-app roles the app cannot work without.
-enum DefaultRole { sms, dialer }
+/// The default-app grants the app cannot work without.
+///
+/// [fullScreenIntent] is not a role but belongs in the same flow: without it an
+/// incoming call on a locked phone cannot open this app's call screen, so the
+/// OEM dialer takes the call over — the dialer role alone is not enough on
+/// Android 14+.
+enum DefaultRole { sms, dialer, fullScreenIntent }
 
 /// Google Messages / Google Phone style onboarding for the two default-app
 /// roles, shown between [PermissionGate] and the app itself.
@@ -43,6 +48,7 @@ class _DefaultAppGateState extends State<DefaultAppGate>
   /// screen never flashes in after the UI is already up.
   bool? _isDefaultSms;
   bool? _isDefaultDialer;
+  bool? _canFullScreen;
 
   /// Dismissed for now; cleared on the next resume so returning to the app
   /// asks again.
@@ -86,6 +92,7 @@ class _DefaultAppGateState extends State<DefaultAppGate>
   Future<void> _check() async {
     final sms = await NativeSmsService().isDefaultSmsApp();
     final dialer = await NativeCallService.instance.isDefaultDialer();
+    final fullScreen = await NativeCallService.instance.canUseFullScreenIntent();
     if (!mounted) return;
 
     final hadAll = (_isDefaultSms ?? false) && (_isDefaultDialer ?? false);
@@ -93,9 +100,11 @@ class _DefaultAppGateState extends State<DefaultAppGate>
     setState(() {
       _isDefaultSms = sms;
       _isDefaultDialer = dialer;
+      _canFullScreen = fullScreen;
     });
 
-    if (sms && dialer) {
+    // The roles drive the data sync; the full-screen grant only adds a step.
+    if (sms && dialer && fullScreen) {
       // First time we see both roles held in this session: pull everything the
       // app was blind to while another app owned them.
       if (!hadAll || !_syncedForRoles) _syncDeviceData();
@@ -111,7 +120,8 @@ class _DefaultAppGateState extends State<DefaultAppGate>
     if (_openRoute != null) return;
     final navigator = Navigator.maybeOf(context, rootNavigator: true);
     if (navigator == null) return;
-    final role = (_isDefaultSms ?? false) ? DefaultRole.dialer : DefaultRole.sms;
+    final role = _pendingRole;
+    if (role == null) return;
     final route = MaterialPageRoute<void>(
       fullscreenDialog: true,
       builder: (_) => _DefaultRoleScreen(
@@ -150,6 +160,14 @@ class _DefaultAppGateState extends State<DefaultAppGate>
     }
   }
 
+  /// The next grant still missing, in the order they are asked for.
+  DefaultRole? get _pendingRole {
+    if (!(_isDefaultSms ?? false)) return DefaultRole.sms;
+    if (!(_isDefaultDialer ?? false)) return DefaultRole.dialer;
+    if (!(_canFullScreen ?? true)) return DefaultRole.fullScreenIntent;
+    return null;
+  }
+
   Future<void> _request(DefaultRole role) async {
     if (_requesting) return;
     _requesting = true;
@@ -159,6 +177,10 @@ class _DefaultAppGateState extends State<DefaultAppGate>
           await NativeSmsService().requestDefaultSmsRole();
         case DefaultRole.dialer:
           await NativeCallService.instance.requestDefaultDialerRole();
+        case DefaultRole.fullScreenIntent:
+          // A settings page, not a sheet: the resume re-check picks the result
+          // up when the user comes back.
+          await NativeCallService.instance.openFullScreenIntentSettings();
       }
     } catch (e) {
       debugPrint('DefaultAppGate: role request failed: $e');
@@ -170,18 +192,15 @@ class _DefaultAppGateState extends State<DefaultAppGate>
 
   @override
   Widget build(BuildContext context) {
-    final sms = _isDefaultSms;
-    final dialer = _isDefaultDialer;
-    if (sms == null || dialer == null) {
+    if (_isDefaultSms == null || _isDefaultDialer == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    if (_appShown || _skipped || (sms && dialer)) {
+    final role = _pendingRole;
+    if (_appShown || _skipped || role == null) {
       _appShown = true;
       return widget.child;
     }
 
-    // SMS first, then the dialer — the same order the roles were requested in.
-    final role = sms ? DefaultRole.dialer : DefaultRole.sms;
     return _DefaultRoleScreen(
       role: role,
       onRequest: () => _request(role),
@@ -221,30 +240,58 @@ class _DefaultRoleScreenState extends State<_DefaultRoleScreen> {
     if (mounted) setState(() => _busy = false);
   }
 
-  bool get _isSms => widget.role == DefaultRole.sms;
+  bool get _isFullScreen => widget.role == DefaultRole.fullScreenIntent;
 
-  String get _title => _isSms
-      ? 'هم‌رسان را پیام‌رسان پیش‌فرض کنید'
-      : 'هم‌رسان را برنامه تماس پیش‌فرض کنید';
+  String get _title => switch (widget.role) {
+    DefaultRole.sms => 'هم‌رسان را پیام‌رسان پیش‌فرض کنید',
+    DefaultRole.dialer => 'هم‌رسان را برنامه تماس پیش‌فرض کنید',
+    DefaultRole.fullScreenIntent => 'اجازه نمایش صفحه تماس را بدهید',
+  };
 
-  String get _body => _isSms
-      ? 'برای ارسال و دریافت پیامک و همگام ماندن با پیام‌های گوشی، هم‌رسان باید برنامه پیش‌فرض پیامک باشد.'
-      : 'برای برقراری تماس و نمایش صفحه تماس ورودی، هم‌رسان باید برنامه پیش‌فرض تماس باشد.';
+  String get _body => switch (widget.role) {
+    DefaultRole.sms =>
+      'برای ارسال و دریافت پیامک و همگام ماندن با پیام‌های گوشی، هم‌رسان باید برنامه پیش‌فرض پیامک باشد.',
+    DefaultRole.dialer =>
+      'برای برقراری تماس و نمایش صفحه تماس ورودی، هم‌رسان باید برنامه پیش‌فرض تماس باشد.',
+    DefaultRole.fullScreenIntent =>
+      'بدون این اجازه، تماس ورودی روی گوشی قفل صفحه تماس هم‌رسان را باز نمی‌کند و صفحه تماس خود گوشی نشان داده می‌شود. در صفحه‌ای که باز می‌شود، «اعلان تمام‌صفحه» را روشن کنید.',
+  };
 
-  List<({IconData icon, String text})> get _points => _isSms
-      ? const [
-          (icon: Icons.sync_rounded, text: 'همه پیامک‌های گوشی همگام می‌شوند'),
-          (
-            icon: Icons.notifications_active_outlined,
-            text: 'اعلان پیام‌های تازه با پاسخ سریع',
-          ),
-          (icon: Icons.lock_outline, text: 'پیام‌ها روی همین گوشی می‌مانند'),
-        ]
-      : const [
-          (icon: Icons.call_outlined, text: 'صفحه تماس ورودی و خروجی هم‌رسان'),
-          (icon: Icons.history_rounded, text: 'سابقه تماس‌ها همگام می‌شود'),
-          (icon: Icons.block_outlined, text: 'مسدودسازی شماره‌های مزاحم'),
-        ];
+  IconData get _icon => switch (widget.role) {
+    DefaultRole.sms => Icons.chat_bubble_outline_rounded,
+    DefaultRole.dialer => Icons.phone_in_talk_outlined,
+    DefaultRole.fullScreenIntent => Icons.fullscreen_rounded,
+  };
+
+  String get _actionLabel =>
+      _isFullScreen ? 'باز کردن تنظیمات' : 'تنظیم به عنوان پیش‌فرض';
+
+  List<({IconData icon, String text})> get _points => switch (widget.role) {
+    DefaultRole.sms => const [
+      (icon: Icons.sync_rounded, text: 'همه پیامک‌های گوشی همگام می‌شوند'),
+      (
+        icon: Icons.notifications_active_outlined,
+        text: 'اعلان پیام‌های تازه با پاسخ سریع',
+      ),
+      (icon: Icons.lock_outline, text: 'پیام‌ها روی همین گوشی می‌مانند'),
+    ],
+    DefaultRole.dialer => const [
+      (icon: Icons.call_outlined, text: 'صفحه تماس ورودی و خروجی هم‌رسان'),
+      (icon: Icons.history_rounded, text: 'سابقه تماس‌ها همگام می‌شود'),
+      (icon: Icons.block_outlined, text: 'مسدودسازی شماره‌های مزاحم'),
+    ],
+    DefaultRole.fullScreenIntent => const [
+      (
+        icon: Icons.lock_open_rounded,
+        text: 'تماس ورودی روی صفحه قفل باز می‌شود',
+      ),
+      (icon: Icons.touch_app_outlined, text: 'پاسخ و رد تماس با یک لمس'),
+      (
+        icon: Icons.phonelink_ring_outlined,
+        text: 'صفحه تماس هم‌رسان به‌جای صفحه تماس گوشی',
+      ),
+    ],
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -272,9 +319,7 @@ class _DefaultRoleScreenState extends State<_DefaultRoleScreen> {
                             shape: BoxShape.circle,
                           ),
                           child: Icon(
-                            _isSms
-                                ? Icons.chat_bubble_outline_rounded
-                                : Icons.phone_in_talk_outlined,
+                            _icon,
                             size: 44,
                             color: scheme.onPrimaryContainer,
                           ),
@@ -341,7 +386,7 @@ class _DefaultRoleScreenState extends State<_DefaultRoleScreen> {
                               width: 18,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const Text('تنظیم به عنوان پیش‌فرض'),
+                          : Text(_actionLabel),
                     ),
                   ],
                 ),

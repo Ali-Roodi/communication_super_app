@@ -234,7 +234,12 @@ class CallInCallService : InCallService() {
     private fun bringActivityToFront() {
         try {
             packageManager.getLaunchIntentForPackage(packageName)?.apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                // NO_ANIMATION: the window open animation replays the app's
+                // last frame (inbox / PIN screen) before the call screen is
+                // pushed, which reads as the wrong screen flashing up.
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                    Intent.FLAG_ACTIVITY_NO_ANIMATION
             }?.let { startActivity(it) }
         } catch (e: Exception) {
             Log.e(TAG, "bringActivityToFront failed: ${e.message}")
@@ -306,6 +311,11 @@ class CallInCallService : InCallService() {
     private fun publishState(call: Call, state: Int) {
         val data = mapOf(
             "phone" to phoneOf(call),
+            // Resolved HERE, not in Dart: a PhoneLookup is a single indexed
+            // query, while the Dart side had to walk the whole address book,
+            // so the call screen came up showing the bare number and swapped
+            // in the name a beat later.
+            "name" to lookupContactName(phoneOf(call)),
             "direction" to directionOf(call),
             // Conference host call (merged تماس گروهی) — the UI shows a group
             // title instead of the first participant's name.

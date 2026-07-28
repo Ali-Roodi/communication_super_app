@@ -17,6 +17,10 @@ class DialerState extends Equatable {
   // ── Call ──────────────────────────────────────────────────
   final CallStatus callStatus;
   final String activePhone;
+
+  /// Caller name for [activePhone], resolved natively with the call event so
+  /// the call screen never renders the bare number first. Null = unsaved.
+  final String? activeName;
   final bool isMuted;
   final bool isSpeakerOn;
 
@@ -35,6 +39,7 @@ class DialerState extends Equatable {
     this.isLoadingContacts = false,
     this.callStatus = CallStatus.idle,
     this.activePhone = '',
+    this.activeName,
     this.isMuted = false,
     this.isSpeakerOn = false,
     this.callCount = 0,
@@ -56,6 +61,7 @@ class DialerState extends Equatable {
     bool? isLoadingContacts,
     CallStatus? callStatus,
     String? activePhone,
+    String? activeName,
     bool? isMuted,
     bool? isSpeakerOn,
     int? callCount,
@@ -71,6 +77,7 @@ class DialerState extends Equatable {
       isLoadingContacts: isLoadingContacts ?? this.isLoadingContacts,
       callStatus: callStatus ?? this.callStatus,
       activePhone: activePhone ?? this.activePhone,
+      activeName: activeName ?? this.activeName,
       isMuted: isMuted ?? this.isMuted,
       isSpeakerOn: isSpeakerOn ?? this.isSpeakerOn,
       callCount: callCount ?? this.callCount,
@@ -88,6 +95,7 @@ class DialerState extends Equatable {
     isLoadingContacts,
     callStatus,
     activePhone,
+    activeName,
     isMuted,
     isSpeakerOn,
     callCount,
