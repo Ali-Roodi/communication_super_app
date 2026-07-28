@@ -38,6 +38,7 @@ MessageModel _message(
   String body = 'سلام',
   int minute = 0,
   MessageType type = MessageType.received,
+  int? deviceSmsId,
 }) => MessageModel(
   id: id,
   threadId: threadId,
@@ -46,6 +47,7 @@ MessageModel _message(
   type: type,
   status: MessageStatus.delivered,
   timestamp: DateTime(2026, 1, 1, 12, minute),
+  deviceSmsId: deviceSmsId,
 );
 
 CallLogModel _call(String id, {int minute = 0}) => CallLogModel(
@@ -184,6 +186,30 @@ void main() {
 
       final remaining = await repo.getMessagesByThread('09120000000');
       expect(remaining.map((m) => m.id), ['m2']);
+    });
+
+    test('softDeleteThread hides the thread but keeps the device tombstones so '
+        'the mirror-sync cannot re-import it', () async {
+      final repo = MessageRepository();
+      await repo.createMessage(
+        _message('m1', minute: 0, deviceSmsId: 11),
+      );
+      await repo.createMessage(
+        _message('m2', minute: 5, deviceSmsId: 12),
+      );
+
+      await repo.softDeleteThread('09120000000');
+      expect(await repo.getAllThreads(), isEmpty);
+
+      // The provider still offers both rows (e.g. the app does not hold the
+      // SMS role, so the provider delete was a no-op) — they must not come back.
+      await repo.reconcileDeviceRows([
+        _message('device-11', minute: 0, deviceSmsId: 11),
+        _message('device-12', minute: 5, deviceSmsId: 12),
+      ]);
+
+      expect(await repo.getMessagesByThread('09120000000'), isEmpty);
+      expect(await repo.getAllThreads(), isEmpty);
     });
 
     test('getAllThreads returns one thread even when the two newest messages '

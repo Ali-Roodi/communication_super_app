@@ -1,11 +1,16 @@
 package com.example.communication_super_app
 
 import android.app.Activity
+import android.app.KeyguardManager
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import com.example.communication_super_app.call.CallHandler
+import com.example.communication_super_app.call.CallInCallService
 import com.example.communication_super_app.calllog.CallLogSyncHandler
 import com.example.communication_super_app.contacts.ContactExtrasHandler
 import com.example.communication_super_app.scheduled.ScheduledSmsChannel
@@ -29,6 +34,12 @@ class MainActivity : FlutterActivity() {
     private var pendingPickResult: MethodChannel.Result? = null
 
     companion object {
+        /** The live activity, so the in-call service can flip its lock-screen
+         *  window flags. Cleared in onDestroy. */
+        @JvmStatic
+        @Volatile
+        var instance: MainActivity? = null
+
         /** Thread currently on screen in Flutter (null = none). Set over the
          *  intents channel; [SmsNotifier] suppresses notifications for it
          *  while the activity is resumed (Google Messages behavior). */
@@ -239,13 +250,41 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        instance = this
         smsHandler?.registerReceiver()
+        // The full-screen intent of an incoming call cold-starts this activity;
+        // without the flags below it lands *behind* the keyguard and the user
+        // sees a black screen with the phone still ringing.
+        syncLockScreenVisibility()
+    }
+
+    // The incoming-call notification is tied to start/stop, NOT resume/pause.
+    // Over a keyguard this activity is paused and resumed repeatedly while
+    // staying perfectly visible, and re-posting on every pause put the card
+    // back on the lock screen next to the call screen. onStop is the only
+    // signal that the call UI really went away.
+    override fun onStart() {
+        super.onStart()
+        android.util.Log.d("CallUi", "MainActivity.onStart")
+        CallInCallService.instance?.onCallUiVisible(true)
+    }
+
+    override fun onStop() {
+        android.util.Log.d("CallUi", "MainActivity.onStop")
+        // Left the call screen with the phone still ringing — put the
+        // notification back so the call stays reachable.
+        CallInCallService.instance?.onCallUiVisible(false)
+        super.onStop()
     }
 
     override fun onResume() {
         super.onResume()
         isResumed = true
         smsHandler?.registerReceiver()
+        syncLockScreenVisibility()
+        // Re-assert: a keyguard-driven resume can land after the card was
+        // posted by an onStop that the call outlived.
+        CallInCallService.instance?.onCallUiVisible(true)
     }
 
     override fun onPause() {
@@ -253,7 +292,59 @@ class MainActivity : FlutterActivity() {
         super.onPause()
     }
 
+    /**
+     * Turns "show over the lock screen" on while a call exists and off again
+     * once it is gone.
+     *
+     * It is deliberately NOT a manifest attribute: the app holds a PIN/pattern
+     * lock, so it must sit over the keyguard only for calls, never for the
+     * inbox. The screen is also woken and kept on — a ringing call that leaves
+     * the display asleep is unanswerable.
+     */
+    fun syncLockScreenVisibility() {
+        showOverLockScreen(CallInCallService.hasLiveCall())
+    }
+
+    fun showOverLockScreen(show: Boolean) {
+        runOnUiThread {
+            val keyguard =
+                getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+            // Call ended while the phone is still locked: hand the screen back
+            // to the keyguard *first*. Only clearing the flags leaves this
+            // activity on top for a frame or two, which showed a flash of the
+            // app's normal UI (inbox/dialer) over the lock screen.
+            if (!show && keyguard.isKeyguardLocked) {
+                moveTaskToBack(true)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                setShowWhenLocked(show)
+                setTurnScreenOn(show)
+            }
+            // Pre-27 equivalents (deprecated after, so only set there). The
+            // keep-screen-on flag applies on every version.
+            val legacy = WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+            } else {
+                legacy or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+            }
+            if (show) window.addFlags(flags) else window.clearFlags(flags)
+            // An *insecure* keyguard (swipe only) still covers the window, so
+            // ask for it to be taken down. A secure one is left alone: the call
+            // UI is meant to show over it without unlocking the phone.
+            if (show) {
+                val keyguard =
+                    getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+                if (!keyguard.isKeyguardSecure && keyguard.isKeyguardLocked) {
+                    keyguard.requestDismissKeyguard(this, null)
+                }
+            }
+        }
+    }
+
     override fun onDestroy() {
+        if (instance === this) instance = null
         smsHandler?.dispose()
         smsHandler = null
         callHandler = null

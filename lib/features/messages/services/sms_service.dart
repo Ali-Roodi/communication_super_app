@@ -453,10 +453,16 @@ class SmsService {
 
   /// Deletes a whole conversation globally: every provider row for the thread
   /// address (default-SMS-app only), then the local thread.
+  ///
+  /// The local half is a **soft** delete on purpose. A hard delete drops the
+  /// `device_sms_id` tombstones, and then anything the provider delete missed —
+  /// it is a no-op unless this app holds the SMS role, and it matches addresses
+  /// by their last 10 digits — is re-imported by the next mirror-sync and the
+  /// whole conversation reappears (typically after an app restart).
   Future<void> deleteThreadGlobally(String threadId) async {
     // threadId IS the normalized national number — usable as the address key.
     await _nativeSmsService.deleteSmsThreadFromProvider(threadId);
-    await _messageRepository.deleteThread(threadId);
+    await _messageRepository.softDeleteThread(threadId);
   }
 
   /// Delegates to [PhoneNormalizer.toThreadId] so that all thread IDs are

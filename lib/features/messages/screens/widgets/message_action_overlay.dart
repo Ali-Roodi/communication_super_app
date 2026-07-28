@@ -203,7 +203,7 @@ class _MessageActionLayer extends StatelessWidget {
             anchor: anchor,
             isLastInGroup: isLastInGroup,
             showLinkPreview: showLinkPreview,
-            isSent: isSent,
+                  isSent: isSent,
             top: top,
             height: bubbleHeight,
             scrollable: overflows,

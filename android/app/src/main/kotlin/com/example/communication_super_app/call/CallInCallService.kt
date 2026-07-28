@@ -16,6 +16,7 @@ import android.telecom.InCallService
 import android.telecom.VideoProfile
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.Person
 import com.example.communication_super_app.BlockedNumbers
 
 /**
@@ -68,6 +69,12 @@ class CallInCallService : InCallService() {
         @JvmStatic
         fun topLevelCalls(): List<Call> = trackedCalls.filter { it.parent == null }
 
+        /** True while any call is still up (ringing, dialling or connected).
+         *  Drives MainActivity's show-over-the-lock-screen window flags. */
+        @JvmStatic
+        fun hasLiveCall(): Boolean =
+            trackedCalls.any { it.state != Call.STATE_DISCONNECTED }
+
         /** True when an active+held pair (or a telecom merge capability) exists. */
         @JvmStatic
         fun canMerge(): Boolean {
@@ -102,8 +109,20 @@ class CallInCallService : InCallService() {
         }
     }
 
+    /** True once the Flutter call screen has been on screen for the current
+     *  ringing call — see [onCallUiVisible]. Reset per call. */
+    @Volatile
+    private var callUiShown = false
+
     private val callCallback = object : Call.Callback() {
         override fun onStateChanged(call: Call, state: Int) {
+            // Answered / rejected: the «تماس ورودی» card has nothing left to
+            // offer and would otherwise sit in the shade for the whole call.
+            if (state != Call.STATE_RINGING &&
+                trackedCalls.none { it.state == Call.STATE_RINGING }
+            ) {
+                cancelIncomingCallNotification()
+            }
             // Only the foreground call drives the screen state — a background
             // call flipping to HOLDING while the second call dials must not
             // repaint the UI as "on hold".
@@ -140,19 +159,29 @@ class CallInCallService : InCallService() {
 
         trackedCalls.add(call)
         currentCall = call
+        callUiShown = false
         call.registerCallback(callCallback)
         publishState(call, call.state)
         publishCallsChanged()
+        // A live activity has to be told to move over the keyguard *before*
+        // the full-screen intent brings it forward, or it comes up behind the
+        // lock screen (black screen, phone still ringing).
+        com.example.communication_super_app.MainActivity.instance
+            ?.showOverLockScreen(true)
         if (call.state == Call.STATE_RINGING) {
             // App on screen → the Flutter IncomingCallScreen is already being
             // pushed by the INCOMING event; post only a silent shade entry (no
             // heads-up popup over the in-app UI). Backgrounded/dead → the
             // high-priority notification (with its fullScreenIntent) IS the
             // incoming-call UI.
-            postIncomingCallNotification(
-                phoneOf(call),
-                headsUp = !com.example.communication_super_app.MainActivity.isResumed,
-            )
+            val backgrounded =
+                !com.example.communication_super_app.MainActivity.isResumed
+            postIncomingCallNotification(phoneOf(call), headsUp = backgrounded)
+            // Belt and braces: OEMs throttle full-screen intents, and a
+            // throttled one leaves the user staring at the lock screen. Ask for
+            // the activity ourselves too — it is singleTop, so the worst case is
+            // an extra onNewIntent.
+            if (backgrounded) bringActivityToFront()
         } else {
             // Outgoing call: the default-dialer contract expects the UI dialer
             // to LAUNCH its in-call activity itself. Without a formal activity
@@ -170,6 +199,33 @@ class CallInCallService : InCallService() {
                     bringActivityToFront()
                 }
             }, 2000)
+        }
+    }
+
+    /**
+     * The Flutter call screen came to the front (or left it) — MainActivity's
+     * onResume / onPause.
+     *
+     * While it is visible the incoming-call notification is **cancelled**, not
+     * merely silenced. On a locked-but-awake phone the activity is not resumed
+     * when the call arrives, so the heads-up card is posted, and a silent
+     * re-post is not enough: every notification is listed on the lock screen,
+     * so the user saw the card *and* the call screen. Google Phone shows the
+     * screen alone. It comes back (silent) the moment the user leaves.
+     */
+    fun onCallUiVisible(visible: Boolean) {
+        val ringing = trackedCalls.firstOrNull { it.state == Call.STATE_RINGING }
+            ?: return
+        if (visible) {
+            callUiShown = true
+            cancelIncomingCallNotification()
+        } else if (!callUiShown) {
+            // Only ever posted back BEFORE the call screen has been seen. The
+            // activity is started and stopped several times while coming up
+            // over a keyguard, and re-posting on each stop is what put the card
+            // back next to the call screen. Once the screen has been up for
+            // this call, the card stays gone.
+            postIncomingCallNotification(phoneOf(ringing), headsUp = false)
         }
     }
 
@@ -199,7 +255,10 @@ class CallInCallService : InCallService() {
 
         val remaining = topLevelCalls()
         if (remaining.isEmpty()) {
-            // Last call gone — tear the in-call UI down.
+            // Last call gone — tear the in-call UI down and stop showing the
+            // app over the keyguard (the inbox must stay behind the app lock).
+            com.example.communication_super_app.MainActivity.instance
+                ?.showOverLockScreen(false)
             currentCall = null
             stickyState = null
             CallEventStreamHandler.sendEvent(
@@ -364,10 +423,18 @@ class CallInCallService : InCallService() {
         )
 
         val name = lookupContactName(phone) ?: phone
+        // CallStyle, not a plain notification with two actions: from Android 12
+        // on it is what gets the ranked-to-the-top call treatment, and on a
+        // locked screen it is what shows real پاسخ/رد buttons. That matters even
+        // when the full-screen intent is throttled — the call stays answerable.
+        val caller = Person.Builder().setName(name).setImportant(true).build()
         val notification = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(applicationInfo.icon)
             .setContentTitle(name)
             .setContentText("تماس ورودی")
+            .setStyle(
+                NotificationCompat.CallStyle.forIncomingCall(caller, decline, answer),
+            )
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setPriority(
                 if (headsUp) {
@@ -377,12 +444,27 @@ class CallInCallService : InCallService() {
                 },
             )
             .setOngoing(true)
-            .apply { if (headsUp) setFullScreenIntent(fullScreen, true) }
+            // Lock screen shows the caller: the notification carries no message
+            // content, and hiding it would leave an empty card to answer from.
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            // ALWAYS set, both flavors. A CallStyle notification that is
+            // neither tied to a foreground service nor carrying a full-screen
+            // intent is REJECTED with IllegalArgumentException — which killed
+            // the process (and with it the InCallService, so the OEM dialer
+            // took the call over). Whether it actually opens the activity is
+            // decided by the channel importance, not by this flag: the silent
+            // channel is IMPORTANCE_LOW, so it never fires.
+            .setFullScreenIntent(fullScreen, headsUp)
             .setContentIntent(fullScreen)
-            .addAction(0, "رد", decline)
-            .addAction(0, "پاسخ", answer)
             .build()
-        nm.notify(NOTIF_ID, notification)
+        // A rejected notification must never take the process down with it:
+        // this service IS the call UI, so a crash here hands the call to the
+        // OEM dialer.
+        try {
+            nm.notify(NOTIF_ID, notification)
+        } catch (e: Exception) {
+            Log.e(TAG, "incoming-call notification rejected: ${e.message}")
+        }
     }
 
     private fun cancelIncomingCallNotification() {

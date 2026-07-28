@@ -6,6 +6,7 @@ import 'package:communication_super_app/features/messages/screens/widgets/messag
 import 'package:communication_super_app/features/messages/screens/widgets/messages_app_bars.dart';
 import 'package:communication_super_app/features/messages/screens/widgets/conversation_app_bars.dart';
 import 'package:communication_super_app/features/messages/screens/widgets/message_action_overlay.dart';
+import 'package:communication_super_app/features/messages/screens/widgets/message_bubble.dart';
 
 /// Covers the presentation widgets extracted from `messages_list_screen` and
 /// `conversation_screen` — the safety net for that decomposition.
@@ -259,7 +260,7 @@ void main() {
       await openOverlay(tester, () {});
       // The body is rendered by SelectableText — that is what lets the user
       // drag a selection straight on the zoomed bubble.
-      expect(find.byType(SelectableText), findsOneWidget);
+      expect(find.byType(SelectableBubbleText), findsOneWidget);
       expect(find.text('کپی'), findsOneWidget);
     });
 
@@ -271,7 +272,7 @@ void main() {
       await tester.tap(find.text('کپی'));
       await tester.pumpAndSettle();
       expect(copied, 1);
-      expect(find.byType(SelectableText), findsNothing); // overlay closed
+      expect(find.byType(SelectableBubbleText), findsNothing); // closed
     });
   });
 }
