@@ -84,36 +84,60 @@ class _LinkPreviewCardState extends State<LinkPreviewCard> {
                   ),
                 Padding(
                   padding: const EdgeInsets.all(10),
-                  child: Column(
+                  child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (data.title != null)
-                        Text(
-                          data.title!,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: fg,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
+                      // Without a hero image the card was a bare grey slab —
+                      // the site icon gives it the same anchor Google Messages
+                      // puts on a compact preview.
+                      if (data.imageUrl == null && data.iconUrl != null) ...[
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: Image.network(
+                            data.iconUrl!,
+                            width: 36,
+                            height: 36,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) =>
+                                const SizedBox.shrink(),
                           ),
                         ),
-                      if (data.description != null) ...[
-                        const SizedBox(height: 3),
-                        Text(
-                          data.description!,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: fgSoft, fontSize: 12),
-                        ),
+                        const SizedBox(width: 10),
                       ],
-                      const SizedBox(height: 3),
-                      Text(
-                        data.domain,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: fgSoft, fontSize: 11),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (data.title != null)
+                              Text(
+                                data.title!,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: fg,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            if (data.description != null) ...[
+                              const SizedBox(height: 3),
+                              Text(
+                                data.description!,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(color: fgSoft, fontSize: 12),
+                              ),
+                            ],
+                            const SizedBox(height: 3),
+                            Text(
+                              data.domain,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(color: fgSoft, fontSize: 11),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),

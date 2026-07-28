@@ -37,6 +37,13 @@ class MessageBubbleBody extends StatelessWidget {
   /// Invoked after the selection toolbar's «کپی», so the overlay can dismiss.
   final VoidCallback? onCopied;
 
+  /// Inner padding of the bubble. Public because the overlay converts the
+  /// press position from box coordinates into text coordinates with it.
+  static const EdgeInsets padding = EdgeInsets.symmetric(
+    horizontal: 14,
+    vertical: 10,
+  );
+
   const MessageBubbleBody({
     super.key,
     required this.message,
@@ -71,36 +78,22 @@ class MessageBubbleBody extends StatelessWidget {
     final previewUrl = showLinkPreview
         ? LinkifiedText.firstUrl(message.body)
         : null;
-    final bodyStyle = DefaultTextStyle.of(
-      context,
-    ).style.merge(TextStyle(color: textColor));
 
     return Container(
       key: boxKey,
       constraints: BoxConstraints(
         maxWidth: MediaQuery.of(context).size.width * kBubbleMaxWidthFactor,
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: padding,
       decoration: BoxDecoration(color: bubbleColor, borderRadius: radius),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (selectable)
-            SelectableText.rich(
-              LinkifiedText.buildSpan(
-                message.body,
-                base: bodyStyle,
-                linkColor: cs.primary,
-              ),
-              // Selection colours have to work on a tonal bubble, so the
-              // highlight is the brand colour at low alpha rather than the
-              // theme default (which is tuned for the page background).
-              selectionColor: cs.primary.withValues(alpha: 0.32),
-              contextMenuBuilder: (ctx, state) => _selectionToolbar(ctx, state),
-            )
-          else
-            LinkifiedText(
+          SelectableBubbleText(
+            enabled: selectable,
+            onCopied: onCopied,
+            child: LinkifiedText(
               text: message.body,
               style: TextStyle(color: textColor),
               // Both bubbles are tonal, so the brand colour has enough
@@ -108,33 +101,82 @@ class MessageBubbleBody extends StatelessWidget {
               linkColor: cs.primary,
               enableTaps: enableLinkTaps,
             ),
+          ),
           if (previewUrl != null)
             LinkPreviewCard(url: previewUrl, onDark: isSent),
         ],
       ),
     );
   }
+}
+
+/// Makes the bubble body selectable while the long-press overlay has it
+/// lifted, and leaves it untouched in the list.
+///
+/// It wraps the *same* [LinkifiedText] the flat bubble renders, inside a
+/// [SelectionArea]. That is load-bearing: a `TextField`/`SelectableText` copy
+/// lays out through `RenderEditable`, which reserves a caret margin, so the
+/// text re-wrapped a line longer than the original and the lifted bubble ran
+/// into the action menu. Same widget in, same wrapping out.
+///
+/// Nothing is selected when the overlay opens — the lift is *only* a zoom. A
+/// long-press inside the lifted bubble then grabs the word under the finger
+/// (SelectionArea's own word-granular gesture) and the handles widen it.
+class SelectableBubbleText extends StatelessWidget {
+  final Widget child;
+
+  /// False in the list: the text is plain and the bubble owns the gestures.
+  final bool enabled;
+
+  /// Invoked after the toolbar's «کپی» so the overlay can dismiss.
+  final VoidCallback? onCopied;
+
+  const SelectableBubbleText({
+    super.key,
+    required this.child,
+    required this.enabled,
+    this.onCopied,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (!enabled) return child;
+    return SelectionArea(
+      contextMenuBuilder: _selectionToolbar,
+      child: child,
+    );
+  }
 
   /// Persian selection toolbar. The app ships no `MaterialLocalizations` for
-  /// Persian, so the stock toolbar would read «Copy / Select all» — the labels
-  /// are supplied by hand instead.
-  Widget _selectionToolbar(BuildContext context, EditableTextState state) {
+  /// Persian, so the stock toolbar would read «Copy / Select all» — the
+  /// framework's own button items are relabelled rather than re-implemented, so
+  /// copying still goes through `SelectableRegion`.
+  Widget _selectionToolbar(BuildContext context, SelectableRegionState state) {
+    final items = <ContextMenuButtonItem>[];
+    for (final item in state.contextMenuButtonItems) {
+      switch (item.type) {
+        case ContextMenuButtonType.copy:
+          items.add(
+            item.copyWith(
+              label: 'کپی',
+              onPressed: () {
+                item.onPressed?.call();
+                onCopied?.call();
+              },
+            ),
+          );
+        case ContextMenuButtonType.selectAll:
+          items.add(item.copyWith(label: 'انتخاب همه'));
+        // Share / search / lookup need platform plumbing this app doesn't
+        // have — they are left out rather than shown broken.
+        default:
+          break;
+      }
+    }
+    if (items.isEmpty) return const SizedBox.shrink();
     return AdaptiveTextSelectionToolbar.buttonItems(
       anchors: state.contextMenuAnchors,
-      buttonItems: [
-        if (!state.textEditingValue.selection.isCollapsed)
-          ContextMenuButtonItem(
-            label: 'کپی',
-            onPressed: () {
-              state.copySelection(SelectionChangedCause.toolbar);
-              onCopied?.call();
-            },
-          ),
-        ContextMenuButtonItem(
-          label: 'انتخاب همه',
-          onPressed: () => state.selectAll(SelectionChangedCause.toolbar),
-        ),
-      ],
+      buttonItems: items,
     );
   }
 }
@@ -187,18 +229,11 @@ class _MessageBubbleState extends State<MessageBubble> {
 
   MessageModel get message => widget.message;
 
-  /// Global rect of the bubble box, or null if it isn't laid out.
-  Rect? get _anchor {
-    final box = _boxKey.currentContext?.findRenderObject() as RenderBox?;
-    if (box == null || !box.hasSize) return null;
-    return box.localToGlobal(Offset.zero) & box.size;
-  }
-
   void _handleLongPress() {
-    final rect = _anchor;
-    if (rect == null) return;
+    final box = _boxKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return;
     HapticFeedback.mediumImpact();
-    widget.onLongPress(rect);
+    widget.onLongPress(box.localToGlobal(Offset.zero) & box.size);
   }
 
   @override

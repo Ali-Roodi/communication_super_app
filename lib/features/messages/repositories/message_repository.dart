@@ -356,10 +356,27 @@ class MessageRepository {
     );
   }
 
+  /// Hard-deletes every row of a thread. Only for local-only data (tests,
+  /// legacy paths) — the user-facing delete is [softDeleteThread], because a
+  /// hard delete throws away the `device_sms_id` tombstones the mirror-sync
+  /// needs and the whole conversation comes back on the next sync.
   Future<void> deleteThread(String threadId) async {
     final db = await _dbHelper.database;
     await db.delete(
       AppConstants.messagesTable,
+      where: 'thread_id = ?',
+      whereArgs: [threadId],
+    );
+  }
+
+  /// Soft-deletes a whole conversation: the rows stay as tombstones (hidden by
+  /// the `is_deleted = 0` filter on every query) so `reconcileDeviceRows` keeps
+  /// recognising their `device_sms_id` and never re-imports them.
+  Future<void> softDeleteThread(String threadId) async {
+    final db = await _dbHelper.database;
+    await db.update(
+      AppConstants.messagesTable,
+      {'is_deleted': 1},
       where: 'thread_id = ?',
       whereArgs: [threadId],
     );

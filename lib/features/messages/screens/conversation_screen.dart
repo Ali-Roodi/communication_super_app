@@ -604,10 +604,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   // ── Message long-press options ─────────────────────────────────────────────
 
-  /// Lifts the bubble out of the list (blurred backdrop, zoom, free text
-  /// selection) and hangs the Google Messages action set next to it. There is
-  /// no «انتخاب متن» row: selecting part of the text is done directly on the
-  /// lifted bubble.
+  /// Lifts the bubble out of the list (blurred backdrop, zoom) and hangs the
+  /// Google Messages action set next to it. There is no «انتخاب متن» row: the
+  /// lifted bubble is selectable, so a long-press on a word right there picks
+  /// it up and the handles widen the selection.
   void _showMessageOptions(MessageModel msg, Rect anchor, bool isLastInGroup) {
     showMessageActionOverlay(
       context,

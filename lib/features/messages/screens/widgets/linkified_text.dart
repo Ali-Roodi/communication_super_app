@@ -2,6 +2,8 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'phone_action_sheet.dart';
+
 /// Message body text with tappable links.
 ///
 /// Detects web URLs (`http://`, `https://`, `www.`) and phone-like numbers
@@ -108,7 +110,16 @@ class _LinkifiedTextState extends State<LinkifiedText> {
     } else if (link.startsWith('www.')) {
       uri = Uri.parse('https://$link');
     } else {
-      uri = Uri.parse('tel:${link.replaceAll(RegExp(r'[\- ]'), '')}');
+      // A phone number opens the in-app sheet (call / SMS / contact), never a
+      // `tel:` intent: this app IS the default dialer, so the intent resolves
+      // back to itself, which hangs the UI for seconds and can kill it.
+      if (mounted) {
+        await showPhoneActionSheet(
+          context,
+          link.replaceAll(RegExp(r'[\- ]'), ''),
+        );
+      }
+      return;
     }
     try {
       await launchUrl(uri, mode: LaunchMode.externalApplication);

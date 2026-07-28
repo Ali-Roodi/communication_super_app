@@ -42,6 +42,10 @@ android {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    // Pinned because the incoming-call notification uses NotificationCompat
+    // .CallStyle — relying on whatever the embedding drags in would make that
+    // compile or not depending on the Flutter version.
+    implementation("androidx.core:core-ktx:1.13.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
 }
