@@ -59,7 +59,11 @@ Migrations live in `DatabaseHelper._onUpgrade`. When bumping `AppConstants.datab
 
 ### Scheduled messages
 
-**UI: one sheet, no screen.** Long-pressing send (or «زمان‌بندی ارسال» in the «+» sheet) opens `showScheduleSendSheet` — quick times, a full date/time pick, and the repeat / jitter / end rules behind «تکرار». It only *returns* a `ScheduleChoice`; the composer then shows a banner and the send button becomes `schedule_send`, and the row is written when send is pressed — the Google Messages flow. There is deliberately **no** separate scheduling screen (the old `ScheduleMessageScreen` was deleted); rescheduling from the bubble sheet or the schedules list re-opens the same sheet seeded via `ScheduleChoice.fromMessage`.
+**UI: one sheet, no screen.** Long-pressing send (or «زمان‌بندی ارسال» in the «+» sheet) opens `showScheduleSendSheet` — quick times, a full date/time pick, then «تکرار» / «پراکندگی زمان ارسال» / «پایان تکرار». It only *returns* a `ScheduleChoice`; the composer then shows a banner and the send button becomes `schedule_send`, and the row is written when send is pressed — the Google Messages flow. There is deliberately **no** separate scheduling screen (the old `ScheduleMessageScreen` was deleted); rescheduling from the bubble sheet or the schedules list re-opens the same sheet seeded via `ScheduleChoice.fromMessage`.
+
+The sheet has **two exits, and both are needed**: a quick time pops immediately (Google's one-tap flow, carrying whatever rules were set first), while «انتخاب تاریخ و ساعت» only *sets* the moment and keeps the sheet open so «تأیید» closes it. Without the second, editing was impossible — the only way to leave was to re-pick the time, so changing just the jitter of an armed schedule threw the moment away. The confirm button and the leading «زمان ارسال» row appear only once a moment exists (seeded from `initial`, or picked).
+
+**«پراکندگی زمان ارسال» is top-level, NOT nested under «تکرار».** It used to render only when `repeat != none`, which hid it for the one case it matters most for — a single send that must not land on the round minute it was scheduled for. Jitter applies to one-shots (`isDueAt` gates on `effectiveSendAt` regardless of repeat), so the UI must offer it regardless too. The composer banner prints it via `scheduleDetailSummary` («هر روز · تا ۳۰ دقیقه پراکندگی»), and **tapping the banner re-opens the sheet** on the armed choice — only the ✕ clears it.
 
 Two deliverers exist:
 - **Dart** — `ScheduledMessageBloc` ticks every 30 s and calls `ScheduledDeliveryService.deliverDue()`.

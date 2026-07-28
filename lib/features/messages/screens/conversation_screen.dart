@@ -823,8 +823,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
       scheduledAt: _pendingSchedule?.at,
       scheduleSummary: _pendingSchedule == null
           ? null
-          : repeatSummary(_pendingSchedule!),
+          : scheduleDetailSummary(_pendingSchedule!),
       onClearSchedule: () => setState(() => _pendingSchedule = null),
+      // Tapping the banner re-opens the sheet seeded with the armed choice.
+      onEditSchedule: _armSchedule,
     );
   }
 

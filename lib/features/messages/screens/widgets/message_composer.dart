@@ -22,6 +22,7 @@ class MessageComposer extends StatelessWidget {
     this.scheduledAt,
     this.scheduleSummary,
     this.onClearSchedule,
+    this.onEditSchedule,
   });
 
   final TextEditingController controller;
@@ -38,12 +39,17 @@ class MessageComposer extends StatelessWidget {
   /// names the time and the send button turns into a scheduled-send button.
   final DateTime? scheduledAt;
 
-  /// Repeat rule in words («هر روز»), shown next to the time when the schedule
-  /// repeats. Null or «یک‌بار» renders just the time.
+  /// Repeat rule and jitter window in words («هر روز · تا ۳۰ دقیقه پراکندگی»),
+  /// shown next to the time. Null renders just the time — see
+  /// [scheduleDetailSummary].
   final String? scheduleSummary;
 
   /// Drops the pending schedule and returns the composer to sending now.
   final VoidCallback? onClearSchedule;
+
+  /// Tapping the banner re-opens the schedule sheet on the armed choice, so the
+  /// time / repeat / jitter can be corrected without clearing and starting over.
+  final VoidCallback? onEditSchedule;
 
   /// Quick-pick emoji — tapping one inserts it at the cursor (so several can be
   /// combined before sending). Full emoji and any keyboard sticker packs remain
@@ -101,6 +107,7 @@ class MessageComposer extends StatelessWidget {
                 at: scheduledAt!,
                 summary: scheduleSummary,
                 onClear: onClearSchedule,
+                onEdit: onEditSchedule,
               ),
             if (showCounter)
               Padding(
@@ -192,47 +199,69 @@ class MessageComposer extends StatelessWidget {
 
 /// The strip above the composer while a send is scheduled — Google Messages
 /// keeps the chosen time in front of the user until the message is sent.
+///
+/// The strip itself is a button: tapping it re-opens the schedule sheet on the
+/// armed choice ([onEdit]). Only the ✕ clears the schedule, so a mistyped time
+/// is corrected instead of thrown away.
 class _ScheduleBanner extends StatelessWidget {
-  const _ScheduleBanner({required this.at, this.summary, this.onClear});
+  const _ScheduleBanner({
+    required this.at,
+    this.summary,
+    this.onClear,
+    this.onEdit,
+  });
 
   final DateTime at;
   final String? summary;
   final VoidCallback? onClear;
+  final VoidCallback? onEdit;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsetsDirectional.only(start: 12, end: 4),
-      decoration: BoxDecoration(
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Material(
         color: theme.colorScheme.secondaryContainer,
         borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            Icons.schedule,
-            size: 18,
-            color: theme.colorScheme.onSecondaryContainer,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'ارسال در ${formatScheduleLabel(at)}'
-              '${(summary == null || summary == 'یک‌بار') ? '' : ' · $summary'}',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSecondaryContainer,
-              ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onEdit,
+          child: Padding(
+            padding: const EdgeInsetsDirectional.only(start: 12, end: 4),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.schedule,
+                  size: 18,
+                  color: theme.colorScheme.onSecondaryContainer,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'ارسال در ${formatScheduleLabel(at)}'
+                    '${(summary == null || summary!.isEmpty) ? '' : ' · $summary'}',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSecondaryContainer,
+                    ),
+                  ),
+                ),
+                if (onEdit != null)
+                  Icon(
+                    Icons.edit_outlined,
+                    size: 16,
+                    color: theme.colorScheme.onSecondaryContainer,
+                  ),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 18),
+                  tooltip: 'لغو زمان‌بندی',
+                  color: theme.colorScheme.onSecondaryContainer,
+                  onPressed: onClear,
+                ),
+              ],
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.close, size: 18),
-            tooltip: 'لغو زمان‌بندی',
-            color: theme.colorScheme.onSecondaryContainer,
-            onPressed: onClear,
-          ),
-        ],
+        ),
       ),
     );
   }
