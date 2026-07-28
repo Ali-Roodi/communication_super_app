@@ -200,6 +200,18 @@ class DatabaseHelper {
       ''');
       await _createStarredIndex(db);
     }
+
+    // v14: drafts and their categories can be pinned to the top of their list.
+    if (oldVersion < 14) {
+      await db.execute('''
+        ALTER TABLE ${AppConstants.draftsTable}
+        ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0
+      ''');
+      await db.execute('''
+        ALTER TABLE ${AppConstants.messageCategoriesTable}
+        ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0
+      ''');
+    }
   }
 
   /// v13 index backing the «ستاره‌دار» screen.
@@ -284,7 +296,8 @@ class DatabaseHelper {
       CREATE TABLE ${AppConstants.messageCategoriesTable} (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
-        created_at INTEGER NOT NULL
+        created_at INTEGER NOT NULL,
+        is_pinned INTEGER NOT NULL DEFAULT 0
       )
     ''');
   }
@@ -297,6 +310,7 @@ class DatabaseHelper {
         body TEXT NOT NULL,
         category_id TEXT,
         updated_at INTEGER NOT NULL,
+        is_pinned INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (category_id) REFERENCES ${AppConstants.messageCategoriesTable}(id) ON DELETE SET NULL
       )
     ''');

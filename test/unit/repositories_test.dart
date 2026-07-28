@@ -394,6 +394,114 @@ void main() {
       final uncategorized = await repo.getDrafts(uncategorized: true);
       expect(uncategorized.map((d) => d.id), ['d1']);
     });
+
+    test('deleteCategories moves every affected draft to uncategorized',
+        () async {
+      final repo = DraftRepository();
+      for (final id in ['c1', 'c2']) {
+        await repo.addCategory(
+          MessageCategory(
+            id: id,
+            name: 'دسته $id',
+            createdAt: DateTime(2026, 1, 1),
+          ),
+        );
+      }
+      await repo.upsertDraft(
+        Draft(
+          id: 'd1',
+          body: 'یک',
+          categoryId: 'c1',
+          updatedAt: DateTime(2026, 1, 1),
+        ),
+      );
+      await repo.upsertDraft(
+        Draft(
+          id: 'd2',
+          body: 'دو',
+          categoryId: 'c2',
+          updatedAt: DateTime(2026, 1, 2),
+        ),
+      );
+
+      await repo.deleteCategories(['c1', 'c2']);
+
+      expect(await repo.getCategories(), isEmpty);
+      expect(
+        (await repo.getDrafts(uncategorized: true)).map((d) => d.id).toSet(),
+        {'d1', 'd2'},
+      );
+    });
+
+    test('pinned drafts sort above newer unpinned ones', () async {
+      final repo = DraftRepository();
+      await repo.upsertDraft(
+        Draft(id: 'old', body: 'قدیمی', updatedAt: DateTime(2026, 1, 1)),
+      );
+      await repo.upsertDraft(
+        Draft(id: 'new', body: 'جدید', updatedAt: DateTime(2026, 1, 9)),
+      );
+
+      await repo.setDraftsPinned(['old'], true);
+
+      expect((await repo.getDrafts()).map((d) => d.id), ['old', 'new']);
+      expect((await repo.getDrafts()).first.isPinned, isTrue);
+
+      await repo.setDraftsPinned(['old'], false);
+      expect((await repo.getDrafts()).map((d) => d.id), ['new', 'old']);
+    });
+
+    test('pinned categories sort above the name ordering', () async {
+      final repo = DraftRepository();
+      await repo.addCategory(
+        MessageCategory(id: 'a', name: 'الف', createdAt: DateTime(2026, 1, 1)),
+      );
+      await repo.addCategory(
+        MessageCategory(id: 'b', name: 'ب', createdAt: DateTime(2026, 1, 1)),
+      );
+
+      await repo.setCategoriesPinned(['b'], true);
+
+      expect((await repo.getCategories()).map((c) => c.id), ['b', 'a']);
+    });
+
+    test('moveDraftsToCategory files a selection without touching updated_at',
+        () async {
+      final repo = DraftRepository();
+      final stamp = DateTime(2026, 1, 1);
+      await repo.addCategory(
+        MessageCategory(id: 'c1', name: 'تولد', createdAt: stamp),
+      );
+      await repo.upsertDraft(Draft(id: 'd1', body: 'یک', updatedAt: stamp));
+      await repo.upsertDraft(Draft(id: 'd2', body: 'دو', updatedAt: stamp));
+
+      await repo.moveDraftsToCategory(['d1', 'd2'], 'c1');
+
+      final filed = await repo.getDrafts(categoryId: 'c1');
+      expect(filed.map((d) => d.id).toSet(), {'d1', 'd2'});
+      expect(filed.every((d) => d.updatedAt == stamp), isTrue);
+      expect(await repo.getDrafts(uncategorized: true), isEmpty);
+
+      // …and back out again.
+      await repo.moveDraftsToCategory(['d1'], null);
+      expect(
+        (await repo.getDrafts(uncategorized: true)).map((d) => d.id),
+        ['d1'],
+      );
+    });
+
+    test('deleteDrafts removes the whole selection', () async {
+      final repo = DraftRepository();
+      for (final id in ['d1', 'd2', 'd3']) {
+        await repo.upsertDraft(
+          Draft(id: id, body: id, updatedAt: DateTime(2026, 1, 1)),
+        );
+      }
+
+      await repo.deleteDrafts(['d1', 'd3']);
+
+      expect((await repo.getDrafts()).map((d) => d.id), ['d2']);
+    });
   });
 
   group('CallLogRepository', () {
