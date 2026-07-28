@@ -46,6 +46,19 @@ class CallLogRepository {
     return maps.map((map) => CallLogModel.fromMap(map)).toList();
   }
 
+  /// Whether the mirror holds any row at all — the cheap "do we need a first
+  /// sync?" check (`SELECT id … LIMIT 1`), so nothing reads the whole table
+  /// just to find out it is non-empty.
+  Future<bool> hasAnyCallLogs() async {
+    final db = await _dbHelper.database;
+    final rows = await db.query(
+      AppConstants.callLogsTable,
+      columns: ['id'],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
+  }
+
   Future<List<CallLogModel>> getCallLogsByContact(
     String contactId, {
     int? limit,

@@ -83,14 +83,14 @@ class _StarredMessagesScreenState extends State<StarredMessagesScreen> {
                 subtitle:
                     'در گفتگو، پیام را نگه دارید و «افزودن به ستاره‌دارها» را بزنید',
               )
-            : ListView(
-                padding: const EdgeInsets.fromLTRB(0, 8, 0, 24),
-                children: [
-                  GroupedList(
-                    children: [
-                      for (final m in messages) _row(context, m),
-                    ],
+            : CustomScrollView(
+                slivers: [
+                  const SliverToBoxAdapter(child: SizedBox(height: 8)),
+                  SliverGroupedList(
+                    itemCount: messages.length,
+                    itemBuilder: (context, i) => _row(context, messages[i]),
                   ),
+                  const SliverToBoxAdapter(child: SizedBox(height: 24)),
                 ],
               ),
       ),

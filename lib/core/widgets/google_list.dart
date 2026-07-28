@@ -91,6 +91,52 @@ class GroupedList extends StatelessWidget {
   }
 }
 
+/// Lazy sliver twin of [GroupedList]: the same run of cards, but rows are built
+/// on demand instead of all at once.
+///
+/// [GroupedList] materialises every child eagerly (it is a [Column]), which is
+/// fine for a settings group and *not* fine for a list whose length follows the
+/// address book — a search matching a few thousand contacts would build a few
+/// thousand rows, each firing its own avatar lookup. Use this whenever the row
+/// count is data-driven.
+class SliverGroupedList extends StatelessWidget {
+  final int itemCount;
+  final IndexedWidgetBuilder itemBuilder;
+  final EdgeInsetsGeometry padding;
+  final Color? color;
+
+  const SliverGroupedList({
+    super.key,
+    required this.itemCount,
+    required this.itemBuilder,
+    this.padding = const EdgeInsets.symmetric(horizontal: 12),
+    this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (itemCount == 0) {
+      return const SliverToBoxAdapter(child: SizedBox.shrink());
+    }
+    final surface = color ?? Theme.of(context).colorScheme.cardSurface;
+    return SliverPadding(
+      padding: padding,
+      sliver: SliverList.builder(
+        itemCount: itemCount,
+        itemBuilder: (context, i) => Padding(
+          padding: EdgeInsets.only(top: i == 0 ? 0 : GroupRadius.gap),
+          child: Material(
+            color: surface,
+            clipBehavior: Clip.antiAlias,
+            borderRadius: GroupRadius.forIndex(i, itemCount),
+            child: itemBuilder(context, i),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// A single standalone card (a one-row group).
 class GroupedCard extends StatelessWidget {
   final Widget child;
