@@ -102,6 +102,10 @@ The app requests the **default-SMS-app role** (ROLE_SMS) — banner in the inbox
 
 **Mirror-sync (`SmsService.syncDeviceMessages`)** replaced the old one-shot import. Runs once per session on `LoadThreads` and silently on resume (`SyncDeviceMessages` event, no loading state). Steps: backfill `device_sms_id` (numeric-id rows), reconcile the 500 most-recent inbox+sent rows via `MessageRepository.reconcileDeviceRows` (known-id skip → exact content match → **fuzzy ±2 min match** — needed because live-received rows store the SMS-PDU timestamp while the provider stores receive time → insert), then hard-delete local rows whose `device_sms_id` vanished from the (uncapped) provider id set.
 
+**The sync NEVER blocks a paint or the bloc's event queue.** `MessageBloc._startBackgroundSync` runs it as a detached future and only its completion comes back as `DeviceSyncFinished`; `_onLoadThreads` paints from the local mirror first. Awaiting it inside the handler cost ~5 s of spinner on a cold start *and* queued every other event (opening a conversation) behind it. Consequences to preserve: `_hasImported` is set in `_onDeviceSyncFinished` (only on success, so a permission-denied first run retries), `listenToIncomingSms()` starts *before* the sync (messages arriving during it used to have no listener), and the "no permission and nothing local" error is raised from `DeviceSyncFinished(ok: false)`, not from the load.
+
+The stale-row diff (`removeRowsMissingFromDevice`) runs **inside SQLite** against a temp table of provider ids — pulling every local row over the platform channel to subtract in Dart is what jammed the UI thread mid-scroll on a full phone.
+
 **Deletes are global:** `MessageBloc` delete events go through `SmsService.deleteMessagesGlobally` / `deleteThreadGlobally` (provider rows first — by `device_sms_id`, falling back to body+timestamp±10 s match; thread delete matches addresses by last-10-digits in `SmsHandler.deleteSmsThreadFromProvider`), then the local store. Never delete local-only; the mirror-sync would just be out of sync with the phone.
 
 **The local half of a delete must be a SOFT delete** (`softDeleteMessages` / `softDeleteThread`). The tombstone keeps the row's `device_sms_id`, and `_knownDeviceSmsIds` (used by `reconcileDeviceRows`) deliberately ignores `is_deleted`, so a deleted message is recognised and skipped instead of re-imported. A hard delete looked fine until the next sync: the provider delete is a **no-op unless the app holds the SMS role**, so everything came back — usually noticed after an app restart. `deleteThread` (hard) is left only for local-only data and tests.
@@ -166,7 +170,9 @@ Long-press is the *same gesture everywhere*, matching Google Messages / Phone / 
 ### MessageBloc state guards
 
 - `LoadThreads` does **not** emit `MessageLoading` if the current state is already `ThreadsLoaded` or `MessagesLoaded` — this prevents the chat screen going blank when a background SMS triggers a thread refresh.
-- `_cachedPhoneToName` is built once per session and reused by `_resolveContactNames` to enrich threads with device contact names without hitting the contact store on every tab switch.
+- `_cachedPhoneToName` is built once per session and reused by `_resolveContactNames` to enrich threads with device contact names without hitting the contact store on every tab switch. While that map is still cold `_emitThreads` emits the rows **twice** — once bare, once named — rather than holding the inbox back for an address-book read that may be queued behind another `DeviceSyncQueue` job.
+- `LoadMoreThreads` / `LoadMoreMessages` carry an in-flight flag (`_loadingMoreThreads`, `_loadingMoreMessages`). The `hasMore` guard alone is not enough: it only flips once the previous page *returned*, so a fast fling dispatched one event per scroll notification and the bloc ran a dozen paged queries back to back — the multi-second stall while scrolling the inbox.
+- `MessageRepository.getAllThreads` pages inside a `page` CTE that carries nothing but (thread_id, last_ts, is_pinned); the per-thread work (last-message rowid pick, unread count) runs only on the rows that survived `LIMIT`. Flattening it back re-introduces a correlated subquery per message row of the whole table.
 
 ### Authentication & app lock
 

@@ -52,6 +52,38 @@ fired their own), a full address-book re-read (twice — `ContactBloc` and
   scan: its callers are loops (per starred message, per favourite, per incoming
   SMS).
 
+## 1c. The messages tab (first open ~5 s, ~3 s stall on fast scroll)
+
+Second field report: recents / contacts / favourites were instant, but the
+messages tab still cost ~5 s on first open and froze for ~3 s during a fast
+fling. None of it was data volume — three structural problems:
+
+1. **The mirror-sync was awaited before the first paint.** `MessageBloc`
+   `_onLoadThreads` ran `syncDeviceMessages` and only then queried the local
+   store, so the inbox showed a spinner for the whole provider read. Worse, a
+   bloc processes one event at a time, so tapping a conversation during that
+   window waited too. Now the local mirror paints first and the sync runs as a
+   detached future (`_startBackgroundSync`), reporting back as
+   `DeviceSyncFinished` — a cheap event that just re-queries.
+   - `listenToIncomingSms()` moved to *before* the sync: it used to start after
+     it, so an SMS arriving during the first sync had no listener.
+   - `_hasImported` is set on success only, so a permission-denied first run
+     still retries.
+2. **Pagination had no in-flight flag.** `hasMore` only flips once the previous
+   page returns, so a fling dispatched one `LoadMoreThreads` per scroll
+   notification and the bloc ran a dozen paged inbox queries back to back.
+   `_loadingMoreThreads` / `_loadingMoreMessages` collapse them.
+3. **`getAllThreads` did its per-thread work before `LIMIT`.** The flat query
+   ran a correlated rowid subquery (plus an unread `COUNT(*)`) for every message
+   row of the table and only then applied the page. It now pages in a `page` CTE
+   carrying only (thread_id, last_ts, is_pinned), and the expensive subqueries
+   run on the ≤50 surviving rows.
+
+Also: `removeRowsMissingFromDevice` used to pull every local row with a
+`device_sms_id` over the platform channel to subtract in Dart — tens of
+thousands of rows on each sync, including the silent resume one. The diff now
+runs inside SQLite against a temp table of the provider ids.
+
 ## 2. Watch-outs / hot paths
 
 - **Main-isolate DB work.** Repositories run on the main isolate. Bulk reads

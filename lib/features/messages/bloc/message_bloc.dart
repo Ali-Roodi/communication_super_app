@@ -23,6 +23,18 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   /// (e.g., on app resume, on tab switch, after sending a message).
   Map<String, String>? _cachedPhoneToName;
 
+  /// A device mirror-sync started by this bloc is still running. It runs OFF
+  /// the event queue (see [_startBackgroundSync]), so this flag — not the queue
+  /// — is what keeps two syncs from overlapping.
+  bool _syncing = false;
+
+  /// A pagination query is in flight. Without this a fast fling dispatched one
+  /// [LoadMoreThreads] per scroll notification (the guard on `hasMore` only
+  /// flips once the *previous* query returned), and the bloc then ran a dozen
+  /// paged inbox queries back to back — the multi-second stall while scrolling.
+  bool _loadingMoreThreads = false;
+  bool _loadingMoreMessages = false;
+
   /// Dependencies default to real implementations so production callers can use
   /// `MessageBloc()`; tests can inject fakes/mocks.
   MessageBloc({
@@ -35,6 +47,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
        super(const MessageInitial()) {
     on<LoadThreads>(_onLoadThreads);
     on<SyncDeviceMessages>(_onSyncDeviceMessages);
+    on<DeviceSyncFinished>(_onDeviceSyncFinished);
     on<LoadMoreThreads>(_onLoadMoreThreads);
     on<LoadMessages>(_onLoadMessages);
     on<LoadMoreMessages>(_onLoadMoreMessages);
@@ -127,62 +140,148 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       emit(const MessageLoading());
     }
 
+    // The device mirror-sync used to be awaited BEFORE the first inbox paint,
+    // so a cold start sat on a spinner for as long as the provider read took
+    // (seconds on a full phone). The local store is already a complete mirror
+    // of the provider, so paint from it immediately and let the sync fold its
+    // result in when it lands — see [_startBackgroundSync].
+    final needsSync = !_hasImported || event.forceRefresh;
+    if (needsSync) {
+      // Started BEFORE the sync, not after it: an SMS arriving during that
+      // first (multi-second) sync used to have no listener to land in.
+      // `_hasImported` is only set once the sync actually succeeds (see
+      // [_onDeviceSyncFinished]) so a permission-denied first run retries.
+      _startSmsListener();
+    }
+
     try {
-      // Mirror-sync with the device provider once per app session (or on
-      // explicit force). Resume-time syncs go through SyncDeviceMessages.
-      if (!_hasImported || event.forceRefresh) {
-        try {
-          await _smsService.syncDeviceMessages(
-            forceRefresh: event.forceRefresh,
-          );
-          _hasImported = true;
-
-          // Start the SMS listener only once: the SmsService._listening guard
-          // makes subsequent calls no-ops, but we also avoid unnecessary calls
-          // so that the EventChannel is never torn down and rebuilt (which would
-          // create a window where incoming messages are dropped).
-          if (!_smsService.isListening) {
-            try {
-              _smsService.listenToIncomingSms();
-            } catch (e) {
-              // Silently fail - SMS listening is not critical for basic functionality
-            }
-          }
-        } catch (importError) {
-          // If import fails (e.g., permissions denied), continue to show local messages
-          // but emit error if there are no local messages
-          final threads = await _repository.getAllThreads(limit: 50, offset: 0);
-          if (threads.isEmpty) {
-            emit(
-              MessageError(
-                'دسترسی به پیام‌ها رد شد. لطفاً مجوزهای لازم را بررسی کنید.',
-              ),
-            );
-            return;
-          }
-        }
-      }
-
-      final limit = event.limit;
-      final offset = event.offset;
-      final rawThreads = await _repository.getAllThreads(
-        limit: limit,
-        offset: offset,
+      await _emitThreads(
+        emit,
+        limit: event.limit,
+        offset: event.offset,
         archived: event.archived,
-      );
-      final threads = await _resolveContactNames(rawThreads);
-      emit(
-        ThreadsLoaded(
-          threads,
-          hasMore: threads.length >= limit,
-          archived: event.archived,
-        ),
       );
     } catch (e) {
       final errorMessage = e.toString().contains('Permission')
           ? 'دسترسی به پیام‌ها رد شد. لطفاً مجوزهای لازم را بررسی کنید.'
           : 'خطا در بارگذاری پیام‌ها: ${e.toString()}';
       emit(MessageError(errorMessage));
+      return;
+    }
+
+    if (needsSync) _startBackgroundSync(forceRefresh: event.forceRefresh);
+  }
+
+  /// Reads one page of the inbox and emits it.
+  ///
+  /// Contact names come from the device address book; building that lookup map
+  /// the first time means reading the whole book (and queueing behind whatever
+  /// else `DeviceSyncQueue` is running). So when the map is cold the rows are
+  /// painted first and the names land a moment later, instead of the whole
+  /// inbox waiting on the address book.
+  Future<void> _emitThreads(
+    Emitter<MessageState> emit, {
+    required int limit,
+    required int offset,
+    required bool archived,
+  }) async {
+    final rawThreads = await _repository.getAllThreads(
+      limit: limit,
+      offset: offset,
+      archived: archived,
+    );
+    final hasMore = rawThreads.length >= limit;
+    if (_cachedPhoneToName == null && rawThreads.isNotEmpty) {
+      emit(ThreadsLoaded(rawThreads, hasMore: hasMore, archived: archived));
+    }
+    final threads = await _resolveContactNames(rawThreads);
+    emit(ThreadsLoaded(threads, hasMore: hasMore, archived: archived));
+  }
+
+  /// Starts the incoming-SMS listener once. The `SmsService._listening` guard
+  /// makes repeat calls no-ops, but we skip them anyway so the EventChannel is
+  /// never torn down and rebuilt (which would drop messages arriving in the
+  /// gap).
+  void _startSmsListener() {
+    if (_smsService.isListening) return;
+    try {
+      _smsService.listenToIncomingSms();
+    } catch (_) {
+      // Not critical for basic functionality.
+    }
+  }
+
+  /// Runs the device mirror-sync **off the bloc's event queue**.
+  ///
+  /// A bloc processes events one at a time, so awaiting the sync inside a
+  /// handler stalled everything queued behind it — tapping a conversation
+  /// during the first sync waited for the whole provider reconcile. Here the
+  /// future runs on its own and only its (cheap) completion comes back as an
+  /// event.
+  void _startBackgroundSync({bool forceRefresh = false, bool throttle = false}) {
+    if (_syncing) return;
+    _syncing = true;
+    _smsService
+        .syncDeviceMessages(forceRefresh: forceRefresh, throttle: throttle)
+        .then(
+          (_) {
+            if (!isClosed) add(const DeviceSyncFinished(ok: true));
+          },
+          onError: (_) {
+            if (!isClosed) add(const DeviceSyncFinished(ok: false));
+          },
+        )
+        .whenComplete(() => _syncing = false);
+  }
+
+  /// Folds a finished background sync into whatever is on screen.
+  Future<void> _onDeviceSyncFinished(
+    DeviceSyncFinished event,
+    Emitter<MessageState> emit,
+  ) async {
+    final current = state;
+    if (!event.ok) {
+      // Permission denied / transient read failure. Only surface it when there
+      // is nothing local to show — otherwise keep the mirror on screen.
+      if (current is ThreadsLoaded && current.threads.isEmpty) {
+        emit(
+          const MessageError(
+            'دسترسی به پیام‌ها رد شد. لطفاً مجوزهای لازم را بررسی کنید.',
+          ),
+        );
+      }
+      return;
+    }
+    _hasImported = true;
+    try {
+      if (current is MessagesLoaded) {
+        // A conversation is open: refresh its bubbles in place.
+        final limit = current.messages.length > 50
+            ? current.messages.length
+            : 50;
+        final messages = await _repository.getMessagesByThread(
+          current.threadId,
+          limit: limit,
+          offset: 0,
+          orderDesc: true,
+        );
+        emit(
+          MessagesLoaded(
+            messages.reversed.toList(),
+            hasMore: messages.length >= limit,
+            threadId: current.threadId,
+          ),
+        );
+      } else if (current is ThreadsLoaded) {
+        await _emitThreads(
+          emit,
+          limit: current.threads.length > 50 ? current.threads.length : 50,
+          offset: 0,
+          archived: current.archived,
+        );
+      }
+    } catch (_) {
+      // Silent by design.
     }
   }
 
@@ -222,52 +321,10 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     SyncDeviceMessages event,
     Emitter<MessageState> emit,
   ) async {
-    try {
-      // Resume-triggered: throttled so rapid app switches don't re-run the
-      // expensive full device reconcile every time.
-      await _smsService.syncDeviceMessages(throttle: true);
-    } catch (_) {
-      return; // No permission / transient failure — keep what's on screen.
-    }
-    final current = state;
-    try {
-      if (current is MessagesLoaded) {
-        // A conversation is open: refresh its bubbles in place.
-        final limit = current.messages.length > 50
-            ? current.messages.length
-            : 50;
-        final messages = await _repository.getMessagesByThread(
-          current.threadId,
-          limit: limit,
-          offset: 0,
-          orderDesc: true,
-        );
-        emit(
-          MessagesLoaded(
-            messages.reversed.toList(),
-            hasMore: messages.length >= limit,
-            threadId: current.threadId,
-          ),
-        );
-      } else if (current is ThreadsLoaded) {
-        final limit = current.threads.length > 50 ? current.threads.length : 50;
-        final rawThreads = await _repository.getAllThreads(
-          limit: limit,
-          offset: 0,
-          archived: current.archived,
-        );
-        final threads = await _resolveContactNames(rawThreads);
-        emit(
-          ThreadsLoaded(
-            threads,
-            hasMore: threads.length >= limit,
-            archived: current.archived,
-          ),
-        );
-      }
-    } catch (_) {
-      // Silent by design.
-    }
+    // Resume-triggered: throttled so rapid app switches don't re-run the
+    // expensive full device reconcile every time. Runs off the event queue;
+    // the refresh happens in [_onDeviceSyncFinished].
+    _startBackgroundSync(throttle: true);
   }
 
   Future<void> _onLoadMoreThreads(
@@ -276,6 +333,8 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   ) async {
     final current = state;
     if (current is! ThreadsLoaded || !current.hasMore) return;
+    if (_loadingMoreThreads) return;
+    _loadingMoreThreads = true;
     try {
       final more = await _repository.getAllThreads(
         limit: 50,
@@ -308,6 +367,8 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
           archived: current.archived,
         ),
       );
+    } finally {
+      _loadingMoreThreads = false;
     }
   }
 
@@ -317,6 +378,8 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   ) async {
     final current = state;
     if (current is! MessagesLoaded || !current.hasMore) return;
+    if (_loadingMoreMessages) return;
+    _loadingMoreMessages = true;
     try {
       final older = await _repository.getMessagesByThread(
         event.threadId,
@@ -350,6 +413,8 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
           threadId: current.threadId,
         ),
       );
+    } finally {
+      _loadingMoreMessages = false;
     }
   }
 
