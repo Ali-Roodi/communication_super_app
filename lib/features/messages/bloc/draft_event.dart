@@ -40,6 +40,34 @@ class DeleteDraft extends DraftEvent {
   List<Object?> get props => [id];
 }
 
+/// Multi-select actions on the drafts grid.
+class DeleteDrafts extends DraftEvent {
+  final List<String> ids;
+  const DeleteDrafts(this.ids);
+
+  @override
+  List<Object?> get props => [ids];
+}
+
+class PinDrafts extends DraftEvent {
+  final List<String> ids;
+  final bool pin;
+  const PinDrafts(this.ids, {this.pin = true});
+
+  @override
+  List<Object?> get props => [ids, pin];
+}
+
+/// Files a selection under [categoryId]; null means «بدون دسته‌بندی».
+class MoveDraftsToCategory extends DraftEvent {
+  final List<String> ids;
+  final String? categoryId;
+  const MoveDraftsToCategory(this.ids, this.categoryId);
+
+  @override
+  List<Object?> get props => [ids, categoryId];
+}
+
 class AddCategory extends DraftEvent {
   final String name;
   const AddCategory(this.name);
@@ -63,4 +91,22 @@ class DeleteCategory extends DraftEvent {
 
   @override
   List<Object?> get props => [id];
+}
+
+/// Multi-select actions on the categories list.
+class DeleteCategories extends DraftEvent {
+  final List<String> ids;
+  const DeleteCategories(this.ids);
+
+  @override
+  List<Object?> get props => [ids];
+}
+
+class PinCategories extends DraftEvent {
+  final List<String> ids;
+  final bool pin;
+  const PinCategories(this.ids, {this.pin = true});
+
+  @override
+  List<Object?> get props => [ids, pin];
 }

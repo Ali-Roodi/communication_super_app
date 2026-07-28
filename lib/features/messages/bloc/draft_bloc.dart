@@ -19,9 +19,28 @@ class DraftBloc extends Bloc<DraftEvent, DraftState> {
     on<LoadDrafts>(_onLoad);
     on<SaveDraft>(_onSave);
     on<DeleteDraft>(_onDelete);
+    on<DeleteDrafts>(_onDeleteDrafts);
+    on<PinDrafts>(_onPinDrafts);
+    on<MoveDraftsToCategory>(_onMoveDrafts);
     on<AddCategory>(_onAddCategory);
     on<RenameCategory>(_onRenameCategory);
     on<DeleteCategory>(_onDeleteCategory);
+    on<DeleteCategories>(_onDeleteCategories);
+    on<PinCategories>(_onPinCategories);
+  }
+
+  /// Runs a repository mutation and re-emits the current view, funnelling every
+  /// multi-select action through the same error handling.
+  Future<void> _mutate(
+    Emitter<DraftState> emit,
+    Future<void> Function() action,
+  ) async {
+    try {
+      await action();
+      await _emitLoaded(emit);
+    } catch (e) {
+      emit(DraftError(e.toString()));
+    }
   }
 
   Future<void> _onLoad(LoadDrafts event, Emitter<DraftState> emit) async {
@@ -57,6 +76,11 @@ class DraftBloc extends Bloc<DraftEvent, DraftState> {
   Future<void> _onSave(SaveDraft event, Emitter<DraftState> emit) async {
     try {
       if (event.body.trim().isEmpty) return;
+      // The upsert REPLACEs the row, so an edit would silently unpin the draft
+      // unless the existing flag is carried over.
+      final existing = event.id == null
+          ? null
+          : await _repository.getDraft(event.id!);
       await _repository.upsertDraft(
         Draft(
           id: event.id ?? _uuid.v4(),
@@ -66,6 +90,7 @@ class DraftBloc extends Bloc<DraftEvent, DraftState> {
           body: event.body.trim(),
           categoryId: event.categoryId,
           updatedAt: DateTime.now(),
+          isPinned: existing?.isPinned ?? false,
         ),
       );
       await _emitLoaded(emit);
@@ -82,6 +107,41 @@ class DraftBloc extends Bloc<DraftEvent, DraftState> {
       emit(DraftError(e.toString()));
     }
   }
+
+  Future<void> _onDeleteDrafts(
+    DeleteDrafts event,
+    Emitter<DraftState> emit,
+  ) async => _mutate(emit, () => _repository.deleteDrafts(event.ids));
+
+  Future<void> _onPinDrafts(PinDrafts event, Emitter<DraftState> emit) async =>
+      _mutate(emit, () => _repository.setDraftsPinned(event.ids, event.pin));
+
+  Future<void> _onMoveDrafts(
+    MoveDraftsToCategory event,
+    Emitter<DraftState> emit,
+  ) async => _mutate(
+    emit,
+    () => _repository.moveDraftsToCategory(event.ids, event.categoryId),
+  );
+
+  Future<void> _onDeleteCategories(
+    DeleteCategories event,
+    Emitter<DraftState> emit,
+  ) async {
+    // Filtering by a category that is being deleted would leave the grid on a
+    // filter nothing can match; fall back to «همه».
+    if (_filterCategoryId != null && event.ids.contains(_filterCategoryId)) {
+      _filterCategoryId = null;
+      _filterUncategorized = false;
+    }
+    return _mutate(emit, () => _repository.deleteCategories(event.ids));
+  }
+
+  Future<void> _onPinCategories(
+    PinCategories event,
+    Emitter<DraftState> emit,
+  ) async =>
+      _mutate(emit, () => _repository.setCategoriesPinned(event.ids, event.pin));
 
   Future<void> _onAddCategory(
     AddCategory event,

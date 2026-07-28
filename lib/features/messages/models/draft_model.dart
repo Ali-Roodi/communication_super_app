@@ -10,12 +10,16 @@ class Draft extends Equatable {
   final String? categoryId;
   final DateTime updatedAt;
 
+  /// Pinned drafts sort above the rest, independent of [updatedAt] (DB v14).
+  final bool isPinned;
+
   const Draft({
     required this.id,
     this.title,
     required this.body,
     this.categoryId,
     required this.updatedAt,
+    this.isPinned = false,
   });
 
   Map<String, dynamic> toMap() => {
@@ -24,6 +28,7 @@ class Draft extends Equatable {
     'body': body,
     'category_id': categoryId,
     'updated_at': updatedAt.millisecondsSinceEpoch,
+    'is_pinned': isPinned ? 1 : 0,
   };
 
   factory Draft.fromMap(Map<String, dynamic> map) => Draft(
@@ -32,6 +37,7 @@ class Draft extends Equatable {
     body: map['body'] as String,
     categoryId: map['category_id'] as String?,
     updatedAt: DateTime.fromMillisecondsSinceEpoch(map['updated_at'] as int),
+    isPinned: ((map['is_pinned'] as int?) ?? 0) == 1,
   );
 
   Draft copyWith({
@@ -40,14 +46,23 @@ class Draft extends Equatable {
     String? categoryId,
     bool clearCategory = false,
     DateTime? updatedAt,
+    bool? isPinned,
   }) => Draft(
     id: id,
     title: title ?? this.title,
     body: body ?? this.body,
     categoryId: clearCategory ? null : (categoryId ?? this.categoryId),
     updatedAt: updatedAt ?? this.updatedAt,
+    isPinned: isPinned ?? this.isPinned,
   );
 
   @override
-  List<Object?> get props => [id, title, body, categoryId, updatedAt];
+  List<Object?> get props => [
+    id,
+    title,
+    body,
+    categoryId,
+    updatedAt,
+    isPinned,
+  ];
 }

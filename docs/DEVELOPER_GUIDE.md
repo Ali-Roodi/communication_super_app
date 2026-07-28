@@ -47,15 +47,26 @@ All state is BLoC (`flutter_bloc`). BLoCs are provided globally in `AppBlocProvi
 
 ### Database
 
-Single SQLite database (`communication_app.db`, version 11) managed by `DatabaseHelper` singleton (`lib/core/database/`). Tables: `contacts`, `messages`, `call_logs`, `favorites`, `blocked_numbers`, `archived_threads`, `pinned_threads`, `message_categories`, `drafts`, `scheduled_messages`. Constants in `AppConstants`.
+Single SQLite database (`communication_app.db`, version 14) managed by `DatabaseHelper` singleton (`lib/core/database/`). Tables: `contacts`, `messages`, `call_logs`, `favorites`, `blocked_numbers`, `archived_threads`, `pinned_threads`, `message_categories`, `drafts`, `scheduled_messages`. Constants in `AppConstants`.
 
 **Schema invariants:**
 - `messages.thread_id` is the digits-only normalized phone number.
 - `messages` has a unique index on `(phone_number, body, timestamp, type)` (DB v3) — all batch inserts must use `ConflictAlgorithm.ignore` to silently skip duplicates.
 - `messages.is_read` marks unread received messages; sent messages are always inserted as `is_read = 1`.
+- `drafts.is_pinned` / `message_categories.is_pinned` (DB v14) float a row to the top of its list. `DraftRepository.upsertDraft` REPLACEs the row, so `DraftBloc._onSave` re-reads the existing draft and carries the flag over — without that, editing a draft silently unpinned it.
 - `messages.device_sms_id` (DB v11) is the row id of the message inside the device SMS provider (`content://sms`). It is the key of the mirror-sync diff and of global deletes. Null means "no known provider row" (e.g. sent while the app wasn't the default SMS app) — such rows are never deleted by the sync.
 
 Migrations live in `DatabaseHelper._onUpgrade`. When bumping `AppConstants.databaseVersion`, add a migration block there.
+
+### Drafts & categories
+
+Two screens, one `DraftBloc`, both rebuilt on the Figma «پیش‌نویس‌ها» / «دسته‌بندی‌ها» boards in the Google Messages surface language (page plane → rounded sheet → tonal rows).
+
+- **`DraftsListScreen`** is a two-column note board, not a list: a draft is a block of text of unknown length and a single column wastes half the screen on the short ones. `_DraftBoard` deals cards alternately into two `SliverList`s inside a `SliverCrossAxisGroup`, so both columns stay lazily built while each card is exactly as tall as its text. **`SliverCrossAxisGroup` does NOT mirror for RTL** — it lays children out left-to-right regardless of `Directionality`, so the leading column is picked by hand; drop that and the board deals the newest draft to the left and reads backwards.
+- The category filter is a **chip row** («همه» / «بدون دسته‌بندی» / one per category). It replaced a status chip that only *reported* the filter — changing it meant a round trip through the categories screen.
+- **`MessageCategoriesScreen`** is pill rows carrying name + draft count, «همه» and «بدون دسته‌بندی» first as virtual rows backed by counts. Tapping filters the board and pops. `active` (the filter currently showing) and `selected` (multi-select) are different states and are drawn with different surfaces — they can be true at once.
+- «تغییر نام» is hidden unless exactly one category is selected, and deleting categories moves their drafts to «بدون دسته‌بندی» (`deleteCategories`, one transaction). `DraftBloc` also clears a filter pointing at a category being deleted, otherwise the board sits on a filter nothing can match.
+- Both screens prune ids that vanished underneath the selection (deleted, or filtered out) in a post-frame callback, so the contextual bar can never count rows that are gone.
 
 ### Scheduled messages
 
@@ -167,6 +178,7 @@ Long-press is the *same gesture everywhere*, matching Google Messages / Phone / 
   - The app ships no Persian `MaterialLocalizations`, so the selection toolbar's labels («کپی», «انتخاب همه») are supplied by hand in `MessageBubbleBody._selectionToolbar`.
 - **Thread row → multi-select**, not a sheet (`showThreadOptionsSheet` was deleted). Every action it used to hold lives in `MessagesSelectionAppBar`. Draft-only rows are synthetic (no conversation behind them), so their long-press still just discards the draft.
 - **Contact row → multi-select** with a contextual bar (count · ستاره · اشتراک‌گذاری · حذف · انتخاب همه). Deletes go to the DEVICE address book via `FlutterContacts.deleteContacts`, then invalidate `ContactRepository` + `LazyContactAvatar` caches and dispatch `RefreshContacts`. Share is single-selection only — the platform sheet takes one contact.
+- **Draft card → multi-select**, **category row → multi-select** (سنجاق · انتقال/تغییر نام · حذف · انتخاب همه). Both use the shared `SelectionAppBar` + `SelectionCheck` from `core/widgets/selection_app_bar.dart` — the inbox keeps its own **sliver** bar (`MessagesSelectionAppBar`) only because its header collapses. The virtual «همه» / «بدون دسته‌بندی» rows are never selectable: there is no table row behind them to rename, delete or pin. Multi-select is off in the drafts **picker** (`pickMode`).
 - Every long-press fires `HapticFeedback.mediumImpact()`.
 
 **Tapping a phone number inside a message** opens `showPhoneActionSheet` (تماس / ارسال پیامک / مشاهده مخاطب or افزودن به مخاطبین / کپی شماره). It must NEVER launch a `tel:` intent: this app is the default dialer, so the intent resolves back into its own process — the UI froze for ~9 s, swallowed the gesture and could take the activity down. The contact lookup runs *after* the sheet is on screen (cold address book) and is wrapped in a try/catch so a missing permission still leaves call/SMS/save usable.

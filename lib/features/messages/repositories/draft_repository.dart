@@ -30,9 +30,20 @@ class DraftRepository {
       AppConstants.draftsTable,
       where: where,
       whereArgs: args,
-      orderBy: 'updated_at DESC',
+      orderBy: 'is_pinned DESC, updated_at DESC',
     );
     return maps.map(Draft.fromMap).toList();
+  }
+
+  Future<Draft?> getDraft(String id) async {
+    final db = await _dbHelper.database;
+    final maps = await db.query(
+      AppConstants.draftsTable,
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    return maps.isEmpty ? null : Draft.fromMap(maps.first);
   }
 
   Future<void> upsertDraft(Draft draft) async {
@@ -44,9 +55,46 @@ class DraftRepository {
     );
   }
 
-  Future<void> deleteDraft(String id) async {
+  Future<void> deleteDraft(String id) async => deleteDrafts([id]);
+
+  /// Bulk delete — the multi-select bar deletes a whole selection at once.
+  Future<void> deleteDrafts(List<String> ids) async {
+    if (ids.isEmpty) return;
     final db = await _dbHelper.database;
-    await db.delete(AppConstants.draftsTable, where: 'id = ?', whereArgs: [id]);
+    await db.delete(
+      AppConstants.draftsTable,
+      where: 'id IN (${_placeholders(ids)})',
+      whereArgs: ids,
+    );
+  }
+
+  Future<void> setDraftsPinned(List<String> ids, bool pinned) async {
+    if (ids.isEmpty) return;
+    final db = await _dbHelper.database;
+    await db.update(
+      AppConstants.draftsTable,
+      {'is_pinned': pinned ? 1 : 0},
+      where: 'id IN (${_placeholders(ids)})',
+      whereArgs: ids,
+    );
+  }
+
+  /// Moves a selection into [categoryId] — null means «بدون دسته‌بندی».
+  ///
+  /// `updated_at` is deliberately left alone: filing a draft is not editing it,
+  /// and touching the timestamp would reshuffle the list under the user.
+  Future<void> moveDraftsToCategory(
+    List<String> ids,
+    String? categoryId,
+  ) async {
+    if (ids.isEmpty) return;
+    final db = await _dbHelper.database;
+    await db.update(
+      AppConstants.draftsTable,
+      {'category_id': categoryId},
+      where: 'id IN (${_placeholders(ids)})',
+      whereArgs: ids,
+    );
   }
 
   // ── Categories ──────────────────────────────────────────────────────────--
@@ -59,7 +107,7 @@ class DraftRepository {
       FROM ${AppConstants.messageCategoriesTable} c
       LEFT JOIN ${AppConstants.draftsTable} d ON d.category_id = c.id
       GROUP BY c.id
-      ORDER BY c.name ASC
+      ORDER BY c.is_pinned DESC, c.name ASC
     ''');
     return maps.map(MessageCategory.fromMap).toList();
   }
@@ -98,23 +146,42 @@ class DraftRepository {
     );
   }
 
-  /// Deletes the category and moves its drafts to «بدون دسته‌بندی». The drafts
-  /// are nulled explicitly because sqflite does not enable FK enforcement
-  /// (so the ON DELETE SET NULL constraint would not fire on its own).
-  Future<void> deleteCategory(String id) async {
+  Future<void> setCategoriesPinned(List<String> ids, bool pinned) async {
+    if (ids.isEmpty) return;
     final db = await _dbHelper.database;
+    await db.update(
+      AppConstants.messageCategoriesTable,
+      {'is_pinned': pinned ? 1 : 0},
+      where: 'id IN (${_placeholders(ids)})',
+      whereArgs: ids,
+    );
+  }
+
+  Future<void> deleteCategory(String id) async => deleteCategories([id]);
+
+  /// Deletes the categories and moves their drafts to «بدون دسته‌بندی». The
+  /// drafts are nulled explicitly because sqflite does not enable FK
+  /// enforcement (so the ON DELETE SET NULL constraint would not fire on its
+  /// own).
+  Future<void> deleteCategories(List<String> ids) async {
+    if (ids.isEmpty) return;
+    final db = await _dbHelper.database;
+    final holes = _placeholders(ids);
     await db.transaction((txn) async {
       await txn.update(
         AppConstants.draftsTable,
         {'category_id': null},
-        where: 'category_id = ?',
-        whereArgs: [id],
+        where: 'category_id IN ($holes)',
+        whereArgs: ids,
       );
       await txn.delete(
         AppConstants.messageCategoriesTable,
-        where: 'id = ?',
-        whereArgs: [id],
+        where: 'id IN ($holes)',
+        whereArgs: ids,
       );
     });
   }
+
+  static String _placeholders(List<String> ids) =>
+      List.filled(ids.length, '?').join(',');
 }
