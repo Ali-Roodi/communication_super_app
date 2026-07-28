@@ -61,6 +61,23 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
     }).toList();
   }
 
+  // Memoized filter + grouping: both walk the whole address book, and build
+  // runs on every keystroke, keyboard inset and avatar that arrives.
+  String? _lastFlatQuery;
+  List<ContactModel>? _lastFlatSource;
+  List<_ContactListRow> _flatItems = const [];
+
+  List<_ContactListRow> _getOrBuildFlatList(List<ContactModel> contacts) {
+    if (_lastFlatQuery == _searchQuery &&
+        identical(_lastFlatSource, contacts)) {
+      return _flatItems;
+    }
+    _lastFlatQuery = _searchQuery;
+    _lastFlatSource = contacts;
+    _flatItems = _buildFlatContactList(_filterContacts(contacts));
+    return _flatItems;
+  }
+
   List<_ContactListRow> _buildFlatContactList(List<ContactModel> contacts) {
     final Map<String, List<ContactModel>> grouped = {};
     for (var contact in contacts) {
@@ -208,9 +225,9 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
                   }
 
                   if (state is ContactsLoaded) {
-                    final filteredContacts = _filterContacts(state.contacts);
+                    final flatItems = _getOrBuildFlatList(state.contacts);
 
-                    if (filteredContacts.isEmpty) {
+                    if (flatItems.isEmpty) {
                       return const Center(
                         child: Text(
                           'هیچ مخاطبی یافت نشد',
@@ -218,8 +235,6 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
                         ),
                       );
                     }
-
-                    final flatItems = _buildFlatContactList(filteredContacts);
 
                     return ListView.builder(
                       itemCount: flatItems.length,

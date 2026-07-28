@@ -19,6 +19,11 @@ SMS / call-log / contact rows) on the main isolate.
 | Dialer filtering | Keypad input **debounced 300 ms** before filtering contacts | `DialerBloc._onNumberPressed` |
 | DB indexes | `messages(thread_id)`, `messages(timestamp DESC)`, `messages(is_read)`, `call_logs(timestamp DESC)`, unique content index | `DatabaseHelper._createDB` |
 | Thread / message lists | Paginated (`limit`/`offset`, 50/page) with infinite scroll | `MessageBloc` `LoadMore*` |
+| Recents load | **Never reads the whole `call_logs` table.** `ensureSynced()` only checks `hasAnyCallLogs()` (`LIMIT 1`) and syncs if empty; rows come from the paginated `getAllCallLogs(limit:50)` | `CallLogService` / `CallLogBloc` |
+| Call-log name resolution | Normalized phone→contact index **memoized** against the contact-cache identity instead of rebuilt per page | `CallLogService._contactIndex` |
+| Contact avatars | Lazy per-id fetch, bounded LRU (200) + negative cache + in-flight dedup; the bulk contact cache holds **no** photo bytes | `LazyContactAvatar` / `ContactRepository` |
+| Data-driven lists | Virtualized: `SliverGroupedList` (lazy twin of `GroupedList`) for dialer suggestions, unified search, starred, schedules | `core/widgets/google_list.dart` |
+| Contact filtering | Contacts-tab search debounced 200 ms; filter/grouping results memoized on (query, source identity) | `ContactsListScreen`, `ContactSelectorScreen` |
 
 ## 2. Watch-outs / hot paths
 
@@ -31,9 +36,12 @@ SMS / call-log / contact rows) on the main isolate.
 - **Contact fetch cost.** `flutter_contacts.getAllContacts()` is slow on large
   address books. It is intentionally cached per session; avoid calling it inside
   list `itemBuilder`s or per-event handlers.
-- **`MemoryImage(contact.avatar!)` in list rows.** Decoding avatar bytes in a
-  scrolling list (`DialerContactRow`, contact lists) can cost frames on long
-  lists. Consider `ResizeImage`/thumbnail caching if avatar lists grow.
+- **Never put a data-driven row count inside `GroupedList` / `ListView(children:)`.**
+  Both build every row eagerly, and each contact row fires its own avatar
+  lookup — a one-digit dial query matching the whole address book then costs
+  thousands of widgets *and* thousands of platform-channel reads. Use
+  `SliverGroupedList` / `ListView.builder`. `GroupedList` stays for fixed-size
+  groups (settings rows, sheets).
 - **`setState(() {})` on every keystroke** in the conversation composer (to
   update the SMS segment counter) rebuilds the composer subtree per character.
   Cheap today; if the composer grows, scope it to a `ValueListenableBuilder`.

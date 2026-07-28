@@ -30,8 +30,8 @@ void main() {
     service = _MockCallLogService();
     repo = _MockCallLogRepository();
     when(
-      () => service.getCallLogs(forceRefresh: any(named: 'forceRefresh')),
-    ).thenAnswer((_) async => <CallLogModel>[]);
+      () => service.ensureSynced(forceRefresh: any(named: 'forceRefresh')),
+    ).thenAnswer((_) async {});
     // Name resolution is a pass-through in tests (no contacts).
     when(() => service.resolveContactNames(any())).thenAnswer(
       (inv) async => inv.positionalArguments.first as List<CallLogModel>,
@@ -61,7 +61,9 @@ void main() {
       CallLogsLoaded([_log('1'), _log('2')], hasMore: false),
     ],
     verify: (_) {
-      verify(() => service.getCallLogs()).called(1);
+      verify(() => service.ensureSynced()).called(1);
+      // The whole table must never be read: only the paginated page.
+      verifyNever(() => repo.getAllCallLogs());
     },
   );
 

@@ -61,6 +61,17 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
   bool _hasLoaded = false;
   String _query = '';
 
+  /// Typing filters the whole address book, so the keystroke that starts it is
+  /// debounced (the dialer does the same) — otherwise every character walks
+  /// every contact and rebuilds the list.
+  Timer? _searchDebounce;
+
+  // Memoized search results, so a rebuild that isn't a query change (keyboard
+  // insets, avatar arriving) doesn't re-filter the book.
+  String? _lastResultQuery;
+  List<ContactModel>? _lastResultSource;
+  List<ContactModel> _results = const [];
+
   /// The fast-scroll alphabet is transient: it fades in while the list moves
   /// and fades back out a moment after it stops (Google Contacts' behaviour).
   bool _indexVisible = false;
@@ -105,8 +116,21 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
     });
   }
 
+  /// Applies a typed query after a short pause.
+  void _onQueryChanged(String value) {
+    _searchDebounce?.cancel();
+    if (value.isEmpty) {
+      setState(() => _query = '');
+      return;
+    }
+    _searchDebounce = Timer(const Duration(milliseconds: 200), () {
+      if (mounted) setState(() => _query = value);
+    });
+  }
+
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _indexHideTimer?.cancel();
     _searchController.dispose();
     _scrollController.dispose();
@@ -207,7 +231,7 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
                 Expanded(
                   child: TextField(
                     controller: _searchController,
-                    onChanged: (v) => setState(() => _query = v),
+                    onChanged: _onQueryChanged,
                     style: TextStyle(fontSize: 16, color: scheme.onSurface),
                     decoration: InputDecoration(
                       hintText: 'جستجوی مخاطبین',
@@ -227,6 +251,7 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
                     icon: const Icon(Icons.close),
                     color: scheme.onSurfaceVariant,
                     onPressed: () {
+                      _searchDebounce?.cancel();
                       _searchController.clear();
                       setState(() => _query = '');
                     },
@@ -240,15 +265,27 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
     );
   }
 
-  Widget _buildSearchResults(List<ContactModel> contacts, ThemeData theme) {
+  /// Filters [contacts] by the active query, reusing the previous result when
+  /// neither the query nor the source list changed.
+  List<ContactModel> _getOrBuildResults(List<ContactModel> contacts) {
+    if (_lastResultQuery == _query && identical(_lastResultSource, contacts)) {
+      return _results;
+    }
     final q = _query.trim().toLowerCase();
-    final results = contacts
+    _lastResultQuery = _query;
+    _lastResultSource = contacts;
+    _results = contacts
         .where(
           (c) =>
               c.name.toLowerCase().contains(q) ||
               c.phoneNumbers.any((p) => p.contains(q)),
         )
         .toList();
+    return _results;
+  }
+
+  Widget _buildSearchResults(List<ContactModel> contacts, ThemeData theme) {
+    final results = _getOrBuildResults(contacts);
     if (results.isEmpty) {
       return Center(
         child: Text(

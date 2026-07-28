@@ -88,26 +88,30 @@ class _SearchScreenState extends State<SearchScreen> {
                 subtitle: 'برای «${state.query}» چیزی پیدا نشد',
               );
             }
-            return ListView(
-              padding: const EdgeInsets.only(bottom: 24),
-              children: [
+            // Virtualized: a two-letter query can match thousands of contacts,
+            // and every eagerly-built row costs an avatar lookup.
+            return CustomScrollView(
+              slivers: [
                 if (state.contacts.isNotEmpty) ...[
-                  const SectionLabel('مخاطبین'),
-                  GroupedList(
-                    children: [
-                      for (final c in state.contacts)
-                        _ContactResult(contact: c, query: state.query),
-                    ],
+                  const SliverToBoxAdapter(child: SectionLabel('مخاطبین')),
+                  SliverGroupedList(
+                    itemCount: state.contacts.length,
+                    itemBuilder: (_, i) => _ContactResult(
+                      contact: state.contacts[i],
+                      query: state.query,
+                    ),
                   ),
                 ],
                 if (state.callLogs.isNotEmpty) ...[
-                  const SectionLabel('تماس‌های اخیر'),
-                  GroupedList(
-                    children: [
-                      for (final l in state.callLogs) _CallLogResult(log: l),
-                    ],
+                  const SliverToBoxAdapter(
+                    child: SectionLabel('تماس‌های اخیر'),
+                  ),
+                  SliverGroupedList(
+                    itemCount: state.callLogs.length,
+                    itemBuilder: (_, i) => _CallLogResult(log: state.callLogs[i]),
                   ),
                 ],
+                const SliverToBoxAdapter(child: SizedBox(height: 24)),
               ],
             );
           },

@@ -77,18 +77,28 @@ class _Suggestions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final matches = state.matchingNumbers;
-    return ListView(
-      padding: const EdgeInsets.only(bottom: 8),
-      children: [
-        const SectionLabel(
-          'پیشنهادی',
-          padding: EdgeInsets.fromLTRB(24, 8, 24, 8),
+    // Virtualized: a single typed digit can match the whole address book, and
+    // an eager list would build (and avatar-fetch) every one of those rows.
+    return CustomScrollView(
+      slivers: [
+        const SliverToBoxAdapter(
+          child: SectionLabel(
+            'پیشنهادی',
+            padding: EdgeInsets.fromLTRB(24, 8, 24, 8),
+          ),
         ),
-        GroupedList(
-          children: matches.isNotEmpty
-              ? [for (final m in matches) DialerContactRow(match: m)]
-              : [DialerUnknownRow(phone: state.dialedNumber)],
-        ),
+        if (matches.isEmpty)
+          SliverToBoxAdapter(
+            child: GroupedList(
+              children: [DialerUnknownRow(phone: state.dialedNumber)],
+            ),
+          )
+        else
+          SliverGroupedList(
+            itemCount: matches.length,
+            itemBuilder: (_, i) => DialerContactRow(match: matches[i]),
+          ),
+        const SliverToBoxAdapter(child: SizedBox(height: 8)),
       ],
     );
   }

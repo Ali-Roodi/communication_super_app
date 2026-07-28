@@ -35,19 +35,29 @@ class ScheduledMessagesScreen extends StatelessWidget {
             if (pending.isEmpty && history.isEmpty) {
               return const _EmptyState();
             }
-            return ListView(
-              padding: const EdgeInsets.only(bottom: 88),
-              children: [
+            // Virtualized: the history section grows with every delivered
+            // schedule and is never trimmed.
+            return CustomScrollView(
+              slivers: [
                 if (pending.isNotEmpty) ...[
-                  const _SectionHeader('در انتظار ارسال'),
-                  for (final m in pending)
-                    _ScheduledTile(message: m, isPending: true),
+                  const SliverToBoxAdapter(
+                    child: _SectionHeader('در انتظار ارسال'),
+                  ),
+                  SliverList.builder(
+                    itemCount: pending.length,
+                    itemBuilder: (_, i) =>
+                        _ScheduledTile(message: pending[i], isPending: true),
+                  ),
                 ],
                 if (history.isNotEmpty) ...[
-                  const _SectionHeader('تاریخچه'),
-                  for (final m in history)
-                    _ScheduledTile(message: m, isPending: false),
+                  const SliverToBoxAdapter(child: _SectionHeader('تاریخچه')),
+                  SliverList.builder(
+                    itemCount: history.length,
+                    itemBuilder: (_, i) =>
+                        _ScheduledTile(message: history[i], isPending: false),
+                  ),
                 ],
+                const SliverToBoxAdapter(child: SizedBox(height: 88)),
               ],
             );
           },

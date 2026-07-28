@@ -7,6 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../models/call_log_model.dart';
 import '../repositories/call_log_repository.dart';
 import 'native_call_log_service.dart';
+import 'package:communication_super_app/features/contacts/models/contact_model.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:uuid/uuid.dart';
@@ -14,7 +15,6 @@ import 'package:uuid/uuid.dart';
 class CallLogService {
   final CallLogRepository _repository = CallLogRepository();
   final ContactRepository _contactRepository = ContactRepository();
-  static List<CallLogModel>? _cache;
 
   /// In-flight load/sync; concurrent callers await the same future instead of
   /// busy-waiting.
@@ -25,43 +25,37 @@ class CallLogService {
     return status.isGranted;
   }
 
-  /// Drops the in-memory cache so the next [getCallLogs] re-reads the DB.
-  static void invalidateCache() => _cache = null;
+  /// Drops the memoized phone→contact index so the next name resolution
+  /// rebuilds it against the current address book.
+  static void invalidateCache() {
+    _indexSource = null;
+    _phoneIndex = null;
+  }
 
-  Future<List<CallLogModel>> getCallLogs({bool forceRefresh = false}) async {
-    if (!forceRefresh && _cache != null && _cache!.isNotEmpty) {
-      return _cache!;
-    }
-
-    // Avoid duplicate concurrent loads: piggyback on the in-flight one.
+  /// Makes sure the local mirror is populated, **without materializing the
+  /// whole table**.
+  ///
+  /// This replaced a `getCallLogs()` that read every stored call and resolved a
+  /// contact name for each — only for [CallLogBloc] to throw the list away and
+  /// re-read a 50-row page. On a phone with a long history that full read ran
+  /// on the main isolate on every tab open *and* every app resume, which is the
+  /// recents-tab stall. Rows themselves are read paginated by the bloc.
+  Future<void> ensureSynced({bool forceRefresh = false}) async {
+    // Piggyback on an in-flight sync instead of starting a second one.
     final inFlight = _loading;
     if (inFlight != null) {
       await inFlight.future;
-      if (!forceRefresh && _cache != null) return _cache!;
+      if (!forceRefresh) return;
     }
 
     final completer = Completer<void>();
     _loading = completer;
     try {
-      // Source the raw logs: DB mirror first, else sync from the device.
-      // `contact_name` is NOT stored in the DB, so it is resolved fresh below
-      // from the current contacts on every load — this way a call shows the
-      // saved name even for cached rows and updates the moment a contact is
-      // added/renamed.
-      List<CallLogModel> logs;
-      final cachedDbLogs = await _repository.getAllCallLogs();
-      if (cachedDbLogs.isNotEmpty && !forceRefresh) {
-        logs = cachedDbLogs;
-      } else {
-        final synced = await syncFromDevice();
-        logs = synced ?? cachedDbLogs;
+      if (forceRefresh || !await _repository.hasAnyCallLogs()) {
+        await syncFromDevice();
       }
-
-      _cache = await resolveContactNames(logs);
-      return _cache!;
-    } catch (e) {
-      _cache = [];
-      return _cache!;
+    } catch (_) {
+      // Keep whatever the mirror already holds; the bloc still shows it.
     } finally {
       _loading = null;
       completer.complete();
@@ -128,15 +122,7 @@ class CallLogService {
   Future<List<CallLogModel>> resolveContactNames(
     List<CallLogModel> logs,
   ) async {
-    final contacts = await _contactRepository.getAllContacts();
-    final contactMap = <String, Map<String, String>>{};
-    for (final c in contacts) {
-      for (final p in {...c.phoneNumbers, c.phoneNumber}) {
-        final normalized = _normalizePhoneNumber(p);
-        if (normalized.isEmpty) continue;
-        contactMap.putIfAbsent(normalized, () => {'id': c.id, 'name': c.name});
-      }
-    }
+    final contactMap = await _contactIndex();
     if (contactMap.isEmpty) return logs;
     return [
       for (final log in logs)
@@ -147,6 +133,31 @@ class CallLogService {
               : log.copyWith(contactId: c['id'], contactName: c['name']);
         }(),
     ];
+  }
+
+  /// Memoized normalized-number → {id, name} index, rebuilt only when the
+  /// contact cache itself is replaced. Building it walks every number of every
+  /// contact through [PhoneNormalizer]; doing that again for each 50-row page
+  /// made scrolling recents O(address book) per page.
+  static List<ContactModel>? _indexSource;
+  static Map<String, Map<String, String>>? _phoneIndex;
+
+  Future<Map<String, Map<String, String>>> _contactIndex() async {
+    final contacts = await _contactRepository.getAllContacts();
+    final cached = _phoneIndex;
+    if (cached != null && identical(_indexSource, contacts)) return cached;
+
+    final index = <String, Map<String, String>>{};
+    for (final c in contacts) {
+      for (final p in {...c.phoneNumbers, c.phoneNumber}) {
+        final normalized = _normalizePhoneNumber(p);
+        if (normalized.isEmpty) continue;
+        index.putIfAbsent(normalized, () => {'id': c.id, 'name': c.name});
+      }
+    }
+    _indexSource = contacts;
+    _phoneIndex = index;
+    return index;
   }
 
   /// Reads the device call log and maps it to models (contact fields left null;

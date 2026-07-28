@@ -59,7 +59,7 @@ class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
       if (_observeDeviceChanges) {
         await NativeCallLogService.instance.initialize();
       }
-      await _service.getCallLogs();
+      await _service.ensureSynced();
       final page = await _repository.getAllCallLogs(
         limit: _callLogPageSize,
         offset: 0,
@@ -81,7 +81,7 @@ class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
   ) async {
     emit(const CallLogLoading());
     try {
-      await _service.getCallLogs(forceRefresh: true);
+      await _service.ensureSynced(forceRefresh: true);
       final page = await _repository.getAllCallLogs(
         limit: _callLogPageSize,
         offset: 0,
