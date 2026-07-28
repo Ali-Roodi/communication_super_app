@@ -5,6 +5,7 @@ import '../models/message_model.dart';
 import '../repositories/message_repository.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/settings/repositories/blocked_numbers_repository.dart';
+import 'package:communication_super_app/core/services/device_sync_queue.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:uuid/uuid.dart';
 import 'notification_service.dart';
@@ -332,14 +333,13 @@ class SmsService {
     }
 
     // Native provider queries (see SmsHandler.querySms) — content capped,
-    // deletion-diff ids uncapped.
-    final inbox = await _nativeSmsService.querySms(
-      box: 'inbox',
-      limit: _importLimit,
+    // deletion-diff ids uncapped. Queued so this doesn't hold 1 000 SMS rows in
+    // memory at the same moment the contacts and call-log imports hold theirs.
+    final inbox = await DeviceSyncQueue.run(
+      () => _nativeSmsService.querySms(box: 'inbox', limit: _importLimit),
     );
-    final sent = await _nativeSmsService.querySms(
-      box: 'sent',
-      limit: _importLimit,
+    final sent = await DeviceSyncQueue.run(
+      () => _nativeSmsService.querySms(box: 'sent', limit: _importLimit),
     );
 
     // ── 1. Reconcile recent content in ─────────────────────────────────────

@@ -16,7 +16,6 @@ import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
-import 'package:communication_super_app/features/contacts/models/contact_model.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
@@ -366,16 +365,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
     }
     // Known contact: resolve the saved ContactModel by normalized number and
     // open its detail page; fall back to the add screen if it can't be found.
-    final target = PhoneNormalizer.toThreadId(widget.phoneNumber);
-    ContactModel? match;
-    for (final c in await ContactRepository().getDeviceContacts()) {
-      final hit = [...c.phoneNumbers, c.phoneNumber]
-          .any((p) => PhoneNormalizer.toThreadId(p) == target);
-      if (hit) {
-        match = c;
-        break;
-      }
-    }
+    // Indexed lookup — see ContactRepository._numberLookup.
+    final match = await ContactRepository().getContactByPhoneNumber(
+      widget.phoneNumber,
+    );
     if (!mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute(

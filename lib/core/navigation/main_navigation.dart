@@ -87,7 +87,7 @@ class _MainNavigationState extends State<MainNavigation>
     // A contact may have been added while we were backgrounded (e.g. the user
     // switched to the phone's Contacts app and came back).
     if (state == AppLifecycleState.resumed) {
-      _refreshDeviceContacts();
+      _refreshContactsOnResume();
       // Same for calls: one may have ended (or been deleted) while
       // backgrounded — silent mirror-sync so «اخیر» is current on return.
       context.read<CallLogBloc>().add(const SyncCallLogs());
@@ -96,13 +96,37 @@ class _MainNavigationState extends State<MainNavigation>
     }
   }
 
+  /// Minimum spacing between resume-triggered address-book re-reads.
+  ///
+  /// `FlutterContacts.getContacts` marshals the whole address book over the
+  /// platform channel; doing that on *every* resume is why alt-tabbing back
+  /// into the app stalled for seconds on a phone with thousands of contacts.
+  /// An actual change to the address book still refreshes immediately through
+  /// [FlutterContacts.addListener], so this only rate-limits the blind poll.
+  static const Duration _contactResumeThrottle = Duration(minutes: 10);
+  DateTime? _lastContactResume;
+
+  void _refreshContactsOnResume() {
+    final last = _lastContactResume;
+    if (last != null &&
+        DateTime.now().difference(last) < _contactResumeThrottle) {
+      return;
+    }
+    _lastContactResume = DateTime.now();
+    // Thumbnails are NOT dropped here: nothing is known to have changed, and
+    // clearing them makes every visible row re-fetch its photo.
+    if (!mounted) return;
+    context.read<ContactBloc>().add(const RefreshContacts());
+    context.read<MessageBloc>().add(const RefreshContactNames());
+  }
+
   /// Invalidates the device-contact cache and asks the contacts list + message
-  /// thread names to re-resolve from the fresh data.
+  /// thread names to re-resolve from the fresh data. Wired to the address-book
+  /// change listener, so it only runs when something actually changed.
   void _refreshDeviceContacts() {
     if (!mounted) return;
-    // Drop cached thumbnails too, so a photo changed on the device (outside the
-    // app) refreshes on resume.
     LazyContactAvatar.invalidateCache();
+    _lastContactResume = DateTime.now();
     context.read<ContactBloc>().add(const RefreshContacts());
     context.read<MessageBloc>().add(const RefreshContactNames());
   }

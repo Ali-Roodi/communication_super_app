@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter_contacts/flutter_contacts.dart' as device_contacts;
+import 'package:communication_super_app/core/services/device_sync_queue.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import '../models/contact_model.dart';
 import '../models/phone_match.dart';
@@ -52,10 +53,15 @@ class ContactRepository {
       // thrash on aggressive-memory OEMs). Each visible row and the detail
       // screen fetch their own thumbnail lazily by id — see
       // [getContactThumbnail] / LazyContactAvatar.
-      final contacts = await device_contacts.FlutterContacts.getContacts(
-        withProperties: true,
-        withThumbnail: false,
-        withPhoto: false,
+      // Queued: on a cold start this read races the SMS and call-log imports,
+      // and three large channel payloads resident at once is what kills the
+      // app on a low-memory phone (see [DeviceSyncQueue]).
+      final contacts = await DeviceSyncQueue.run(
+        () => device_contacts.FlutterContacts.getContacts(
+          withProperties: true,
+          withThumbnail: false,
+          withPhoto: false,
+        ),
       );
 
       final now = DateTime.now();
@@ -127,16 +133,37 @@ class ContactRepository {
   /// writes to anymore — so it returned null for every device contact and
   /// messages lost their contact linkage. Now it reads the same device-contact
   /// cache the lists use.
+  /// Memoized normalized-number → contact index, rebuilt only when the contact
+  /// cache is replaced.
+  ///
+  /// A linear scan here normalizes every number of every contact *per lookup*,
+  /// and the callers are loops: one lookup per starred message, per favourite,
+  /// per incoming SMS. On a large address book that turned a screen open into
+  /// millions of string ops on the main isolate.
+  static List<ContactModel>? _indexSource;
+  static Map<String, ContactModel>? _numberIndex;
+
+  Future<Map<String, ContactModel>> _numberLookup() async {
+    final contacts = await getDeviceContacts();
+    final cached = _numberIndex;
+    if (cached != null && identical(_indexSource, contacts)) return cached;
+
+    final index = <String, ContactModel>{};
+    for (final c in contacts) {
+      for (final p in [...c.phoneNumbers, c.phoneNumber]) {
+        final key = PhoneNormalizer.toThreadId(p);
+        if (key.isNotEmpty) index.putIfAbsent(key, () => c);
+      }
+    }
+    _indexSource = contacts;
+    _numberIndex = index;
+    return index;
+  }
+
   Future<ContactModel?> getContactByPhoneNumber(String phoneNumber) async {
     final target = PhoneNormalizer.toThreadId(phoneNumber);
     if (target.isEmpty) return null;
-    final contacts = await getDeviceContacts();
-    for (final c in contacts) {
-      for (final p in [...c.phoneNumbers, c.phoneNumber]) {
-        if (PhoneNormalizer.toThreadId(p) == target) return c;
-      }
-    }
-    return null;
+    return (await _numberLookup())[target];
   }
 
   Future<List<ContactModel>> searchContacts(String query) async {
