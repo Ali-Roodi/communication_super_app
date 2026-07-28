@@ -1,14 +1,22 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_contacts/flutter_contacts.dart' as device_contacts;
 import '../bloc/contact_bloc.dart';
 import '../bloc/contact_event.dart';
 import '../bloc/contact_state.dart';
+import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
+import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
 import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
+import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
+import 'package:communication_super_app/features/contacts/services/contact_extras_service.dart';
+import 'package:communication_super_app/features/favorites/bloc/favorites_bloc.dart';
+import 'package:communication_super_app/features/favorites/bloc/favorites_event.dart';
 import 'package:communication_super_app/features/settings/screens/settings_screen.dart';
 import 'add_edit_contact_screen.dart';
 import '../models/contact_model.dart';
@@ -77,6 +85,16 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
   bool _indexVisible = false;
   Timer? _indexHideTimer;
 
+  /// Ids of the multi-selected contacts. Long-pressing a row enters the mode —
+  /// Google Contacts has no per-contact long-press sheet, the actions live in
+  /// the contextual bar.
+  final Set<String> _selected = {};
+  bool get _selectionMode => _selected.isNotEmpty;
+
+  /// The rows currently on screen (section list or search results), so
+  /// «انتخاب همه» selects what the user is actually looking at.
+  List<ContactModel> _visible = const [];
+
   // Memoized section grouping (rebuilt only when the contact list or the active
   // alphabet changes).
   List<ContactModel>? _lastContacts;
@@ -143,50 +161,266 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
 
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: Scaffold(
-        backgroundColor: theme.scaffoldBackgroundColor,
-        body: Column(
-          children: [
-            _buildSearchField(theme),
-            Expanded(
-              child: BlocBuilder<ContactBloc, ContactState>(
-                builder: (context, state) {
-                  if (state is ContactLoading) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  if (state is ContactError) {
-                    return Center(child: Text('خطا: ${state.message}'));
-                  }
-                  if (state is ContactsLoaded) {
-                    if (state.contacts.isEmpty) {
-                      return _buildEmptyState(theme);
+      child: PopScope(
+        // Back leaves the selection first, exactly as the contextual bar's ✕
+        // would — it never drops the user out of the tab mid-selection.
+        canPop: !_selectionMode,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) _clearSelection();
+        },
+        child: Scaffold(
+          backgroundColor: theme.scaffoldBackgroundColor,
+          body: Column(
+            children: [
+              if (_selectionMode)
+                _buildSelectionBar(theme)
+              else
+                _buildSearchField(theme),
+              Expanded(
+                child: BlocBuilder<ContactBloc, ContactState>(
+                  builder: (context, state) {
+                    if (state is ContactLoading) {
+                      return const Center(child: CircularProgressIndicator());
                     }
-                    return _query.trim().isEmpty
-                        ? _buildSectionedList(
-                            _getOrBuildSections(state.contacts),
-                            theme,
-                          )
-                        : _buildSearchResults(state.contacts, theme);
-                  }
-                  return const SizedBox.shrink();
-                },
+                    if (state is ContactError) {
+                      return Center(child: Text('خطا: ${state.message}'));
+                    }
+                    if (state is ContactsLoaded) {
+                      if (state.contacts.isEmpty) {
+                        return _buildEmptyState(theme);
+                      }
+                      return _query.trim().isEmpty
+                          ? _buildSectionedList(
+                              _getOrBuildSections(state.contacts),
+                              theme,
+                            )
+                          : _buildSearchResults(state.contacts, theme);
+                    }
+                    return const SizedBox.shrink();
+                  },
+                ),
               ),
+            ],
+          ),
+          // Compact tonal «+» — Google Contacts' create button is an icon FAB,
+          // not an extended pill. It steps aside while selecting.
+          floatingActionButton: _selectionMode
+              ? null
+              : FloatingActionButton(
+                  heroTag: 'contacts_fab',
+                  tooltip: 'افزودن مخاطب',
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const AddEditContactScreen(),
+                    ),
+                  ),
+                  child: const Icon(Icons.add),
+                ),
+          floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+        ),
+      ),
+    );
+  }
+
+  // ── Multi-select ────────────────────────────────────────────────────────
+
+  void _toggleSelect(String id) {
+    setState(() {
+      if (!_selected.remove(id)) _selected.add(id);
+    });
+  }
+
+  void _clearSelection() => setState(_selected.clear);
+
+  /// Selected contacts, in the order they appear on screen.
+  List<ContactModel> get _selectedContacts =>
+      _visible.where((c) => _selected.contains(c.id)).toList();
+
+  /// The contextual bar Google Contacts swaps in over the search pill: count,
+  /// then favourite / share / delete and «انتخاب همه» behind the overflow.
+  Widget _buildSelectionBar(ThemeData theme) {
+    final scheme = theme.colorScheme;
+    final single = _selected.length == 1;
+    return SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        child: Material(
+          color: scheme.secondaryContainer,
+          borderRadius: BorderRadius.circular(28),
+          clipBehavior: Clip.antiAlias,
+          child: SizedBox(
+            height: 56,
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  tooltip: 'لغو انتخاب',
+                  onPressed: _clearSelection,
+                ),
+                Text(
+                  PersianUtils.toPersianNumber('${_selected.length}'),
+                  style: TextStyle(fontSize: 16, color: scheme.onSurface),
+                ),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.star_border),
+                  tooltip: 'افزودن به موردعلاقه‌ها',
+                  onPressed: _favoriteSelected,
+                ),
+                // The platform share sheet takes one contact at a time, so the
+                // action only makes sense for a single selection.
+                if (single)
+                  IconButton(
+                    icon: const Icon(Icons.share_outlined),
+                    tooltip: 'اشتراک‌گذاری',
+                    onPressed: _shareSelected,
+                  ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline),
+                  tooltip: 'حذف',
+                  onPressed: _confirmDeleteSelected,
+                ),
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert),
+                  position: PopupMenuPosition.under,
+                  onSelected: (_) => setState(
+                    () => _selected.addAll(_visible.map((c) => c.id)),
+                  ),
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: 'all', child: Text('انتخاب همه')),
+                  ],
+                ),
+                const SizedBox(width: 4),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Stars the selected contacts' first number — the same number the detail
+  /// page's star acts on.
+  void _favoriteSelected() {
+    final bloc = context.read<FavoritesBloc>();
+    final targets = _selectedContacts;
+    var added = 0;
+    for (final c in targets) {
+      final phone = c.phoneNumbers.isNotEmpty
+          ? c.phoneNumbers.first
+          : c.phoneNumber;
+      if (phone.isEmpty) continue;
+      bloc.add(AddFavorite(phoneNumber: phone, name: c.name, contactId: c.id));
+      added++;
+    }
+    _clearSelection();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          added == 0
+              ? 'شماره‌ای برای افزودن یافت نشد'
+              : '${PersianUtils.toPersianNumber('$added')} مخاطب به موردعلاقه‌ها افزوده شد',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _shareSelected() async {
+    final id = _selected.first;
+    _clearSelection();
+    final ok = await ContactExtrasService.instance.shareContact(id);
+    if (!mounted || ok) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('اشتراک‌گذاری ممکن نبود')));
+  }
+
+  /// Deletes the selection from the DEVICE address book (that is the only
+  /// store — the local `contacts` table is legacy).
+  Future<void> _confirmDeleteSelected() async {
+    final count = _selected.length;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('حذف مخاطب'),
+          content: Text(
+            count == 1
+                ? 'این مخاطب برای همیشه از مخاطبین گوشی حذف شود؟'
+                : '${PersianUtils.toPersianNumber('$count')} مخاطب برای همیشه از مخاطبین گوشی حذف شوند؟',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('انصراف'),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('حذف'),
             ),
           ],
         ),
-        // Compact tonal «+» — Google Contacts' create button is an icon FAB,
-        // not an extended pill.
-        floatingActionButton: FloatingActionButton(
-          heroTag: 'contacts_fab',
-          tooltip: 'افزودن مخاطب',
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const AddEditContactScreen()),
-          ),
-          child: const Icon(Icons.add),
-        ),
-        floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final ids = _selected.toList();
+    final messenger = ScaffoldMessenger.of(context);
+    final contactBloc = context.read<ContactBloc>();
+    try {
+      final targets = <device_contacts.Contact>[];
+      for (final id in ids) {
+        final c = await device_contacts.FlutterContacts.getContact(id);
+        if (c != null) targets.add(c);
+      }
+      if (targets.isNotEmpty) {
+        await device_contacts.FlutterContacts.deleteContacts(targets);
+      }
+      ContactRepository().invalidateCache();
+      LazyContactAvatar.invalidateCache();
+      if (!mounted) return;
+      _clearSelection();
+      contactBloc.add(const RefreshContacts());
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            '${PersianUtils.toPersianNumber('${targets.length}')} مخاطب حذف شد',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('حذف ناموفق بود: $e')));
+    }
+  }
+
+  /// Builds the tap / long-press behaviour every contact row shares: tap opens
+  /// the contact (or toggles while selecting), long-press starts the selection.
+  Widget _contactRow(ContactModel contact, {String query = ''}) {
+    return _ContactRow(
+      contact: contact,
+      query: query,
+      selected: _selected.contains(contact.id),
+      onTap: () {
+        if (_selectionMode) {
+          _toggleSelect(contact.id);
+        } else {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => DeviceContactDetailScreen(contact: contact),
+            ),
+          );
+        }
+      },
+      onLongPress: () {
+        HapticFeedback.mediumImpact();
+        _toggleSelect(contact.id);
+      },
     );
   }
 
@@ -294,16 +528,18 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
         ),
       );
     }
+    _visible = results;
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(0, 4, 0, 110),
       itemCount: results.length,
-      itemBuilder: (_, i) => _ContactRow(contact: results[i], query: _query),
+      itemBuilder: (_, i) => _contactRow(results[i], query: _query),
     );
   }
 
   // ── Sectioned list with inline headers + fast-scroll bar ──────────────────
 
   Widget _buildSectionedList(List<_Section> sections, ThemeData theme) {
+    _visible = [for (final s in sections) ...s.contacts];
     final slivers = <Widget>[];
     for (final s in sections) {
       slivers.add(
@@ -319,7 +555,7 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
         SliverFixedExtentList(
           itemExtent: _kRowHeight,
           delegate: SliverChildBuilderDelegate(
-            (_, i) => _ContactRow(contact: s.contacts[i]),
+            (_, i) => _contactRow(s.contacts[i]),
             childCount: s.contacts.length,
           ),
         ),
@@ -512,7 +748,17 @@ class _ContactRow extends StatelessWidget {
   /// Google Contacts bolds it in the primary colour.
   final String query;
 
-  const _ContactRow({required this.contact, this.query = ''});
+  final bool selected;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  const _ContactRow({
+    required this.contact,
+    required this.onTap,
+    required this.onLongPress,
+    this.query = '',
+    this.selected = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -525,27 +771,32 @@ class _ContactRow extends StatelessWidget {
         GroupRadius.gap,
       ),
       child: Material(
-        color: scheme.cardSurface,
+        // A selected row is tinted, and its avatar becomes a check — the same
+        // treatment the inbox gives a selected conversation.
+        color: selected ? scheme.secondaryContainer : scheme.cardSurface,
         clipBehavior: Clip.antiAlias,
         // Google Contacts rounds every row of the list identically — the
         // "big outer / tight inner" run is reserved for settings groups.
         borderRadius: BorderRadius.circular(GroupRadius.outer),
         child: InkWell(
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => DeviceContactDetailScreen(contact: contact),
-            ),
-          ),
+          onTap: onTap,
+          onLongPress: onLongPress,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Row(
               children: [
-                LazyContactAvatar(
-                  contactId: contact.id,
-                  name: contact.name,
-                  size: 44,
-                ),
+                if (selected)
+                  CircleAvatar(
+                    radius: 22,
+                    backgroundColor: scheme.primary,
+                    child: Icon(Icons.check, color: scheme.onPrimary),
+                  )
+                else
+                  LazyContactAvatar(
+                    contactId: contact.id,
+                    name: contact.name,
+                    size: 44,
+                  ),
                 const SizedBox(width: 14),
                 // Name-only rows, like Google Contacts (the number lives on the
                 // detail page).
