@@ -59,6 +59,19 @@ class CallLogRepository {
     return rows.isNotEmpty;
   }
 
+  /// Timestamp of the newest stored call, or null when the mirror is empty.
+  /// The incremental sync fetches only what is newer than this.
+  Future<int?> newestTimestampMs() async {
+    final db = await _dbHelper.database;
+    final rows = await db.query(
+      AppConstants.callLogsTable,
+      columns: ['timestamp'],
+      orderBy: 'timestamp DESC',
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first['timestamp'] as int?;
+  }
+
   Future<List<CallLogModel>> getCallLogsByContact(
     String contactId, {
     int? limit,
@@ -74,13 +87,6 @@ class CallLogRepository {
       offset: offset,
     );
     return maps.map((map) => CallLogModel.fromMap(map)).toList();
-  }
-
-  /// Returns the ids of every stored call log (used by the mirror-sync diff).
-  Future<Set<String>> getAllIds() async {
-    final db = await _dbHelper.database;
-    final maps = await db.query(AppConstants.callLogsTable, columns: ['id']);
-    return maps.map((m) => m['id'] as String).toSet();
   }
 
   /// Ids of stored call logs at or after [sinceMs]. Scopes the mirror-sync

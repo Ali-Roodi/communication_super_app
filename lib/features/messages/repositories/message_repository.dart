@@ -200,20 +200,25 @@ class MessageRepository {
     if (deviceRows.isEmpty) return;
     final db = await _dbHelper.database;
     final windowMs = fuzzyWindow.inMilliseconds;
-    await db.transaction((txn) async {
-      for (final row in deviceRows) {
-        final deviceId = row.deviceSmsId;
-        if (deviceId == null) continue;
 
-        // 1. Known already?
-        final known = await txn.query(
-          AppConstants.messagesTable,
-          columns: ['id'],
-          where: 'device_sms_id = ?',
-          whereArgs: [deviceId],
-          limit: 1,
-        );
-        if (known.isNotEmpty) continue;
+    // Step 1 in bulk: in the steady state EVERY row of the batch is already
+    // known, and asking that one row at a time meant a query per provider row
+    // on every sync. One `IN (…)` read answers it for the whole batch, so a
+    // resume sync that has nothing new to do now touches the DB twice.
+    final knownDeviceIds = await _knownDeviceSmsIds([
+      for (final row in deviceRows)
+        if (row.deviceSmsId != null) row.deviceSmsId!,
+    ]);
+    final pending = [
+      for (final row in deviceRows)
+        if (row.deviceSmsId != null && !knownDeviceIds.contains(row.deviceSmsId))
+          row,
+    ];
+    if (pending.isEmpty) return;
+
+    await db.transaction((txn) async {
+      for (final row in pending) {
+        final deviceId = row.deviceSmsId!;
 
         // 2. Exact content match (same key as the dedup unique index).
         final exact = await txn.query(
@@ -269,6 +274,29 @@ class MessageRepository {
         );
       }
     });
+  }
+
+  /// Which of [deviceIds] the local store already carries, read in chunks that
+  /// stay under SQLite's bound-variable limit.
+  Future<Set<int>> _knownDeviceSmsIds(List<int> deviceIds) async {
+    if (deviceIds.isEmpty) return const {};
+    final db = await _dbHelper.database;
+    final known = <int>{};
+    for (var i = 0; i < deviceIds.length; i += 500) {
+      final end = i + 500 > deviceIds.length ? deviceIds.length : i + 500;
+      final chunk = deviceIds.sublist(i, end);
+      final placeholders = List.filled(chunk.length, '?').join(',');
+      final rows = await db.query(
+        AppConstants.messagesTable,
+        columns: ['device_sms_id'],
+        where: 'device_sms_id IN ($placeholders)',
+        whereArgs: chunk,
+      );
+      for (final row in rows) {
+        known.add((row['device_sms_id'] as num).toInt());
+      }
+    }
+    return known;
   }
 
   /// Hard-deletes local rows whose provider row no longer exists — the message

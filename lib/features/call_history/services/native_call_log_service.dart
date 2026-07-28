@@ -53,6 +53,28 @@ class NativeCallLogService {
     }
   }
 
+  /// Provider row ids of every device call at or after [sinceMs].
+  ///
+  /// Ids only: the mirror-sync needs this just to spot rows deleted elsewhere,
+  /// and reading full rows for that is what made the sync O(history) in binder
+  /// traffic. Returns null when the native side can't answer (no permission,
+  /// older build without the method) — the caller then skips the deletion half
+  /// rather than wrongly purging.
+  Future<Set<String>?> deviceCallLogIdsSince(int sinceMs) async {
+    try {
+      final ids = await _methodChannel.invokeListMethod<String>(
+        'callLogIdsSince',
+        {'sinceMs': sinceMs},
+      );
+      return ids?.toSet();
+    } on PlatformException catch (e) {
+      debugPrint('Device call-log id query failed: ${e.code} ${e.message}');
+      return null;
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
   /// Deletes the given provider row ids from the device call log.
   /// Returns the number of rows the provider reported deleted.
   Future<int> deleteDeviceCallLogs(List<String> ids) async {

@@ -61,6 +61,24 @@ class CallLogSyncHandler(private val context: Context) {
                         result.error("DELETE_FAILED", e.message, null)
                     }
                 }
+                // Ids only — the deletion half of the mirror-sync needs to know
+                // *which* rows still exist, not what is in them. Reading full
+                // rows for that (thousands of maps over the channel) is what
+                // made every resume stall on a long call history.
+                "callLogIdsSince" -> {
+                    val sinceMs = when (val v = call.argument<Any>("sinceMs")) {
+                        is Int -> v.toLong()
+                        is Long -> v
+                        else -> 0L
+                    }
+                    try {
+                        result.success(queryIdsSince(sinceMs))
+                    } catch (e: SecurityException) {
+                        result.error("PERMISSION_DENIED", "READ_CALL_LOG not granted", null)
+                    } catch (e: Exception) {
+                        result.error("QUERY_FAILED", e.message, null)
+                    }
+                }
                 // Registration can fail at app start if READ_CALL_LOG hasn't
                 // been granted yet; Dart calls this again after the permission
                 // gate so the observer always ends up attached.
@@ -84,6 +102,29 @@ class CallLogSyncHandler(private val context: Context) {
                 eventSink = null
             }
         })
+    }
+
+    /**
+     * Provider row ids of every call at or after [sinceMs], newest first.
+     * Projection is `_ID` alone, so the payload stays a list of short strings
+     * even on a phone with tens of thousands of calls.
+     */
+    private fun queryIdsSince(sinceMs: Long): List<String> {
+        val ids = ArrayList<String>()
+        context.contentResolver.query(
+            CallLog.Calls.CONTENT_URI,
+            arrayOf(CallLog.Calls._ID),
+            if (sinceMs > 0) "${CallLog.Calls.DATE} >= ?" else null,
+            if (sinceMs > 0) arrayOf(sinceMs.toString()) else null,
+            "${CallLog.Calls.DATE} DESC"
+        )?.use { cursor ->
+            val idIndex = cursor.getColumnIndex(CallLog.Calls._ID)
+            if (idIndex < 0) return ids
+            while (cursor.moveToNext()) {
+                ids.add(cursor.getString(idIndex) ?: continue)
+            }
+        }
+        return ids
     }
 
     /** Deletes the given provider `_id`s. Returns the number of rows removed. */

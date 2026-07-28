@@ -25,6 +25,33 @@ SMS / call-log / contact rows) on the main isolate.
 | Data-driven lists | Virtualized: `SliverGroupedList` (lazy twin of `GroupedList`) for dialer suggestions, unified search, starred, schedules | `core/widgets/google_list.dart` |
 | Contact filtering | Contacts-tab search debounced 200 ms; filter/grouping results memoized on (query, source identity) | `ContactsListScreen`, `ContactSelectorScreen` |
 
+## 1b. Resume / sync budget (the alt-tab stall)
+
+Returning to the app used to run, on **every** resume: a full 365-day call-log
+re-read *and* re-write (twice — `MainNavigation` and the recents screen each
+fired their own), a full address-book re-read (twice — `ContactBloc` and
+`MessageBloc.RefreshContactNames`), plus a thumbnail-cache wipe. Rules now:
+
+| Trigger | What may run |
+|---------|--------------|
+| Resume | delta call-log sync (rows newer than the newest stored one), throttled SMS mirror-sync (2 min), address-book re-read **at most every 10 min** |
+| Address book actually changed (`FlutterContacts` listener) | immediate contact refresh + thumbnail-cache clear |
+| Call-log ContentObserver (call ended, row deleted) | delta sync; deletion diff at most every 5 min |
+| Pull-to-refresh / explicit refresh | everything, unthrottled |
+
+- Deletion detection reads **ids only**, natively (`callLogIdsSince`) — never
+  full rows.
+- First call-log import walks the window in 30-day slices with a yield between
+  them and accumulates nothing.
+- `MessageRepository.reconcileDeviceRows` resolves "already known" for the whole
+  batch with one `IN (…)` query instead of one query per provider row.
+- Heavy device reads (contacts, SMS provider, call log) are serialized through
+  `DeviceSyncQueue` so a cold start never holds three large channel payloads at
+  once — that peak is what killed the app on low-memory phones.
+- `ContactRepository.getContactByPhoneNumber` is an indexed map lookup, not a
+  scan: its callers are loops (per starred message, per favourite, per incoming
+  SMS).
+
 ## 2. Watch-outs / hot paths
 
 - **Main-isolate DB work.** Repositories run on the main isolate. Bulk reads

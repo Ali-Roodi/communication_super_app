@@ -7,6 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../models/call_log_model.dart';
 import '../repositories/call_log_repository.dart';
 import 'native_call_log_service.dart';
+import 'package:communication_super_app/core/services/device_sync_queue.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
@@ -52,7 +53,7 @@ class CallLogService {
     _loading = completer;
     try {
       if (forceRefresh || !await _repository.hasAnyCallLogs()) {
-        await syncFromDevice();
+        await syncFromDevice(force: forceRefresh);
       }
     } catch (_) {
       // Keep whatever the mirror already holds; the bloc still shows it.
@@ -62,43 +63,117 @@ class CallLogService {
     }
   }
 
-  /// Mirror-syncs the local DB against the device call-log provider:
-  /// device rows are upserted, and local rows whose provider row no longer
-  /// exists are removed (so a call deleted on the phone disappears here too).
-  ///
-  /// Returns the fresh device logs, or null when permission is missing.
-  /// How far back a mirror-sync pulls from the device. Pulling the *entire*
-  /// call log on every sync (the observer fires on every call end) is the main
-  /// call-history hang on phones with a huge history. Calls older than this were
-  /// imported by an earlier full sync and stay in the local DB untouched.
+  /// How far back the mirror reaches. Calls older than this were imported by an
+  /// earlier pass and stay in the local DB untouched.
   static const Duration _syncWindow = Duration(days: 365);
 
-  Future<List<CallLogModel>?> syncFromDevice() async {
+  /// The first import walks the window in slices, yielding between them, so a
+  /// ten-year call history can't block the UI thread in one shot.
+  static const Duration _importChunk = Duration(days: 30);
+
+  /// Overlap applied to the incremental fetch: a call that ended just before
+  /// the last sync can land in the provider a moment later, so re-reading a
+  /// short tail is cheaper than missing rows.
+  static const Duration _deltaOverlap = Duration(minutes: 10);
+
+  /// Mirror-syncs the local DB against the device call-log provider.
+  ///
+  /// Two halves, both deliberately incremental — the old version re-read *and
+  /// re-wrote* every call inside [_syncWindow] on every pass, and since a pass
+  /// runs on resume and on every ContentObserver fire (i.e. after each call and
+  /// after each delete), that was the multi-second freeze on a long history:
+  ///
+  /// 1. **Content**: only rows newer than the newest stored call are fetched
+  ///    and written (everything, chunked, when the mirror is still empty).
+  /// 2. **Deletions**: the device's *ids* alone are read natively and diffed
+  ///    against the stored ids, so nothing is re-written to spot a delete. If
+  ///    the native side can't answer, the diff is skipped rather than guessed.
+  Future<List<CallLogModel>?> syncFromDevice({bool force = false}) async {
     final hasPermission = await requestPermissions();
     if (!hasPermission) return null;
 
-    final since = DateTime.now().subtract(_syncWindow);
-    final deviceLogs = await _fetchDeviceLogs(since: since);
-    await _repository.saveCallLogsBatch(deviceLogs);
+    final windowStart = DateTime.now().subtract(_syncWindow);
+    final newestLocalMs = await _repository.newestTimestampMs();
 
-    // Remove local rows that vanished from the device — but SCOPED to the same
-    // window we fetched. Only numeric ids can be provider rows; UUID-fallback
-    // rows (device gave no id) are left alone. Without the window scope, every
-    // call older than [_syncWindow] would look "missing from device" and be
-    // wrongly deleted.
-    final deviceIds = deviceLogs.map((l) => l.id).toSet();
-    final localIds = await _repository.getIdsSince(
-      since.millisecondsSinceEpoch,
+    final List<CallLogModel> deviceLogs;
+    if (newestLocalMs == null) {
+      await _importWindow(windowStart);
+      deviceLogs = const [];
+    } else {
+      final since = DateTime.fromMillisecondsSinceEpoch(
+        newestLocalMs,
+      ).subtract(_deltaOverlap);
+      deviceLogs = await _fetchDeviceLogs(
+        since: since.isBefore(windowStart) ? windowStart : since,
+      );
+      if (deviceLogs.isNotEmpty) {
+        await _repository.saveCallLogsBatch(deviceLogs);
+      }
+    }
+
+    await _reconcileDeletions(windowStart, force: force);
+
+    invalidateCache();
+    return deviceLogs;
+  }
+
+  /// First-run import: pulls [_syncWindow] a slice at a time, writing each
+  /// slice and yielding so the frame loop keeps running.
+  ///
+  /// Nothing is accumulated — a whole call history held in a list while it is
+  /// also being written is exactly the peak the low-memory phones die on.
+  Future<void> _importWindow(DateTime windowStart) async {
+    var chunkEnd = DateTime.now();
+    while (chunkEnd.isAfter(windowStart)) {
+      final chunkStart = chunkEnd.subtract(_importChunk);
+      final slice = await _fetchDeviceLogs(
+        since: chunkStart.isBefore(windowStart) ? windowStart : chunkStart,
+        until: chunkEnd,
+      );
+      if (slice.isNotEmpty) {
+        await _repository.saveCallLogsBatch(slice);
+      }
+      chunkEnd = chunkStart;
+      await Future<void>.delayed(Duration.zero);
+    }
+  }
+
+  /// How often the deletion diff runs on its own. The observer fires after
+  /// every call and every delete, and diffing reads an id per stored call on
+  /// both sides — cheap, but not something to repeat seconds apart. A delete
+  /// made in another app therefore shows up within this window; a delete made
+  /// *here* is applied immediately by [deleteCallLogsGlobally].
+  static const Duration _deletionReconcileInterval = Duration(minutes: 5);
+  static DateTime? _lastDeletionReconcile;
+
+  /// Drops local rows whose provider row is gone, scoped to [windowStart] (the
+  /// same range the mirror covers) so older calls aren't purged as "missing".
+  /// Only numeric ids can be provider rows; UUID fallbacks are left alone.
+  Future<void> _reconcileDeletions(
+    DateTime windowStart, {
+    bool force = false,
+  }) async {
+    final last = _lastDeletionReconcile;
+    if (!force &&
+        last != null &&
+        DateTime.now().difference(last) < _deletionReconcileInterval) {
+      return;
+    }
+    _lastDeletionReconcile = DateTime.now();
+
+    final sinceMs = windowStart.millisecondsSinceEpoch;
+    final deviceIds = await NativeCallLogService.instance.deviceCallLogIdsSince(
+      sinceMs,
     );
+    if (deviceIds == null) return; // can't tell — never guess a delete
+
+    final localIds = await _repository.getIdsSince(sinceMs);
     final stale = localIds
         .where((id) => !deviceIds.contains(id) && _isNumeric(id))
         .toList();
     if (stale.isNotEmpty) {
       await _repository.deleteCallLogs(stale);
     }
-
-    invalidateCache();
-    return deviceLogs;
   }
 
   /// Deletes call logs **globally**: from the device provider first, then the
@@ -162,12 +237,20 @@ class CallLogService {
 
   /// Reads the device call log and maps it to models (contact fields left null;
   /// they are filled by [_resolveContactNames]).
-  Future<List<CallLogModel>> _fetchDeviceLogs({DateTime? since}) async {
-    final Iterable<call_log.CallLogEntry> entries = since == null
-        ? await call_log.CallLog.get()
-        : await call_log.CallLog.query(
-            dateFrom: since.millisecondsSinceEpoch,
-          );
+  Future<List<CallLogModel>> _fetchDeviceLogs({
+    DateTime? since,
+    DateTime? until,
+  }) async {
+    // Queued: this read competes with the contacts and SMS imports on a cold
+    // start, and each holds a large channel payload while it works.
+    final Iterable<call_log.CallLogEntry> entries = await DeviceSyncQueue.run(
+      () => (since == null && until == null)
+          ? call_log.CallLog.get()
+          : call_log.CallLog.query(
+              dateFrom: since?.millisecondsSinceEpoch,
+              dateTo: until?.millisecondsSinceEpoch,
+            ),
+    );
 
     // Serialize entries to make isolate-friendly data.
     final serialized = entries.map((e) {

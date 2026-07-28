@@ -517,13 +517,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     RefreshContactNames event,
     Emitter<MessageState> emit,
   ) async {
+    // Only the local map is dropped: whoever dispatched this (the address-book
+    // change listener, the resume poll) also asks ContactBloc to refresh, and
+    // forcing a second read here meant marshalling the whole address book over
+    // the platform channel twice per refresh.
     _cachedPhoneToName = null;
-    try {
-      // Pull fresh device contacts so the rebuilt map reflects the change.
-      await _contactRepository.getAllContacts(forceRefresh: true);
-    } catch (_) {
-      // Fall through: _resolveContactNames will use whatever is available.
-    }
     final current = state;
     if (current is ThreadsLoaded && !current.archived) {
       final enriched = await _resolveContactNames(current.threads);

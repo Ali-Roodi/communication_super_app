@@ -29,8 +29,7 @@ const Map<_CallFilter, String> _filterLabels = {
   _CallFilter.contacts: 'مخاطبین',
 };
 
-class _CallHistoryScreenState extends State<CallHistoryScreen>
-    with WidgetsBindingObserver {
+class _CallHistoryScreenState extends State<CallHistoryScreen> {
   bool _hasLoadedInitially = false;
   final ScrollController _scrollController = ScrollController();
   _CallFilter _filter = _CallFilter.all;
@@ -117,7 +116,6 @@ class _CallHistoryScreenState extends State<CallHistoryScreen>
         context.read<CallLogBloc>().add(const LoadCallLogs());
       }
     });
-    WidgetsBinding.instance.addObserver(this);
     _scrollController.addListener(_onScroll);
   }
 
@@ -135,18 +133,14 @@ class _CallHistoryScreenState extends State<CallHistoryScreen>
   void dispose() {
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
-    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    super.didChangeAppLifecycleState(state);
-    // Refresh call logs when app resumes (e.g., after a phone call).
-    if (state == AppLifecycleState.resumed && mounted && _hasLoadedInitially) {
-      context.read<CallLogBloc>().add(const RefreshCallLogs());
-    }
-  }
+  // No lifecycle observer here on purpose: [MainNavigation] already dispatches
+  // a silent `SyncCallLogs` on resume. This screen used to fire its own
+  // `RefreshCallLogs` as well, so every return to the app ran the device sync
+  // *twice* — and that one emits `CallLogLoading`, blanking the list behind a
+  // spinner while it ran.
 
   @override
   Widget build(BuildContext context) {
