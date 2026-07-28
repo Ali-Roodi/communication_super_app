@@ -89,6 +89,11 @@ class CallHandler(
                     )
                     "isDefaultDialer" -> result.success(isDefaultDialer())
                     "requestDefaultDialerRole" -> requestDefaultDialerRole(result)
+                    "canUseFullScreenIntent" -> result.success(canUseFullScreenIntent())
+                    "openFullScreenIntentSettings" -> {
+                        openFullScreenIntentSettings()
+                        result.success(true)
+                    }
                     "getVoicemailNumber" -> result.success(voicemailNumber())
                     "openNotificationSettings" -> {
                         openNotificationSettings()
@@ -144,6 +149,36 @@ class CallHandler(
             .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
             .apply { if (activity == null) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
         (activity ?: context).startActivity(intent)
+    }
+
+    /**
+     * Whether the app may launch its call screen from a notification.
+     *
+     * From Android 14 `USE_FULL_SCREEN_INTENT` is only auto-granted to apps
+     * whose core function was calling/alarms **at install time**. An app that
+     * takes the dialer role later — which is exactly this one — is denied, the
+     * notification is flagged FSI_REQUESTED_BUT_DENIED, and an incoming call on
+     * a locked phone falls back to the OEM dialer's UI.
+     */
+    private fun canUseFullScreenIntent(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return true
+        val nm = context.getSystemService(android.app.NotificationManager::class.java)
+        return nm?.canUseFullScreenIntent() ?: true
+    }
+
+    /** Opens the per-app screen where the user grants the above. */
+    private fun openFullScreenIntentSettings() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return
+        val intent = Intent(
+            android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+            Uri.parse("package:${context.packageName}"),
+        ).apply { if (activity == null) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+        try {
+            (activity ?: context).startActivity(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "full-screen-intent settings unavailable: ${e.message}")
+            openNotificationSettings()
+        }
     }
 
     /**

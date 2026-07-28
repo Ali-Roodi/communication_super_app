@@ -40,9 +40,13 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator> {
   void _pushCall(BuildContext context, Widget screen, {bool replace = false}) {
     final navigator = appNavigatorKey.currentState;
     if (navigator == null) return;
-    final route = MaterialPageRoute<void>(
-      fullscreenDialog: true,
-      builder: (_) =>
+    // No transition: an incoming call arrives while whatever was last on screen
+    // is still painted, and a 300 ms slide-up means the user watches the inbox
+    // (or the PIN screen) on their lock screen before the call appears.
+    final route = PageRouteBuilder<void>(
+      transitionDuration: Duration.zero,
+      reverseTransitionDuration: Duration.zero,
+      pageBuilder: (_, _, _) =>
           BlocProvider.value(value: context.read<DialerBloc>(), child: screen),
     );
     final previous = _callRoute;
@@ -87,12 +91,24 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator> {
 
         switch (state.callStatus) {
           case CallStatus.incoming:
-            _pushCall(context, IncomingCallScreen(phone: state.activePhone));
+            _pushCall(
+              context,
+              IncomingCallScreen(
+                phone: state.activePhone,
+                contactName: state.activeName,
+              ),
+            );
           case CallStatus.ringing:
           case CallStatus.connecting:
             // Outgoing call dialing — show the in-call UI immediately.
             if (prev != CallStatus.active && prev != CallStatus.onHold) {
-              _pushCall(context, InCallScreen(phone: state.activePhone));
+              _pushCall(
+                context,
+                InCallScreen(
+                  phone: state.activePhone,
+                  contactName: state.activeName,
+                ),
+              );
             } else {
               // Second call placed while one is up (افزودن تماس): the dialer
               // sheet / contact page is stacked above the call screen — clear
@@ -104,20 +120,39 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator> {
               // Answered: swap the incoming screen for the in-call screen.
               _pushCall(
                 context,
-                InCallScreen(phone: state.activePhone),
+                InCallScreen(
+                  phone: state.activePhone,
+                  contactName: state.activeName,
+                ),
                 replace: true,
               );
             } else if (prev != CallStatus.ringing &&
                 prev != CallStatus.connecting &&
                 prev != CallStatus.onHold) {
               // Active with no prior UI (e.g. cold start into an ongoing call).
-              _pushCall(context, InCallScreen(phone: state.activePhone));
+              _pushCall(
+                context,
+                InCallScreen(
+                  phone: state.activePhone,
+                  contactName: state.activeName,
+                ),
+              );
             }
           // ringing/connecting/onHold → InCallScreen is already up.
           case CallStatus.onHold:
             break; // InCallScreen renders the hold state itself.
           case CallStatus.idle:
-            if (prev != CallStatus.idle) _dismissCallRoute();
+            // Held for a beat instead of popping straight away. The native side
+            // sends the activity behind the keyguard the moment the call ends,
+            // and that transition takes a few hundred ms — popping immediately
+            // paints the app's own UI over the lock screen while it runs.
+            // Google Phone lingers on the ended call for about as long.
+            if (prev != CallStatus.idle) {
+              Future<void>.delayed(const Duration(milliseconds: 600), () {
+                if (!mounted || _lastCallStatus != CallStatus.idle) return;
+                _dismissCallRoute();
+              });
+            }
         }
       },
       child: widget.child,

@@ -182,6 +182,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
           state.copyWith(
             callStatus: CallStatus.incoming,
             activePhone: info.phone,
+            activeName: info.name,
           ),
         );
       case NativeCallEvent.ringing:
@@ -191,6 +192,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
           state.copyWith(
             callStatus: CallStatus.ringing,
             activePhone: info.phone.isNotEmpty ? info.phone : null,
+            activeName: info.name,
           ),
         );
       case NativeCallEvent.active:
@@ -198,6 +200,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
           state.copyWith(
             callStatus: CallStatus.active,
             activePhone: info.phone.isNotEmpty ? info.phone : null,
+            activeName: info.name,
             isConference: info.isConference ?? state.isConference,
           ),
         );

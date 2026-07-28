@@ -23,6 +23,10 @@ enum NativeCallEvent {
 class CallInfo {
   final NativeCallEvent event;
   final String phone;
+
+  /// Caller name, resolved natively (ContactsContract PhoneLookup) so the call
+  /// screen never has to render the bare number first.
+  final String? name;
   final String direction; // 'incoming' | 'outgoing'
 
   /// Only meaningful for [NativeCallEvent.audioState].
@@ -39,6 +43,7 @@ class CallInfo {
   const CallInfo({
     required this.event,
     this.phone = '',
+    this.name,
     this.direction = 'outgoing',
     this.speaker,
     this.muted,
@@ -83,6 +88,7 @@ class NativeCallService {
       return CallInfo(
         event: event,
         phone: map['phone'] as String? ?? '',
+        name: map['name'] as String?,
         direction: map['direction'] as String? ?? 'outgoing',
         speaker: map['speaker'] as bool?,
         muted: map['muted'] as bool?,
@@ -159,6 +165,22 @@ class NativeCallService {
       await _method.invokeMethod('openNotificationSettings');
     } catch (_) {
       // A device with no such settings activity: nothing to do.
+    }
+  }
+
+  /// Whether an incoming call may open the app's own call screen. False on
+  /// Android 14+ until the user grants it — the app took the dialer role after
+  /// install, so the permission is not auto-granted and a call on a locked
+  /// phone shows the OEM dialer instead.
+  Future<bool> canUseFullScreenIntent() async =>
+      await _method.invokeMethod<bool>('canUseFullScreenIntent') ?? true;
+
+  /// Opens the per-app settings screen where that is granted.
+  Future<void> openFullScreenIntentSettings() async {
+    try {
+      await _method.invokeMethod('openFullScreenIntentSettings');
+    } catch (_) {
+      // Older Android: nothing to grant.
     }
   }
 }
