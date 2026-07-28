@@ -41,7 +41,7 @@ void main() {
             selected: false,
             selectionMode: false,
             onTap: () {},
-            onLongPress: () {},
+            onLongPress: (_) {},
           ),
         ),
       );
@@ -63,7 +63,7 @@ void main() {
             selected: false,
             selectionMode: false,
             onTap: () {},
-            onLongPress: () {},
+            onLongPress: (_) {},
           ),
         ),
       );
@@ -86,7 +86,7 @@ void main() {
             selected: false,
             selectionMode: false,
             onTap: () {},
-            onLongPress: () {},
+            onLongPress: (_) {},
             onRetry: () => retried = true,
           ),
         ),
@@ -111,7 +111,7 @@ void main() {
             selected: true,
             selectionMode: true,
             onTap: () {},
-            onLongPress: () {},
+            onLongPress: (_) {},
           ),
         ),
       );

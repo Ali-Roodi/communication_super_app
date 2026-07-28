@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
@@ -6,20 +7,155 @@ import '../../models/message_model.dart';
 import 'link_preview_card.dart';
 import 'linkified_text.dart';
 
+/// The width a bubble may occupy, as a fraction of the screen. Shared with the
+/// long-press overlay so the zoomed copy wraps its text identically.
+const double kBubbleMaxWidthFactor = 0.75;
+
+/// The decorated bubble box on its own — colour, corner radii and body text —
+/// without the surrounding row, timestamp or gestures.
+///
+/// Rendered twice: inline in the conversation list, and again (with
+/// [selectable] on) as the lifted copy inside the long-press overlay. Keeping
+/// one widget for both is what makes the zoom read as the *same* bubble.
+class MessageBubbleBody extends StatelessWidget {
+  final MessageModel message;
+  final bool isLastInGroup;
+  final bool showLinkPreview;
+
+  /// Links render styled but inert while the chat is in multi-select mode (the
+  /// tap belongs to the selection) and inside the overlay (the tap belongs to
+  /// text selection).
+  final bool enableLinkTaps;
+
+  /// Renders the body as freely selectable text with drag handles — the
+  /// overlay's whole point.
+  final bool selectable;
+
+  /// Measured by the list so the overlay knows where to lift from.
+  final Key? boxKey;
+
+  /// Invoked after the selection toolbar's «کپی», so the overlay can dismiss.
+  final VoidCallback? onCopied;
+
+  const MessageBubbleBody({
+    super.key,
+    required this.message,
+    required this.isLastInGroup,
+    this.showLinkPreview = true,
+    this.enableLinkTaps = true,
+    this.selectable = false,
+    this.boxKey,
+    this.onCopied,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final isSent = message.type == MessageType.sent;
+
+    // Google Messages never fills a bubble with the saturated primary: sent
+    // messages use the tonal primary container, received ones a neutral
+    // container. Both keep body text at full contrast.
+    final bubbleColor = isSent ? cs.bubbleOutgoing : cs.bubbleIncoming;
+    final textColor = isSent ? cs.onBubbleOutgoing : cs.onSurface;
+
+    const r = Radius.circular(20);
+    const tail = Radius.circular(4);
+    final radius = BorderRadius.only(
+      topLeft: r,
+      topRight: r,
+      bottomLeft: isSent ? r : (isLastInGroup ? tail : r),
+      bottomRight: isSent ? (isLastInGroup ? tail : r) : r,
+    );
+
+    final previewUrl = showLinkPreview
+        ? LinkifiedText.firstUrl(message.body)
+        : null;
+    final bodyStyle = DefaultTextStyle.of(
+      context,
+    ).style.merge(TextStyle(color: textColor));
+
+    return Container(
+      key: boxKey,
+      constraints: BoxConstraints(
+        maxWidth: MediaQuery.of(context).size.width * kBubbleMaxWidthFactor,
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(color: bubbleColor, borderRadius: radius),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (selectable)
+            SelectableText.rich(
+              LinkifiedText.buildSpan(
+                message.body,
+                base: bodyStyle,
+                linkColor: cs.primary,
+              ),
+              // Selection colours have to work on a tonal bubble, so the
+              // highlight is the brand colour at low alpha rather than the
+              // theme default (which is tuned for the page background).
+              selectionColor: cs.primary.withValues(alpha: 0.32),
+              contextMenuBuilder: (ctx, state) => _selectionToolbar(ctx, state),
+            )
+          else
+            LinkifiedText(
+              text: message.body,
+              style: TextStyle(color: textColor),
+              // Both bubbles are tonal, so the brand colour has enough
+              // contrast on either.
+              linkColor: cs.primary,
+              enableTaps: enableLinkTaps,
+            ),
+          if (previewUrl != null)
+            LinkPreviewCard(url: previewUrl, onDark: isSent),
+        ],
+      ),
+    );
+  }
+
+  /// Persian selection toolbar. The app ships no `MaterialLocalizations` for
+  /// Persian, so the stock toolbar would read «Copy / Select all» — the labels
+  /// are supplied by hand instead.
+  Widget _selectionToolbar(BuildContext context, EditableTextState state) {
+    return AdaptiveTextSelectionToolbar.buttonItems(
+      anchors: state.contextMenuAnchors,
+      buttonItems: [
+        if (!state.textEditingValue.selection.isCollapsed)
+          ContextMenuButtonItem(
+            label: 'کپی',
+            onPressed: () {
+              state.copySelection(SelectionChangedCause.toolbar);
+              onCopied?.call();
+            },
+          ),
+        ContextMenuButtonItem(
+          label: 'انتخاب همه',
+          onPressed: () => state.selectAll(SelectionChangedCause.toolbar),
+        ),
+      ],
+    );
+  }
+}
+
 /// A single chat bubble in the conversation list.
 ///
 /// Bubbles are grouped (same sender within 2 min); [isLastInGroup] controls the
 /// "tail" corner radius and [showTimestamp] whether the time + delivery status
 /// row is rendered beneath the bubble. All interaction is delegated to the
 /// callbacks so this widget stays presentation-only.
-class MessageBubble extends StatelessWidget {
+class MessageBubble extends StatefulWidget {
   final MessageModel message;
   final bool isLastInGroup;
   final bool showTimestamp;
   final bool selected;
   final bool selectionMode;
   final VoidCallback onTap;
-  final VoidCallback onLongPress;
+
+  /// Long-press. Carries the bubble box's rect in global coordinates so the
+  /// caller can lift a zoomed copy of it out of the list.
+  final void Function(Rect anchor) onLongPress;
   final VoidCallback? onRetry;
 
   /// Whether a message containing a URL renders the link-preview card. Comes
@@ -41,34 +177,44 @@ class MessageBubble extends StatelessWidget {
   });
 
   @override
+  State<MessageBubble> createState() => _MessageBubbleState();
+}
+
+class _MessageBubbleState extends State<MessageBubble> {
+  /// Measures the decorated box (not the padded row) — the overlay lifts
+  /// exactly the bubble the finger was on.
+  final GlobalKey _boxKey = GlobalKey();
+
+  MessageModel get message => widget.message;
+
+  /// Global rect of the bubble box, or null if it isn't laid out.
+  Rect? get _anchor {
+    final box = _boxKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return null;
+    return box.localToGlobal(Offset.zero) & box.size;
+  }
+
+  void _handleLongPress() {
+    final rect = _anchor;
+    if (rect == null) return;
+    HapticFeedback.mediumImpact();
+    widget.onLongPress(rect);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final isSent = message.type == MessageType.sent;
 
-    // Google Messages never fills a bubble with the saturated primary: sent
-    // messages use the tonal primary container, received ones a neutral
-    // container. Both keep body text at full contrast.
-    final bubbleColor = isSent ? cs.bubbleOutgoing : cs.bubbleIncoming;
-    final textColor = isSent ? cs.onBubbleOutgoing : cs.onSurface;
-
-    const r = Radius.circular(20);
-    const tail = Radius.circular(4);
-    final radius = BorderRadius.only(
-      topLeft: r,
-      topRight: r,
-      bottomLeft: isSent ? r : (isLastInGroup ? tail : r),
-      bottomRight: isSent ? (isLastInGroup ? tail : r) : r,
-    );
-
     return GestureDetector(
-      onTap: onTap,
-      onLongPress: onLongPress,
+      onTap: widget.onTap,
+      onLongPress: _handleLongPress,
       child: Container(
-        color: selected ? cs.primary.withValues(alpha: 0.12) : null,
+        color: widget.selected ? cs.primary.withValues(alpha: 0.12) : null,
         padding: EdgeInsets.only(
           top: 1,
-          bottom: isLastInGroup ? 4 : 1,
+          bottom: widget.isLastInGroup ? 4 : 1,
           left: 8,
           right: 8,
         ),
@@ -82,56 +228,29 @@ class MessageBubble extends StatelessWidget {
                   ? MainAxisAlignment.end
                   : MainAxisAlignment.start,
               children: [
-                if (selectionMode)
+                if (widget.selectionMode)
                   Padding(
                     padding: const EdgeInsets.only(right: 4, left: 4),
                     child: Icon(
-                      selected ? Icons.check_circle : Icons.circle_outlined,
+                      widget.selected
+                          ? Icons.check_circle
+                          : Icons.circle_outlined,
                       size: 18,
-                      color: selected ? cs.primary : theme.dividerColor,
+                      color: widget.selected ? cs.primary : theme.dividerColor,
                     ),
                   ),
                 Flexible(
-                  child: Container(
-                    constraints: BoxConstraints(
-                      maxWidth: MediaQuery.of(context).size.width * 0.75,
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: bubbleColor,
-                      borderRadius: radius,
-                    ),
-                    child: Builder(
-                      builder: (context) {
-                        final previewUrl = showLinkPreview
-                            ? LinkifiedText.firstUrl(message.body)
-                            : null;
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            LinkifiedText(
-                              text: message.body,
-                              style: TextStyle(color: textColor),
-                              // Both bubbles are tonal, so the brand colour has
-                              // enough contrast on either.
-                              linkColor: cs.primary,
-                              enableTaps: !selectionMode,
-                            ),
-                            if (previewUrl != null)
-                              LinkPreviewCard(url: previewUrl, onDark: isSent),
-                          ],
-                        );
-                      },
-                    ),
+                  child: MessageBubbleBody(
+                    boxKey: _boxKey,
+                    message: message,
+                    isLastInGroup: widget.isLastInGroup,
+                    showLinkPreview: widget.showLinkPreview,
+                    enableLinkTaps: !widget.selectionMode,
                   ),
                 ),
               ],
             ),
-            if (showTimestamp || message.status == MessageStatus.failed)
+            if (widget.showTimestamp || message.status == MessageStatus.failed)
               Padding(
                 padding: const EdgeInsets.only(top: 2, left: 4, right: 4),
                 child: Row(
@@ -183,7 +302,7 @@ class MessageBubble extends StatelessWidget {
         );
       case MessageStatus.failed:
         return GestureDetector(
-          onTap: onRetry,
+          onTap: widget.onRetry,
           child: const Icon(
             Icons.error_outline,
             size: 14,

@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
-import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
+import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
 import 'package:communication_super_app/core/widgets/home_search_header.dart';
 import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
@@ -94,16 +95,19 @@ class _FavoriteCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return InkWell(
-      // Tap: open the saved contact. Long-press: remove from favorites.
+      // Tap: open the saved contact. Long-press: the quick-action sheet.
       onTap: () => _openContact(context),
-      onLongPress: () => _confirmRemove(context),
+      onLongPress: () {
+        HapticFeedback.mediumImpact();
+        _showOptions(context);
+      },
       borderRadius: BorderRadius.circular(20),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            AvatarWidget(name: favorite.displayName, size: 72),
+            _FavoriteAvatar(favorite: favorite),
             const SizedBox(height: 10),
             Text(
               favorite.displayName,
@@ -145,8 +149,9 @@ class _FavoriteCard extends StatelessWidget {
     }
   }
 
-  /// Long-press: remove-only sheet.
-  void _confirmRemove(BuildContext context) {
+  /// Long-press: the quick-action sheet Google Phone puts behind a favourite —
+  /// call, message, open the contact, and unstar.
+  void _showOptions(BuildContext context) {
     final bloc = context.read<FavoritesBloc>();
     showModalBottomSheet<void>(
       context: context,
@@ -154,22 +159,112 @@ class _FavoriteCard extends StatelessWidget {
       builder: (sheetContext) => Directionality(
         textDirection: TextDirection.rtl,
         child: SafeArea(
-          child: ListTile(
-            leading: const Icon(
-              Icons.star_outline,
-              color: AppColors.callRejectRed,
-            ),
-            title: const Text(
-              'حذف از موردعلاقه‌ها',
-              style: TextStyle(color: AppColors.callRejectRed),
-            ),
-            onTap: () {
-              bloc.add(RemoveFavorite(favorite.normalized));
-              Navigator.of(sheetContext).pop();
-            },
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.call_outlined),
+                title: const Text('تماس'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  NativeCallService.instance.makeCall(favorite.phoneNumber);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.message_outlined),
+                title: const Text('ارسال پیامک'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => ConversationScreen.forPhone(
+                        favorite.phoneNumber,
+                        contactName: favorite.name,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.person_outline),
+                title: const Text('مشاهده مخاطب'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _openContact(context);
+                },
+              ),
+              ListTile(
+                leading: const Icon(
+                  Icons.star_outline,
+                  color: AppColors.callRejectRed,
+                ),
+                title: const Text(
+                  'حذف از موردعلاقه‌ها',
+                  style: TextStyle(color: AppColors.callRejectRed),
+                ),
+                onTap: () {
+                  bloc.add(RemoveFavorite(favorite.normalized));
+                  Navigator.of(sheetContext).pop();
+                },
+              ),
+            ],
           ),
         ),
       ),
+    );
+  }
+}
+
+/// The favourite's circle. A favourite stores the contact id it was created
+/// from, but older rows (and ones starred from a call log) may not have one —
+/// then the id is resolved from the number, so a saved contact's photo shows
+/// up either way instead of falling back to initials.
+class _FavoriteAvatar extends StatefulWidget {
+  final FavoriteModel favorite;
+  const _FavoriteAvatar({required this.favorite});
+
+  @override
+  State<_FavoriteAvatar> createState() => _FavoriteAvatarState();
+}
+
+class _FavoriteAvatarState extends State<_FavoriteAvatar> {
+  String? _resolvedId;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolve();
+  }
+
+  @override
+  void didUpdateWidget(_FavoriteAvatar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.favorite.normalized != widget.favorite.normalized) {
+      _resolvedId = null;
+      _resolve();
+    }
+  }
+
+  Future<void> _resolve() async {
+    if ((widget.favorite.contactId ?? '').isNotEmpty) return;
+    // Backed by the repository's cached number index, so this is a map lookup
+    // once the address book is loaded.
+    final match = await ContactRepository().getContactByPhoneNumber(
+      widget.favorite.phoneNumber,
+    );
+    if (!mounted || match == null || match.id.isEmpty) return;
+    setState(() => _resolvedId = match.id);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final id = widget.favorite.contactId?.isNotEmpty == true
+        ? widget.favorite.contactId!
+        : (_resolvedId ?? '');
+    return LazyContactAvatar(
+      contactId: id,
+      name: widget.favorite.displayName,
+      size: 72,
     );
   }
 }

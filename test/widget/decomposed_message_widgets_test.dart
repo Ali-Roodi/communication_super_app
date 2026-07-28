@@ -5,8 +5,7 @@ import 'package:communication_super_app/features/messages/models/message_model.d
 import 'package:communication_super_app/features/messages/screens/widgets/message_composer.dart';
 import 'package:communication_super_app/features/messages/screens/widgets/messages_app_bars.dart';
 import 'package:communication_super_app/features/messages/screens/widgets/conversation_app_bars.dart';
-import 'package:communication_super_app/features/messages/screens/widgets/thread_options_sheet.dart';
-import 'package:communication_super_app/features/messages/screens/widgets/conversation_sheets.dart';
+import 'package:communication_super_app/features/messages/screens/widgets/message_action_overlay.dart';
 
 /// Covers the presentation widgets extracted from `messages_list_screen` and
 /// `conversation_screen` — the safety net for that decomposition.
@@ -32,17 +31,6 @@ Widget _bodyHarness(Widget child) => MaterialApp(
     child: Scaffold(body: child),
   ),
 );
-
-MessageThread _thread({bool unread = false, bool pinned = false}) =>
-    MessageThread(
-      threadId: '09120000000',
-      phoneNumber: '09120000000',
-      contactName: 'علی',
-      lastMessage: 'سلام',
-      lastMessageTime: DateTime(2026, 1, 1, 12),
-      unreadCount: unread ? 2 : 0,
-      isPinned: pinned,
-    );
 
 void main() {
   group('MessageComposer', () {
@@ -226,27 +214,34 @@ void main() {
     );
   });
 
-  group('showThreadOptionsSheet', () {
-    testWidgets('a row pops the sheet and fires its callback', (tester) async {
-      // The 6-row sheet is taller than the default 800x600 test surface; give
-      // it room so the last (delete) row is on-screen and hit-testable.
-      await tester.binding.setSurfaceSize(const Size(800, 1200));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-      var deleted = 0;
+  group('showMessageActionOverlay', () {
+    Future<void> openOverlay(WidgetTester tester, VoidCallback onCopy) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
             body: Builder(
               builder: (context) => ElevatedButton(
-                onPressed: () => showThreadOptionsSheet(
+                onPressed: () => showMessageActionOverlay(
                   context,
-                  thread: _thread(),
-                  onTogglePin: () {},
-                  onToggleRead: () {},
-                  onArchive: () {},
-                  onBlock: () {},
-                  onSelect: () {},
-                  onDelete: () => deleted++,
+                  message: MessageModel(
+                    id: 'm1',
+                    threadId: '09120000000',
+                    phoneNumber: '09120000000',
+                    body: 'سلام دنیا',
+                    timestamp: DateTime(2024, 1, 1, 10),
+                    type: MessageType.received,
+                    status: MessageStatus.delivered,
+                  ),
+                  anchor: const Rect.fromLTWH(20, 200, 240, 60),
+                  isLastInGroup: true,
+                  showLinkPreview: false,
+                  actions: [
+                    MessageAction(
+                      icon: Icons.copy_outlined,
+                      label: 'کپی',
+                      onSelected: onCopy,
+                    ),
+                  ],
                 ),
                 child: const Text('open'),
               ),
@@ -256,43 +251,27 @@ void main() {
       );
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('حذف گفتگو'));
-      await tester.pumpAndSettle();
-      expect(deleted, 1);
-      expect(find.text('حذف گفتگو'), findsNothing); // sheet closed
-    });
-  });
+    }
 
-  group('showMessageOptionsSheet', () {
-    testWidgets('copy row pops the sheet and fires onCopy', (tester) async {
+    testWidgets('lifts the bubble as selectable text next to the menu', (
+      tester,
+    ) async {
+      await openOverlay(tester, () {});
+      // The body is rendered by SelectableText — that is what lets the user
+      // drag a selection straight on the zoomed bubble.
+      expect(find.byType(SelectableText), findsOneWidget);
+      expect(find.text('کپی'), findsOneWidget);
+    });
+
+    testWidgets('an action row pops the overlay and fires its callback', (
+      tester,
+    ) async {
       var copied = 0;
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: Builder(
-              builder: (context) => ElevatedButton(
-                onPressed: () => showMessageOptionsSheet(
-                  context,
-                  onCopy: () => copied++,
-                  onSelectText: () {},
-                  onForward: () {},
-                  onInfo: () {},
-                  onSelect: () {},
-                  onDelete: () {},
-                  isStarred: false,
-                  onToggleStar: () {},
-                ),
-                child: const Text('open'),
-              ),
-            ),
-          ),
-        ),
-      );
-      await tester.tap(find.text('open'));
-      await tester.pumpAndSettle();
+      await openOverlay(tester, () => copied++);
       await tester.tap(find.text('کپی'));
       await tester.pumpAndSettle();
       expect(copied, 1);
+      expect(find.byType(SelectableText), findsNothing); // overlay closed
     });
   });
 }

@@ -29,6 +29,7 @@ import 'widgets/message_bubble.dart';
 import 'contact_selector_screen.dart';
 import 'widgets/conversation_app_bars.dart';
 import 'widgets/conversation_sheets.dart';
+import 'widgets/message_action_overlay.dart';
 import 'widgets/message_composer.dart';
 import 'widgets/schedule_send_sheet.dart';
 import 'widgets/scheduled_bubble.dart';
@@ -548,11 +549,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
           onTap: () {
             if (_selectionMode) _toggleSelect(msg.id);
           },
-          onLongPress: () {
+          onLongPress: (anchor) {
             if (_selectionMode) {
               _toggleSelect(msg.id);
             } else {
-              _showMessageOptions(msg);
+              _showMessageOptions(msg, anchor, isLastInGroup);
             }
           },
           onRetry: msg.status == MessageStatus.failed
@@ -603,17 +604,50 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   // ── Message long-press options ─────────────────────────────────────────────
 
-  void _showMessageOptions(MessageModel msg) {
-    showMessageOptionsSheet(
+  /// Lifts the bubble out of the list (blurred backdrop, zoom, free text
+  /// selection) and hangs the Google Messages action set next to it. There is
+  /// no «انتخاب متن» row: selecting part of the text is done directly on the
+  /// lifted bubble.
+  void _showMessageOptions(MessageModel msg, Rect anchor, bool isLastInGroup) {
+    showMessageActionOverlay(
       context,
-      onCopy: () => _copyMessage(msg),
-      onSelectText: () => _showSelectableText(msg),
-      onForward: () => _forwardMessage(msg),
-      onInfo: () => _showMessageInfo(msg),
-      onSelect: () => _toggleSelect(msg.id),
-      onDelete: () => _confirmDeleteMessages([msg.id]),
-      isStarred: msg.isStarred,
-      onToggleStar: () => _toggleStar(msg),
+      message: msg,
+      anchor: anchor,
+      isLastInGroup: isLastInGroup,
+      showLinkPreview: context.read<SettingsBloc>().state.linkPreviews,
+      actions: [
+        MessageAction(
+          icon: msg.isStarred ? Icons.star : Icons.star_border,
+          label: msg.isStarred ? 'حذف از ستاره‌دارها' : 'ستاره‌دار کردن',
+          onSelected: () => _toggleStar(msg),
+        ),
+        MessageAction(
+          icon: Icons.copy_outlined,
+          label: 'کپی',
+          onSelected: () => _copyMessage(msg),
+        ),
+        MessageAction(
+          icon: Icons.forward_outlined,
+          label: 'هدایت',
+          onSelected: () => _forwardMessage(msg),
+        ),
+        MessageAction(
+          icon: Icons.info_outline,
+          label: 'اطلاعات',
+          onSelected: () => _showMessageInfo(msg),
+        ),
+        MessageAction(
+          icon: Icons.checklist,
+          label: 'انتخاب',
+          onSelected: () => _toggleSelect(msg.id),
+        ),
+        MessageAction(
+          icon: Icons.delete_outline,
+          label: 'حذف',
+          danger: true,
+          onSelected: () => _confirmDeleteMessages([msg.id]),
+        ),
+      ],
     );
   }
 
@@ -650,33 +684,6 @@ class _ConversationScreenState extends State<ConversationScreen> {
           phoneNumber: picked.phoneNumber,
           contactName: picked.name,
           initialText: msg.body,
-        ),
-      ),
-    );
-  }
-
-  /// Full message body in a dialog with free text selection, so part of the
-  /// text can be selected and copied (the bubble's long-press is taken by the
-  /// options sheet).
-  void _showSelectableText(MessageModel msg) {
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          title: const Text('انتخاب متن'),
-          content: SingleChildScrollView(
-            child: SelectableText(
-              msg.body,
-              style: Theme.of(ctx).textTheme.bodyLarge,
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('بستن'),
-            ),
-          ],
         ),
       ),
     );

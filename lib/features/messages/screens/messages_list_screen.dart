@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/message_bloc.dart';
 import '../bloc/message_event.dart';
@@ -21,7 +22,6 @@ import 'starred_messages_screen.dart';
 import 'widgets/thread_tile.dart';
 import 'widgets/message_list_states.dart';
 import 'widgets/messages_app_bars.dart';
-import 'widgets/thread_options_sheet.dart';
 import 'widgets/default_sms_banner.dart';
 import '../services/native_sms_service.dart';
 
@@ -518,14 +518,18 @@ class _MessagesListScreenState extends State<MessagesListScreen>
           _openConversation(context, thread);
         }
       },
+      // Long-press *enters multi-select* — Google Messages has no per-thread
+      // sheet; pin / mark read / archive / block / delete all live in the
+      // selection bar, so one gesture reaches every action.
       onLongPress: () {
-        if (_selectionMode) {
-          _toggleSelect(thread.threadId);
-        } else if (draftOnly) {
+        if (draftOnly && !_selectionMode) {
+          // A draft-only row is synthetic (no conversation behind it), so it
+          // can't take part in the thread actions — its long-press discards.
           _discardDraft(context, thread);
-        } else {
-          _showThreadOptions(context, thread);
+          return;
         }
+        HapticFeedback.mediumImpact();
+        _toggleSelect(thread.threadId);
       },
     );
 
@@ -652,45 +656,6 @@ class _MessagesListScreenState extends State<MessagesListScreen>
           ),
         ),
       );
-  }
-
-  // ── Single-thread options sheet ──────────────────────────────────────────
-
-  void _showThreadOptions(BuildContext context, MessageThread thread) {
-    final bloc = context.read<MessageBloc>();
-    final blockedBloc = context.read<BlockedNumbersBloc>();
-    showThreadOptionsSheet(
-      context,
-      thread: thread,
-      onTogglePin: () =>
-          bloc.add(PinThread(thread.threadId, pin: !thread.isPinned)),
-      onToggleRead: () =>
-          bloc.add(SetThreadRead([thread.threadId], read: thread.hasUnread)),
-      onArchive: () => _archiveWithUndo(context, thread),
-      onBlock: () {
-        blockedBloc.add(BlockNumber(thread.phoneNumber));
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('شماره مسدود شد')));
-      },
-      onSelect: () => _toggleSelect(thread.threadId),
-      onDelete: () => _confirmDeleteThread(context, thread),
-      onDiscardDraft: thread.hasDraft
-          ? () => _discardDraft(context, thread)
-          : null,
-    );
-  }
-
-  Future<void> _confirmDeleteThread(
-    BuildContext context,
-    MessageThread thread,
-  ) async {
-    final bloc = context.read<MessageBloc>();
-    final ok = await _confirmDialog(
-      context,
-      'حذف این گفتگو؟ این عمل قابل بازگشت نیست.',
-    );
-    if (ok) bloc.add(DeleteThread(thread.threadId));
   }
 
   Future<void> _confirmDeleteSelected(BuildContext context) async {

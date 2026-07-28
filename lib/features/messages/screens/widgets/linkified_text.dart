@@ -38,6 +38,47 @@ class LinkifiedText extends StatefulWidget {
     return m.group(0)!.replaceFirst(RegExp(r'[.,;:!?)\]»]+$'), '');
   }
 
+  /// The linkified span tree for [text]. Shared with the long-press overlay,
+  /// which renders the same body as selectable text — the styling has to match
+  /// the bubble exactly or the zoomed copy would visibly differ.
+  ///
+  /// [recognizerFor] is what makes a link tappable; passing null (the overlay,
+  /// and multi-select mode) leaves the links styled but inert.
+  static TextSpan buildSpan(
+    String text, {
+    required TextStyle base,
+    Color? linkColor,
+    GestureRecognizer? Function(String link)? recognizerFor,
+  }) {
+    final linkStyle = base.copyWith(
+      color: linkColor ?? base.color,
+      decoration: TextDecoration.underline,
+      decorationColor: linkColor ?? base.color,
+      fontWeight: FontWeight.w600,
+    );
+
+    final spans = <InlineSpan>[];
+    var cursor = 0;
+    for (final m in _linkPattern.allMatches(text)) {
+      if (m.start > cursor) {
+        spans.add(TextSpan(text: text.substring(cursor, m.start)));
+      }
+      final link = m.group(0)!;
+      spans.add(
+        TextSpan(
+          text: link,
+          style: linkStyle,
+          recognizer: recognizerFor?.call(link),
+        ),
+      );
+      cursor = m.end;
+    }
+    if (cursor < text.length) {
+      spans.add(TextSpan(text: text.substring(cursor)));
+    }
+    return TextSpan(style: base, children: spans);
+  }
+
   @override
   State<LinkifiedText> createState() => _LinkifiedTextState();
 }
@@ -84,32 +125,19 @@ class _LinkifiedTextState extends State<LinkifiedText> {
   Widget build(BuildContext context) {
     _disposeRecognizers();
     final base = widget.style ?? DefaultTextStyle.of(context).style;
-    final linkStyle = base.copyWith(
-      color: widget.linkColor ?? base.color,
-      decoration: TextDecoration.underline,
-      decorationColor: widget.linkColor ?? base.color,
-      fontWeight: FontWeight.w600,
+    return Text.rich(
+      LinkifiedText.buildSpan(
+        widget.text,
+        base: base,
+        linkColor: widget.linkColor,
+        recognizerFor: widget.enableTaps
+            ? (link) {
+                final r = TapGestureRecognizer()..onTap = () => _open(link);
+                _recognizers.add(r);
+                return r;
+              }
+            : null,
+      ),
     );
-
-    final spans = <InlineSpan>[];
-    var cursor = 0;
-    for (final m in LinkifiedText._linkPattern.allMatches(widget.text)) {
-      if (m.start > cursor) {
-        spans.add(TextSpan(text: widget.text.substring(cursor, m.start)));
-      }
-      final link = m.group(0)!;
-      TapGestureRecognizer? recognizer;
-      if (widget.enableTaps) {
-        recognizer = TapGestureRecognizer()..onTap = () => _open(link);
-        _recognizers.add(recognizer);
-      }
-      spans.add(TextSpan(text: link, style: linkStyle, recognizer: recognizer));
-      cursor = m.end;
-    }
-    if (cursor < widget.text.length) {
-      spans.add(TextSpan(text: widget.text.substring(cursor)));
-    }
-
-    return Text.rich(TextSpan(style: base, children: spans));
   }
 }
