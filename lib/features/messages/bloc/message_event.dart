@@ -46,6 +46,19 @@ class SyncDeviceMessages extends MessageEvent {
   const SyncDeviceMessages();
 }
 
+/// A background mirror-sync finished. Dispatched by the bloc itself once the
+/// sync future it started off the event queue completes, so the refresh that
+/// folds the synced rows in runs as a normal (short) event instead of the sync
+/// itself blocking every other event behind it.
+class DeviceSyncFinished extends MessageEvent {
+  final bool ok;
+
+  const DeviceSyncFinished({required this.ok});
+
+  @override
+  List<Object?> get props => [ok];
+}
+
 class LoadMessages extends MessageEvent {
   final String threadId;
   final int limit;

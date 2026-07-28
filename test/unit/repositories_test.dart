@@ -39,6 +39,7 @@ MessageModel _message(
   int minute = 0,
   MessageType type = MessageType.received,
   int? deviceSmsId,
+  bool isRead = false,
 }) => MessageModel(
   id: id,
   threadId: threadId,
@@ -48,6 +49,7 @@ MessageModel _message(
   status: MessageStatus.delivered,
   timestamp: DateTime(2026, 1, 1, 12, minute),
   deviceSmsId: deviceSmsId,
+  isRead: isRead,
 );
 
 CallLogModel _call(String id, {int minute = 0}) => CallLogModel(
@@ -247,6 +249,98 @@ void main() {
 
       final threads = await repo.getAllThreads();
       expect(threads.single.lastMessage, 'جدید');
+    });
+
+    test('getAllThreads floats a pinned thread above a newer unpinned one',
+        () async {
+      final repo = MessageRepository();
+      await repo.createMessage(_message('a1', threadId: '09120000001'));
+      await repo.createMessage(
+        _message('b1', threadId: '09120000002', minute: 30),
+      );
+
+      await repo.pinThread('09120000001');
+
+      final threads = await repo.getAllThreads();
+      expect(threads.map((t) => t.threadId), [
+        '09120000001',
+        '09120000002',
+      ]);
+      expect(threads.first.isPinned, isTrue);
+      expect(threads.last.isPinned, isFalse);
+    });
+
+    test('getAllThreads paging applies to threads, not to messages', () async {
+      final repo = MessageRepository();
+      // Three threads, several messages each: a page of 2 must still return
+      // two *threads* (the paging happens before the per-thread work).
+      for (var t = 1; t <= 3; t++) {
+        for (var m = 0; m < 3; m++) {
+          await repo.createMessage(
+            _message(
+              't$t-m$m',
+              threadId: '0912000000$t',
+              minute: t * 10 + m,
+              body: 'پیام $t-$m',
+            ),
+          );
+        }
+      }
+
+      final firstPage = await repo.getAllThreads(limit: 2, offset: 0);
+      final secondPage = await repo.getAllThreads(limit: 2, offset: 2);
+
+      expect(firstPage.map((t) => t.threadId), [
+        '09120000003',
+        '09120000002',
+      ]);
+      expect(secondPage.map((t) => t.threadId), ['09120000001']);
+      expect(firstPage.first.lastMessage, 'پیام 3-2');
+    });
+
+    test('getAllThreads counts only unread received messages', () async {
+      final repo = MessageRepository();
+      await repo.createMessage(
+        _message('r1', minute: 0, isRead: false),
+      );
+      await repo.createMessage(
+        _message('r2', minute: 1, body: 'دومی', isRead: false),
+      );
+      await repo.createMessage(
+        _message('r3', minute: 2, body: 'خوانده', isRead: true),
+      );
+
+      expect((await repo.getAllThreads()).single.unreadCount, 2);
+    });
+
+    test('removeRowsMissingFromDevice drops rows whose provider id vanished '
+        'and keeps provider-less ones', () async {
+      final repo = MessageRepository();
+      await repo.createMessage(_message('m1', minute: 0, deviceSmsId: 11));
+      await repo.createMessage(
+        _message('m2', minute: 1, body: 'دوم', deviceSmsId: 12),
+      );
+      // No device_sms_id: sent while the app wasn't the default SMS app.
+      await repo.createMessage(_message('m3', minute: 2, body: 'سوم'));
+
+      // The device still has 11 — 12 was deleted there.
+      final removed = await repo.removeRowsMissingFromDevice({11});
+
+      expect(removed, 1);
+      final remaining = await repo.getMessagesByThread('09120000000');
+      expect(remaining.map((m) => m.id), ['m1', 'm3']);
+    });
+
+    test('removeRowsMissingFromDevice is a no-op when every id is still there',
+        () async {
+      final repo = MessageRepository();
+      await repo.createMessage(_message('m1', minute: 0, deviceSmsId: 11));
+      await repo.createMessage(
+        _message('m2', minute: 1, body: 'دوم', deviceSmsId: 12),
+      );
+
+      expect(await repo.removeRowsMissingFromDevice({11, 12}), 0);
+      expect(await repo.getMessagesByThread('09120000000'), hasLength(2));
     });
   });
 

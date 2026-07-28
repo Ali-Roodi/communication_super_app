@@ -93,15 +93,43 @@ class MessageRepository {
 
     // Pinned threads (only relevant in the non-archived inbox) float to the top.
     //
-    // The "last message" row is picked with a correlated rowid subquery rather
-    // than a `MAX(timestamp)` join: when two messages in a thread share the same
-    // timestamp (multipart SMS, or two messages delivered in the same
+    // Paging happens in the `page` CTE, on nothing but (thread_id, last_ts,
+    // is_pinned) — the expensive per-thread work (picking the last message row,
+    // counting unread) then runs on the ≤ `limit` rows that survived, not on
+    // every thread in the table. The flat version of this query ran a
+    // correlated rowid subquery *per message row* of the whole table before
+    // LIMIT applied, which is what made scrolling the inbox stall for seconds
+    // on a full phone.
+    //
+    // The "last message" row is still picked with a correlated rowid subquery
+    // rather than a `MAX(timestamp)` join: when two messages in a thread share
+    // the same timestamp (multipart SMS, or two messages delivered in the same
     // millisecond) a MAX join matches *both* rows and the thread shows up twice
     // in the inbox. Matching on rowid guarantees exactly one row per thread.
-    String query =
+    final pageLimit = limit == null
+        ? ''
+        : ' LIMIT $limit${offset != null ? ' OFFSET $offset' : ''}';
+
+    final query =
         '''
+      WITH latest AS (
+        SELECT m.thread_id AS thread_id, MAX(m.timestamp) AS last_ts
+        FROM ${AppConstants.messagesTable} m
+        WHERE m.is_deleted = 0 AND $archiveClause
+        GROUP BY m.thread_id
+      ),
+      page AS (
+        SELECT
+          l.thread_id AS thread_id,
+          l.last_ts AS last_ts,
+          (p.thread_id IS NOT NULL) AS is_pinned
+        FROM latest l
+        LEFT JOIN ${AppConstants.pinnedThreadsTable} p ON p.thread_id = l.thread_id
+        ORDER BY is_pinned DESC, l.last_ts DESC$pageLimit
+      )
       SELECT
-        m.thread_id,
+        page.thread_id AS thread_id,
+        page.is_pinned AS is_pinned,
         m.phone_number,
         m.contact_id,
         c.name AS contact_name,
@@ -109,30 +137,19 @@ class MessageRepository {
         m.timestamp AS last_message_time,
         (
           SELECT COUNT(*) FROM ${AppConstants.messagesTable} mi
-          WHERE mi.thread_id = m.thread_id AND mi.type = 'received'
+          WHERE mi.thread_id = page.thread_id AND mi.type = 'received'
             AND mi.is_read = 0 AND mi.is_deleted = 0
-        ) AS unread_count,
-        p.thread_id AS pinned_id,
-        p.pinned_at AS pinned_at
-      FROM ${AppConstants.messagesTable} m
+        ) AS unread_count
+      FROM page
+      JOIN ${AppConstants.messagesTable} m ON m.rowid = (
+        SELECT ml.rowid FROM ${AppConstants.messagesTable} ml
+        WHERE ml.thread_id = page.thread_id AND ml.is_deleted = 0
+        ORDER BY ml.timestamp DESC, ml.rowid DESC
+        LIMIT 1
+      )
       LEFT JOIN ${AppConstants.contactsTable} c ON c.id = m.contact_id
-      LEFT JOIN ${AppConstants.pinnedThreadsTable} p ON p.thread_id = m.thread_id
-      WHERE m.is_deleted = 0 AND $archiveClause
-        AND m.rowid = (
-          SELECT ml.rowid FROM ${AppConstants.messagesTable} ml
-          WHERE ml.thread_id = m.thread_id AND ml.is_deleted = 0
-          ORDER BY ml.timestamp DESC, ml.rowid DESC
-          LIMIT 1
-        )
-      ORDER BY (pinned_id IS NOT NULL) DESC, m.timestamp DESC
+      ORDER BY page.is_pinned DESC, page.last_ts DESC
     ''';
-
-    if (limit != null) {
-      query += ' LIMIT $limit';
-      if (offset != null) {
-        query += ' OFFSET $offset';
-      }
-    }
 
     final maps = await db.rawQuery(query);
 
@@ -149,7 +166,7 @@ class MessageRepository {
             map['last_message_time'] as int,
           ),
           unreadCount: (map['unread_count'] as int?) ?? 0,
-          isPinned: map['pinned_id'] != null,
+          isPinned: ((map['is_pinned'] as int?) ?? 0) == 1,
         ),
       );
     }
@@ -304,34 +321,35 @@ class MessageRepository {
   /// `device_sms_id` are never touched (failed sends, provider-less rows).
   ///
   /// Returns the number of rows removed.
+  /// The diff is computed **inside SQLite**, via a temp table of the provider
+  /// ids, instead of pulling every local row across the platform channel and
+  /// subtracting in Dart. On a full phone that read marshalled tens of
+  /// thousands of rows on every sync — including the silent resume sync — and
+  /// that channel traffic is what jammed the UI thread mid-scroll.
   Future<int> removeRowsMissingFromDevice(Set<int> deviceIds) async {
     final db = await _dbHelper.database;
-    final local = await db.query(
-      AppConstants.messagesTable,
-      columns: ['id', 'device_sms_id'],
-      where: 'device_sms_id IS NOT NULL',
-    );
-    final staleIds = <String>[
-      for (final row in local)
-        if (!deviceIds.contains((row['device_sms_id'] as num).toInt()))
-          row['id'] as String,
-    ];
-    if (staleIds.isEmpty) return 0;
-    var deleted = 0;
-    // Chunked to stay under SQLite's bound-variable limit.
-    for (var i = 0; i < staleIds.length; i += 500) {
-      final chunk = staleIds.sublist(
-        i,
-        i + 500 > staleIds.length ? staleIds.length : i + 500,
+    return db.transaction<int>((txn) async {
+      await txn.execute(
+        'CREATE TEMP TABLE IF NOT EXISTS _device_sms_ids (id INTEGER PRIMARY KEY)',
       );
-      final placeholders = List.filled(chunk.length, '?').join(',');
-      deleted += await db.delete(
-        AppConstants.messagesTable,
-        where: 'id IN ($placeholders)',
-        whereArgs: chunk,
-      );
-    }
-    return deleted;
+      await txn.execute('DELETE FROM _device_sms_ids');
+      final batch = txn.batch();
+      for (final id in deviceIds) {
+        batch.insert(
+          '_device_sms_ids',
+          {'id': id},
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+      }
+      await batch.commit(noResult: true);
+      final deleted = await txn.rawDelete('''
+        DELETE FROM ${AppConstants.messagesTable}
+        WHERE device_sms_id IS NOT NULL
+          AND device_sms_id NOT IN (SELECT id FROM _device_sms_ids)
+      ''');
+      await txn.execute('DROP TABLE IF EXISTS _device_sms_ids');
+      return deleted;
+    });
   }
 
   Future<void> updateMessageStatus(
