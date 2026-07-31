@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
+import 'emoji_panel.dart';
 import 'message_bubble.dart';
 import 'schedule_send_sheet.dart';
 
@@ -18,6 +19,9 @@ class MessageComposer extends StatelessWidget {
     required this.onAttach,
     required this.onSend,
     required this.onStickerSelected,
+    this.focusNode,
+    this.onStickerBackspace,
+    this.stickerPanelHeight = 280,
     this.onSchedule,
     this.scheduledAt,
     this.scheduleSummary,
@@ -31,6 +35,19 @@ class MessageComposer extends StatelessWidget {
   final VoidCallback onAttach;
   final VoidCallback onSend;
   final ValueChanged<String> onStickerSelected;
+
+  /// The text field's focus, owned by the parent so it can re-focus the field
+  /// when the emoji panel closes — the keyboard button used to only hide the
+  /// panel and leave the user with no keyboard at all.
+  final FocusNode? focusNode;
+
+  /// Deletes one character before the cursor, for the emoji panel's backspace.
+  final VoidCallback? onStickerBackspace;
+
+  /// Height the emoji panel is drawn at — the parent passes the last measured
+  /// keyboard height so the panel occupies exactly the keyboard's space and the
+  /// chat does not jump when the two swap.
+  final double stickerPanelHeight;
 
   /// Long-press on the send button → the «زمان‌بندی ارسال» sheet.
   final VoidCallback? onSchedule;
@@ -51,28 +68,44 @@ class MessageComposer extends StatelessWidget {
   /// time / repeat / jitter can be corrected without clearing and starting over.
   final VoidCallback? onEditSchedule;
 
-  /// Quick-pick emoji — tapping one inserts it at the cursor (so several can be
-  /// combined before sending). Full emoji and any keyboard sticker packs remain
-  /// available via the system keyboard.
-  static const List<String> stickers = [
-    // Smileys & emotion
-    '😀', '😁', '😂', '🤣', '😊', '😇', '🙂', '😉', '😍', '🥰', '😘', '😋',
-    '😎', '🤩', '🥳', '😏', '😌', '😔', '😢', '😭', '😤', '😡', '🤬', '😱',
-    '😨', '😰', '😴', '🤔', '🤗', '🤭', '🙄', '😬', '🤒', '🤕', '🤢', '🥺',
-    '😅', '😐', '😶', '🙃', '🤨', '😆', '💀', '👻', '🤡', '🥱',
-    // Gestures & people
-    '👍', '👎', '👏', '🙏', '🙌', '👌', '✌️', '🤞', '🤝', '💪', '👋', '🤙',
-    '☝️', '✋', '🖐️', '👆', '👇', '👈', '👉', '💅',
-    // Hearts & symbols
-    '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '💔', '❤️‍🔥', '💯', '✨',
-    '🔥', '⭐', '🌟', '💫', '⚡', '✅', '❌', '❓', '❗', '💤',
-    // Nature & food
-    '🌹', '🌸', '🌻', '🌈', '☀️', '🌙', '☕', '🍵', '🍕', '🍔', '🍰', '🎂',
-    '🍎', '🍓', '🍇', '🥤',
-    // Activities & objects
-    '🎉', '🎈', '🎁', '⚽', '🏆', '🎵', '🎬', '📱', '💻', '📞', '✈️', '🚗',
-    '💰', '📌', '📝', '🔔',
-  ];
+  /// Deletes the character (not the code unit — an emoji is a whole grapheme)
+  /// before the cursor. Used when the parent supplies no [onStickerBackspace].
+  void _backspace() {
+    final value = controller.value;
+    final selection = value.selection;
+    if (!selection.isValid) return;
+    if (!selection.isCollapsed) {
+      controller.value = value.copyWith(
+        text: value.text.replaceRange(selection.start, selection.end, ''),
+        selection: TextSelection.collapsed(offset: selection.start),
+        composing: TextRange.empty,
+      );
+      return;
+    }
+    final end = selection.start;
+    if (end <= 0) return;
+    // Walk back over the surrogate pair / ZWJ sequence so one press removes one
+    // visible emoji instead of half of it.
+    var start = end - 1;
+    while (start > 0) {
+      final unit = value.text.codeUnitAt(start);
+      final previous = value.text.codeUnitAt(start - 1);
+      final isLowSurrogate = unit >= 0xDC00 && unit <= 0xDFFF;
+      final isHighSurrogate = previous >= 0xD800 && previous <= 0xDBFF;
+      final joins =
+          unit == 0x200D || previous == 0x200D || unit == 0xFE0F;
+      if ((isLowSurrogate && isHighSurrogate) || joins) {
+        start--;
+        continue;
+      }
+      break;
+    }
+    controller.value = value.copyWith(
+      text: value.text.replaceRange(start, end, ''),
+      selection: TextSelection.collapsed(offset: start),
+      composing: TextRange.empty,
+    );
+  }
 
   /// GSM-7 messages fit 160 chars per single SMS (153 per part when
   /// concatenated); Unicode (e.g. Persian) messages fit only 70 (67 per part).
@@ -150,6 +183,7 @@ class MessageComposer extends StatelessWidget {
                             padding: const EdgeInsets.symmetric(vertical: 12),
                             child: TextField(
                               controller: controller,
+                              focusNode: focusNode,
                               minLines: 1,
                               maxLines: 4,
                               textInputAction: TextInputAction.newline,
@@ -172,7 +206,7 @@ class MessageComposer extends StatelessWidget {
                                 ? Icons.keyboard
                                 : Icons.emoji_emotions_outlined,
                           ),
-                          tooltip: 'استیکر',
+                          tooltip: showStickers ? 'صفحه‌کلید' : 'ایموجی',
                           onPressed: onToggleStickers,
                         ),
                       ],
@@ -189,7 +223,11 @@ class MessageComposer extends StatelessWidget {
               ],
             ),
             if (showStickers)
-              _StickerPanel(onStickerSelected: onStickerSelected),
+              EmojiPanel(
+                height: stickerPanelHeight,
+                onSelected: onStickerSelected,
+                onBackspace: onStickerBackspace ?? _backspace,
+              ),
           ],
         ),
       ),
@@ -267,35 +305,3 @@ class _ScheduleBanner extends StatelessWidget {
   }
 }
 
-class _StickerPanel extends StatelessWidget {
-  const _StickerPanel({required this.onStickerSelected});
-
-  final ValueChanged<String> onStickerSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      height: 220,
-      margin: const EdgeInsets.only(top: 4),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: GridView.count(
-        crossAxisCount: 6,
-        padding: const EdgeInsets.all(8),
-        children: [
-          for (final s in MessageComposer.stickers)
-            InkWell(
-              borderRadius: BorderRadius.circular(12),
-              onTap: () => onStickerSelected(s),
-              child: Center(
-                child: Text(s, style: const TextStyle(fontSize: 30)),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}

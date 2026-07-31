@@ -134,6 +134,13 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
       return;
     }
     try {
+      // Re-read rather than trusting the copy taken in the constructor: the
+      // repository cache is invalidated by every contact write, so this is a
+      // synchronous hand-back of the cached list in the normal case and a fresh
+      // device read right after a contact was added. Filtering the constructor
+      // snapshot is why a number saved from the call log or the "افزودن مخاطب"
+      // row never turned into a suggestion until the app was restarted.
+      _allContacts = await _contactRepository.getAllContacts();
       final matches = _contactRepository.matchPhoneDigits(
         _allContacts,
         event.query,

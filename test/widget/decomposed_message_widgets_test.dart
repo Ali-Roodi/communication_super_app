@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:communication_super_app/features/messages/models/message_model.dart';
+import 'package:communication_super_app/features/messages/screens/widgets/emoji_panel.dart';
 import 'package:communication_super_app/features/messages/screens/widgets/message_composer.dart';
 import 'package:communication_super_app/features/messages/screens/widgets/messages_app_bars.dart';
 import 'package:communication_super_app/features/messages/screens/widgets/conversation_app_bars.dart';
@@ -127,9 +128,12 @@ void main() {
           ),
         ),
       );
-      expect(find.text(MessageComposer.stickers.first), findsOneWidget);
-      await tester.tap(find.text(MessageComposer.stickers.first));
-      expect(picked, MessageComposer.stickers.first);
+      // The first emoji of the first category — «اخیر» is absent until the user
+      // has picked something, so the panel opens on «لبخند و احساسات».
+      final first = emojiCategories.first.emojis.first;
+      expect(find.text(first), findsOneWidget);
+      await tester.tap(find.text(first));
+      expect(picked, first);
     });
   });
 
