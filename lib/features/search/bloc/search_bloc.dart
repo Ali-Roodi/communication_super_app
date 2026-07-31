@@ -1,4 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:communication_super_app/core/utils/phone_normalizer.dart';
+import 'package:communication_super_app/core/utils/search_text.dart';
 import '../../contacts/repositories/contact_repository.dart';
 import '../../call_history/models/call_log_model.dart';
 import '../../call_history/repositories/call_log_repository.dart';
@@ -25,23 +27,19 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
       emit(const SearchIdle());
       return;
     }
-    final lower = q.toLowerCase();
-    final digits = _digits(q);
+    // The same matcher the contacts tab and the dialer use: `+98…` ≡ `0…`, and
+    // «علي» finds «علی». This screen used to carry its own raw lowercase /
+    // digit-substring test and so answered the same query differently.
+    final phoneQuery = PhoneQuery(q);
 
     final contacts = await _contactRepository.getAllContacts();
-    final matchedContacts = contacts.where((c) {
-      final nameHit = c.name.toLowerCase().contains(lower);
-      final phoneHit =
-          digits.isNotEmpty &&
-          c.phoneNumbers.any((p) => _digits(p).contains(digits));
-      return nameHit || phoneHit;
-    }).toList();
+    final matchedContacts = ContactRepository.matchContacts(contacts, q);
 
     // Build a phone → name map to enrich call-log rows.
     final nameByPhone = <String, String>{};
     for (final c in contacts) {
       for (final p in c.phoneNumbers) {
-        nameByPhone[_digits(p)] = c.name;
+        nameByPhone[PhoneNormalizer.toThreadId(p)] = c.name;
       }
     }
 
@@ -49,10 +47,10 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
     final seen = <String>{};
     final matchedLogs = <CallLogModel>[];
     for (final log in allLogs) {
-      final norm = _digits(log.phoneNumber);
+      final norm = PhoneNormalizer.toThreadId(log.phoneNumber);
       final name = nameByPhone[norm];
-      final nameHit = name != null && name.toLowerCase().contains(lower);
-      final phoneHit = digits.isNotEmpty && norm.contains(digits);
+      final nameHit = name != null && SearchText.nameContains(name, q);
+      final phoneHit = phoneQuery.contains(log.phoneNumber);
       if (!nameHit && !phoneHit) continue;
       // De-duplicate by number — keep the most recent (logs are DESC sorted).
       if (!seen.add(norm)) continue;
@@ -76,6 +74,4 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
       SearchResults(query: q, contacts: matchedContacts, callLogs: matchedLogs),
     );
   }
-
-  static String _digits(String s) => s.replaceAll(RegExp(r'[^\d]'), '');
 }

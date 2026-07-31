@@ -85,10 +85,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
   bool _showScrollToBottom = false;
   bool _showStickers = false;
 
-  /// Last non-zero system keyboard height. The emoji panel is drawn at exactly
-  /// that height, so swapping between the keyboard and the panel doesn't resize
-  /// the message list under the user.
-  double _keyboardHeight = 0;
+  /// Measured system keyboard height. The emoji panel is drawn at exactly that
+  /// height, so swapping between the keyboard and the panel doesn't resize the
+  /// message list under the user.
+  ///
+  /// Static so a freshly opened conversation already knows the height instead
+  /// of falling back to the default until the keyboard has been raised once.
+  static double _keyboardHeight = 0;
 
   /// Set once the user picks a time in the «زمان‌بندی ارسال» sheet: the
   /// composer then schedules on send instead of sending now. Cleared after the
@@ -266,8 +269,17 @@ class _ConversationScreenState extends State<ConversationScreen> {
     // panel can take exactly its place. Assigned without setState on purpose:
     // it is only ever read on a later build (opening the panel is itself a
     // setState), and calling setState from build would loop.
+    //
+    // Two guards, both load-bearing. The inset is animated, so it reports every
+    // value on the way *down* too: recording those meant the second time the
+    // panel was opened it took the height of some mid-dismissal frame (~130 px)
+    // instead of the keyboard's. Only a rising inset, and only while the field
+    // actually holds focus (the panel closes the keyboard, so a shrinking inset
+    // with no focus is a dismissal, never a measurement), is the keyboard.
     final inset = MediaQuery.viewInsetsOf(context).bottom;
-    if (inset > 120 && inset != _keyboardHeight) _keyboardHeight = inset;
+    if (inset > _keyboardHeight && _composerFocus.hasFocus) {
+      _keyboardHeight = inset;
+    }
 
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -458,7 +470,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 }
                 final msg = msgs[di];
                 final prev = di > 0 ? msgs[di - 1] : null; // older
-                final next = di < msgs.length - 1 ? msgs[di + 1] : null; // newer
+                final next = di < msgs.length - 1
+                    ? msgs[di + 1]
+                    : null; // newer
                 return _buildMessageItem(msg, prev, next);
               },
             );
@@ -521,7 +535,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
       builder: (ctx) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
-          content: const Text('زمان‌بندی این پیام لغو شود؟ پیام ارسال نخواهد شد.'),
+          content: const Text(
+            'زمان‌بندی این پیام لغو شود؟ پیام ارسال نخواهد شد.',
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -837,11 +853,33 @@ class _ConversationScreenState extends State<ConversationScreen> {
   // ── Composer ────────────────────────────────────────────────────────────────
 
   Widget _buildComposer() {
+    // The panel sits inside the composer's SafeArea, which adds the navigation
+    // bar inset back underneath it — while the keyboard covers that area. Draw
+    // the panel that much shorter so panel + inset lands on exactly the height
+    // the keyboard had, instead of a strip taller than it.
+    //
+    // Plain comparison, never `clamp`: the measured height climbs through every
+    // frame of the keyboard's opening animation, so it is briefly ~130 px, and
+    // `clamp(220, 130)` throws (lower > upper). This runs on every build of the
+    // composer, panel open or not — the throw took the whole screen white for
+    // the length of the animation.
+    final measured = _keyboardHeight - MediaQuery.paddingOf(context).bottom;
+    final fullPanel = measured > 220 ? measured : 280.0;
+
+    // Then subtract whatever the keyboard is *still* covering. Tapping the
+    // emoji button shows the panel immediately while the keyboard slides away
+    // over ~200 ms, so for those frames the composer is lifted by the residual
+    // inset AND carries a full-height panel — more than the screen holds, which
+    // is the RenderFlex overflow. Shrinking the panel by exactly the remaining
+    // inset keeps the total constant and makes the two cross-fade in place.
+    final liveInset = MediaQuery.viewInsetsOf(context).bottom;
+    final panelHeight = fullPanel - liveInset > 0 ? fullPanel - liveInset : 0.0;
+
     return MessageComposer(
       controller: _messageController,
       focusNode: _composerFocus,
       showStickers: _showStickers,
-      stickerPanelHeight: _keyboardHeight > 120 ? _keyboardHeight : 280,
+      stickerPanelHeight: panelHeight,
       onToggleStickers: _toggleStickers,
       onAttach: _showAttachmentSheet,
       onSend: _sendMessage,
@@ -924,7 +962,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
       final unit = text.codeUnitAt(start);
       final previous = text.codeUnitAt(start - 1);
       final pairedSurrogate =
-          unit >= 0xDC00 && unit <= 0xDFFF && previous >= 0xD800 &&
+          unit >= 0xDC00 &&
+          unit <= 0xDFFF &&
+          previous >= 0xD800 &&
           previous <= 0xDBFF;
       final joined = unit == 0x200D || previous == 0x200D || unit == 0xFE0F;
       if (pairedSurrogate || joined) {
