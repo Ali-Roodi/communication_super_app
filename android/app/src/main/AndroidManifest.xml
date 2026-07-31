@@ -42,10 +42,21 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
     <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
 
+    <!-- Backup is OFF on purpose. `databases/communication_app.db` holds every
+         SMS in plain text, and the app's PIN lock does not protect a copy that
+         has left the device: Auto Backup (cloud) and `adb backup` would both
+         lift the whole mailbox. The secure-storage key stays in the Keystore
+         and is never backed up, so a restore could not even unlock the app it
+         handed the messages to.
+         `dataExtractionRules` covers the Android 12+ transfer paths
+         (cloud backup + device-to-device), `fullBackupContent` the ≤11 ones. -->
     <application
         android:label="هم‌رسان"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false">
         <activity
             android:name=".MainActivity"
             android:exported="true"
