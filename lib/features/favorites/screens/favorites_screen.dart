@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
-import 'package:communication_super_app/core/utils/persian_utils.dart';
+import 'package:communication_super_app/core/utils/search_text.dart';
+import 'package:communication_super_app/core/widgets/contact_numbers_line.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
 import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
 import 'package:communication_super_app/core/widgets/home_search_header.dart';
@@ -355,7 +356,6 @@ class _FavoritePickerSheetState extends State<_FavoritePickerSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Padding(
@@ -388,21 +388,17 @@ class _FavoritePickerSheetState extends State<_FavoritePickerSheet> {
                     if (!snapshot.hasData) {
                       return const Center(child: CircularProgressIndicator());
                     }
-                    final q = _query.trim().toLowerCase();
                     // A favourite is a number to call, so contacts without one
                     // are not offered here.
-                    final reachable = snapshot.data!.where(
-                      (c) => c.phoneNumbers.isNotEmpty,
+                    final reachable = snapshot.data!
+                        .where((c) => c.phoneNumbers.isNotEmpty)
+                        .toList();
+                    // The shared matcher: `+98…` ≡ `0…`, «علي» finds «علی».
+                    final contacts = ContactRepository.matchContacts(
+                      reachable,
+                      _query,
                     );
-                    final contacts = q.isEmpty
-                        ? reachable.toList()
-                        : reachable
-                              .where(
-                                (c) =>
-                                    c.name.toLowerCase().contains(q) ||
-                                    c.phoneNumbers.any((p) => p.contains(q)),
-                              )
-                              .toList();
+                    final phoneQuery = PhoneQuery(_query);
                     if (contacts.isEmpty) {
                       return const Center(child: Text('مخاطبی یافت نشد'));
                     }
@@ -411,12 +407,18 @@ class _FavoritePickerSheetState extends State<_FavoritePickerSheet> {
                       itemBuilder: (context, i) {
                         final c = contacts[i];
                         // A favourite is one specific number; the subtitle
-                        // shows the first, and a contact with several asks
-                        // which one on tap (Google Phone does the same).
+                        // spells the numbers out (several contacts share a
+                        // name) and a contact with more than one asks which on
+                        // tap, the way Google Phone does.
                         final phone = c.phoneNumbers.isNotEmpty
                             ? c.phoneNumbers.first
                             : c.phoneNumber;
-                        final multiple = c.phoneNumbers.length > 1;
+                        final matched = phoneQuery.isEmpty
+                            ? null
+                            : c.phoneNumbers.firstWhere(
+                                phoneQuery.contains,
+                                orElse: () => '',
+                              );
                         return ListTile(
                           leading: LazyContactAvatar(
                             contactId: c.id,
@@ -424,17 +426,14 @@ class _FavoritePickerSheetState extends State<_FavoritePickerSheet> {
                             size: 40,
                           ),
                           title: Text(c.name),
-                          subtitle: Directionality(
-                            textDirection: TextDirection.ltr,
-                            child: Text(
-                              multiple
-                                  ? '${PersianUtils.displayPhone(phone)} '
-                                        '+${PersianUtils.toPersianNumber('${c.phoneNumbers.length - 1}')}'
-                                  : PersianUtils.displayPhone(phone),
-                              textAlign: TextAlign.right,
-                              style: TextStyle(
-                                color: theme.textTheme.bodyMedium?.color,
-                              ),
+                          subtitle: Padding(
+                            padding: const EdgeInsets.only(top: 3),
+                            child: ContactNumbersLine(
+                              numbers: c.phoneNumbers,
+                              matched: (matched == null || matched.isEmpty)
+                                  ? null
+                                  : matched,
+                              query: SearchText.digits(_query),
                             ),
                           ),
                           onTap: () async {

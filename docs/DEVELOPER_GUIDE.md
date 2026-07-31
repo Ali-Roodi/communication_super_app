@@ -141,6 +141,9 @@ Every contact filter — the contacts tab, the dialer suggestions, `searchContac
 - **Names are folded**: ي→ی, ك→ک, آ/أ/إ→ا, ة→ه, ؤ→و, harakat/ZWNJ/bidi marks dropped, Persian+Arabic digits → ASCII, and spacing optional («محمدرضا» finds «محمد رضا»). Highlighting uses `SearchText.matchRange`, which returns indices into the *original* string — folding drops characters, so an index taken on the folded copy lands on the wrong letter.
 - **Performance:** a query is compiled **once per list** into a `PhoneQuery`, never per contact, and `phoneForms` is memoized per number string. Both matter: this runs over the whole address book per keystroke. The contacts screen also resolves the matched number per *query* (`_resultNumbers`), not in each row's `build`.
 - `DialerBloc._onFilterContacts` **re-reads `getAllContacts()` on every filter** (a cached-list hand-back in the normal case). Filtering the snapshot taken in the constructor is why a number just saved never became a suggestion until restart.
+- `SearchBloc` (the unified «اخیر»/inbox search) goes through the same matcher. It used to carry its own raw lowercase/digit-substring test and answered the identical query differently.
+
+**Every contact row shows its numbers under the name** (`ContactNumbersLine`, `core/widgets/`) — contacts tab, unified search, favourites picker. A name-only row cannot tell two «علی» apart. The line shows the number a digit query *matched* (emphasised via `HighlightedPhone`) when there is one, otherwise the contact's numbers separated by «·» with a «+N» tail. The contacts tab's `_kRowHeight` is sized for those two lines — it feeds the fast-scroll index's jump offsets, so changing the row's height means changing that constant.
 
 ### Keypad touch
 
@@ -186,7 +189,12 @@ ALL incoming-SMS notifications are posted natively by `SmsNotifier` — from the
 
 - **Closing the panel must open the keyboard.** `ConversationScreen` owns `_composerFocus` and `_toggleStickers` does `requestFocus()` **plus `SystemChannels.textInput.invokeMethod('TextInput.show')`** — the node can still hold focus while the panel is up, and a no-op focus request does not raise the keyboard. The button showed a keyboard glyph but only closed the grid, leaving the user with neither.
 - Focusing the text field closes the panel (`_onComposerFocusChanged`), so the two are never stacked.
-- The panel is drawn at the last measured keyboard height (`MediaQuery.viewInsetsOf` captured in `build` without `setState`), so swapping keyboard↔panel doesn't resize the message list.
+- **Panel height.** Three rules, each of which was a bug:
+  1. The keyboard height is only recorded while the inset is **rising** and the field **holds focus**. `viewInsets` is animated and reports every value on the way down too, so recording those made the *second* open take the height of a mid-dismissal frame (~130 px).
+  2. Never `clamp` the result. The measured height climbs through the opening animation, so `clamp(220, 130)` (lower > upper) throws — and this is computed on every composer build, panel open or not, which turned the whole screen white for the length of the animation.
+  3. The drawn height is the target **minus the inset the keyboard is still covering**. The panel appears immediately while the keyboard slides out over ~200 ms; a full-height panel plus the residual inset is more than the screen holds → `RenderFlex` overflow. Subtracting keeps the total constant and reads as a reveal.
+- `EmojiPanel` therefore lays its contents out at `_kLayoutHeight` or more and clips to the height it was given (`OverflowBox` inside the clipping `Container`) — strip + footer + grid cannot lay out below ~84 px.
+- The measured height is `static`, so a freshly opened conversation already knows it instead of falling back to the default.
 - The active tab is a `ValueNotifier`, not `setState`: it changes continuously while scrolling and rebuilding the panel would rebuild every grid sliver.
 - Skin tones: the modifier goes straight after the base code point and **replaces** a following `FE0F` (✌️ is `270C FE0F`; its toned form is `270C 1F3FD`, not `270C FE0F 1F3FD`, which renders a stray colour swatch).
 

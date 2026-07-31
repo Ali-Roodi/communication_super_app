@@ -11,8 +11,8 @@ import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/search_text.dart';
+import 'package:communication_super_app/core/widgets/contact_numbers_line.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
-import 'package:communication_super_app/core/widgets/highlighted_phone.dart';
 import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
@@ -26,7 +26,10 @@ import '../models/contact_model.dart';
 // Fixed extents so the fast-scroll index bar can compute jump offsets. A row
 // occupies [_kRowHeight]; the card itself is that minus the group gap, so the
 // cards of a section read as one run with hairline seams.
-const double _kRowHeight = 68;
+//
+// Sized for two lines (name + numbers), not one — a name-only row cannot tell
+// two contacts with the same name apart.
+const double _kRowHeight = 72;
 const double _kHeaderHeight = 44;
 
 // Stock-phone style fast-scroll index. Which alphabet is shown follows the
@@ -828,30 +831,21 @@ class _ContactRow extends StatelessWidget {
                     size: 44,
                   ),
                 const SizedBox(width: 14),
-                // Name-only rows, like Google Contacts (the number lives on the
-                // detail page) — except when the query matched a *number*, in
-                // which case that number is shown, so a search by digits gives
-                // visible proof of what it hit.
+                // Name *and* number. An address book holds several «علی», so a
+                // name-only row (what this used to be, with the number left to
+                // the detail page) does not say which one you are looking at.
                 Expanded(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _name(scheme),
-                      if (matchedNumber != null) ...[
-                        const SizedBox(height: 2),
-                        Directionality(
-                          textDirection: TextDirection.ltr,
-                          child: HighlightedPhone(
-                            number: matchedNumber!,
-                            query: SearchText.digits(query),
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: scheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ),
-                      ],
+                      const SizedBox(height: 3),
+                      ContactNumbersLine(
+                        numbers: contact.phoneNumbers,
+                        matched: matchedNumber,
+                        query: SearchText.digits(query),
+                      ),
                     ],
                   ),
                 ),

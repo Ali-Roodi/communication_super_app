@@ -2,9 +2,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
+import 'package:communication_super_app/core/utils/search_text.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
+import 'package:communication_super_app/core/widgets/contact_numbers_line.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
-import 'package:communication_super_app/core/widgets/highlighted_phone.dart';
 import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
@@ -88,6 +89,8 @@ class _SearchScreenState extends State<SearchScreen> {
                 subtitle: 'برای «${state.query}» چیزی پیدا نشد',
               );
             }
+            // Compiled once for the whole result list, not per row.
+            final phoneQuery = PhoneQuery(state.query);
             // Virtualized: a two-letter query can match thousands of contacts,
             // and every eagerly-built row costs an avatar lookup.
             return CustomScrollView(
@@ -99,6 +102,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     itemBuilder: (_, i) => _ContactResult(
                       contact: state.contacts[i],
                       query: state.query,
+                      phoneQuery: phoneQuery,
                     ),
                   ),
                 ],
@@ -141,28 +145,29 @@ class _ContactResult extends StatelessWidget {
   /// rather than the contact's first one.
   final String query;
 
-  const _ContactResult({required this.contact, required this.query});
+  /// The typed query compiled once by the list, not per row.
+  final PhoneQuery phoneQuery;
 
-  String get _queryDigits => query.replaceAll(RegExp(r'[^\d]'), '');
+  const _ContactResult({
+    required this.contact,
+    required this.query,
+    required this.phoneQuery,
+  });
 
-  /// The number this row is about: the one the digits matched, else the
-  /// contact's primary number.
-  String get _shownNumber {
-    final digits = _queryDigits;
-    if (digits.isNotEmpty) {
-      for (final phone in contact.phoneNumbers) {
-        if (phone.replaceAll(RegExp(r'[^\d]'), '').contains(digits)) {
-          return phone;
-        }
-      }
+  /// The number the typed digits matched, or null for a name search.
+  String? get _matchedNumber {
+    if (phoneQuery.isEmpty) return null;
+    for (final phone in contact.phoneNumbers) {
+      if (phoneQuery.contains(phone)) return phone;
     }
-    return contact.primaryPhone;
+    return null;
   }
 
   /// A name search on a multi-number contact has no matched number, so the
   /// call button asks which one.
   Future<void> _call(BuildContext context) async {
-    if (_queryDigits.isEmpty && contact.phoneNumbers.length > 1) {
+    final matched = _matchedNumber;
+    if (matched == null && contact.phoneNumbers.length > 1) {
       final picked = await pickContactNumber(
         context,
         numbers: contact.phoneNumbers,
@@ -172,12 +177,11 @@ class _ContactResult extends StatelessWidget {
       await NativeCallService.instance.makeCall(picked);
       return;
     }
-    await NativeCallService.instance.makeCall(_shownNumber);
+    await NativeCallService.instance.makeCall(matched ?? contact.primaryPhone);
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return ListTile(
       leading: LazyContactAvatar(
         contactId: contact.id,
@@ -185,12 +189,14 @@ class _ContactResult extends StatelessWidget {
         size: 40,
       ),
       title: Text(contact.name),
-      subtitle: Directionality(
-        textDirection: TextDirection.ltr,
-        child: HighlightedPhone(
-          number: _shownNumber,
-          query: _queryDigits,
-          style: TextStyle(color: theme.textTheme.bodyMedium?.color),
+      // Every number, not just the primary one — several contacts share a name
+      // and the number is what tells them apart.
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 3),
+        child: ContactNumbersLine(
+          numbers: contact.phoneNumbers,
+          matched: _matchedNumber,
+          query: SearchText.digits(query),
         ),
       ),
       trailing: IconButton(

@@ -46,10 +46,26 @@ class PersianUtils {
   /// order — even inside an RTL paragraph. Without it, an RTL layout reorders
   /// the groups (e.g. «0919 096 1805» renders as «1805 096 0919»). Purely a
   /// display concern: matching/search still use the raw digits.
+  /// Memoized: this is called from row builds \u2014 every contact row, call-log
+  /// tile and thread header \u2014 and `formatPhone` + `toPersianNumber` walk the
+  /// string ~20 times each (ten `replaceAll` passes per digit map, twice, plus
+  /// a RegExp). Doing that per number per frame while a list is flung is pure
+  /// waste; the keys converge on the numbers stored on the device.
+  static final Map<String, String> _displayCache = {};
+  static const int _maxDisplayCache = 4096;
+
   static String displayPhone(String raw) {
+    final cached = _displayCache[raw];
+    if (cached != null) return cached;
+
     final formatted = toPersianNumber(formatPhone(raw));
     if (formatted.isEmpty) return formatted;
-    return '\u202A$formatted\u202C';
+    final display = '\u202A$formatted\u202C';
+    // A plain cap rather than an LRU: the key space is the phone numbers on
+    // the device, so the map converges and stops growing.
+    if (_displayCache.length >= _maxDisplayCache) _displayCache.clear();
+    _displayCache[raw] = display;
+    return display;
   }
 
   static String getInitials(String name) {
