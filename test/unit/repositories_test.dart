@@ -313,6 +313,50 @@ void main() {
       expect((await repo.getAllThreads()).single.unreadCount, 2);
     });
 
+    test('markThreadAsUnread marks a thread whose messages are all sent',
+        () async {
+      final repo = MessageRepository();
+      await repo.createMessage(
+        _message('s1', minute: 0, type: MessageType.sent, isRead: true),
+      );
+      await repo.createMessage(
+        _message(
+          's2',
+          minute: 1,
+          body: 'دومی',
+          type: MessageType.sent,
+          isRead: true,
+        ),
+      );
+
+      await repo.markThreadAsUnread('09120000000');
+
+      // Exactly one row flagged — the newest — so the badge reads «۱».
+      expect((await repo.getAllThreads()).single.unreadCount, 1);
+
+      await repo.markThreadAsRead('09120000000');
+      expect((await repo.getAllThreads()).single.unreadCount, 0);
+    });
+
+    test('markThreadAsUnread ignores deleted received messages', () async {
+      final repo = MessageRepository();
+      await repo.createMessage(_message('r1', minute: 0, isRead: true));
+      await repo.createMessage(
+        _message(
+          's1',
+          minute: 1,
+          body: 'پاسخ',
+          type: MessageType.sent,
+          isRead: true,
+        ),
+      );
+      await repo.softDeleteMessages(['r1']);
+
+      await repo.markThreadAsUnread('09120000000');
+
+      expect((await repo.getAllThreads()).single.unreadCount, 1);
+    });
+
     test('removeRowsMissingFromDevice drops rows whose provider id vanished '
         'and keeps provider-less ones', () async {
       final repo = MessageRepository();

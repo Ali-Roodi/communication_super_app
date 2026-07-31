@@ -47,6 +47,11 @@ class _MessagesListScreenState extends State<MessagesListScreen>
   String _query = '';
   final Set<String> _selected = {};
 
+  /// Last inbox page painted by this screen. The MessageBloc is shared with the
+  /// conversation screen, so its state is regularly something the inbox can't
+  /// render; this keeps the list (and its scroll offset) alive across those.
+  ThreadsLoaded? _lastInbox;
+
   final ComposerDraftStore _draftStore = ComposerDraftStore();
   Map<String, ComposerDraft> _drafts = {};
 
@@ -300,14 +305,29 @@ class _MessagesListScreenState extends State<MessagesListScreen>
             child: child,
           );
 
-          if (state is MessageLoading ||
-              state is MessageInitial ||
-              state is MessagesLoaded ||
-              state is MessageSent ||
-              state is MessageSendFailed) {
+          // The MessageBloc is global, so opening a conversation (or the
+          // archived inbox) replaces its state with one this screen can't
+          // paint. Swapping the list out for a spinner in those moments TORE
+          // THE SLIVER DOWN, and with it the scroll offset — coming back from
+          // a conversation always landed at the top of the inbox. Keep the
+          // last inbox on screen instead; a real refresh replaces it in place.
+          if (state is ThreadsLoaded && !state.archived) _lastInbox = state;
+          final inbox = _lastInbox;
+
+          if (inbox == null) {
+            if (state is MessageError) {
+              return filler(
+                MessagesErrorState(
+                  message: state.message,
+                  onRetry: () => context.read<MessageBloc>().add(
+                    const LoadThreads(forceRefresh: true),
+                  ),
+                ),
+              );
+            }
             return filler(const Center(child: CircularProgressIndicator()));
           }
-          if (state is MessageError) {
+          if (state is MessageError && inbox.threads.isEmpty) {
             return filler(
               MessagesErrorState(
                 message: state.message,
@@ -317,16 +337,8 @@ class _MessagesListScreenState extends State<MessagesListScreen>
               ),
             );
           }
-          if (state is! ThreadsLoaded) {
-            return filler(const Center(child: CircularProgressIndicator()));
-          }
-          // The archived view is shown on its own screen; ignore that state
-          // here (it only briefly appears while that screen is pushed).
-          if (state.archived) {
-            return filler(const Center(child: CircularProgressIndicator()));
-          }
 
-          final base = _visibleThreads(state.threads);
+          final base = _visibleThreads(inbox.threads);
           final threads = _query.isEmpty ? _mergeDrafts(base) : base;
           if (threads.isEmpty) {
             return filler(
@@ -337,7 +349,7 @@ class _MessagesListScreenState extends State<MessagesListScreen>
           }
 
           // Rows that exist only because of a draft (no real messages yet).
-          final realIds = {for (final t in state.threads) t.threadId};
+          final realIds = {for (final t in inbox.threads) t.threadId};
           return DecoratedSliver(
             decoration: BoxDecoration(
               color: scheme.cardSurface,
@@ -348,9 +360,9 @@ class _MessagesListScreenState extends State<MessagesListScreen>
             sliver: SliverPadding(
               padding: const EdgeInsets.only(top: 8, bottom: 96),
               sliver: SliverList.builder(
-                itemCount: threads.length + (state.hasMore ? 1 : 0),
+                itemCount: threads.length + (inbox.hasMore ? 1 : 0),
                 itemBuilder: (context, index) {
-                  if (state.hasMore && index == threads.length) {
+                  if (inbox.hasMore && index == threads.length) {
                     return const Padding(
                       padding: EdgeInsets.all(16),
                       child: Center(child: CircularProgressIndicator()),
@@ -436,10 +448,7 @@ class _MessagesListScreenState extends State<MessagesListScreen>
   /// the action unpins them (Google's toggle behaviour on a mixed selection is
   /// "make them all pinned first").
   void _pinSelected() {
-    final state = context.read<MessageBloc>().state;
-    final all = state is ThreadsLoaded
-        ? state.threads
-        : const <MessageThread>[];
+    final all = _lastInbox?.threads ?? const <MessageThread>[];
     final chosen = all.where((t) => _selected.contains(t.threadId)).toList();
     if (chosen.isEmpty) {
       _clearSelection();
@@ -461,10 +470,7 @@ class _MessagesListScreenState extends State<MessagesListScreen>
   }
 
   void _selectAllVisible() {
-    final state = context.read<MessageBloc>().state;
-    final all = state is ThreadsLoaded
-        ? state.threads
-        : const <MessageThread>[];
+    final all = _lastInbox?.threads ?? const <MessageThread>[];
     setState(() {
       _selected
         ..clear()
@@ -473,10 +479,7 @@ class _MessagesListScreenState extends State<MessagesListScreen>
   }
 
   void _blockSelected() {
-    final state = context.read<MessageBloc>().state;
-    final all = state is ThreadsLoaded
-        ? state.threads
-        : const <MessageThread>[];
+    final all = _lastInbox?.threads ?? const <MessageThread>[];
     final blockedBloc = context.read<BlockedNumbersBloc>();
     for (final t in all.where((t) => _selected.contains(t.threadId))) {
       blockedBloc.add(BlockNumber(t.phoneNumber));

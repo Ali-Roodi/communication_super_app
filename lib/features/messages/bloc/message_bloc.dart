@@ -35,6 +35,28 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   bool _loadingMoreThreads = false;
   bool _loadingMoreMessages = false;
 
+  /// How many rows each inbox (active / archived) currently has paged in.
+  ///
+  /// A plain `LoadThreads()` (returning from a conversation, resume, after a
+  /// send) carries the default limit of 50. Without this, a user who had
+  /// scrolled 200 threads deep got the list cut back to 50 rows underneath
+  /// them, and the scroll position collapsed to the top. Refreshes re-read as
+  /// many rows as were on screen instead. The two inboxes are counted apart —
+  /// they are separate screens and visiting one must not shrink the other.
+  int _loadedThreadCount = 0;
+  int _loadedArchivedCount = 0;
+
+  int _pagedCount({required bool archived}) =>
+      archived ? _loadedArchivedCount : _loadedThreadCount;
+
+  void _setPagedCount(int count, {required bool archived}) {
+    if (archived) {
+      _loadedArchivedCount = count;
+    } else {
+      _loadedThreadCount = count;
+    }
+  }
+
   /// Dependencies default to real implementations so production callers can use
   /// `MessageBloc()`; tests can inject fakes/mocks.
   MessageBloc({
@@ -154,10 +176,17 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       _startSmsListener();
     }
 
+    // Refreshing the first page: re-read whatever was already paged in, so the
+    // list keeps its length (and the user keeps their scroll position).
+    final paged = _pagedCount(archived: event.archived);
+    final limit = event.offset == 0 && paged > event.limit
+        ? paged
+        : event.limit;
+
     try {
       await _emitThreads(
         emit,
-        limit: event.limit,
+        limit: limit,
         offset: event.offset,
         archived: event.archived,
       );
@@ -191,6 +220,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       archived: archived,
     );
     final hasMore = rawThreads.length >= limit;
+    if (offset == 0) _setPagedCount(rawThreads.length, archived: archived);
     if (_cachedPhoneToName == null && rawThreads.isNotEmpty) {
       emit(ThreadsLoaded(rawThreads, hasMore: hasMore, archived: archived));
     }
@@ -352,9 +382,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         return;
       }
       final resolved = await _resolveContactNames(more);
+      final combined = [...current.threads, ...resolved];
+      _setPagedCount(combined.length, archived: current.archived);
       emit(
         ThreadsLoaded(
-          [...current.threads, ...resolved],
+          combined,
           hasMore: more.length >= 50,
           archived: current.archived,
         ),

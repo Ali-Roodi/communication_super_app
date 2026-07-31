@@ -136,8 +136,13 @@ class MessageRepository {
         m.body AS last_message,
         m.timestamp AS last_message_time,
         (
+          -- Counts unread rows of ANY type on purpose: every sent row is
+          -- inserted with is_read = 1, so the only sent row that can be
+          -- unread is one `markThreadAsUnread` flagged on a thread with no
+          -- received message. Filtering on type here is what made the
+          -- "mark unread" swipe silently do nothing on those threads.
           SELECT COUNT(*) FROM ${AppConstants.messagesTable} mi
-          WHERE mi.thread_id = page.thread_id AND mi.type = 'received'
+          WHERE mi.thread_id = page.thread_id
             AND mi.is_read = 0 AND mi.is_deleted = 0
         ) AS unread_count
       FROM page
@@ -400,24 +405,48 @@ class MessageRepository {
     );
   }
 
+  /// Clears the unread flag on every row of the thread — including the sent row
+  /// [markThreadAsUnread] may have flagged on a thread with no received message.
+  /// Filtering on `type = 'received'` here would leave such a thread bold for
+  /// ever, with no way back.
   Future<void> markThreadAsRead(String threadId) async {
     final db = await _dbHelper.database;
     await db.update(
       AppConstants.messagesTable,
       {'is_read': 1},
-      where: 'thread_id = ? AND type = ? AND is_read = 0',
-      whereArgs: [threadId, 'received'],
+      where: 'thread_id = ? AND is_read = 0',
+      whereArgs: [threadId],
     );
   }
 
-  /// Marks all received messages in a thread as unread again.
+  /// Marks a thread unread again (swipe / selection bar).
+  ///
+  /// Flags the received messages, but falls back to the newest row of any type
+  /// when the thread has none that still counts: a conversation the user only
+  /// ever *sent* to, or whose received messages were all deleted, has nothing
+  /// to flag — the swipe used to run and leave the row un-bolded, because
+  /// `unread_count` only ever sees non-deleted rows.
   Future<void> markThreadAsUnread(String threadId) async {
     final db = await _dbHelper.database;
-    await db.update(
+    final flagged = await db.update(
       AppConstants.messagesTable,
       {'is_read': 0},
-      where: 'thread_id = ? AND type = ?',
+      where: 'thread_id = ? AND type = ? AND is_deleted = 0',
       whereArgs: [threadId, 'received'],
+    );
+    if (flagged > 0) return;
+    await db.rawUpdate(
+      '''
+      UPDATE ${AppConstants.messagesTable}
+      SET is_read = 0
+      WHERE rowid = (
+        SELECT rowid FROM ${AppConstants.messagesTable}
+        WHERE thread_id = ? AND is_deleted = 0
+        ORDER BY timestamp DESC, rowid DESC
+        LIMIT 1
+      )
+      ''',
+      [threadId],
     );
   }
 
