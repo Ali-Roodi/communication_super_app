@@ -148,6 +148,15 @@ class _BlinkingCaretState extends State<_BlinkingCaret> {
 /// A single keypad key: a wide squircle carrying the Persian digit with its
 /// latin letter group underneath, exactly like Google Phone. Scales to 0.94 and
 /// darkens while pressed, springing back on release.
+///
+/// **The key fires on touch-DOWN, through a raw [Listener], not on a tap.**
+/// The keypad lives inside a draggable modal bottom sheet, so an `InkWell`'s
+/// tap recognizer has to win a gesture arena against the sheet's vertical drag:
+/// dialing fast means each press carries a few pixels of movement, the drag
+/// recognizer claims the pointer, and the tap is never delivered — digits went
+/// missing exactly when typing quickly. A [Listener] is not an arena member, so
+/// its pointer callbacks always arrive, which is also how a physical keypad
+/// behaves (and lets two thumbs type at once).
 class DialKey extends StatefulWidget {
   /// Persian character to show.
   final String display;
@@ -180,6 +189,20 @@ class _DialKeyState extends State<DialKey> with SingleTickerProviderStateMixin {
   late final Animation<double> _scale;
   bool _pressed = false;
 
+  /// Pointer currently held on this key, so a second finger landing elsewhere
+  /// never releases this key's press state.
+  int? _pointer;
+
+  /// Long-press timer started on touch-down; cancelled by the release.
+  Timer? _longPress;
+
+  /// Where the finger landed, so sliding off the key (a drag on the sheet)
+  /// cancels the pending long-press instead of firing it.
+  Offset _downAt = Offset.zero;
+
+  static const Duration _kLongPress = Duration(milliseconds: 420);
+  static const double _kSlop = 24;
+
   @override
   void initState() {
     super.initState();
@@ -196,13 +219,54 @@ class _DialKeyState extends State<DialKey> with SingleTickerProviderStateMixin {
 
   @override
   void dispose() {
+    _longPress?.cancel();
     _ctrl.dispose();
     super.dispose();
   }
 
   void _setPressed(bool pressed) {
-    setState(() => _pressed = pressed);
+    if (_pressed != pressed) setState(() => _pressed = pressed);
     pressed ? _ctrl.forward() : _ctrl.reverse();
+  }
+
+  void _onDown(PointerDownEvent event) {
+    if (_pointer != null) return; // already held by another finger
+    _pointer = event.pointer;
+    _downAt = event.localPosition;
+    _setPressed(true);
+    // The digit is typed here — see the class doc. Nothing downstream may
+    // cancel it, which is the whole point.
+    widget.onTap();
+
+    final longPress = widget.onLongPress;
+    _longPress?.cancel();
+    if (longPress != null) {
+      _longPress = Timer(_kLongPress, () {
+        if (!mounted || _pointer == null) return;
+        _release();
+        longPress();
+      });
+    }
+  }
+
+  void _onMove(PointerMoveEvent event) {
+    if (event.pointer != _pointer) return;
+    if ((event.localPosition - _downAt).distance > _kSlop) {
+      _longPress?.cancel();
+      _longPress = null;
+    }
+  }
+
+  void _onUp(PointerEvent event) {
+    if (event.pointer != _pointer) return;
+    _release();
+  }
+
+  void _release() {
+    _longPress?.cancel();
+    _longPress = null;
+    _pointer = null;
+    _setPressed(false);
   }
 
   @override
@@ -214,20 +278,25 @@ class _DialKeyState extends State<DialKey> with SingleTickerProviderStateMixin {
         ? Color.alphaBlend(Colors.white.withValues(alpha: 0.10), base)
         : Color.alphaBlend(Colors.black.withValues(alpha: 0.07), base);
 
-    return AnimatedBuilder(
-      animation: _scale,
-      builder: (_, child) => Transform.scale(scale: _scale.value, child: child),
-      child: Material(
-        color: _pressed ? pressedColor : base,
-        elevation: 0,
-        // Google's keys are near-stadium horizontally, softly rounded
-        // vertically — a wide squircle.
-        borderRadius: BorderRadius.circular(34),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: widget.onTap,
-          onLongPress: widget.onLongPress,
-          onHighlightChanged: _setPressed,
+    return Listener(
+      // Opaque: the key owns its whole rectangle, including the gaps its inner
+      // padding leaves, so a slightly-off press still registers.
+      behavior: HitTestBehavior.opaque,
+      onPointerDown: _onDown,
+      onPointerMove: _onMove,
+      onPointerUp: _onUp,
+      onPointerCancel: _onUp,
+      child: AnimatedBuilder(
+        animation: _scale,
+        builder: (_, child) =>
+            Transform.scale(scale: _scale.value, child: child),
+        child: Material(
+          color: _pressed ? pressedColor : base,
+          elevation: 0,
+          // Google's keys are near-stadium horizontally, softly rounded
+          // vertically — a wide squircle.
+          borderRadius: BorderRadius.circular(34),
+          clipBehavior: Clip.antiAlias,
           child: SizedBox(
             height: 62,
             child: Column(

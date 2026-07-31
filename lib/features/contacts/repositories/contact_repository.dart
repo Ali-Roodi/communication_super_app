@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter_contacts/flutter_contacts.dart' as device_contacts;
 import 'package:communication_super_app/core/services/device_sync_queue.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
+import 'package:communication_super_app/core/utils/search_text.dart';
 import '../models/contact_model.dart';
 import '../models/phone_match.dart';
 
@@ -13,13 +14,18 @@ class ContactRepository {
   /// of busy-waiting on a polling loop.
   static Completer<void>? _loading;
 
-  /// Non-digit stripper reused across [filterContactsByPhoneDigits] calls
-  /// instead of recompiling a RegExp per contact per keystroke.
-  static final RegExp _nonDigits = RegExp(r'[^\d]');
+  /// Bumped by every [invalidateCache] / `forceRefresh`. A read that started
+  /// before the bump must NOT publish its result: saving a contact invalidates
+  /// the cache while the address-book change listener already has a read in
+  /// flight, and letting that pre-write snapshot land is exactly why a contact
+  /// added from a call log stayed missing from the list and the search until
+  /// the next restart.
+  static int _generation = 0;
 
   /// Invalidate the cache to force a reload on next request
   void invalidateCache() {
     _cache = null;
+    _generation++;
   }
 
   Future<bool> _ensurePermission() async {
@@ -29,22 +35,29 @@ class ContactRepository {
   Future<List<ContactModel>> getDeviceContacts({
     bool forceRefresh = false,
   }) async {
-    if (forceRefresh) _cache = null;
+    if (forceRefresh) {
+      _cache = null;
+      _generation++;
+    }
     if (_cache != null) return _cache!;
 
     final inFlight = _loading;
     if (inFlight != null) {
+      final startedAt = _generation;
       await inFlight.future;
-      return _cache ?? [];
+      // Only reuse the piggybacked read if nothing invalidated underneath it.
+      if (_generation == startedAt && _cache != null) return _cache!;
+      return getDeviceContacts();
     }
 
+    final generation = _generation;
     final completer = Completer<void>();
     _loading = completer;
     try {
       final hasPermission = await _ensurePermission();
       if (!hasPermission) {
-        _cache = [];
-        return _cache!;
+        if (_generation == generation) _cache = const <ContactModel>[];
+        return const <ContactModel>[];
       }
 
       // Names + numbers only. Avatars are intentionally NOT loaded here:
@@ -87,6 +100,9 @@ class ContactRepository {
           ),
         );
       }
+      // Stale snapshot (the address book changed while this read was running):
+      // hand the caller the fresh data instead of caching what it just missed.
+      if (_generation != generation) return list;
       _cache = list;
       return _cache!;
     } finally {
@@ -167,16 +183,48 @@ class ContactRepository {
   }
 
   Future<List<ContactModel>> searchContacts(String query) async {
-    final contacts = await getDeviceContacts();
-    final lower = query.toLowerCase();
-    return contacts
-        .where(
-          (c) =>
-              c.name.toLowerCase().contains(lower) ||
-              c.phoneNumbers.any((p) => p.toLowerCase().contains(lower)),
-        )
-        .toList();
+    return matchContacts(await getDeviceContacts(), query);
   }
+
+  /// The one contact matcher the address-book search, the message recipient
+  /// picker and anything else filtering a contact list share.
+  ///
+  /// A query of digits is matched as a *number* (through [SearchText.phoneContains],
+  /// so `0912…` finds a contact stored as `+98912…`); anything else is matched
+  /// against the name and the email with Persian folding. A mixed query is
+  /// tried both ways — the user does not owe the search a category.
+  ///
+  /// The old version compared raw lowercased substrings, which is why a contact
+  /// just saved from a call log was invisible under both its name (stored with
+  /// «ي» where the user typed «ی») and its number (stored as `+98…`).
+  static List<ContactModel> matchContacts(
+    List<ContactModel> contacts,
+    String query,
+  ) {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return List<ContactModel>.of(contacts);
+
+    // Compiled once for the whole list, not once per contact — see [PhoneQuery].
+    final phoneQuery = PhoneQuery(trimmed);
+    // A query that is nothing but digits/punctuation is a number search; one
+    // with letters is a name search. Both run when the query mixes them.
+    final numeric = !phoneQuery.isEmpty;
+    final textual = SearchText.fold(
+      trimmed,
+    ).replaceAll(_punctuationOrDigits, '').isNotEmpty;
+
+    return contacts.where((contact) {
+      if (numeric && contact.phoneNumbers.any(phoneQuery.contains)) return true;
+      if (!textual) return false;
+      if (SearchText.nameContains(contact.name, trimmed)) return true;
+      final email = contact.email;
+      return email != null && SearchText.nameContains(email, trimmed);
+    }).toList();
+  }
+
+  /// Everything a *number* query is made of — what is left after stripping it
+  /// decides whether the query is also worth matching against names.
+  static final RegExp _punctuationOrDigits = RegExp(r'[\d\s+\-().]');
 
   /// Filters contacts by phone number digits (for dialer smart suggestions)
   /// Returns contacts whose phone numbers contain the given digits sequence
@@ -184,20 +232,11 @@ class ContactRepository {
     List<ContactModel> contacts,
     String digits,
   ) {
-    if (digits.isEmpty) return [];
-
-    // Normalize the search query (remove non-digits)
-    final normalizedQuery = digits.replaceAll(_nonDigits, '');
-
-    if (normalizedQuery.isEmpty) return [];
-
-    return contacts.where((contact) {
-      // Check if any phone number contains the digits sequence
-      return contact.phoneNumbers.any((phone) {
-        final normalizedPhone = phone.replaceAll(_nonDigits, '');
-        return normalizedPhone.contains(normalizedQuery);
-      });
-    }).toList();
+    final query = PhoneQuery(digits);
+    if (query.isEmpty) return [];
+    return contacts
+        .where((contact) => contact.phoneNumbers.any(query.contains))
+        .toList();
   }
 
   /// Same match as [filterContactsByPhoneDigits], but resolved down to the
@@ -211,22 +250,25 @@ class ContactRepository {
     List<ContactModel> contacts,
     String digits,
   ) {
-    final normalizedQuery = digits.replaceAll(_nonDigits, '');
-    if (normalizedQuery.isEmpty) return [];
+    // Every way the query may have been written, against every way the stored
+    // number may have been written — `09…` has to find a contact saved as
+    // `+98…` and vice versa, which a single raw substring test cannot do.
+    // Compiled once for the whole address book (this runs per dialled digit).
+    final query = PhoneQuery(digits);
+    if (query.isEmpty) return [];
 
     final matches = <PhoneMatch>[];
     for (final contact in contacts) {
       for (final phone in contact.phoneNumbers) {
-        final phoneDigits = phone.replaceAll(_nonDigits, '');
-        final at = phoneDigits.indexOf(normalizedQuery);
-        if (at < 0) continue;
+        final hit = query.match(phone);
+        if (hit == null) continue;
         matches.add(
           PhoneMatch(
             contact: contact,
             number: phone,
-            digits: phoneDigits,
-            matchStart: at,
-            matchLength: normalizedQuery.length,
+            digits: hit.digits,
+            matchStart: hit.start,
+            matchLength: hit.length,
           ),
         );
       }

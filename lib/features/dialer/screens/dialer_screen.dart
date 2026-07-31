@@ -48,21 +48,18 @@ class DialerScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Directionality(
+    // Deliberately NOT one BlocBuilder around the whole screen: every keypress
+    // emits a new state, and rebuilding the 12 keys (each an animating stateful
+    // widget) plus the suggestion list on every digit is main-thread work
+    // between the finger going down and the next one. Only the parts that
+    // actually depend on the state rebuild; the key grid is built once.
+    return const Directionality(
       textDirection: TextDirection.rtl,
-      child: BlocBuilder<DialerBloc, DialerState>(
-        builder: (context, state) {
-          return Column(
-            children: [
-              Expanded(
-                child: state.dialedNumber.isEmpty
-                    ? const SizedBox.shrink()
-                    : _Suggestions(state: state),
-              ),
-              _KeypadPanel(state: state, keyRows: _keyRows),
-            ],
-          );
-        },
+      child: Column(
+        children: [
+          Expanded(child: _Suggestions()),
+          _KeypadPanel(keyRows: _keyRows),
+        ],
       ),
     );
   }
@@ -71,8 +68,26 @@ class DialerScreen extends StatelessWidget {
 // ── Contact suggestions ──────────────────────────────────────────────────────
 
 class _Suggestions extends StatelessWidget {
+  const _Suggestions();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<DialerBloc, DialerState>(
+      // Only the dialled number and the resolved matches change what is drawn
+      // here — the call-state fields of DialerState do not.
+      buildWhen: (a, b) =>
+          a.dialedNumber != b.dialedNumber ||
+          !identical(a.matchingNumbers, b.matchingNumbers),
+      builder: (context, state) => state.dialedNumber.isEmpty
+          ? const SizedBox.shrink()
+          : _SuggestionList(state: state),
+    );
+  }
+}
+
+class _SuggestionList extends StatelessWidget {
   final DialerState state;
-  const _Suggestions({required this.state});
+  const _SuggestionList({required this.state});
 
   @override
   Widget build(BuildContext context) {
@@ -108,15 +123,13 @@ class _Suggestions extends StatelessWidget {
 
 /// The raised panel holding the number readout, the key grid and the call pill.
 class _KeypadPanel extends StatelessWidget {
-  final DialerState state;
   final List<List<List<String>>> keyRows;
 
-  const _KeypadPanel({required this.state, required this.keyRows});
+  const _KeypadPanel({required this.keyRows});
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final canCall = state.dialedNumber.isNotEmpty && !state.isInCall;
 
     return Container(
       width: double.infinity,
@@ -129,11 +142,23 @@ class _KeypadPanel extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            DialerNumberDisplay(state: state),
+            BlocBuilder<DialerBloc, DialerState>(
+              buildWhen: (a, b) => a.dialedNumber != b.dialedNumber,
+              builder: (_, state) => DialerNumberDisplay(state: state),
+            ),
             const SizedBox(height: 4),
+            // Outside every builder: the keys never depend on the state, and
+            // rebuilding them mid-dial is what the touch fix is about.
             _KeyGrid(keyRows: keyRows),
             const SizedBox(height: 14),
-            DialerCallPill(enabled: canCall),
+            BlocBuilder<DialerBloc, DialerState>(
+              buildWhen: (a, b) =>
+                  a.dialedNumber.isEmpty != b.dialedNumber.isEmpty ||
+                  a.isInCall != b.isInCall,
+              builder: (_, state) => DialerCallPill(
+                enabled: state.dialedNumber.isNotEmpty && !state.isInCall,
+              ),
+            ),
             const SizedBox(height: 16),
           ],
         ),
@@ -150,12 +175,15 @@ class _KeyGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final bloc = context.read<DialerBloc>();
-    final tonesOn = context.read<SettingsBloc>().state.dialpadTones;
+    final settings = context.read<SettingsBloc>();
 
     void press(String value) {
       bloc.add(DialerNumberPressed(value));
-      // Audible tone (honoring the setting) + light haptic on every key.
-      if (tonesOn) NativeCallService.instance.sendDtmf(value);
+      // Audible tone (honoring the setting, read per press so toggling it in
+      // settings takes effect without rebuilding the grid) + light haptic.
+      if (settings.state.dialpadTones) {
+        NativeCallService.instance.sendDtmf(value);
+      }
       HapticFeedback.lightImpact();
     }
 
@@ -215,12 +243,25 @@ class _KeyGrid extends StatelessWidget {
   }
 
   /// Long-press behaviours: 0 → «+», 1 → voicemail.
+  ///
+  /// The key already typed its digit on touch-down (see [DialKey]), so both of
+  /// these first delete that digit — otherwise holding `0` would leave «۰+».
   VoidCallback? _longPressFor(BuildContext context, String value) {
     if (value == '0') {
-      return () =>
-          context.read<DialerBloc>().add(const DialerNumberPressed('+'));
+      return () {
+        HapticFeedback.mediumImpact();
+        context.read<DialerBloc>()
+          ..add(const DialerNumberDeleted())
+          ..add(const DialerNumberPressed('+'));
+      };
     }
-    if (value == '1') return () => _callVoicemail(context);
+    if (value == '1') {
+      return () {
+        HapticFeedback.mediumImpact();
+        context.read<DialerBloc>().add(const DialerNumberDeleted());
+        _callVoicemail(context);
+      };
+    }
     return null;
   }
 

@@ -10,7 +10,9 @@ import '../bloc/contact_state.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
+import 'package:communication_super_app/core/utils/search_text.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
+import 'package:communication_super_app/core/widgets/highlighted_phone.dart';
 import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
@@ -79,6 +81,9 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
   String? _lastResultQuery;
   List<ContactModel>? _lastResultSource;
   List<ContactModel> _results = const [];
+
+  /// contact id → the number the (numeric) query matched, for the result rows.
+  Map<String, String> _resultNumbers = const {};
 
   /// The fast-scroll alphabet is transient: it fades in while the list moves
   /// and fades back out a moment after it stops (Google Contacts' behaviour).
@@ -400,10 +405,15 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
 
   /// Builds the tap / long-press behaviour every contact row shares: tap opens
   /// the contact (or toggles while selecting), long-press starts the selection.
-  Widget _contactRow(ContactModel contact, {String query = ''}) {
+  Widget _contactRow(
+    ContactModel contact, {
+    String query = '',
+    String? matchedNumber,
+  }) {
     return _ContactRow(
       contact: contact,
       query: query,
+      matchedNumber: matchedNumber,
       selected: _selected.contains(contact.id),
       onTap: () {
         if (_selectionMode) {
@@ -505,16 +515,27 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
     if (_lastResultQuery == _query && identical(_lastResultSource, contacts)) {
       return _results;
     }
-    final q = _query.trim().toLowerCase();
     _lastResultQuery = _query;
     _lastResultSource = contacts;
-    _results = contacts
-        .where(
-          (c) =>
-              c.name.toLowerCase().contains(q) ||
-              c.phoneNumbers.any((p) => p.contains(q)),
-        )
-        .toList();
+    // Shared with the dialer and the recipient picker: digits match a number in
+    // any equivalent form (`+98…` ≡ `0…` ≡ `98…` ≡ `9…`), text matches the name
+    // with Persian folding. A raw `contains` used to miss both.
+    _results = ContactRepository.matchContacts(contacts, _query);
+
+    // Resolved here, once per query, rather than in each row's build: the rows
+    // rebuild on every scroll and every avatar that arrives.
+    _resultNumbers = {};
+    final phoneQuery = PhoneQuery(_query);
+    if (!phoneQuery.isEmpty) {
+      for (final contact in _results) {
+        for (final phone in contact.phoneNumbers) {
+          if (phoneQuery.contains(phone)) {
+            _resultNumbers[contact.id] = phone;
+            break;
+          }
+        }
+      }
+    }
     return _results;
   }
 
@@ -532,7 +553,11 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(0, 4, 0, 110),
       itemCount: results.length,
-      itemBuilder: (_, i) => _contactRow(results[i], query: _query),
+      itemBuilder: (_, i) => _contactRow(
+        results[i],
+        query: _query,
+        matchedNumber: _resultNumbers[results[i].id],
+      ),
     );
   }
 
@@ -748,6 +773,10 @@ class _ContactRow extends StatelessWidget {
   /// Google Contacts bolds it in the primary colour.
   final String query;
 
+  /// The contact's number the (numeric) query matched — resolved by the list,
+  /// not here, so a scrolling rebuild never re-runs the match.
+  final String? matchedNumber;
+
   final bool selected;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
@@ -757,6 +786,7 @@ class _ContactRow extends StatelessWidget {
     required this.onTap,
     required this.onLongPress,
     this.query = '',
+    this.matchedNumber,
     this.selected = false,
   });
 
@@ -799,8 +829,32 @@ class _ContactRow extends StatelessWidget {
                   ),
                 const SizedBox(width: 14),
                 // Name-only rows, like Google Contacts (the number lives on the
-                // detail page).
-                Expanded(child: _name(scheme)),
+                // detail page) — except when the query matched a *number*, in
+                // which case that number is shown, so a search by digits gives
+                // visible proof of what it hit.
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _name(scheme),
+                      if (matchedNumber != null) ...[
+                        const SizedBox(height: 2),
+                        Directionality(
+                          textDirection: TextDirection.ltr,
+                          child: HighlightedPhone(
+                            number: matchedNumber!,
+                            query: SearchText.digits(query),
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -812,7 +866,11 @@ class _ContactRow extends StatelessWidget {
   Widget _name(ColorScheme scheme) {
     final base = TextStyle(fontSize: 16, color: scheme.onSurface);
     final q = query.trim();
-    if (q.isEmpty) {
+    // Located through the same folding the filter uses, so a row matched on
+    // «علي» still highlights when the name is stored «علی» (and a row matched
+    // by number simply renders unstyled).
+    final range = q.isEmpty ? null : SearchText.matchRange(contact.name, q);
+    if (range == null) {
       return Text(
         contact.name,
         maxLines: 1,
@@ -820,16 +878,7 @@ class _ContactRow extends StatelessWidget {
         style: base,
       );
     }
-    final start = contact.name.toLowerCase().indexOf(q.toLowerCase());
-    if (start < 0) {
-      return Text(
-        contact.name,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: base,
-      );
-    }
-    final end = start + q.length;
+    final (start, end) = range;
     return Text.rich(
       TextSpan(
         children: [

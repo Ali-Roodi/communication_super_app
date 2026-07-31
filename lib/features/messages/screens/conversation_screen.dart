@@ -75,9 +75,20 @@ class ConversationScreen extends StatefulWidget {
 class _ConversationScreenState extends State<ConversationScreen> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+
+  /// Owned here (not by the composer) so the emoji button can hand focus back
+  /// to the field: closing the panel has to *open the keyboard*, and only the
+  /// focus node can do that.
+  final FocusNode _composerFocus = FocusNode();
+
   bool _isLoadingMore = false;
   bool _showScrollToBottom = false;
   bool _showStickers = false;
+
+  /// Last non-zero system keyboard height. The emoji panel is drawn at exactly
+  /// that height, so swapping between the keyboard and the panel doesn't resize
+  /// the message list under the user.
+  double _keyboardHeight = 0;
 
   /// Set once the user picks a time in the «زمان‌بندی ارسال» sheet: the
   /// composer then schedules on send instead of sending now. Cleared after the
@@ -110,12 +121,21 @@ class _ConversationScreenState extends State<ConversationScreen> {
     context.read<ScheduledMessageBloc>().add(const LoadScheduled());
     _scrollController.addListener(_onScroll);
     _messageController.addListener(_onComposerChanged);
+    // Tapping the text field while the emoji panel is open means "I want the
+    // keyboard" — close the panel so the two are never stacked.
+    _composerFocus.addListener(_onComposerFocusChanged);
     _restoreComposerDraft();
     // Native notifier: suppress notifications for this (visible) thread and
     // dismiss the ones already in the shade.
     DeepLinkService.instance
       ..setVisibleThread(widget.threadId)
       ..clearThreadNotifications(widget.threadId);
+  }
+
+  void _onComposerFocusChanged() {
+    if (_composerFocus.hasFocus && _showStickers) {
+      setState(() => _showStickers = false);
+    }
   }
 
   /// Keeps the send button in sync and caches the draft synchronously so the
@@ -180,8 +200,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
     DeepLinkService.instance.setVisibleThread(null);
     _saveComposerDraft();
     _scrollController.removeListener(_onScroll);
+    _composerFocus.removeListener(_onComposerFocusChanged);
     _messageController.dispose();
     _scrollController.dispose();
+    _composerFocus.dispose();
     _messageBloc.add(const LoadThreads());
     super.dispose();
   }
@@ -240,6 +262,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Remember how tall the system keyboard is while it is up, so the emoji
+    // panel can take exactly its place. Assigned without setState on purpose:
+    // it is only ever read on a later build (opening the panel is itself a
+    // setState), and calling setState from build would loop.
+    final inset = MediaQuery.viewInsetsOf(context).bottom;
+    if (inset > 120 && inset != _keyboardHeight) _keyboardHeight = inset;
+
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
@@ -810,14 +839,14 @@ class _ConversationScreenState extends State<ConversationScreen> {
   Widget _buildComposer() {
     return MessageComposer(
       controller: _messageController,
+      focusNode: _composerFocus,
       showStickers: _showStickers,
-      onToggleStickers: () {
-        if (!_showStickers) FocusScope.of(context).unfocus();
-        setState(() => _showStickers = !_showStickers);
-      },
+      stickerPanelHeight: _keyboardHeight > 120 ? _keyboardHeight : 280,
+      onToggleStickers: _toggleStickers,
       onAttach: _showAttachmentSheet,
       onSend: _sendMessage,
       onStickerSelected: _insertSticker,
+      onStickerBackspace: _backspaceComposer,
       // Long-press send → the quick «زمان‌بندی ارسال» sheet.
       onSchedule: _armSchedule,
       scheduledAt: _pendingSchedule?.at,
@@ -841,6 +870,26 @@ class _ConversationScreenState extends State<ConversationScreen> {
     setState(() => _pendingSchedule = choice);
   }
 
+  /// Swaps the emoji panel and the system keyboard.
+  ///
+  /// Closing the panel must **request focus and ask for the input view**, not
+  /// merely hide the panel: the button showed a keyboard glyph but only closed
+  /// the emoji grid, leaving the user with neither. `TextInput.show` is needed
+  /// alongside `requestFocus` because the node can still hold focus (the field
+  /// keeps its cursor while the panel is up), and a no-op focus request does
+  /// not raise the keyboard.
+  void _toggleStickers() {
+    if (_showStickers) {
+      setState(() => _showStickers = false);
+      _composerFocus.requestFocus();
+      SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+    } else {
+      // Drop the keyboard first so the panel isn't stacked on top of it.
+      _composerFocus.unfocus();
+      setState(() => _showStickers = true);
+    }
+  }
+
   /// Inserts an emoji at the cursor so several can be picked before sending
   /// (instead of each tap sending its own message).
   void _insertSticker(String emoji) {
@@ -852,6 +901,41 @@ class _ConversationScreenState extends State<ConversationScreen> {
     _messageController.value = TextEditingValue(
       text: newText,
       selection: TextSelection.collapsed(offset: start + emoji.length),
+    );
+  }
+
+  /// The emoji panel's backspace: deletes one whole emoji (surrogate pair, ZWJ
+  /// sequence and variation selectors included) before the cursor.
+  void _backspaceComposer() {
+    final value = _messageController.value;
+    final text = value.text;
+    final selection = value.selection;
+    final end = selection.isValid ? selection.start : text.length;
+    if (!selection.isCollapsed && selection.isValid) {
+      _messageController.value = TextEditingValue(
+        text: text.replaceRange(selection.start, selection.end, ''),
+        selection: TextSelection.collapsed(offset: selection.start),
+      );
+      return;
+    }
+    if (end <= 0) return;
+    var start = end - 1;
+    while (start > 0) {
+      final unit = text.codeUnitAt(start);
+      final previous = text.codeUnitAt(start - 1);
+      final pairedSurrogate =
+          unit >= 0xDC00 && unit <= 0xDFFF && previous >= 0xD800 &&
+          previous <= 0xDBFF;
+      final joined = unit == 0x200D || previous == 0x200D || unit == 0xFE0F;
+      if (pairedSurrogate || joined) {
+        start--;
+        continue;
+      }
+      break;
+    }
+    _messageController.value = TextEditingValue(
+      text: text.replaceRange(start, end, ''),
+      selection: TextSelection.collapsed(offset: start),
     );
   }
 

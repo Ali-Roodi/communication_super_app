@@ -131,6 +131,26 @@ The stale-row diff (`removeRowsMissingFromDevice`) runs **inside SQLite** agains
 
 **Contacts:** all writes go straight to the device address book via `flutter_contacts` (`AddEditContactScreen`); there are deliberately NO create/update/delete bloc events. `ContactRepository.getContactByPhoneNumber` resolves against the device-contact cache (normalized-number match) — the local `contacts` table is legacy and nothing writes to it.
 
+The static contact cache carries a **generation counter**: `invalidateCache()` / `forceRefresh` bump it, and a read that started before the bump refuses to publish its (pre-write) snapshot. Saving a contact invalidates the cache while the `FlutterContacts.addListener` refresh already has a read in flight — without the guard that stale snapshot won, and a contact added from a call log stayed missing from the list *and* the search until the next app start.
+
+### Contact search
+
+Every contact filter — the contacts tab, the dialer suggestions, `searchContacts` — goes through `SearchText` (`core/utils/search_text.dart`) and `ContactRepository.matchContacts` / `matchPhoneDigits`. A raw `String.contains` is not a search on this address book and missed contacts that were plainly there:
+
+- **Numbers are matched in every equivalent form.** `+98…` ≡ `0098…` ≡ `98…` ≡ `09…` ≡ `9…` — both the stored number and the typed query are expanded (`SearchText.phoneForms` / `queryForms`), so a contact saved as `+98 912 123 4567` is found by any of them. Asymmetry that must stay: the digits **as typed** match anywhere in the number, but a form derived by stripping a trunk `0` or the `98` country code only matches at the **start** — otherwise searching `021…` returned every mobile containing `21`.
+- **Names are folded**: ي→ی, ك→ک, آ/أ/إ→ا, ة→ه, ؤ→و, harakat/ZWNJ/bidi marks dropped, Persian+Arabic digits → ASCII, and spacing optional («محمدرضا» finds «محمد رضا»). Highlighting uses `SearchText.matchRange`, which returns indices into the *original* string — folding drops characters, so an index taken on the folded copy lands on the wrong letter.
+- **Performance:** a query is compiled **once per list** into a `PhoneQuery`, never per contact, and `phoneForms` is memoized per number string. Both matter: this runs over the whole address book per keystroke. The contacts screen also resolves the matched number per *query* (`_resultNumbers`), not in each row's `build`.
+- `DialerBloc._onFilterContacts` **re-reads `getAllContacts()` on every filter** (a cached-list hand-back in the normal case). Filtering the snapshot taken in the constructor is why a number just saved never became a suggestion until restart.
+
+### Keypad touch
+
+`DialKey` fires **on touch-down, through a raw `Listener`** — not on an `InkWell` tap. The keypad lives inside a draggable modal bottom sheet, so a tap recognizer has to win a gesture arena against the sheet's vertical drag: dialing fast means each press carries a few pixels of movement, the drag claims the pointer, and the tap is never delivered — digits went missing exactly when typing quickly. A `Listener` is not an arena member, so its callbacks always arrive (and two thumbs can type at once).
+
+Consequences to preserve:
+- Long-press is a **timer started on down**, cancelled by a release or by sliding past the slop — a `GestureDetector` long-press would be back in the arena.
+- The digit is already typed when a long-press fires, so `_longPressFor` **deletes it first** (`0` → «۰» then «+»; `1` → delete then voicemail).
+- `DialerScreen` has **no top-level `BlocBuilder`**. Every keypress emits a state, and rebuilding the 12 animating keys plus the suggestion list between one finger-down and the next is exactly the work that made presses land late. Only `DialerNumberDisplay`, the suggestions and the call pill sit in (narrow, `buildWhen`-gated) builders; `_KeyGrid` is built once, and the dialpad-tone setting is read per press instead of per build.
+
 ### Default dialer role & in-call UI
 
 The app also requests the **default-dialer role** (ROLE_DIALER) — `CallHandler.requestDefaultDialerRole` (RoleManager Q+, `ACTION_CHANGE_DEFAULT_DIALER` before; resolved in `MainActivity.onActivityResult`). While the app holds the role, telecom binds `CallInCallService` and **this app is the ONLY call UI on the device**, incoming and outgoing:
@@ -159,6 +179,16 @@ ALL incoming-SMS notifications are posted natively by `SmsNotifier` — from the
 - Notifications are tagged with the threadId; opening a conversation calls `clearThreadNotifications` and `setVisibleThread` over the intents channel — `SmsNotifier` suppresses notifications for the visible thread while the activity is resumed.
 - Tap deep-links: the launch intent carries a `threadId` extra → `DeepLinkService` (cold start: `consumeInitialThreadId` in MainNavigation; warm: `onNewIntent` → `openThread`). Registered post-auth so a tap never bypasses the app lock.
 - Blocked numbers are enforced in BOTH receive paths natively (`BlockedNumbers.isBlocked` mirrors `PhoneNormalizer`) and in the Dart listeners; `SmsDeliverReceiver` also skips the provider write, and `CallInCallService` rejects ringing calls from blocked numbers before any UI. Missed calls post a native «تماس بی‌پاسخ» notification (default-dialer duty).
+
+### Emoji panel
+
+`EmojiPanel` (`messages/screens/widgets/emoji_panel.dart`) is the composer's emoji keyboard: category strip, one continuous scroll with inline headings, «اخیر» fed by what the user picks (SharedPreferences), skin-tone variants on long-press, and its own backspace. It replaced a flat 130-emoji grid from which a flag or a vehicle was simply unreachable.
+
+- **Closing the panel must open the keyboard.** `ConversationScreen` owns `_composerFocus` and `_toggleStickers` does `requestFocus()` **plus `SystemChannels.textInput.invokeMethod('TextInput.show')`** — the node can still hold focus while the panel is up, and a no-op focus request does not raise the keyboard. The button showed a keyboard glyph but only closed the grid, leaving the user with neither.
+- Focusing the text field closes the panel (`_onComposerFocusChanged`), so the two are never stacked.
+- The panel is drawn at the last measured keyboard height (`MediaQuery.viewInsetsOf` captured in `build` without `setState`), so swapping keyboard↔panel doesn't resize the message list.
+- The active tab is a `ValueNotifier`, not `setState`: it changes continuously while scrolling and rebuilding the panel would rebuild every grid sliver.
+- Skin tones: the modifier goes straight after the base code point and **replaces** a following `FE0F` (✌️ is `270C FE0F`; its toned form is `270C 1F3FD`, not `270C FE0F 1F3FD`, which renders a stray colour swatch).
 
 ### Delivery status (bubble ticks)
 
