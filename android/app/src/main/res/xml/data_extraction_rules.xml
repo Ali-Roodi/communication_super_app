@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ (API 31) backup/transfer rules.
+
+  `android:allowBackup="false"` already blocks cloud backup, but it does NOT
+  block device-to-device transfer — that path is governed solely by
+  <device-transfer> here. Both are excluded: the app's SQLite database is the
+  full plain-text SMS/call history, and the credential that locks the UI over it
+  lives in the Keystore and does not travel, so a transferred copy would be
+  readable with no PIN at all.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="file" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="file" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>

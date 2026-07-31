@@ -29,6 +29,37 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // The app ships arm64 only. See the `packaging` block below — this
+        // declares the intent, that block is what enforces it.
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
+    }
+
+    // Ship exactly ONE ABI directory.
+    //
+    // The engine (`libflutter.so` / `libapp.so`) is arm64-only, but plugin AARs
+    // still contributed a stub `.so` for the other ABIs, so the APK carried an
+    // otherwise-empty `lib/armeabi-v7a/` and `lib/x86_64/`. An armeabi-v7a
+    // device reads that directory as "this ABI is supported": it installs
+    // happily, picks v7a as its primary ABI, finds no libflutter.so and dies
+    // with UnsatisfiedLinkError on the first launch. With the directory gone
+    // the same device rejects the install outright — a clean "not compatible"
+    // beats a crash on start.
+    //
+    // `defaultConfig.ndk.abiFilters` does NOT remove these on its own (the
+    // arm64-only builds above already carried them), which is why the exclude
+    // is spelled out here.
+    packaging {
+        jniLibs {
+            excludes += setOf(
+                "lib/armeabi-v7a/**",
+                "lib/armeabi/**",
+                "lib/x86/**",
+                "lib/x86_64/**",
+            )
+        }
     }
 
     buildTypes {
