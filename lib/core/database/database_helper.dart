@@ -212,6 +212,14 @@ class DatabaseHelper {
         ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0
       ''');
     }
+
+    // v15: message_templates — reusable message bodies with `[...]` placeholders
+    // («قالب آماده»). Seeded with the built-in templates, which are ordinary
+    // rows from then on: the user may edit, pin or delete them.
+    if (oldVersion < 15) {
+      await _createMessageTemplatesTable(db);
+      await _seedMessageTemplates(db);
+    }
   }
 
   /// v13 index backing the «ستاره‌دار» screen.
@@ -314,6 +322,101 @@ class DatabaseHelper {
         FOREIGN KEY (category_id) REFERENCES ${AppConstants.messageCategoriesTable}(id) ON DELETE SET NULL
       )
     ''');
+  }
+
+  Future<void> _createMessageTemplatesTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE ${AppConstants.messageTemplatesTable} (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        use_contact_name INTEGER NOT NULL DEFAULT 0,
+        is_pinned INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+    // The board reads the whole table in one sorted query.
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_templates_sort
+      ON ${AppConstants.messageTemplatesTable}(is_pinned DESC, updated_at DESC)
+    ''');
+  }
+
+  /// The templates the app ships with. Ids are fixed strings so the seed is
+  /// idempotent (INSERT OR IGNORE) even if it ever runs twice; everything else
+  /// about them is user-editable from «قالب‌های آماده».
+  ///
+  /// `[...]` names drive the generated form — see `TemplateEngine`. A «تاریخ» +
+  /// «زمان» pair is asked for with one picker, so writing both here is what
+  /// produces the Figma «تاریخ و زمان» row.
+  Future<void> _seedMessageTemplates(Database db) async {
+    const seeds = <(String, String, String, int)>[
+      (
+        'tpl-meeting',
+        'دعوت‌نامه جلسه',
+        'جلسه [عنوان] در مورخه [تاریخ] ساعت [زمان] در محل [مکان] برقرار می‌باشد.\n[توضیحات]',
+        1,
+      ),
+      (
+        'tpl-reminder',
+        'یادآوری قرار',
+        'یادآوری می‌شود [عنوان] در مورخه [تاریخ] ساعت [زمان] برگزار می‌شود.',
+        1,
+      ),
+      (
+        'tpl-payment',
+        'اطلاع واریز',
+        'مبلغ [مبلغ] تومان بابت [بابت] در تاریخ [تاریخ] واریز شد.\n[توضیحات]',
+        1,
+      ),
+      (
+        'tpl-congrats',
+        'تبریک',
+        '[مناسبت] را صمیمانه به شما تبریک می‌گویم.',
+        1,
+      ),
+      (
+        'tpl-thanks',
+        'تشکر',
+        'با سلام، از پیگیری و همراهی شما سپاسگزارم.',
+        0,
+      ),
+      (
+        'tpl-followup',
+        'پیگیری',
+        'با سلام، جهت پیگیری موضوع مطرح‌شده مزاحم شدم. ممنون می‌شوم در صورت امکان پاسخ بفرمایید.',
+        0,
+      ),
+      (
+        'tpl-call',
+        'هماهنگی تماس',
+        'با سلام، چه زمانی برای یک تماس کوتاه در دسترس هستید؟',
+        0,
+      ),
+      (
+        'tpl-apology',
+        'عذرخواهی بابت تأخیر',
+        'با سلام، بابت تأخیر پیش‌آمده پوزش می‌خواهم. [توضیحات]',
+        0,
+      ),
+    ];
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final batch = db.batch();
+    // Seeded newest-first in list order: each row is stamped a millisecond
+    // older than the one before, so the board opens in the order written here.
+    for (var i = 0; i < seeds.length; i++) {
+      final (id, title, body, useName) = seeds[i];
+      batch.insert(AppConstants.messageTemplatesTable, {
+        'id': id,
+        'title': title,
+        'body': body,
+        'use_contact_name': useName,
+        'is_pinned': 0,
+        'updated_at': now - i,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
+    await batch.commit(noResult: true);
   }
 
   Future<void> _createScheduledMessagesTable(Database db) async {
@@ -452,6 +555,10 @@ class DatabaseHelper {
       // Message categories + drafts (Messages "pro" suite)
       await _createMessageCategoriesTable(db);
       await _createDraftsTable(db);
+
+      // Message templates + the built-ins the app ships with (v15)
+      await _createMessageTemplatesTable(db);
+      await _seedMessageTemplates(db);
 
       // Scheduled outgoing messages
       await _createScheduledMessagesTable(db);

@@ -13,6 +13,7 @@ class MessagesDefaultAppBar extends StatelessWidget {
     required this.onSearch,
     required this.onOpenArchived,
     required this.onOpenDrafts,
+    required this.onOpenTemplates,
     required this.onOpenScheduled,
     required this.onOpenSettings,
     required this.onOpenStarred,
@@ -21,6 +22,7 @@ class MessagesDefaultAppBar extends StatelessWidget {
   final VoidCallback onSearch;
   final VoidCallback onOpenArchived;
   final VoidCallback onOpenDrafts;
+  final VoidCallback onOpenTemplates;
   final VoidCallback onOpenScheduled;
   final VoidCallback onOpenSettings;
   final VoidCallback onOpenStarred;
@@ -69,6 +71,8 @@ class MessagesDefaultAppBar extends StatelessWidget {
                 onOpenArchived();
               case 'drafts':
                 onOpenDrafts();
+              case 'templates':
+                onOpenTemplates();
               case 'scheduled':
                 onOpenScheduled();
               case 'settings':
@@ -79,6 +83,7 @@ class MessagesDefaultAppBar extends StatelessWidget {
             PopupMenuItem(value: 'starred', child: Text('ستاره‌دار')),
             PopupMenuItem(value: 'archived', child: Text('بایگانی')),
             PopupMenuItem(value: 'drafts', child: Text('پیش‌نویس‌ها')),
+            PopupMenuItem(value: 'templates', child: Text('قالب‌های آماده')),
             PopupMenuItem(value: 'scheduled', child: Text('زمان‌بندی‌شده‌ها')),
             PopupMenuItem(value: 'settings', child: Text('تنظیمات')),
           ],
