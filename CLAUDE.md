@@ -222,6 +222,19 @@ ALL incoming-SMS notifications are posted natively by `SmsNotifier` — from the
 - Tap deep-links: the launch intent carries a `threadId` extra → `DeepLinkService` (cold start: `consumeInitialThreadId` in MainNavigation; warm: `onNewIntent` → `openThread`). Registered post-auth so a tap never bypasses the app lock.
 - Blocked numbers are enforced in BOTH receive paths natively (`BlockedNumbers.isBlocked` mirrors `PhoneNormalizer`) and in the Dart listeners; `SmsDeliverReceiver` also skips the provider write, and `CallInCallService` rejects ringing calls from blocked numbers before any UI. Missed calls post a native «تماس بی‌پاسخ» notification (default-dialer duty).
 
+### Composer growth
+
+The composer's field grows with the message and then scrolls inside itself,
+measured against Google Messages on a real device: it stops at ~10 lines
+(~320 dp), keeps the «+» / emoji buttons pinned to the bottom line, and never
+changes its 28 dp corner radius.
+
+`MessageComposer._maxLinesFor` derives `maxLines` from the space actually left
+on screen (`size.height − padding.top − max(keyboard inset, emoji-panel height)
+− _kReservedForChat`), clamped to `_kMaxLines`. The cap must stay a **height**,
+not a plain `maxLines: 10`: with the emoji panel open a ten-line field plus the
+panel is taller than the screen and the composer's `Column` overflows.
+
 ### Emoji panel
 
 `EmojiPanel` (`messages/screens/widgets/emoji_panel.dart`) is the composer's emoji keyboard: category strip, one continuous scroll with inline headings, «اخیر» fed by what the user picks (SharedPreferences), skin-tone variants on long-press, and its own backspace. It replaced a flat 130-emoji grid from which a flag or a vehicle was simply unreachable.
