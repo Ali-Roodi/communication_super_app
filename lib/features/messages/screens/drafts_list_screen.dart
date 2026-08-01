@@ -6,6 +6,7 @@ import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
 import 'package:communication_super_app/core/widgets/selection_app_bar.dart';
+import 'package:communication_super_app/core/widgets/two_column_board.dart';
 import '../bloc/draft_bloc.dart';
 import '../bloc/draft_event.dart';
 import '../bloc/draft_state.dart';
@@ -433,11 +434,7 @@ class _CategoryChips extends StatelessWidget {
 
 // ── The board ────────────────────────────────────────────────────────────────
 
-/// Two lazily-built columns side by side, cards dealt alternately between them.
-///
-/// A `SliverGrid` would force every card to the same height and a `Column` of
-/// all drafts would build them all at once; [SliverCrossAxisGroup] keeps both
-/// columns lazy while letting each card be exactly as tall as its text.
+/// The drafts board — [SliverTwoColumnBoard] dealing [_DraftCard]s.
 class _DraftBoard extends StatelessWidget {
   const _DraftBoard({
     required this.drafts,
@@ -453,65 +450,16 @@ class _DraftBoard extends StatelessWidget {
   final ValueChanged<Draft> onTap;
   final ValueChanged<Draft>? onLongPress;
 
-  /// Space between a card and the edge of the sheet.
-  static const double _outerGap = 16;
-
-  /// Space between the two columns (half on each card).
-  static const double _innerGap = 6;
-
   @override
   Widget build(BuildContext context) {
-    // `SliverCrossAxisGroup` places its children left-to-right and does NOT
-    // mirror for an RTL Directionality, so the leading column is chosen here.
-    // Without this the board dealt the first draft to the *left* and read
-    // backwards on a Persian screen.
-    final rtl = Directionality.of(context) == TextDirection.rtl;
-    final leading = rtl ? 1 : 0; // logical column drawn on the physical left
-    return SliverCrossAxisGroup(
-      slivers: [
-        SliverCrossAxisExpanded(
-          flex: 1,
-          sliver: _column(
-            leading,
-            const EdgeInsets.only(left: _outerGap, right: _innerGap),
-          ),
-        ),
-        SliverCrossAxisExpanded(
-          flex: 1,
-          sliver: _column(
-            1 - leading,
-            const EdgeInsets.only(left: _innerGap, right: _outerGap),
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// Physical padding, not directional: the group already fixed the sides, and
-  /// an `EdgeInsetsDirectional` here would mirror them back.
-  Widget _column(int column, EdgeInsets padding) {
-    final items = [
-      for (var i = column; i < drafts.length; i += 2) drafts[i],
-    ];
-    return SliverPadding(
-      padding: padding,
-      sliver: SliverList.builder(
-        itemCount: items.length,
-        itemBuilder: (context, i) {
-          final draft = items[i];
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: _DraftCard(
-              draft: draft,
-              selectionMode: selectionMode,
-              selected: selected.contains(draft.id),
-              onTap: () => onTap(draft),
-              onLongPress: onLongPress == null
-                  ? null
-                  : () => onLongPress!(draft),
-            ),
-          );
-        },
+    return SliverTwoColumnBoard<Draft>(
+      items: drafts,
+      itemBuilder: (context, draft) => _DraftCard(
+        draft: draft,
+        selectionMode: selectionMode,
+        selected: selected.contains(draft.id),
+        onTap: () => onTap(draft),
+        onLongPress: onLongPress == null ? null : () => onLongPress!(draft),
       ),
     );
   }

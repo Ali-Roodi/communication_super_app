@@ -24,7 +24,7 @@ import '../bloc/scheduled_event.dart';
 import '../bloc/scheduled_state.dart';
 import '../models/scheduled_message_model.dart';
 import 'drafts_list_screen.dart';
-import 'template_picker_screen.dart';
+import 'templates_list_screen.dart';
 import 'widgets/message_bubble.dart';
 import 'contact_selector_screen.dart';
 import 'widgets/conversation_app_bars.dart';
