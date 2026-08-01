@@ -111,6 +111,44 @@ class MessageComposer extends StatelessWidget {
   /// concatenated); Unicode (e.g. Persian) messages fit only 70 (67 per part).
   static bool _isUnicode(String s) => s.runes.any((r) => r > 0x7F);
 
+  // ── Growing field ──────────────────────────────────────────────────────────
+  //
+  // Google Messages' composer grows with the message and stops at ten-ish
+  // lines, after which the text scrolls inside it (measured on the device:
+  // ~11 lines, ~321 dp, then the box stops moving). These are the same rules.
+
+  /// Ceiling on the field's growth, in lines.
+  static const int _kMaxLines = 10;
+
+  static const double _kFontSize = 16;
+
+  /// Matches `bodyLarge` — the bubbles' line spacing, so a message looks the
+  /// same while it is typed and after it is sent.
+  static const double _kLineHeight = 1.45;
+
+  /// Space the composer must leave for the app bar and a strip of conversation.
+  /// Without it a ten-line message plus an open emoji panel is taller than the
+  /// screen, and the composer's `Column` overflows.
+  static const double _kReservedForChat = 200;
+
+  /// How many lines fit above the keyboard (or the emoji panel) right now.
+  ///
+  /// The cap is a *height*, not a line count, so the field can never grow into
+  /// the panel; on a tall screen with the keyboard down it resolves to the full
+  /// [_kMaxLines].
+  static int _maxLinesFor(BuildContext context, double panelHeight) {
+    final media = MediaQuery.of(context);
+    // The keyboard and the emoji panel never occupy the screen at once — the
+    // panel is only drawn while the keyboard is down.
+    final occupied = media.viewInsets.bottom > panelHeight
+        ? media.viewInsets.bottom
+        : panelHeight;
+    final free =
+        media.size.height - media.padding.top - occupied - _kReservedForChat;
+    final lines = (free / (_kFontSize * _kLineHeight)).floor();
+    return lines.clamp(1, _kMaxLines);
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -185,9 +223,17 @@ class MessageComposer extends StatelessWidget {
                               controller: controller,
                               focusNode: focusNode,
                               minLines: 1,
-                              maxLines: 4,
+                              // Grows line by line and then scrolls inside
+                              // itself, exactly like Google Messages.
+                              maxLines: _maxLinesFor(
+                                context,
+                                showStickers ? stickerPanelHeight : 0,
+                              ),
                               textInputAction: TextInputAction.newline,
-                              style: const TextStyle(fontSize: 16),
+                              style: const TextStyle(
+                                fontSize: _kFontSize,
+                                height: _kLineHeight,
+                              ),
                               decoration: const InputDecoration(
                                 hintText: 'پیامک',
                                 isDense: true,
