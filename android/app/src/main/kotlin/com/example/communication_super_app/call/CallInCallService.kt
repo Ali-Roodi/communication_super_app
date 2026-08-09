@@ -96,6 +96,24 @@ class CallInCallService : InCallService() {
         private fun phoneOf(call: Call): String =
             call.details?.handle?.schemeSpecificPart ?: ""
 
+        /**
+         * True for a dialed string telephony handles as an **MMI/USSD code**
+         * («*100#», «*140*11#», «*#06#», «**21*شماره#») rather than as a voice
+         * call — the same rule AOSP's `TelephonyConnectionService` applies:
+         * starts with `*` or `#` **and** ends with `#`.
+         *
+         * The trailing `#` matters. «#31#09121234567» is an MMI *prefix* on a
+         * real call (per-call caller-ID suppression) and must keep the normal
+         * call UI, which this correctly reports as false.
+         */
+        @JvmStatic
+        fun isMmiCode(number: String): Boolean {
+            val n = number.trim()
+            return n.length >= 2 &&
+                (n.startsWith("*") || n.startsWith("#")) &&
+                n.endsWith("#")
+        }
+
         private fun directionOf(call: Call): String {
             val dir = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 call.details?.callDirection
@@ -145,6 +163,17 @@ class CallInCallService : InCallService() {
     override fun onCallAdded(call: Call) {
         super.onCallAdded(call)
         Log.d(TAG, "onCallAdded state=${call.state}")
+
+        // USSD/MMI: telephony answers it itself (com.android.phone puts the
+        // network's reply in its own dialog) and destroys the connection within
+        // a few hundred ms. It is NOT a call, so it must not be tracked: doing
+        // so flashed the in-call screen up and pulled the activity to the front
+        // — twice, counting the 2 s Samsung re-assert below — right over the
+        // USSD dialog the user is meant to read.
+        if (isMmiCode(phoneOf(call))) {
+            Log.d(TAG, "Ignoring MMI/USSD dial — telephony owns the UI")
+            return
+        }
 
         // Blocked caller: reject immediately, show nothing. Telecom records
         // the rejected call in the call log (typed BLOCKED/REJECTED), so it
@@ -248,6 +277,11 @@ class CallInCallService : InCallService() {
 
     override fun onCallRemoved(call: Call) {
         super.onCallRemoved(call)
+        // Never added by onCallAdded (an MMI dial, or a blocked caller rejected
+        // on arrival): there is no UI state to tear down, and running the rest
+        // would publish a DISCONNECTED for a call the app never announced —
+        // which, with a real call also up, would repaint the live call's screen.
+        if (!trackedCalls.contains(call)) return
         call.unregisterCallback(callCallback)
         trackedCalls.remove(call)
         cancelIncomingCallNotification()

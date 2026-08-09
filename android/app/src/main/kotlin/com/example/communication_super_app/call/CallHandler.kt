@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Build
 import android.telecom.TelecomManager
 import android.telecom.VideoProfile
+import android.telephony.PhoneNumberUtils
 import android.util.Log
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -238,11 +239,22 @@ class CallHandler(
     // CallConnection (self-managed VoIP path).
 
     private fun makeCall(phone: String, result: MethodChannel.Result) {
-        val clean = phone.replace(Regex("[^+0-9]"), "")
+        // PhoneNumberUtils.stripSeparators, NOT a hand-rolled `[^+0-9]` strip.
+        // The platform's own rule keeps every character that is actually
+        // dialable — `*` `#` (USSD/MMI: «*100#», «*140*11#», call forwarding),
+        // `,` `;` (post-dial pause/wait for IVR extensions stored in contacts)
+        // and `N` — and it folds Persian/Arabic-Indic digits to ASCII on the
+        // way (Character.digit), which the regex did not. The old strip is why
+        // no USSD code could ever be dialed: «*100#» reached telecom as «100».
+        val clean = PhoneNumberUtils.stripSeparators(phone) ?: ""
         if (clean.isEmpty()) {
             result.error("INVALID_NUMBER", "شماره تلفن معتبر نیست", null)
             return
         }
+        // fromParts takes the DECODED ssp, so the `#` is percent-escaped for us
+        // (`tel:*100%23`) and telecom hands telephony back the literal «*100#»
+        // via getSchemeSpecificPart(). Uri.parse("tel:$clean") would truncate
+        // at the `#` — it would read as a fragment.
         val uri = Uri.fromParts("tel", clean, null)
         if (isDefaultDialer()) {
             // Default-dialer path: TelecomManager.placeCall is the direct API —
@@ -252,7 +264,10 @@ class CallHandler(
             val tm = context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
             tm.placeCall(uri, android.os.Bundle())
         } else {
-            // Not the default dialer: hand over to the system dialer app.
+            // Not the default dialer: hand over to the system dialer app. An
+            // MMI code survives this too — but only because [uri] escapes the
+            // `#`; the usual "ACTION_CALL can't dial USSD" folklore is really
+            // Uri.parse("tel:*100#") losing everything from the `#` onwards.
             val intent = Intent(Intent.ACTION_CALL, uri).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
