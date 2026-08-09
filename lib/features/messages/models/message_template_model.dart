@@ -127,6 +127,12 @@ abstract class TemplateEngine {
   static final RegExp placeholder = RegExp(r'\[([^\[\]\n]{1,40})\]');
 
   static final RegExp _spaceBeforePunctuation = RegExp(r' +([.،؛:!؟])');
+
+  /// Both compiled once: the fill screen re-renders the preview on every
+  /// keystroke, and the second of these used to be built *inside* the loop over
+  /// the template's placeholders.
+  static final RegExp _trailingBlanks = RegExp(r'[ \t]+$');
+  static final RegExp _whitespace = RegExp(r'[\s\n]');
   static final RegExp _runOfSpaces = RegExp(r'[ \t]{2,}');
 
   /// Distinct placeholder names, in the order they appear.
@@ -246,11 +252,11 @@ abstract class TemplateEngine {
   /// introduced was dropped. Only an exact trailing word is taken, and only
   /// when it stands on its own («…در محل» → «…», but «…مدیر» stays).
   static String _dropDanglingConnector(String text) {
-    final trimmed = text.replaceFirst(RegExp(r'[ \t]+$'), '');
+    final trimmed = text.replaceFirst(_trailingBlanks, '');
     for (final word in _connectors) {
       if (!trimmed.endsWith(word)) continue;
       final at = trimmed.length - word.length;
-      if (at > 0 && !RegExp(r'[\s\n]').hasMatch(trimmed[at - 1])) continue;
+      if (at > 0 && !_whitespace.hasMatch(trimmed[at - 1])) continue;
       return trimmed.substring(0, at);
     }
     return text;

@@ -26,24 +26,34 @@ class FavoritesRepository {
     );
   }
 
-  Future<void> removeFavorite(String normalized) async {
+  /// Accepts a canonical key **or** a raw number: it is normalized here, so a
+  /// caller holding a display number cannot miss the row by asking with the
+  /// wrong format (the same guarantee `BlockedNumbersRepository` gives).
+  Future<void> removeFavorite(String normalizedOrRaw) async {
     final db = await _dbHelper.database;
     await db.delete(
       AppConstants.favoritesTable,
       where: 'normalized = ?',
-      whereArgs: [normalized],
+      whereArgs: [_key(normalizedOrRaw)],
     );
   }
 
-  Future<bool> isFavorite(String normalized) async {
+  Future<bool> isFavorite(String normalizedOrRaw) async {
     final db = await _dbHelper.database;
     final rows = await db.query(
       AppConstants.favoritesTable,
       columns: ['id'],
       where: 'normalized = ?',
-      whereArgs: [normalized],
+      whereArgs: [_key(normalizedOrRaw)],
       limit: 1,
     );
     return rows.isNotEmpty;
+  }
+
+  /// Canonical key, falling back to the caller's string when it holds no digits
+  /// (so a nonsense value simply matches nothing rather than every row).
+  static String _key(String value) {
+    final normalized = FavoriteModel.normalize(value);
+    return normalized.isEmpty ? value : normalized;
   }
 }

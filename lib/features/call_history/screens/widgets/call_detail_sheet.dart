@@ -458,7 +458,10 @@ class _CallRow extends StatelessWidget {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-String _normalize(String phone) => phone.replaceAll(RegExp(r'[^\d]'), '');
+/// Canonical form, not a digits-only strip: this is what «تماس‌ها با این
+/// مخاطب» filters the loaded history by, and a raw strip missed every call the
+/// carrier delivered in a different format.
+String _normalize(String phone) => PhoneNormalizer.toNational(phone);
 
 Color _callColor(CallType type) {
   switch (type) {

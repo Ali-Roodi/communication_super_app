@@ -12,18 +12,6 @@ class LoadTheme extends ThemeEvent {
   const LoadTheme();
 }
 
-class ToggleTheme extends ThemeEvent {
-  const ToggleTheme();
-}
-
-class SetDarkTheme extends ThemeEvent {
-  const SetDarkTheme();
-}
-
-class SetLightTheme extends ThemeEvent {
-  const SetLightTheme();
-}
-
 /// Set an explicit theme mode (light / dark / system).
 class SetThemeMode extends ThemeEvent {
   final AppThemeMode mode;
@@ -67,9 +55,9 @@ class ThemeBloc extends Bloc<ThemeEvent, ThemeState> {
 
   ThemeBloc() : super(ThemeState.light) {
     on<LoadTheme>(_onLoad);
-    on<ToggleTheme>(_onToggle);
-    on<SetDarkTheme>((_, emit) => _persist(emit, AppThemeMode.dark));
-    on<SetLightTheme>((_, emit) => _persist(emit, AppThemeMode.light));
+    // Only these two: the theme is set from Settings, which always names the
+    // mode it wants. The old toggle/set-dark/set-light trio was never
+    // dispatched from anywhere.
     on<SetThemeMode>((e, emit) => _persist(emit, e.mode));
   }
 
@@ -90,11 +78,6 @@ class ThemeBloc extends Bloc<ThemeEvent, ThemeState> {
     // Migrate from the legacy bool key.
     final isDark = prefs.getBool(_legacyKey) ?? false;
     emit(ThemeState(isDark ? AppThemeMode.dark : AppThemeMode.light));
-  }
-
-  Future<void> _onToggle(ToggleTheme event, Emitter<ThemeState> emit) async {
-    final next = state.isDark ? AppThemeMode.light : AppThemeMode.dark;
-    await _persist(emit, next);
   }
 
   Future<void> _persist(Emitter<ThemeState> emit, AppThemeMode mode) async {

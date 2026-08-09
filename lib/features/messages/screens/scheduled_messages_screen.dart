@@ -7,6 +7,7 @@ import '../bloc/scheduled_bloc.dart';
 import '../bloc/scheduled_event.dart';
 import '../bloc/scheduled_state.dart';
 import '../models/scheduled_message_model.dart';
+import '../models/template_wire.dart';
 import 'widgets/schedule_send_sheet.dart';
 
 /// Lists scheduled outgoing messages: upcoming (pending) first, then a history
@@ -168,7 +169,12 @@ class _ScheduledTile extends StatelessWidget {
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(message.body, maxLines: 1, overflow: TextOverflow.ellipsis),
+          Text(
+            // A scheduled template holds its compact payload — show the message.
+            TemplateWire.displayText(message.body),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
           const SizedBox(height: 2),
           Text(
             '${_fa(DateFormatter.formatDateTime(message.scheduledAt))} · ${_repeatSummary()}'

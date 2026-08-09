@@ -42,9 +42,6 @@ class AuthUnauthenticated extends AuthState {
   List<Object?> get props => [error];
 }
 
-class AuthValidationSuccess extends AuthState {
-  const AuthValidationSuccess();
-}
 
 class AuthValidationFailure extends AuthState {
   final String error;

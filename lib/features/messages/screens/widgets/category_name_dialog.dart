@@ -10,6 +10,9 @@ Future<String?> showCategoryNameDialog(
   required String title,
   String? initial,
 }) async {
+  // Owned by the function, so it has no `dispose` to be called from — the
+  // controller is released once the dialog is gone. Without this every open of
+  // «نام دسته‌بندی» leaked a controller and its listeners for the process.
   final controller = TextEditingController(text: initial ?? '');
   final name = await showDialog<String>(
     context: context,
@@ -37,6 +40,7 @@ Future<String?> showCategoryNameDialog(
       ),
     ),
   );
+  controller.dispose();
   final trimmed = name?.trim();
   return (trimmed == null || trimmed.isEmpty) ? null : trimmed;
 }

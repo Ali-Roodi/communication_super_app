@@ -134,12 +134,6 @@ class ScheduledMessageRepository {
     return maps.isEmpty ? null : ScheduledMessage.fromMap(maps.first);
   }
 
-  /// Pending schedules addressed to [threadId] (digits-normalized number),
-  /// soonest first — what the conversation screen renders as ghost bubbles.
-  Future<List<ScheduledMessage>> getPendingForThread(String threadId) async {
-    final all = await getAll(status: ScheduleStatus.pending);
-    return all.where((m) => m.threadId == threadId).toList();
-  }
 
   /// Insert-or-replace. Always releases any claim the row held (see
   /// [ScheduledMessage.toMap]).

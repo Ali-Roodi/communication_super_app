@@ -125,11 +125,6 @@ abstract class TemplateWire {
   /// against), so reconstruction happens at render time, never on the row.
   static String displayText(String body) => decode(body)?.text ?? body;
 
-  /// True when [body] is a payload this build can rebuild, for a caller that
-  /// needs to treat one differently from ordinary text. Display does not: it
-  /// goes through [displayText], which is the identity for plain bodies.
-  static bool isWire(String body) => decode(body) != null;
-
   // ── Escaping ──────────────────────────────────────────────────────────────
   //
   // `|` separates segments and a newline would break the single-line payload,
@@ -221,15 +216,5 @@ class TemplateWireMessage {
     values: values,
     contactName: greetingName,
     useContactName: greetingName != null,
-  );
-
-  /// The same text with the unfilled placeholders left in — what the read-only
-  /// fill screen shows around the inputs.
-  String get preview => TemplateEngine.render(
-    template.body,
-    values: values,
-    contactName: greetingName,
-    useContactName: greetingName != null,
-    preview: true,
   );
 }

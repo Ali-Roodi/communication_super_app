@@ -33,6 +33,9 @@ class ContactSelectorScreen extends StatefulWidget {
 }
 
 class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
+  /// Compiled once; the recipient filter runs it per keystroke.
+  static final RegExp _nonDialable = RegExp(r'[^\d+]');
+
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
 
@@ -260,7 +263,7 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
 
   /// Shows a "Send to [number]" row when the query is a dialable number.
   Widget _buildSendToNumber(BuildContext context, ThemeData theme) {
-    final digits = _searchQuery.replaceAll(RegExp(r'[^\d+]'), '');
+    final digits = _searchQuery.replaceAll(_nonDialable, '');
     if (digits.replaceAll('+', '').length < 4) return const SizedBox.shrink();
     final national = PhoneNormalizer.toNational(digits);
     return ListTile(

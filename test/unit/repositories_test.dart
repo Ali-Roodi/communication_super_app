@@ -107,6 +107,20 @@ void main() {
       expect(await repo.getFavorites(), hasLength(1));
     });
 
+    // The column is the table's UNIQUE key, so a non-canonical key let the same
+    // person be starred twice — once per number format.
+    test('every equivalent form of a number is the same favourite', () async {
+      final repo = FavoritesRepository();
+      await repo.addFavorite(_fav('1', '+98 912 000 0000'));
+      await repo.addFavorite(_fav('2', '09120000000'));
+      await repo.addFavorite(_fav('3', '9120000000'));
+
+      final all = await repo.getFavorites();
+      expect(all, hasLength(1));
+      expect(all.single.normalized, '09120000000');
+      expect(await repo.isFavorite('+989120000000'), isTrue);
+    });
+
     test('isFavorite reflects add / remove', () async {
       final repo = FavoritesRepository();
       await repo.addFavorite(_fav('1', '09120000000'));

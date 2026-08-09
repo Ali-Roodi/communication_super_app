@@ -261,7 +261,43 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
             if (!isClosed) add(const DeviceSyncFinished(ok: false));
           },
         )
-        .whenComplete(() => _syncing = false);
+        .whenComplete(() {
+          _syncing = false;
+          // The mirror-sync is what inserts most messages, so this is where the
+          // search index falls behind — and *after* it is where catching up is
+          // free. Detached and off the event queue for the same reason the sync
+          // itself is (see this method's doc).
+          _drainSearchIndex();
+        });
+  }
+
+  /// Whether a search-index backfill is already walking.
+  bool _indexing = false;
+
+  /// Folds pending message bodies into the FTS search index, a bounded batch at
+  /// a time, until there is nothing left.
+  ///
+  /// Chunked rather than one pass on purpose: the first run on an existing
+  /// mailbox has every row to do, and each batch yields to the event loop
+  /// between commits so scrolling and typing keep their frames. Until it drains,
+  /// searches simply use the scan path — `MessageRepository.searchIndexReady`
+  /// refuses a half-filled index — so this is never load-bearing for
+  /// correctness, only for speed.
+  Future<void> _drainSearchIndex() async {
+    if (_indexing) return;
+    _indexing = true;
+    try {
+      while (!isClosed) {
+        final done = await _repository.syncSearchIndex();
+        if (done == 0) break;
+        await Future<void>.delayed(Duration.zero);
+      }
+    } catch (_) {
+      // A device without FTS5, or a transient write failure: the scan path is
+      // still correct, so there is nothing to report.
+    } finally {
+      _indexing = false;
+    }
   }
 
   /// Folds a finished background sync into whatever is on screen.

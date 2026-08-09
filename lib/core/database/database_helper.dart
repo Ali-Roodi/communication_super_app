@@ -44,6 +44,10 @@ class DatabaseHelper {
         version: AppConstants.databaseVersion,
         onCreate: _createDB,
         onUpgrade: _onUpgrade,
+        // The FTS availability flag is per *process*, not per database file, so
+        // it has to be re-established on every open — and a database created on
+        // a build/device that could not make the index gets another chance here.
+        onOpen: _probeMessageSearchFts,
       );
     } catch (e) {
       throw Exception('Failed to open database: $e');
@@ -245,6 +249,93 @@ class DatabaseHelper {
       }
       await _renormalizeBlockedNumbers(db);
     }
+
+    // v17: the index the message-body search walks.
+    if (oldVersion < 17) {
+      await _createMessageSearchIndex(db);
+    }
+
+    // v18: the FTS5 substring index over message bodies, plus the per-row flag
+    // that tracks what is in it.
+    //
+    // Existing rows are deliberately left `search_indexed = 0` rather than
+    // folded here: a full mailbox is tens of thousands of rows and this runs
+    // while the database is being opened, i.e. on the path to the first frame.
+    // `MessageRepository.syncSearchIndex` fills the index in bounded batches in
+    // the background, and the search keeps using the scan until it is complete
+    // (see `MessageRepository.searchIndexReady`) so no message is ever missed
+    // mid-backfill.
+    if (oldVersion < 18) {
+      final columns = await _columnsOf(db, AppConstants.messagesTable);
+      if (!columns.contains('search_indexed')) {
+        await db.execute('''
+          ALTER TABLE ${AppConstants.messagesTable}
+          ADD COLUMN search_indexed INTEGER NOT NULL DEFAULT 0
+        ''');
+      }
+      await _createSearchIndexedIndex(db);
+      await _createMessageSearchFts(db);
+    }
+
+    // v19: `favorites.normalized` becomes the canonical national form, for the
+    // same reason `blocked_numbers.normalized` did in v16 — it is a UNIQUE key,
+    // and a raw digits-only strip let one person be starred twice.
+    if (oldVersion < 19) {
+      await _renormalizeFavorites(db);
+    }
+  }
+
+  /// Rewrites `favorites.normalized` into `PhoneNormalizer.toNational` form
+  /// (v19), collapsing the duplicate rows that the old raw-digits key allowed.
+  ///
+  /// Same shape as [_renormalizeBlockedNumbers]: recomputing has to happen in
+  /// Dart, and it can collide on a UNIQUE column, so the oldest row wins and the
+  /// duplicate is dropped — the user simply loses a redundant star.
+  Future<void> _renormalizeFavorites(Database db) async {
+    final rows = await db.query(
+      AppConstants.favoritesTable,
+      columns: ['id', 'phone_number', 'normalized', 'created_at'],
+      orderBy: 'created_at ASC',
+    );
+    if (rows.isEmpty) return;
+
+    final keep = <String>{};
+    final drop = <String>[];
+    final rewrite = <String, String>{};
+
+    for (final row in rows) {
+      final id = row['id'] as String;
+      final source = (row['phone_number'] as String?)?.trim();
+      final raw = (source == null || source.isEmpty)
+          ? (row['normalized'] as String? ?? '')
+          : source;
+      final canonical = PhoneNormalizer.toNational(raw);
+      if (canonical.isEmpty || !keep.add(canonical)) {
+        drop.add(id);
+        continue;
+      }
+      if (canonical != row['normalized']) rewrite[id] = canonical;
+    }
+
+    if (drop.isEmpty && rewrite.isEmpty) return;
+
+    final batch = db.batch();
+    for (final id in drop) {
+      batch.delete(
+        AppConstants.favoritesTable,
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    }
+    for (final entry in rewrite.entries) {
+      batch.update(
+        AppConstants.favoritesTable,
+        {'normalized': entry.value},
+        where: 'id = ?',
+        whereArgs: [entry.key],
+      );
+    }
+    await batch.commit(noResult: true);
   }
 
   /// Column names of [table], for migrations that may run after the table was
@@ -320,6 +411,73 @@ class DatabaseHelper {
       );
     }
     await batch.commit(noResult: true);
+  }
+
+  /// Whether this process can use the FTS5 substring index.
+  ///
+  /// False on any device whose bundled SQLite has no FTS5 or no `trigram`
+  /// tokenizer — trigram needs SQLite 3.34, i.e. Android 12, and this app ships
+  /// to minSdk 24. The search silently falls back to its bounded scan there, so
+  /// this is a *speed* switch and never a correctness one.
+  static bool _ftsAvailable = false;
+  static bool get messageSearchFtsReady => _ftsAvailable;
+
+  /// Creates the FTS5 index, or records that this device cannot have one.
+  ///
+  /// `trigram` is the only tokenizer that makes FTS5 a real **substring** index;
+  /// the default tokenizers match whole tokens or prefixes, which would miss
+  /// «جلس» inside «مجلس» and turn the index into a source of false negatives.
+  /// A failure must not abort the migration — the app works without it.
+  Future<void> _createMessageSearchFts(Database db) async {
+    try {
+      await db.execute('''
+        CREATE VIRTUAL TABLE IF NOT EXISTS ${AppConstants.messageSearchTable}
+        USING fts5(folded, tokenize='trigram')
+      ''');
+      _ftsAvailable = true;
+    } catch (e) {
+      _ftsAvailable = false;
+      debugPrint('FTS5 trigram index unavailable; search falls back to scan: $e');
+    }
+  }
+
+  /// Establishes [messageSearchFtsReady] on every open, and retries the create
+  /// for a database whose migration ran on a build that could not make it.
+  Future<void> _probeMessageSearchFts(Database db) async {
+    try {
+      await db.rawQuery(
+        'SELECT rowid FROM ${AppConstants.messageSearchTable} LIMIT 1',
+      );
+      _ftsAvailable = true;
+    } catch (_) {
+      await _createMessageSearchFts(db);
+    }
+  }
+
+  /// Lets the indexer find its backlog without scanning the table.
+  Future<void> _createSearchIndexedIndex(Database db) async {
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_messages_search_pending
+      ON ${AppConstants.messagesTable}(search_indexed)
+    ''');
+  }
+
+  /// v17 index backing the message-body search walk.
+  ///
+  /// `MessageRepository._scanBodies` reads the prefiltered rows newest-first and
+  /// throws away the soft-deleted ones. `idx_messages_timestamp` gives it the
+  /// ordering but not the filter, so every tombstone in the mailbox was read and
+  /// rejected on the way; leading with `is_deleted` lets SQLite seek straight to
+  /// the live rows and walk them in timestamp order without a sort.
+  ///
+  /// This is the *fallback* path's index — a query too short for the trigram FTS
+  /// index still comes through here — so it stays even though the FTS index
+  /// answers the normal case.
+  Future<void> _createMessageSearchIndex(Database db) async {
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_messages_search
+      ON ${AppConstants.messagesTable}(is_deleted, timestamp DESC)
+    ''');
   }
 
   /// v13 index backing the «ستاره‌دار» screen.
@@ -540,6 +698,10 @@ class DatabaseHelper {
           is_deleted INTEGER NOT NULL DEFAULT 0,
           device_sms_id INTEGER,
           is_starred INTEGER DEFAULT 0,
+          -- 0 until this row's folded body is in `message_search` (v18). Rows
+          -- inserted natively (the scheduled worker, the notification reply)
+          -- never set it, which is exactly how the indexer finds them.
+          search_indexed INTEGER NOT NULL DEFAULT 0,
           FOREIGN KEY (contact_id) REFERENCES ${AppConstants.contactsTable}(id) ON DELETE SET NULL
         )
       ''');
@@ -580,6 +742,13 @@ class DatabaseHelper {
 
       // «ستاره‌دار» index (v13)
       await _createStarredIndex(db);
+
+      // Message-body search walk (v17)
+      await _createMessageSearchIndex(db);
+
+      // Message-body substring index + its backlog flag (v18)
+      await _createSearchIndexedIndex(db);
+      await _createMessageSearchFts(db);
 
       // Call logs table (local cache)
       await db.execute('''

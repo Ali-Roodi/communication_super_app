@@ -1,10 +1,9 @@
 class AppConstants {
-  static const String appName = 'Communication Super App';
   static const String appNamePersian = 'هم‌رسان';
 
   // Database
   static const String databaseName = 'communication_app.db';
-  static const int databaseVersion = 16;
+  static const int databaseVersion = 19;
 
   // Tables
   static const String contactsTable = 'contacts';
@@ -19,6 +18,11 @@ class AppConstants {
   static const String messageTemplatesTable = 'message_templates';
   static const String scheduledMessagesTable = 'scheduled_messages';
 
+  /// FTS5 index over the folded text of every message body — the substring
+  /// index the message search uses when the device's SQLite can build one.
+  /// See `DatabaseHelper.messageSearchFtsReady`.
+  static const String messageSearchTable = 'message_search';
+
   // Storage Keys
   static const String pinKey = 'app_pin';
   static const String patternKey = 'app_pattern';
@@ -29,7 +33,6 @@ class AppConstants {
   /// PIN later). Auth setup is never re-prompted while this is true; the PIN
   /// can still be set from Settings.
   static const String authSkippedKey = 'auth_skipped';
-  static const String themeModeKey = 'theme_mode';
 
   // Auth Types
   static const String authTypePin = 'pin';
