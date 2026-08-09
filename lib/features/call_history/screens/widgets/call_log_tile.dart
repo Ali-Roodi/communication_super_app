@@ -4,8 +4,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
-import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
+import 'package:communication_super_app/core/widgets/phone_contact_avatar.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/features/call_history/bloc/call_log_bloc.dart';
 import 'package:communication_super_app/features/call_history/bloc/call_log_event.dart';
@@ -18,7 +18,7 @@ import 'package:communication_super_app/features/favorites/bloc/favorites_event.
 import 'package:communication_super_app/features/favorites/bloc/favorites_state.dart';
 import 'package:communication_super_app/features/favorites/models/favorite_model.dart';
 import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
-import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
+import 'package:communication_super_app/features/settings/screens/widgets/block_number_dialog.dart';
 
 /// One recents row, rendered as a card in a grouped run — Google Phone's home
 /// list.
@@ -87,7 +87,13 @@ class CallLogTile extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
               child: Row(
                 children: [
-                  AvatarWidget(name: _displayName, size: 44),
+                  // Contact photo when the number is saved, initials otherwise.
+                  // Same 44 dp box either way, so the row height is unchanged.
+                  PhoneContactAvatar(
+                    phoneNumber: log.phoneNumber,
+                    name: _displayName,
+                    size: 44,
+                  ),
                   const SizedBox(width: 14),
                   Expanded(child: _titleBlock(context)),
                   IconButton(
@@ -285,15 +291,12 @@ class _ExpandedBody extends StatelessWidget {
           const SizedBox(height: GroupRadius.gap),
           TonalActionRow(
             icon: Icons.block,
-            label: 'مسدود کردن',
-            onTap: () {
-              context.read<BlockedNumbersBloc>().add(
-                BlockNumber(log.phoneNumber),
-              );
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('شماره مسدود شد')),
-              );
-            },
+            label: 'مسدود کردن و گزارش هرزنامه',
+            onTap: () => blockNumberWithConfirm(
+              context,
+              phoneNumber: log.phoneNumber,
+              contactName: hasName ? log.contactName : null,
+            ),
           ),
           const SizedBox(height: GroupRadius.gap),
           TonalActionRow(

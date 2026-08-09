@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -5,14 +7,22 @@ import '../bloc/message_bloc.dart';
 import '../bloc/message_event.dart';
 import '../bloc/message_state.dart';
 import '../models/message_model.dart';
+import '../repositories/message_repository.dart';
 import 'package:communication_super_app/core/navigation/app_route_observer.dart';
 import 'package:communication_super_app/core/services/composer_draft_store.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
+import 'package:communication_super_app/core/utils/phone_normalizer.dart';
+import 'package:communication_super_app/features/contacts/models/contact_model.dart';
+import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
+import 'package:communication_super_app/core/widgets/undo_snack_bar.dart';
 import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
+import 'package:communication_super_app/features/settings/models/blocked_number_model.dart';
 import 'package:communication_super_app/features/settings/screens/settings_screen.dart';
+import 'package:communication_super_app/features/settings/screens/widgets/block_number_dialog.dart';
+import 'spam_and_blocked_screen.dart';
 import 'conversation_screen.dart';
 import 'contact_selector_screen.dart';
 import 'archived_threads_screen.dart';
@@ -108,23 +118,18 @@ class _MessagesListScreenState extends State<MessagesListScreen>
       // Role granted: mirror-sync immediately so the provider write-through
       // and global deletes take effect from now on.
       context.read<MessageBloc>().add(const SyncDeviceMessages());
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('این برنامه پیام‌رسان پیش‌فرض شد')),
-      );
+      showUndoSnack(context, message: 'این برنامه پیام‌رسان پیش‌فرض شد');
     } else {
       // Denied — or the system auto-denied (it does after two refusals).
       // Offer the manual path: Settings → Default apps.
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text(
-            'درخواست رد شد. می‌توانید از تنظیمات، برنامه‌های پیش‌فرض را '
-            'تغییر دهید',
-          ),
-          action: SnackBarAction(
-            label: 'تنظیمات',
-            onPressed: () => _nativeSms.openDefaultAppsSettings(),
-          ),
-        ),
+      showUndoSnack(
+        context,
+        message:
+            'درخواست رد شد. می‌توانید از تنظیمات، برنامه‌های پیش‌فرض را تغییر دهید',
+        undoLabel: 'تنظیمات',
+        onUndo: () => _nativeSms.openDefaultAppsSettings(),
+        duration: const Duration(seconds: 6),
+        showCountdown: false,
       );
     }
   }
@@ -153,6 +158,9 @@ class _MessagesListScreenState extends State<MessagesListScreen>
 
   void _onScroll() {
     if (!mounted) return;
+    // Search results are a single answered query, not a page of the inbox —
+    // paging into them would append unrelated threads under the results.
+    if (_query.trim().isNotEmpty) return;
     final state = context.read<MessageBloc>().state;
     if (state is! ThreadsLoaded || !state.hasMore) return;
     final pos = _scrollController.position;
@@ -164,6 +172,7 @@ class _MessagesListScreenState extends State<MessagesListScreen>
   @override
   void dispose() {
     appRouteObserver.unsubscribe(this);
+    _searchDebounce?.cancel();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _searchController.dispose();
@@ -229,15 +238,99 @@ class _MessagesListScreenState extends State<MessagesListScreen>
 
   void _clearSelection() => setState(_selected.clear);
 
-  List<MessageThread> _visibleThreads(List<MessageThread> all) {
-    if (_query.isEmpty) return all;
-    final q = _query.toLowerCase();
-    return all.where((t) {
-      final name = (t.contactName ?? '').toLowerCase();
-      final phone = t.phoneNumber.toLowerCase();
-      final body = t.lastMessage.toLowerCase();
-      return name.contains(q) || phone.contains(q) || body.contains(q);
-    }).toList();
+  // ── Search ──────────────────────────────────────────────────────────────
+  //
+  // This used to filter the *paged-in* thread list with a raw
+  // `toLowerCase().contains` over contactName / phoneNumber /
+  // `thread.lastMessage`. Three things were wrong with that, and they compound:
+  // it could only ever match the single newest message of a thread (usually the
+  // received one — which is exactly why searching "never found my own
+  // messages"), it could not see a conversation that had not been scrolled into
+  // memory yet, and it bypassed `SearchText`, so «علي» did not find «علی» and
+  // `0912…` did not find a thread stored as `+98912…`.
+  //
+  // Now the repository answers it: `searchThreads` matches the body of ANY
+  // message of ANY type, plus the number, in SQLite. Contact **names** stay
+  // here, because they come from the device address book and no column holds
+  // them — matching them over the whole book (not the paged-in rows) is what
+  // makes a thread findable by name before it has ever been paged in.
+
+  /// Threads matching [_query], or null while the query has not been answered
+  /// yet. Empty list means "answered: nothing matched".
+  List<MessageThread>? _searchResults;
+
+  /// Guards against a slow earlier query landing after a newer one.
+  int _searchToken = 0;
+  Timer? _searchDebounce;
+
+  final MessageRepository _messageRepository = MessageRepository();
+
+  /// thread id → contact name, memoized against the identity of the contact list
+  /// it was built from. Rebuilding it per query would walk the whole address book
+  /// on every (debounced) keystroke, and `getAllContacts` hands back the same
+  /// cached list until something invalidates it.
+  List<ContactModel>? _nameIndexSource;
+  Map<String, String> _nameByThread = const {};
+
+  Map<String, String> _nameIndex(List<ContactModel> contacts) {
+    if (identical(_nameIndexSource, contacts)) return _nameByThread;
+    _nameByThread = {
+      for (final c in contacts)
+        if (c.name.isNotEmpty)
+          for (final p in c.phoneNumbers)
+            if (PhoneNormalizer.toThreadId(p).isNotEmpty)
+              PhoneNormalizer.toThreadId(p): c.name,
+    };
+    _nameIndexSource = contacts;
+    return _nameByThread;
+  }
+
+  void _onQueryChanged(String value) {
+    setState(() {
+      _query = value;
+      if (value.trim().isEmpty) _searchResults = null;
+    });
+    _searchDebounce?.cancel();
+    if (value.trim().isEmpty) return;
+    // Long enough that typing does not queue a scan per keystroke, short enough
+    // that the list feels live.
+    _searchDebounce = Timer(const Duration(milliseconds: 220), _runSearch);
+  }
+
+  Future<void> _runSearch() async {
+    final query = _query.trim();
+    if (query.isEmpty) return;
+    final token = ++_searchToken;
+
+    Set<String> byName = const {};
+    // thread id → contact name, for the same reason `MessageBloc` keeps one: the
+    // rows the repository returns carry `contacts.name`, and nothing writes to
+    // that legacy table, so an un-enriched search result shows the raw number
+    // for a thread the inbox above it shows by name.
+    var nameByThread = const <String, String>{};
+    try {
+      final contacts = await ContactRepository().getAllContacts();
+      byName = {
+        for (final c in ContactRepository.matchContacts(contacts, query))
+          for (final p in c.phoneNumbers) PhoneNormalizer.toThreadId(p),
+      };
+      nameByThread = _nameIndex(contacts);
+    } catch (_) {
+      // No contacts permission — number and body matches still answer.
+    }
+    final threads = await _messageRepository.searchThreads(
+      query,
+      alsoThreadIds: byName,
+    );
+    if (!mounted || token != _searchToken) return;
+    setState(() {
+      _searchResults = [
+        for (final t in threads)
+          t.contactName?.isNotEmpty == true
+              ? t
+              : t.copyWith(contactName: nameByThread[t.threadId]),
+      ];
+    });
   }
 
   // ── Build ────────────────────────────────────────────────────────────────
@@ -247,7 +340,21 @@ class _MessagesListScreenState extends State<MessagesListScreen>
     if (_showDefaultSmsBanner) _recheckDefaultSilently();
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: Scaffold(
+      child: BlocListener<BlockedNumbersBloc, BlockedNumbersState>(
+        // The inbox hides blocked conversations, so the list has to be re-read
+        // whenever the blocked set changes — after a block, an unblock, an undo,
+        // or an unblock done on the «هرزنامه و مسدودشده» page.
+        //
+        // Listening for the *result* rather than firing `LoadThreads` next to the
+        // `BlockNumber` dispatch is the point: the block is written
+        // asynchronously, so a reload queued alongside it read the table before
+        // the row landed and painted the thread the user had just blocked.
+        listenWhen: (previous, current) =>
+            previous.blockedKeys.length != current.blockedKeys.length,
+        listener: (context, _) {
+          if (mounted) context.read<MessageBloc>().add(const LoadThreads());
+        },
+        child: Scaffold(
         // Google Messages has no app bar: the header is a collapsing sliver and
         // the conversations sit on a rounded sheet that scrolls up under it.
         body: CustomScrollView(
@@ -285,6 +392,7 @@ class _MessagesListScreenState extends State<MessagesListScreen>
                 icon: const Icon(Icons.edit_outlined),
                 label: const Text('پیام جدید'),
               ),
+        ),
       ),
     );
   }
@@ -339,18 +447,28 @@ class _MessagesListScreenState extends State<MessagesListScreen>
             );
           }
 
-          final base = _visibleThreads(inbox.threads);
-          final threads = _query.isEmpty ? _mergeDrafts(base) : base;
+          final searching = _query.trim().isNotEmpty;
+          if (searching && _searchResults == null) {
+            // The query has not been answered yet. A spinner here is honest —
+            // the previous query's rows are not the answer to this one.
+            return filler(const Center(child: CircularProgressIndicator()));
+          }
+          final threads = searching
+              ? _searchResults!
+              : _mergeDrafts(inbox.threads);
           if (threads.isEmpty) {
             return filler(
-              _query.isEmpty
-                  ? const MessagesEmptyState()
-                  : const MessagesNoResults(),
+              searching
+                  ? const MessagesNoResults()
+                  : const MessagesEmptyState(),
             );
           }
 
           // Rows that exist only because of a draft (no real messages yet).
+          // Search results never carry drafts, and they are not a page of the
+          // inbox — so no "load more" spinner either.
           final realIds = {for (final t in inbox.threads) t.threadId};
+          final hasMore = !searching && inbox.hasMore;
           return DecoratedSliver(
             decoration: BoxDecoration(
               color: scheme.cardSurface,
@@ -361,9 +479,9 @@ class _MessagesListScreenState extends State<MessagesListScreen>
             sliver: SliverPadding(
               padding: const EdgeInsets.only(top: 8, bottom: 96),
               sliver: SliverList.builder(
-                itemCount: threads.length + (inbox.hasMore ? 1 : 0),
+                itemCount: threads.length + (hasMore ? 1 : 0),
                 itemBuilder: (context, index) {
-                  if (inbox.hasMore && index == threads.length) {
+                  if (hasMore && index == threads.length) {
                     return const Padding(
                       padding: EdgeInsets.all(16),
                       child: Center(child: CircularProgressIndicator()),
@@ -402,16 +520,24 @@ class _MessagesListScreenState extends State<MessagesListScreen>
       return MessagesSearchAppBar(
         controller: _searchController,
         showClear: _query.isNotEmpty,
-        onBack: () => setState(() {
-          _searching = false;
-          _query = '';
+        onBack: () {
+          _searchDebounce?.cancel();
           _searchController.clear();
-        }),
-        onClear: () => setState(() {
-          _query = '';
+          setState(() {
+            _searching = false;
+            _query = '';
+            _searchResults = null;
+          });
+        },
+        onClear: () {
+          _searchDebounce?.cancel();
           _searchController.clear();
-        }),
-        onChanged: (v) => setState(() => _query = v),
+          setState(() {
+            _query = '';
+            _searchResults = null;
+          });
+        },
+        onChanged: _onQueryChanged,
       );
     }
     return MessagesDefaultAppBar(
@@ -429,6 +555,15 @@ class _MessagesListScreenState extends State<MessagesListScreen>
         context,
         MaterialPageRoute(builder: (_) => const ScheduledMessagesScreen()),
       ),
+      onOpenSpamAndBlocked: () async {
+        final bloc = context.read<MessageBloc>();
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const SpamAndBlockedScreen()),
+        );
+        // Unblocking there puts a conversation back into this list.
+        bloc.add(const LoadThreads());
+      },
       onOpenStarred: () => Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => const StarredMessagesScreen()),
@@ -474,25 +609,68 @@ class _MessagesListScreenState extends State<MessagesListScreen>
     _clearSelection();
   }
 
+  /// Selects every row currently on screen — the search results while
+  /// searching, the paged-in inbox otherwise.
   void _selectAllVisible() {
-    final all = _lastInbox?.threads ?? const <MessageThread>[];
+    final visible =
+        _searchResults ?? _lastInbox?.threads ?? const <MessageThread>[];
     setState(() {
       _selected
         ..clear()
-        ..addAll(_visibleThreads(all).map((t) => t.threadId));
+        ..addAll(visible.map((t) => t.threadId));
     });
   }
 
-  void _blockSelected() {
+  /// Blocks the selected threads, asking once (Google Messages folds the spam
+  /// report into that same question — see [showBlockNumberDialog]).
+  ///
+  /// Blocking moves the conversations out of this list into «هرزنامه و
+  /// مسدودشده», so the inbox is reloaded afterwards: without that the rows the
+  /// user just blocked stay on screen and the block reads as a no-op.
+  Future<void> _blockSelected() async {
     final all = _lastInbox?.threads ?? const <MessageThread>[];
+    final chosen = all
+        .where((t) => _selected.contains(t.threadId))
+        .toList(growable: false);
+    if (chosen.isEmpty) {
+      _clearSelection();
+      return;
+    }
+
+    final decision = await showBlockNumberDialog(
+      context,
+      phoneNumber: chosen.first.phoneNumber,
+      contactName: chosen.length == 1 ? chosen.first.contactName : null,
+      numberCount: chosen.length,
+    );
+    if (decision == null || !mounted) return;
+
     final blockedBloc = context.read<BlockedNumbersBloc>();
-    for (final t in all.where((t) => _selected.contains(t.threadId))) {
-      blockedBloc.add(BlockNumber(t.phoneNumber));
+    for (final t in chosen) {
+      blockedBloc.add(BlockNumber(t.phoneNumber, report: decision.report));
     }
     _clearSelection();
-    ScaffoldMessenger.of(
+    // No LoadThreads here: the BlocListener above reloads once the block has
+    // actually been written (see its comment).
+
+    final label = chosen.length == 1
+        ? (chosen.first.contactName?.isNotEmpty == true
+              ? chosen.first.contactName!
+              : PersianUtils.displayPhone(chosen.first.phoneNumber))
+        : '${PersianUtils.toPersianNumber('${chosen.length}')} گفتگو';
+    showUndoSnack(
       context,
-    ).showSnackBar(const SnackBar(content: Text('شماره‌ها مسدود شدند')));
+      message: decision.report
+          ? '«$label» مسدود و به‌عنوان هرزنامه گزارش شد'
+          : '«$label» مسدود شد',
+      onUndo: () {
+        for (final t in chosen) {
+          blockedBloc.add(
+            UnblockNumber(BlockedNumberModel.normalize(t.phoneNumber)),
+          );
+        }
+      },
+    );
   }
 
   void _openArchived() {
@@ -626,44 +804,31 @@ class _MessagesListScreenState extends State<MessagesListScreen>
     final draft = _drafts[thread.threadId];
     _draftStore.remove(thread.threadId);
     _loadDrafts();
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(
-        SnackBar(
-          content: const Text('پیش‌نویس حذف شد'),
-          action: draft == null
-              ? null
-              : SnackBarAction(
-                  label: 'واگرد',
-                  onPressed: () {
-                    _draftStore.save(
-                      threadId: thread.threadId,
-                      text: draft.text,
-                      phoneNumber: draft.phoneNumber,
-                      contactName: draft.contactName,
-                    );
-                    _loadDrafts();
-                  },
-                ),
-        ),
-      );
+    showUndoSnack(
+      context,
+      message: 'پیش‌نویس حذف شد',
+      onUndo: draft == null
+          ? null
+          : () {
+              _draftStore.save(
+                threadId: thread.threadId,
+                text: draft.text,
+                phoneNumber: draft.phoneNumber,
+                contactName: draft.contactName,
+              );
+              _loadDrafts();
+            },
+    );
   }
 
   void _archiveWithUndo(BuildContext context, MessageThread thread) {
     final bloc = context.read<MessageBloc>();
     bloc.add(ArchiveThreads([thread.threadId], archive: true));
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(
-        SnackBar(
-          content: const Text('گفتگو بایگانی شد'),
-          action: SnackBarAction(
-            label: 'واگرد',
-            onPressed: () =>
-                bloc.add(ArchiveThreads([thread.threadId], archive: false)),
-          ),
-        ),
-      );
+    showUndoSnack(
+      context,
+      message: 'گفتگو بایگانی شد',
+      onUndo: () => bloc.add(ArchiveThreads([thread.threadId], archive: false)),
+    );
   }
 
   Future<void> _confirmDeleteSelected(BuildContext context) async {

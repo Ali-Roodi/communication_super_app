@@ -4,6 +4,7 @@ import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import '../../models/message_model.dart';
+import '../../models/template_wire.dart';
 import 'link_preview_card.dart';
 import 'linkified_text.dart';
 
@@ -75,9 +76,13 @@ class MessageBubbleBody extends StatelessWidget {
       bottomRight: isSent ? (isLastInGroup ? tail : r) : r,
     );
 
-    final previewUrl = showLinkPreview
-        ? LinkifiedText.firstUrl(message.body)
-        : null;
+    // A built-in template travels as a compact payload (see [TemplateWire]); the
+    // stored row keeps it verbatim — that is what the SMS provider holds and
+    // what the mirror-sync diffs against — so it is rebuilt here, at render
+    // time, and every use of the body below goes through the rebuilt text.
+    final body = TemplateWire.displayText(message.body);
+
+    final previewUrl = showLinkPreview ? LinkifiedText.firstUrl(body) : null;
 
     return Container(
       key: boxKey,
@@ -94,7 +99,7 @@ class MessageBubbleBody extends StatelessWidget {
             enabled: selectable,
             onCopied: onCopied,
             child: LinkifiedText(
-              text: message.body,
+              text: body,
               style: TextStyle(color: textColor),
               // Both bubbles are tonal, so the brand colour has enough
               // contrast on either.

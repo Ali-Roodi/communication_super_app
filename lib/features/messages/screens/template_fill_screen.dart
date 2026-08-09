@@ -3,8 +3,9 @@ import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/widgets/jalali_date_picker.dart';
 import '../models/message_template_model.dart';
+import '../models/template_wire.dart';
 
-/// Fills a template in and returns the finished message text (Figma «قالب آماده
+/// Fills a template in and returns a [TemplateFillResult] (Figma «قالب آماده
 /// جلسه»): the «درج نام مخاطب» switch, one input per placeholder, a live
 /// preview of the result and the انصراف / تأیید pair at the bottom.
 ///
@@ -56,8 +57,10 @@ class _TemplateFillScreenState extends State<TemplateFillScreen> {
   void initState() {
     super.initState();
     _useContactName = widget.template.useContactName && _contactName != null;
+
     for (final field in _fields) {
       final controller = TextEditingController();
+      // A date-like field is fed by the picker rather than by typing.
       if (!field.isDateLike) {
         controller.addListener(() {
           _values[field.key] = controller.text;
@@ -222,33 +225,49 @@ class _TemplateFillScreenState extends State<TemplateFillScreen> {
             ),
             const SizedBox(height: 12),
             ValueListenableBuilder<int>(
-              valueListenable: _revision,
-              builder: (context, _, _) {
-                // «تأیید» appears once there is something to insert (Figma: the
-                // empty form shows only انصراف).
-                final ready = _fields.isEmpty || _anyAnswer;
-                return Row(
-                  children: [
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text(
-                        'انصراف',
-                        style: TextStyle(color: AppColors.danger),
-                      ),
-                    ),
-                    if (ready)
+                valueListenable: _revision,
+                builder: (context, _, _) {
+                  // «تأیید» appears once there is something to insert (Figma:
+                  // the empty form shows only انصراف).
+                  final ready = _fields.isEmpty || _anyAnswer;
+                  return Row(
+                    children: [
                       TextButton(
-                        onPressed: () {
-                          final text = _result;
-                          if (text.isEmpty) return;
-                          Navigator.of(context).pop(text);
-                        },
-                        child: const Text('تأیید'),
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text(
+                          'انصراف',
+                          style: TextStyle(color: AppColors.danger),
+                        ),
                       ),
-                  ],
-                );
-              },
-            ),
+                      if (ready)
+                        TextButton(
+                          onPressed: () {
+                            final text = _result;
+                            if (text.isEmpty) return;
+                            // The payload rides along with the text it renders
+                            // to; the composer sends it only while the two still
+                            // match. Null for anything the receiver could not
+                            // rebuild — see [TemplateWire.encode].
+                            Navigator.of(context).pop(
+                              TemplateFillResult(
+                                text: text,
+                                wire: TemplateWire.encode(
+                                  template: widget.template,
+                                  values: _values,
+                                  greetingName: _useContactName
+                                      ? _contactName
+                                      : null,
+                                  renderedText: text,
+                                ),
+                              ),
+                            );
+                          },
+                          child: const Text('تأیید'),
+                        ),
+                    ],
+                  );
+                },
+              ),
           ],
         ),
       ),

@@ -1,6 +1,8 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/material.dart';
 
+import '../models/template_wire.dart';
+
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
   factory NotificationService() => _instance;
@@ -90,7 +92,11 @@ class NotificationService {
     await _notifications.show(
       threadId.hashCode, // Use thread ID hash as notification ID
       displayName,
-      message,
+      // A built-in template arrives as a compact payload; the notification
+      // shows the rebuilt message, exactly like the chat. (The native
+      // SmsNotifier does the same in TemplateWire.kt — this Dart path only
+      // fires in the rare telephony fallback.)
+      TemplateWire.displayText(message),
       notificationDetails,
       payload: threadId, // Store thread ID to open conversation
     );

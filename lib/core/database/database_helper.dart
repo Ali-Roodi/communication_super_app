@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../constants/app_constants.dart';
+import '../utils/phone_normalizer.dart';
+import 'package:communication_super_app/features/messages/models/built_in_templates.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
@@ -220,6 +222,104 @@ class DatabaseHelper {
       await _createMessageTemplatesTable(db);
       await _seedMessageTemplates(db);
     }
+
+    // v16: blocked_numbers gains the spam-report columns, and — the actual bug
+    // fix — every existing `normalized` value is rewritten into the canonical
+    // thread-id form.
+    if (oldVersion < 16) {
+      // Conditional: an upgrade from < 5 has just created the table through
+      // `_createBlockedNumbersTable`, which already declares both columns.
+      // ALTERing them again is a hard error that would abort the whole upgrade.
+      final columns = await _columnsOf(db, AppConstants.blockedNumbersTable);
+      if (!columns.contains('is_spam')) {
+        await db.execute('''
+          ALTER TABLE ${AppConstants.blockedNumbersTable}
+          ADD COLUMN is_spam INTEGER NOT NULL DEFAULT 0
+        ''');
+      }
+      if (!columns.contains('reported_at')) {
+        await db.execute('''
+          ALTER TABLE ${AppConstants.blockedNumbersTable}
+          ADD COLUMN reported_at INTEGER
+        ''');
+      }
+      await _renormalizeBlockedNumbers(db);
+    }
+  }
+
+  /// Column names of [table], for migrations that may run after the table was
+  /// created at its newest shape by an earlier step of the same upgrade.
+  Future<Set<String>> _columnsOf(Database db, String table) async {
+    final rows = await db.rawQuery('PRAGMA table_info($table)');
+    return {for (final row in rows) row['name'] as String};
+  }
+
+  /// Rewrites `blocked_numbers.normalized` into `PhoneNormalizer.toThreadId`
+  /// form (v16).
+  ///
+  /// Rows written before v16 hold a raw digits-only strip of whatever string the
+  /// caller happened to have — `989121234567` when blocked from a conversation
+  /// (carrier E.164), `09121234567` when typed into the blocked-numbers screen.
+  /// Every lookup asks for the thread-id form, so the first kind of row was
+  /// dead weight: the number stayed blocked in the list and kept getting
+  /// through. Recomputing has to happen here in Dart — `toThreadId` is not
+  /// expressible in the SQL this migration could run — and it can collide,
+  /// because two rows that differed only in formatting normalize to one key on a
+  /// UNIQUE column. The older row (smaller `created_at`) wins and the duplicate
+  /// is dropped, so the user's list simply loses a redundant entry.
+  Future<void> _renormalizeBlockedNumbers(Database db) async {
+    final rows = await db.query(
+      AppConstants.blockedNumbersTable,
+      columns: ['id', 'phone_number', 'normalized', 'created_at'],
+      orderBy: 'created_at ASC',
+    );
+    if (rows.isEmpty) return;
+
+    final keep = <String, String>{}; // canonical key → winning row id
+    final drop = <String>[];
+    final rewrite = <String, String>{}; // row id → canonical key
+
+    for (final row in rows) {
+      final id = row['id'] as String;
+      // Prefer the display number: it is the string the user actually blocked,
+      // so it still carries a country code / trunk zero the stripped column
+      // may have lost.
+      final source = (row['phone_number'] as String?)?.trim();
+      final raw = (source == null || source.isEmpty)
+          ? (row['normalized'] as String? ?? '')
+          : source;
+      final canonical = PhoneNormalizer.toThreadId(raw);
+      if (canonical.isEmpty) {
+        drop.add(id);
+        continue;
+      }
+      if (keep.containsKey(canonical)) {
+        drop.add(id);
+        continue;
+      }
+      keep[canonical] = id;
+      if (canonical != row['normalized']) rewrite[id] = canonical;
+    }
+
+    if (drop.isEmpty && rewrite.isEmpty) return;
+
+    final batch = db.batch();
+    for (final id in drop) {
+      batch.delete(
+        AppConstants.blockedNumbersTable,
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    }
+    for (final entry in rewrite.entries) {
+      batch.update(
+        AppConstants.blockedNumbersTable,
+        {'normalized': entry.value},
+        where: 'id = ?',
+        whereArgs: [entry.key],
+      );
+    }
+    await batch.commit(noResult: true);
   }
 
   /// v13 index backing the «ستاره‌دار» screen.
@@ -276,7 +376,9 @@ class DatabaseHelper {
         id TEXT PRIMARY KEY,
         phone_number TEXT NOT NULL,
         normalized TEXT NOT NULL UNIQUE,
-        created_at INTEGER NOT NULL
+        created_at INTEGER NOT NULL,
+        is_spam INTEGER NOT NULL DEFAULT 0,
+        reported_at INTEGER
       )
     ''');
   }
@@ -349,69 +451,25 @@ class DatabaseHelper {
   /// `[...]` names drive the generated form — see `TemplateEngine`. A «تاریخ» +
   /// «زمان» pair is asked for with one picker, so writing both here is what
   /// produces the Figma «تاریخ و زمان» row.
+  /// Seeds the built-in templates from [BuiltInTemplates.all].
+  ///
+  /// The list lives in Dart rather than here because the SMS wire format
+  /// ([TemplateWire]) is bound to those same constants: a row and its wire
+  /// definition drifting apart would make a received template decode into text
+  /// its sender never wrote.
   Future<void> _seedMessageTemplates(Database db) async {
-    const seeds = <(String, String, String, int)>[
-      (
-        'tpl-meeting',
-        'دعوت‌نامه جلسه',
-        'جلسه [عنوان] در مورخه [تاریخ] ساعت [زمان] در محل [مکان] برقرار می‌باشد.\n[توضیحات]',
-        1,
-      ),
-      (
-        'tpl-reminder',
-        'یادآوری قرار',
-        'یادآوری می‌شود [عنوان] در مورخه [تاریخ] ساعت [زمان] برگزار می‌شود.',
-        1,
-      ),
-      (
-        'tpl-payment',
-        'اطلاع واریز',
-        'مبلغ [مبلغ] تومان بابت [بابت] در تاریخ [تاریخ] واریز شد.\n[توضیحات]',
-        1,
-      ),
-      (
-        'tpl-congrats',
-        'تبریک',
-        '[مناسبت] را صمیمانه به شما تبریک می‌گویم.',
-        1,
-      ),
-      (
-        'tpl-thanks',
-        'تشکر',
-        'با سلام، از پیگیری و همراهی شما سپاسگزارم.',
-        0,
-      ),
-      (
-        'tpl-followup',
-        'پیگیری',
-        'با سلام، جهت پیگیری موضوع مطرح‌شده مزاحم شدم. ممنون می‌شوم در صورت امکان پاسخ بفرمایید.',
-        0,
-      ),
-      (
-        'tpl-call',
-        'هماهنگی تماس',
-        'با سلام، چه زمانی برای یک تماس کوتاه در دسترس هستید؟',
-        0,
-      ),
-      (
-        'tpl-apology',
-        'عذرخواهی بابت تأخیر',
-        'با سلام، بابت تأخیر پیش‌آمده پوزش می‌خواهم. [توضیحات]',
-        0,
-      ),
-    ];
-
+    final seeds = BuiltInTemplates.all;
     final now = DateTime.now().millisecondsSinceEpoch;
     final batch = db.batch();
     // Seeded newest-first in list order: each row is stamped a millisecond
-    // older than the one before, so the board opens in the order written here.
+    // older than the one before, so the board opens in the catalogue's order.
     for (var i = 0; i < seeds.length; i++) {
-      final (id, title, body, useName) = seeds[i];
+      final template = seeds[i];
       batch.insert(AppConstants.messageTemplatesTable, {
-        'id': id,
-        'title': title,
-        'body': body,
-        'use_contact_name': useName,
+        'id': template.id,
+        'title': template.title,
+        'body': template.body,
+        'use_contact_name': template.useContactName ? 1 : 0,
         'is_pinned': 0,
         'updated_at': now - i,
       }, conflictAlgorithm: ConflictAlgorithm.ignore);

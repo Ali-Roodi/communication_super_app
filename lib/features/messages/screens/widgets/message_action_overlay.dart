@@ -34,6 +34,11 @@ class MessageAction {
 ///
 /// [anchor] is the bubble box's rect in global coordinates — [MessageBubble]
 /// measures it and hands it over with the long-press.
+///
+/// The lifted copy is a [MessageBubbleBody] like the flat one, so a template
+/// message shows (and copies out of) its rebuilt text rather than the stored
+/// wire payload — no decoding happens here. The menu rows are supplied by the
+/// caller, which is where کپی / هدایت resolve the display text.
 Future<void> showMessageActionOverlay(
   BuildContext context, {
   required MessageModel message,

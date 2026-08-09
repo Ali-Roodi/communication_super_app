@@ -11,17 +11,20 @@ import '../bloc/template_bloc.dart';
 import '../bloc/template_event.dart';
 import '../bloc/template_state.dart';
 import '../models/message_template_model.dart';
+import '../models/template_wire.dart';
 import 'template_editor_screen.dart';
 import 'template_fill_screen.dart';
 
-/// Opens the template picker («انتخاب قالب») and returns the ready message
-/// text, or null if the user backed out. [contactName] is offered to templates
-/// that personalise their text («درج نام مخاطب»).
-Future<String?> showTemplatePicker(
+/// Opens the template picker («انتخاب قالب») and returns the ready message —
+/// the visible text plus, for a pristine built-in, the compact payload that may
+/// be sent in its place (see [TemplateFillResult]) — or null if the user backed
+/// out. [contactName] is offered to templates that personalise their text
+/// («درج نام مخاطب»).
+Future<TemplateFillResult?> showTemplatePicker(
   BuildContext context, {
   String? contactName,
 }) {
-  return Navigator.of(context).push<String>(
+  return Navigator.of(context).push<TemplateFillResult>(
     MaterialPageRoute(
       builder: (_) =>
           TemplatesListScreen(pickMode: true, contactName: contactName),
@@ -328,13 +331,16 @@ class _TemplatesListScreenState extends State<TemplatesListScreen> {
     final hasName = name != null && name.isNotEmpty;
 
     // A template with nothing to fill in is a one-tap insert (the old quick
-    // templates); anything else goes through the fill screen.
+    // templates); anything else goes through the fill screen. Nothing to fill
+    // in means nothing to compress either, so it ships as plain text.
     if (!template.needsInput(hasContactName: hasName)) {
-      Navigator.of(context).pop(TemplateEngine.render(template.body));
+      Navigator.of(
+        context,
+      ).pop(TemplateFillResult(text: TemplateEngine.render(template.body)));
       return;
     }
 
-    final text = await Navigator.of(context).push<String>(
+    final result = await Navigator.of(context).push<TemplateFillResult>(
       MaterialPageRoute(
         builder: (_) => TemplateFillScreen(
           template: template,
@@ -342,8 +348,8 @@ class _TemplatesListScreenState extends State<TemplatesListScreen> {
         ),
       ),
     );
-    if (text != null && text.isNotEmpty && context.mounted) {
-      Navigator.of(context).pop(text);
+    if (result != null && result.text.isNotEmpty && context.mounted) {
+      Navigator.of(context).pop(result);
     }
   }
 

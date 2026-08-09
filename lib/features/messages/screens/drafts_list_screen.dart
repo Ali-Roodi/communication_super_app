@@ -7,6 +7,7 @@ import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
 import 'package:communication_super_app/core/widgets/selection_app_bar.dart';
 import 'package:communication_super_app/core/widgets/two_column_board.dart';
+import 'package:communication_super_app/core/widgets/undo_snack_bar.dart';
 import '../bloc/draft_bloc.dart';
 import '../bloc/draft_event.dart';
 import '../bloc/draft_state.dart';
@@ -270,7 +271,6 @@ class _DraftsListScreenState extends State<DraftsListScreen> {
 
   Future<void> _confirmDelete(BuildContext context, List<Draft> chosen) async {
     final bloc = context.read<DraftBloc>();
-    final messenger = ScaffoldMessenger.of(context);
     final count = PersianUtils.toPersianNumber('${chosen.length}');
     final ok = await showDialog<bool>(
       context: context,
@@ -298,30 +298,21 @@ class _DraftsListScreenState extends State<DraftsListScreen> {
     final removed = List<Draft>.from(chosen);
     bloc.add(DeleteDrafts(removed.map((d) => d.id).toList()));
     _clearSelection();
-    messenger
-      ..clearSnackBars()
-      ..showSnackBar(
-        SnackBar(
-          content: Text('$count پیش‌نویس حذف شد'),
-          action: SnackBarAction(
-            label: 'واگرد',
-            // Re-saving restores the content and its category under a fresh
-            // id; a pinned draft comes back unpinned, which is the honest
-            // outcome of "the row is gone" rather than a half-restored one.
-            onPressed: () {
-              for (final d in removed) {
-                bloc.add(
-                  SaveDraft(
-                    title: d.title,
-                    body: d.body,
-                    categoryId: d.categoryId,
-                  ),
-                );
-              }
-            },
-          ),
-        ),
-      );
+    if (!context.mounted) return;
+    showUndoSnack(
+      context,
+      message: '$count پیش‌نویس حذف شد',
+      // Re-saving restores the content and its category under a fresh id; a
+      // pinned draft comes back unpinned, which is the honest outcome of "the
+      // row is gone" rather than a half-restored one.
+      onUndo: () {
+        for (final d in removed) {
+          bloc.add(
+            SaveDraft(title: d.title, body: d.body, categoryId: d.categoryId),
+          );
+        }
+      },
+    );
   }
 
   // ── Navigation ────────────────────────────────────────────────────────────

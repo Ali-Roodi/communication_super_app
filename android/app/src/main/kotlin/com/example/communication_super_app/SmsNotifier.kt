@@ -57,6 +57,12 @@ object SmsNotifier {
             val notifId = (timestamp and 0x7FFFFFFF).toInt()
             val title = lookupContactName(context, address) ?: address
 
+            // A built-in template arrives as a compact payload; the shade must
+            // show the rebuilt message, exactly like the chat does. Display
+            // only — nothing that gets written (content://sms, app DB) is
+            // touched, and a body that is not a payload comes back unchanged.
+            val text = TemplateWire.displayText(body)
+
             val piFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             } else {
@@ -115,12 +121,12 @@ object SmsNotifier {
                 .apply { if (avatar != null) setIcon(IconCompat.createWithBitmap(avatar)) }
                 .build()
             val style = NotificationCompat.MessagingStyle(sender)
-                .addMessage(body, timestamp, sender)
+                .addMessage(text, timestamp, sender)
 
             val notification = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(context.applicationInfo.icon)
                 .setContentTitle(title)
-                .setContentText(body)
+                .setContentText(text)
                 .setStyle(style)
                 .apply { if (avatar != null) setLargeIcon(avatar) }
                 .setPriority(NotificationCompat.PRIORITY_HIGH)

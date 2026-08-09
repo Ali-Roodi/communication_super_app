@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../models/template_wire.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import '../../models/scheduled_message_model.dart';
@@ -92,7 +93,7 @@ class _ScheduledSheetHeader extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            message.body,
+            TemplateWire.displayText(message.body),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: theme.textTheme.bodyLarge,

@@ -2,6 +2,8 @@ import 'package:sqflite/sqflite.dart';
 import 'package:communication_super_app/core/database/database_helper.dart';
 import 'package:communication_super_app/core/constants/app_constants.dart';
 import '../models/message_model.dart';
+import '../models/template_wire.dart';
+import '../models/message_search_query.dart';
 
 class MessageRepository {
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
@@ -78,11 +80,25 @@ class MessageRepository {
     return maps.map((map) => MessageModel.fromMap(map)).toList();
   }
 
+  /// The inbox rows, newest-first with pinned threads on top.
+  ///
+  /// [restrictToThreadIds] narrows the whole query to the given threads and is
+  /// how [searchThreads] renders its hits: the search decides *which* threads
+  /// match, this decides what a thread row looks like, so the two can never
+  /// drift apart (the last-message pick and the unread count below are subtle
+  /// enough that a second copy of this query would be a bug waiting to happen).
+  /// An empty list matches nothing and returns immediately — `IN ()` is a syntax
+  /// error in SQLite.
   Future<List<MessageThread>> getAllThreads({
     int? limit,
     int? offset,
     bool archived = false,
+    List<String>? restrictToThreadIds,
+    bool includeBlocked = false,
   }) async {
+    if (restrictToThreadIds != null && restrictToThreadIds.isEmpty) {
+      return const [];
+    }
     final db = await _dbHelper.database;
 
     // archived == false  -> exclude threads present in archived_threads
@@ -90,6 +106,24 @@ class MessageRepository {
     final archiveClause = archived
         ? 'm.thread_id IN (SELECT thread_id FROM ${AppConstants.archivedThreadsTable})'
         : 'm.thread_id NOT IN (SELECT thread_id FROM ${AppConstants.archivedThreadsTable})';
+
+    // A blocked conversation leaves every list this returns — inbox, archive and
+    // search alike — and lives in «هرزنامه و مسدودشده» instead. This is the
+    // visible half of blocking, and its absence is what made blocking read as a
+    // no-op: the messages stopped arriving, but the thread the user blocked sat
+    // in the inbox exactly as before, so nothing looked like it had happened.
+    //
+    // `blocked_numbers.normalized` is the canonical thread id (see
+    // `BlockedNumberModel`), so this is a plain indexed subquery on the same key
+    // — no join on formatting, and no per-thread work.
+    final blockClause = includeBlocked
+        ? ''
+        : ' AND m.thread_id NOT IN '
+              '(SELECT normalized FROM ${AppConstants.blockedNumbersTable})';
+
+    final restrictClause = restrictToThreadIds == null
+        ? ''
+        : ' AND m.thread_id IN (${List.filled(restrictToThreadIds.length, '?').join(',')})';
 
     // Pinned threads (only relevant in the non-archived inbox) float to the top.
     //
@@ -115,7 +149,7 @@ class MessageRepository {
       WITH latest AS (
         SELECT m.thread_id AS thread_id, MAX(m.timestamp) AS last_ts
         FROM ${AppConstants.messagesTable} m
-        WHERE m.is_deleted = 0 AND $archiveClause
+        WHERE m.is_deleted = 0 AND $archiveClause$blockClause$restrictClause
         GROUP BY m.thread_id
       ),
       page AS (
@@ -156,7 +190,7 @@ class MessageRepository {
       ORDER BY page.is_pinned DESC, page.last_ts DESC
     ''';
 
-    final maps = await db.rawQuery(query);
+    final maps = await db.rawQuery(query, restrictToThreadIds);
 
     final threads = <MessageThread>[];
     for (var map in maps) {
@@ -176,6 +210,230 @@ class MessageRepository {
       );
     }
     return threads;
+  }
+
+  // ── Search ──────────────────────────────────────────────────────────────
+  //
+  // Two entry points, one engine: [searchMessages] returns the matching
+  // messages (the «پیام‌ها» section of the unified search) and [searchThreads]
+  // returns the conversations they belong to (the inbox search field). Both go
+  // through [MessageSearchQuery], whose header documents the prefilter and why
+  // it cannot miss a row `SearchText` would match.
+  //
+  // Nothing here filters on `type`: **a sent message is as much a search hit as
+  // a received one.** The old inbox "search" filtered the paged-in thread list
+  // by `thread.lastMessage`, i.e. by the single newest message of each loaded
+  // thread — usually the incoming one, which is exactly why it looked like the
+  // app only ever searched received messages.
+
+  /// Rows pulled out of SQLite per prefilter page. Big enough that a selective
+  /// query answers in one round trip, small enough that a one-letter query does
+  /// not marshal thousands of bodies to find the first screenful.
+  static const int _kSearchPageSize = 400;
+
+  /// Hard cap on prefiltered rows examined in Dart for one search.
+  ///
+  /// This is the price of having no FTS index: a query whose prefilter is not
+  /// selective (a single letter, or a query that folds away to nothing) degrades
+  /// to "search the most recent [_kMaxPrefilteredRows] messages" instead of
+  /// walking a full mailbox on the UI isolate. Anything more specific than one
+  /// letter never comes near the cap.
+  static const int _kMaxPrefilteredRows = 4000;
+
+  /// Cap on the conversations examined for a *number* match in [searchThreads].
+  /// One row per conversation, so this is the whole address book's worth of
+  /// threads on any real phone.
+  static const int _kMaxScannedThreads = 4000;
+
+  /// Cap on thread ids handed back to [getAllThreads] as bind variables — well
+  /// under SQLite's 999-variable limit, and far more search hits than a list
+  /// can usefully show.
+  static const int _kMaxSearchThreads = 200;
+
+  /// Messages whose **body** matches [query], newest first, sent and received
+  /// alike.
+  ///
+  /// Paged: [offset]/[limit] count *authoritative* hits, so paging is stable
+  /// (the underlying order is fixed) even though the SQL prefilter is scanned in
+  /// larger pages behind the scenes. [threadId] restricts the search to one
+  /// conversation.
+  Future<List<MessageModel>> searchMessages(
+    String query, {
+    int limit = 50,
+    int offset = 0,
+    String? threadId,
+  }) async {
+    final q = MessageSearchQuery(query);
+    if (q.isEmpty || limit <= 0) return const [];
+
+    final hits = <MessageModel>[];
+    final wanted = offset + limit;
+    await _scanBodies(
+      q,
+      threadId: threadId,
+      columns: null,
+      onRow: (row) {
+        hits.add(MessageModel.fromMap(row));
+        return hits.length < wanted;
+      },
+    );
+    if (hits.length <= offset) return const [];
+    return hits.sublist(offset, hits.length < wanted ? hits.length : wanted);
+  }
+
+  /// Threads matching [query] by phone number or by the body of **any** message
+  /// in them — not just the newest one, which is all a filter over the loaded
+  /// inbox list can see.
+  ///
+  /// Contact **names** are matched by the caller: the names the inbox paints
+  /// come from the device address book, not from any column here (the local
+  /// `contacts` table is legacy and nothing writes to it). Pass the thread ids
+  /// already matched by name as [alsoThreadIds] and they come back in the same
+  /// pinned-then-newest order as the rest, so the caller renders one list.
+  Future<List<MessageThread>> searchThreads(
+    String query, {
+    int limit = 60,
+    bool archived = false,
+    Set<String> alsoThreadIds = const {},
+  }) async {
+    final q = MessageSearchQuery(query);
+    if (q.isEmpty) return const [];
+
+    // The caller's name matches lead, so truncating below never throws away a
+    // hit the user can see a reason for.
+    final ids = <String>{...alsoThreadIds};
+
+    // Body hits arrive newest-first, so `ids` stays in a sensible order.
+    await _scanBodies(
+      q,
+      columns: const ['thread_id', 'body'],
+      onRow: (row) {
+        ids.add(row['thread_id'] as String);
+        return ids.length < _kMaxSearchThreads;
+      },
+    );
+
+    if (q.hasDigits && ids.length < _kMaxSearchThreads) {
+      ids.addAll(await _threadIdsMatchingNumber(q));
+    }
+    if (ids.isEmpty) return const [];
+
+    final capped = ids.length <= _kMaxSearchThreads
+        ? ids.toList()
+        : ids.take(_kMaxSearchThreads).toList();
+    return getAllThreads(
+      limit: limit,
+      archived: archived,
+      restrictToThreadIds: capped,
+    );
+  }
+
+  /// Walks the prefiltered rows newest-first, handing each one that survives
+  /// [MessageSearchQuery.matchesBody] to [onRow]; stops when [onRow] returns
+  /// false or the scan budget is spent.
+  ///
+  /// The scan is paged rather than one big `LIMIT _kMaxPrefilteredRows` read so
+  /// that the common (selective) query marshals one page and stops — the cap is
+  /// a safety net, not the normal cost.
+  Future<void> _scanBodies(
+    MessageSearchQuery q, {
+    required bool Function(Map<String, Object?> row) onRow,
+    List<String>? columns,
+    String? threadId,
+  }) async {
+    final db = await _dbHelper.database;
+
+    final clauses = <String>['is_deleted = 0'];
+    final args = <Object?>[];
+    if (threadId != null) {
+      clauses.add('thread_id = ?');
+      args.add(threadId);
+    }
+    final prefilter = q.bodyWhere;
+    if (prefilter != null) {
+      // A compact template payload («[#T1:mtg:1]علی|جلسه هفتگی|…») carries the
+      // answers but none of the template's prose, so the prefilter would reject
+      // a row whose *rendered* text plainly matches — searching «جلسه» would
+      // miss the meeting invitation it wrote. Payload rows are a small, cheaply
+      // identified subset (`[` is not a LIKE wildcard in SQLite), so they are
+      // admitted unconditionally and settled in Dart by the same authoritative
+      // matcher, against `TemplateWire.displayText`.
+      clauses.add('(($prefilter) OR body LIKE \'${TemplateWire.sigil}%\')');
+      args.addAll(q.bodyArgs);
+    }
+    final where = clauses.join(' AND ');
+
+    var scanned = 0;
+    var sqlOffset = 0;
+    while (scanned < _kMaxPrefilteredRows) {
+      final page = await db.query(
+        AppConstants.messagesTable,
+        columns: columns,
+        where: where,
+        whereArgs: args,
+        // Deterministic total order (timestamps collide on multipart SMS), so
+        // OFFSET paging below cannot skip or repeat a row. Backed by
+        // idx_messages_timestamp, which lets SQLite walk newest-first and stop
+        // instead of sorting the whole prefiltered set.
+        //
+        // TODO(db): a composite `idx_messages_search ON messages(is_deleted,
+        // timestamp DESC)` would let this walk skip soft-delete tombstones
+        // instead of reading and rejecting them. Not added here because
+        // database_helper.dart / app_constants.dart (and the version bump the
+        // migration needs) are owned elsewhere right now; idx_messages_timestamp
+        // already gives the ordering, so this is a nice-to-have.
+        orderBy: 'timestamp DESC, rowid DESC',
+        limit: _kSearchPageSize,
+        offset: sqlOffset,
+      );
+      if (page.isEmpty) return;
+      scanned += page.length;
+      sqlOffset += page.length;
+      for (final row in page) {
+        // `displayText` is the identity for ordinary bodies (one `startsWith`),
+        // so this costs nothing on the rows that are not template payloads.
+        if (!q.matchesBody(TemplateWire.displayText(row['body'] as String))) {
+          continue;
+        }
+        if (!onRow(row)) return;
+      }
+      if (page.length < _kSearchPageSize) return;
+    }
+  }
+
+  /// Threads whose phone number matches the digits of the query.
+  ///
+  /// Matching runs in Dart because only [PhoneQuery] knows that `+98912…`,
+  /// `0912…` and `912…` are the same number, and a `thread_id LIKE` prefilter
+  /// provably *can* miss: a query of `89121` matches the stored digits of
+  /// `+989121234567` in the middle, while the thread id is the national
+  /// `09121234567`, which does not contain it. So the candidate list is read
+  /// instead — one row per conversation (not per message), bounded by
+  /// [_kMaxScannedThreads] and only read for a query that has digits in it.
+  Future<Set<String>> _threadIdsMatchingNumber(MessageSearchQuery q) async {
+    final db = await _dbHelper.database;
+    final rows = await db.rawQuery(
+      '''
+      SELECT thread_id, MIN(phone_number) AS phone_number
+      FROM ${AppConstants.messagesTable}
+      WHERE is_deleted = 0
+      GROUP BY thread_id
+      ORDER BY MAX(timestamp) DESC
+      LIMIT ?
+      ''',
+      [_kMaxScannedThreads],
+    );
+    // MIN(phone_number) is an arbitrary pick on purpose: every row of a thread
+    // carries the same number in some formatting, and PhoneQuery normalizes.
+    final ids = <String>{};
+    for (final row in rows) {
+      final threadId = row['thread_id'] as String;
+      final phone = (row['phone_number'] as String?) ?? threadId;
+      if (q.phone.contains(phone) || q.phone.contains(threadId)) {
+        ids.add(threadId);
+      }
+    }
+    return ids;
   }
 
   /// Fetches full rows for the given message ids (used to build the provider

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:communication_super_app/core/widgets/avatar_widget.dart';
+import 'package:communication_super_app/core/widgets/phone_contact_avatar.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 
@@ -38,7 +38,15 @@ class ConversationAppBar extends StatelessWidget
         onTap: onOpenContact,
         child: Row(
           children: [
-            AvatarWidget(name: title, size: 36),
+            // The saved contact's photo when this number belongs to one — the
+            // same avatar the address book draws. Resolution is O(1) on the
+            // warm number index and only this 36 dp box rebuilds if it lands
+            // late, so the header never waits on the address book.
+            PhoneContactAvatar(
+              phoneNumber: phoneNumber,
+              name: title,
+              size: 36,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:communication_super_app/features/messages/models/template_wire.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:communication_super_app/features/messages/bloc/template_bloc.dart';
@@ -60,11 +61,14 @@ void main() {
           home: Builder(
             builder: (context) => ElevatedButton(
               onPressed: () async {
-                result = await Navigator.of(context).push<String>(
-                  MaterialPageRoute(
-                    builder: (_) => TemplateFillScreen(template: _template()),
-                  ),
-                );
+                final popped = await Navigator.of(context)
+                    .push<TemplateFillResult>(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            TemplateFillScreen(template: _template()),
+                      ),
+                    );
+                result = popped?.text;
               },
               child: const Text('باز کن'),
             ),
@@ -140,7 +144,7 @@ void main() {
       );
     });
 
-    Widget harness({required void Function(String?) onResult}) {
+    Widget harness({required void Function(TemplateFillResult?) onResult}) {
       final bloc = TemplateBloc(repo)..add(const LoadTemplates());
       // The bloc sits above MaterialApp, as it does in AppBlocProviders: the
       // picker is pushed as a route and would not see a provider scoped inside
@@ -161,7 +165,7 @@ void main() {
     testWidgets('a template with nothing to fill in inserts on one tap', (
       tester,
     ) async {
-      String? result;
+      TemplateFillResult? result;
       await tester.pumpWidget(harness(onResult: (v) => result = v));
       await tester.tap(find.text('باز کن'));
       await tester.pumpAndSettle();
@@ -169,13 +173,15 @@ void main() {
       await tester.tap(find.text('تشکر'));
       await tester.pumpAndSettle();
 
-      expect(result, 'سپاسگزارم.');
+      expect(result?.text, 'سپاسگزارم.');
+      // Nothing to fill in, so nothing to compress: it ships as plain text.
+      expect(result?.wire, isNull);
     });
 
     testWidgets('a template with placeholders goes through the fill screen', (
       tester,
     ) async {
-      String? result;
+      TemplateFillResult? result;
       await tester.pumpWidget(harness(onResult: (v) => result = v));
       await tester.tap(find.text('باز کن'));
       await tester.pumpAndSettle();
@@ -193,7 +199,7 @@ void main() {
       await tester.tap(find.text('تأیید'));
       await tester.pumpAndSettle();
 
-      expect(result, 'جلسه در محل اتاق جلسات برقرار می‌باشد.');
+      expect(result?.text, 'جلسه در محل اتاق جلسات برقرار می‌باشد.');
     });
   });
 }

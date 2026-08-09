@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
-import 'package:communication_super_app/core/widgets/avatar_widget.dart';
+import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
@@ -82,7 +82,15 @@ class _PhoneActionSheetState extends State<_PhoneActionSheet> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: AvatarWidget(name: name ?? display, size: 44),
+              // The sheet already resolves the contact for its «مشاهده مخاطب»
+              // row, so it feeds LazyContactAvatar directly instead of going
+              // through PhoneContactAvatar — same photo, one lookup. An empty
+              // id (still resolving, or unsaved number) falls back to initials.
+              leading: LazyContactAvatar(
+                contactId: _contact?.id ?? '',
+                name: name ?? display,
+                size: 44,
+              ),
               title: Text(
                 name ?? display,
                 style: theme.textTheme.titleMedium,

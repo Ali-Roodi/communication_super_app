@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:communication_super_app/core/widgets/avatar_widget.dart';
+import 'package:communication_super_app/core/widgets/phone_contact_avatar.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:communication_super_app/features/messages/models/message_model.dart';
+import 'package:communication_super_app/features/messages/models/template_wire.dart';
 
 /// A single conversation row, laid out like Google Messages: avatar · name over
 /// a two-line snippet · date and the unread badge stacked at the end.
@@ -163,7 +164,9 @@ class ThreadTile extends StatelessWidget {
       );
     }
     return Text(
-      thread.lastMessage,
+      // A template message is stored as its compact wire payload; the preview
+      // shows the rebuilt text, never the payload (see [TemplateWire]).
+      TemplateWire.displayText(thread.lastMessage),
       maxLines: 2,
       overflow: TextOverflow.ellipsis,
       style: TextStyle(
@@ -184,6 +187,13 @@ class ThreadTile extends StatelessWidget {
         child: Icon(Icons.check, color: scheme.onPrimary),
       );
     }
-    return AvatarWidget(name: name, size: 48);
+    // Contact photo when the number is saved, initials otherwise — same 48 dp
+    // box either way, so the row height (and the list's item extent) is
+    // unchanged. The `selected` check above still wins.
+    return PhoneContactAvatar(
+      phoneNumber: thread.phoneNumber,
+      name: name,
+      size: 48,
+    );
   }
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../models/template_wire.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
@@ -81,7 +82,9 @@ class ScheduledBubble extends StatelessWidget {
                   _header(theme, sending: sending, retrying: retrying),
                   const SizedBox(height: 6),
                   Text(
-                    message.body,
+                    // A scheduled template holds its compact payload — show
+                    // the message, not the wire (see TemplateWire).
+                    TemplateWire.displayText(message.body),
                     style: TextStyle(color: cs.onSurface),
                   ),
                 ],

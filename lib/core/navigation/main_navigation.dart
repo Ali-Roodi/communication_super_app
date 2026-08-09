@@ -1,6 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:communication_super_app/features/call_history/bloc/call_log_state.dart';
+import 'package:communication_super_app/features/call_history/models/call_log_model.dart';
 import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/features/contacts/bloc/contact_bloc.dart';
 import 'package:communication_super_app/features/contacts/bloc/contact_event.dart';
@@ -41,6 +46,9 @@ class _MainNavigationState extends State<MainNavigation>
     MessagesListScreen(),
   ];
 
+  static const int _recentsTab = 0;
+  static const int _messagesTab = 3;
+
   /// Tabs that show the dialer FAB (Recents + Favorites, per Google Phone).
   bool get _showDialerFab => _currentIndex == 0 || _currentIndex == 1;
 
@@ -49,6 +57,7 @@ class _MainNavigationState extends State<MainNavigation>
     super.initState();
     _currentIndex = widget.initialIndex;
     WidgetsBinding.instance.addObserver(this);
+    _startAutoTabSelection();
     // Live-refresh when the device address book changes (a contact added/edited
     // in the phone's Contacts app) so names update without an app restart.
     FlutterContacts.addListener(_refreshDeviceContacts);
@@ -68,7 +77,11 @@ class _MainNavigationState extends State<MainNavigation>
   /// normalized phone number, so `forPhone` resolves it directly.
   void _openThreadFromNotification(String threadId) {
     if (!mounted) return;
-    setState(() => _currentIndex = 3); // land on the Messages tab underneath
+    // An explicit destination beats the heuristic below; without this the grace
+    // timer could still swing the tab under an already-open conversation.
+    _autoTabResolved = true;
+    _autoTabGrace?.cancel();
+    setState(() => _currentIndex = _messagesTab);
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => ConversationScreen.forPhone(threadId)),
     );
@@ -78,15 +91,26 @@ class _MainNavigationState extends State<MainNavigation>
   void dispose() {
     FlutterContacts.removeListener(_refreshDeviceContacts);
     WidgetsBinding.instance.removeObserver(this);
+    _autoTabGrace?.cancel();
+    _threadSub?.cancel();
+    _callSub?.cancel();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
+    if (state != AppLifecycleState.resumed) {
+      // Leaving the foreground is what defines "last time the user looked".
+      _markForegroundSeen();
+      return;
+    }
     // A contact may have been added while we were backgrounded (e.g. the user
     // switched to the phone's Contacts app and came back).
     if (state == AppLifecycleState.resumed) {
+      // Coming back counts as opening the app: re-arm the landing-tab decision
+      // against the moment we were last on screen.
+      _startAutoTabSelection(reopen: true);
       _refreshContactsOnResume();
       // Same for calls: one may have ended (or been deleted) while
       // backgrounded — silent mirror-sync so «اخیر» is current on return.
@@ -94,6 +118,144 @@ class _MainNavigationState extends State<MainNavigation>
       // And for SMS: mirror-sync the provider (new/deleted rows) silently.
       context.read<MessageBloc>().add(const SyncDeviceMessages());
     }
+  }
+
+  // ── Landing tab ───────────────────────────────────────────────────────────
+  //
+  // Opening the app when something arrived while it was away lands on that
+  // something: «پیام‌ها» for a new SMS, «اخیر» for a missed call, and the newer
+  // of the two when both happened. Google Phone/Messages are separate apps, so
+  // neither has this problem; here the user opened the app *because* of the
+  // notification and the default tab was almost never the one they wanted.
+  //
+  // Deliberately free of new queries: the unread totals and the call list are
+  // already loaded by the two tabs (every child of the IndexedStack is mounted
+  // from the start), so this only listens to state the app produces anyway.
+
+  /// Moment the app was last in the foreground, persisted so a cold start can
+  /// tell "arrived while I was away" from "arrived last week".
+  static const String _lastForegroundKey = 'last_foreground_at';
+
+  DateTime? _lastSeenAt;
+  bool _autoTabResolved = false;
+  Timer? _autoTabGrace;
+  StreamSubscription<MessageState>? _threadSub;
+  StreamSubscription<CallLogState>? _callSub;
+
+  DateTime? _newestUnreadAt;
+  DateTime? _newestMissedAt;
+  bool _haveThreads = false;
+  bool _haveCalls = false;
+
+  /// How long to wait for *both* signals before deciding with whatever arrived.
+  ///
+  /// Picking the newer of the two needs both, but the inbox and the call log
+  /// load independently and one of them may have nothing to report at all. A
+  /// short grace window keeps the decision correct in the common case without
+  /// ever leaving the user on a tab that a late answer would have changed —
+  /// after this it is too late to move the ground under a tap anyway.
+  static const Duration _autoTabGraceWindow = Duration(milliseconds: 1200);
+
+  Future<void> _startAutoTabSelection({bool reopen = false}) async {
+    _autoTabGrace?.cancel();
+    _autoTabResolved = false;
+    _haveThreads = false;
+    _haveCalls = false;
+    _newestUnreadAt = null;
+    _newestMissedAt = null;
+
+    if (!reopen) {
+      // Cold start: the stored moment is the only "last seen" we have. A first
+      // ever launch has none, and then nothing is "new" — leave the default tab.
+      final prefs = await SharedPreferences.getInstance();
+      final millis = prefs.getInt(_lastForegroundKey);
+      _lastSeenAt = millis == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(millis);
+    }
+    if (!mounted) return;
+
+    _threadSub?.cancel();
+    _callSub?.cancel();
+    final messageBloc = context.read<MessageBloc>();
+    final callBloc = context.read<CallLogBloc>();
+    // Seed from whatever is already loaded (a resume usually has both), then
+    // follow the refresh each bloc runs on resume.
+    _consumeMessageState(messageBloc.state);
+    _consumeCallState(callBloc.state);
+    _threadSub = messageBloc.stream.listen(_consumeMessageState);
+    _callSub = callBloc.stream.listen(_consumeCallState);
+
+    _autoTabGrace = Timer(_autoTabGraceWindow, () => _resolveAutoTab(force: true));
+    _resolveAutoTab();
+  }
+
+  void _consumeMessageState(MessageState state) {
+    if (state is! ThreadsLoaded || state.archived) return;
+    _haveThreads = true;
+    DateTime? newest;
+    for (final thread in state.threads) {
+      if (thread.unreadCount <= 0) continue;
+      if (newest == null || thread.lastMessageTime.isAfter(newest)) {
+        newest = thread.lastMessageTime;
+      }
+    }
+    _newestUnreadAt = newest;
+    _resolveAutoTab();
+  }
+
+  void _consumeCallState(CallLogState state) {
+    if (state is! CallLogsLoaded) return;
+    _haveCalls = true;
+    // The list is newest-first, so the first missed call is the newest one.
+    for (final log in state.callLogs) {
+      if (log.callType != CallType.missed) continue;
+      _newestMissedAt = log.timestamp;
+      break;
+    }
+    _resolveAutoTab();
+  }
+
+  void _resolveAutoTab({bool force = false}) {
+    if (_autoTabResolved) return;
+    if (!force && !(_haveThreads && _haveCalls)) return;
+
+    _autoTabResolved = true;
+    _autoTabGrace?.cancel();
+    _threadSub?.cancel();
+    _callSub?.cancel();
+    _threadSub = null;
+    _callSub = null;
+
+    final seen = _lastSeenAt;
+    if (seen == null) return;
+
+    final unread = _newestUnreadAt;
+    final missed = _newestMissedAt;
+    final freshUnread = unread != null && unread.isAfter(seen) ? unread : null;
+    final freshMissed = missed != null && missed.isAfter(seen) ? missed : null;
+    if (freshUnread == null && freshMissed == null) return;
+
+    final target =
+        freshMissed == null ||
+            (freshUnread != null && freshUnread.isAfter(freshMissed))
+        ? _messagesTab
+        : _recentsTab;
+    if (mounted && _currentIndex != target) {
+      setState(() => _currentIndex = target);
+    }
+  }
+
+  /// Stamps "the user was looking at the app until now".
+  void _markForegroundSeen() {
+    final now = DateTime.now();
+    _lastSeenAt = now;
+    SharedPreferences.getInstance().then(
+      (prefs) => prefs.setInt(_lastForegroundKey, now.millisecondsSinceEpoch),
+      // A failed preference write only costs the landing-tab hint on the next
+      // cold start; never worth an unhandled error.
+      onError: (_) {},
+    );
   }
 
   /// Minimum spacing between resume-triggered address-book re-reads.
