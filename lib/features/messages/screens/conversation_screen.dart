@@ -553,6 +553,14 @@ class _ConversationScreenState extends State<ConversationScreen> {
         }
         if (state is! MessagesLoaded) return const SizedBox.shrink();
 
+        // Read once for the whole list. Inside the item builder this was a
+        // `context.watch` per bubble: every visible bubble registered its own
+        // dependency on SettingsBloc, so any unrelated settings emit rebuilt the
+        // entire viewport.
+        final showLinkPreview = context.select<SettingsBloc, bool>(
+          (bloc) => bloc.state.linkPreviews,
+        );
+
         // Pending schedules for this thread render as ghost bubbles pinned after
         // the real messages (they are all in the future). They come from
         // ScheduledMessageBloc, so the list re-renders the moment one is sent,
@@ -594,7 +602,12 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 final next = di < msgs.length - 1
                     ? msgs[di + 1]
                     : null; // newer
-                return _buildMessageItem(msg, prev, next);
+                return _buildMessageItem(
+                  msg,
+                  prev,
+                  next,
+                  showLinkPreview: showLinkPreview,
+                );
               },
             );
           },
@@ -695,8 +708,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
   Widget _buildMessageItem(
     MessageModel msg,
     MessageModel? prev,
-    MessageModel? next,
-  ) {
+    MessageModel? next, {
+    required bool showLinkPreview,
+  }) {
     final showDateSep =
         prev == null || !_sameDay(prev.timestamp, msg.timestamp);
     final isLastInGroup = next == null || !_sameGroup(msg, next);
@@ -715,7 +729,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
           showTimestamp: showTimestamp,
           selected: selected,
           selectionMode: _selectionMode,
-          showLinkPreview: context.watch<SettingsBloc>().state.linkPreviews,
+          showLinkPreview: showLinkPreview,
           onTap: () {
             if (_selectionMode) _toggleSelect(msg.id);
           },

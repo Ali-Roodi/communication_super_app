@@ -1,7 +1,6 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/material.dart';
 
-import '../models/template_wire.dart';
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
@@ -56,51 +55,6 @@ class NotificationService {
     _initialized = true;
   }
 
-  Future<void> showSmsNotification({
-    required String contactName,
-    required String phoneNumber,
-    required String message,
-    required String threadId,
-  }) async {
-    if (!_initialized) await initialize();
-
-    final displayName = contactName.isNotEmpty ? contactName : phoneNumber;
-
-    const androidDetails = AndroidNotificationDetails(
-      'sms_channel',
-      'پیام‌های کوتاه',
-      channelDescription: 'اعلان‌های پیام‌های کوتاه دریافتی',
-      importance: Importance.high,
-      priority: Priority.high,
-      showWhen: true,
-      enableVibration: true,
-      playSound: true,
-      icon: '@mipmap/ic_launcher',
-    );
-
-    const iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-    );
-
-    const notificationDetails = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
-
-    await _notifications.show(
-      threadId.hashCode, // Use thread ID hash as notification ID
-      displayName,
-      // A built-in template arrives as a compact payload; the notification
-      // shows the rebuilt message, exactly like the chat. (The native
-      // SmsNotifier does the same in TemplateWire.kt — this Dart path only
-      // fires in the rare telephony fallback.)
-      TemplateWire.displayText(message),
-      notificationDetails,
-      payload: threadId, // Store thread ID to open conversation
-    );
-  }
 
   void _onNotificationTapped(NotificationResponse response) {
     final threadId = response.payload;

@@ -10,6 +10,9 @@ import 'package:communication_super_app/core/utils/persian_utils.dart';
 /// carried over from the match: formatting normalises `+98…` to `0…`, so an
 /// index taken on the raw number would land on the wrong digit.
 class HighlightedPhone extends StatelessWidget {
+  /// Compiled once — this widget is a list row, so it builds per contact.
+  static final RegExp _nonDigits = RegExp(r'[^\d]');
+
   final String number;
 
   /// Digits the user typed. Empty (or not present in the number) renders the
@@ -28,7 +31,7 @@ class HighlightedPhone extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final display = PersianUtils.displayPhone(number);
-    final digitsOnly = query.replaceAll(RegExp(r'[^\d]'), '');
+    final digitsOnly = query.replaceAll(_nonDigits, '');
     if (digitsOnly.isEmpty) return Text(display, style: style);
 
     // Positions of the digit characters inside the formatted string, plus the

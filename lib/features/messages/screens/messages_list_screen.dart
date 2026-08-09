@@ -401,6 +401,12 @@ class _MessagesListScreenState extends State<MessagesListScreen>
   /// (Google Messages' «صندوق» plane).
   List<Widget> _buildBodySlivers(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // Read once for the whole list. Inside `_buildThreadRow` this was a
+    // `context.watch` per row: a 200-row paged-in inbox subscribed 200 elements
+    // to SettingsBloc, and any settings emit rebuilt every visible row.
+    final swipeActions = context.select<SettingsBloc, bool>(
+      (bloc) => bloc.state.swipeActions,
+    );
     return [
       BlocConsumer<MessageBloc, MessageState>(
         listener: (context, state) {
@@ -490,7 +496,12 @@ class _MessagesListScreenState extends State<MessagesListScreen>
                   final thread = threads[index];
                   final draftOnly =
                       thread.hasDraft && !realIds.contains(thread.threadId);
-                  return _buildThreadRow(context, thread, draftOnly: draftOnly);
+                  return _buildThreadRow(
+                    context,
+                    thread,
+                    draftOnly: draftOnly,
+                    swipeActions: swipeActions,
+                  );
                 },
               ),
             ),
@@ -689,6 +700,7 @@ class _MessagesListScreenState extends State<MessagesListScreen>
     BuildContext context,
     MessageThread thread, {
     bool draftOnly = false,
+    required bool swipeActions,
   }) {
     final selected = _selected.contains(thread.threadId);
     final cs = Theme.of(context).colorScheme;
@@ -720,7 +732,7 @@ class _MessagesListScreenState extends State<MessagesListScreen>
     );
 
     // «کشیدن برای بایگانی» (Settings → پیامک‌ها) turns the swipe gestures off.
-    if (!context.watch<SettingsBloc>().state.swipeActions) return tile;
+    if (!swipeActions) return tile;
 
     // A draft-only row has no conversation to archive / mark read — either swipe
     // simply discards the draft.

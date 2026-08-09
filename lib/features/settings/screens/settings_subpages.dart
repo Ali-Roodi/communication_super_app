@@ -337,6 +337,8 @@ class QuickRepliesPage extends StatelessWidget {
     int index,
     String current,
   ) async {
+    // Disposed after the dialog closes; it belongs to this function, not to a
+    // State with a `dispose` to hang it on.
     final controller = TextEditingController(text: current);
     final result = await showDialog<String>(
       context: context,
@@ -362,6 +364,7 @@ class QuickRepliesPage extends StatelessWidget {
         ),
       ),
     );
+    controller.dispose();
     if (result != null && result.trim().isNotEmpty) {
       bloc.add(UpdateQuickReply(index, result.trim()));
     }

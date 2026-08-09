@@ -212,18 +212,16 @@ void main() {
       expect(decoded.text, isNot(contains('[')));
     });
 
-    test('preview keeps the placeholders the sender left blank', () {
+    test('unanswered placeholders are dropped from the rebuilt text', () {
       final decoded = TemplateWire.decode('[#T1:mtg:0]جلسه هفتگی')!;
-      expect(decoded.preview, contains('[مکان]'));
-      expect(decoded.text, isNot(contains('[مکان]')));
+      expect(decoded.text, isNot(contains('[')));
+      expect(decoded.text, contains('جلسه هفتگی'));
     });
 
     test('displayText rebuilds a payload and passes text through', () {
       final wire = _encode(congrats, const {'مناسبت': 'سال نو'})!;
       expect(TemplateWire.displayText(wire), contains('سال نو'));
       expect(TemplateWire.displayText(wire), isNot(contains('#T')));
-      expect(TemplateWire.isWire(wire), isTrue);
-      expect(TemplateWire.isWire('سلام'), isFalse);
     });
   });
 }

@@ -72,22 +72,6 @@ class CallLogRepository {
     return rows.isEmpty ? null : rows.first['timestamp'] as int?;
   }
 
-  Future<List<CallLogModel>> getCallLogsByContact(
-    String contactId, {
-    int? limit,
-    int? offset,
-  }) async {
-    final db = await _dbHelper.database;
-    final maps = await db.query(
-      AppConstants.callLogsTable,
-      where: 'contact_id = ?',
-      whereArgs: [contactId],
-      orderBy: 'timestamp DESC',
-      limit: limit,
-      offset: offset,
-    );
-    return maps.map((map) => CallLogModel.fromMap(map)).toList();
-  }
 
   /// Ids of stored call logs at or after [sinceMs]. Scopes the mirror-sync
   /// deletion diff to the same time window the device fetch covers, so calls

@@ -73,12 +73,6 @@ class DateFormatter {
     return PersianUtils.toPersianNumber('$y/$ms/$ds');
   }
 
-  /// Date with a spelled-out month + time, e.g. «۱۰ تیر ۱۴:۳۰».
-  static String formatDatePersian(DateTime dateTime) {
-    final (_, _, d, name) = _parts(dateTime);
-    final day = PersianUtils.toPersianNumber('$d');
-    return '$day $name ${formatTime(dateTime)}';
-  }
 
   static const List<String> _weekdaysFa = [
     'دوشنبه', // Mon (DateTime.monday == 1)

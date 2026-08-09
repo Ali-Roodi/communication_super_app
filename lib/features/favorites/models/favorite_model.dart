@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 
 /// A favorited (starred) phone number. Keyed by [normalized] (digits only) so
@@ -25,8 +26,28 @@ class FavoriteModel extends Equatable {
       ? name!
       : PersianUtils.displayPhone(phoneNumber);
 
-  static String normalize(String phone) =>
-      phone.replaceAll(RegExp(r'[^\d]'), '');
+  /// The canonical key for [phone] — `PhoneNormalizer.toNational`, the same
+  /// `09xxxxxxxxx` form `messages.thread_id` and `blocked_numbers.normalized`
+  /// use.
+  ///
+  /// It used to be a raw digits-only strip, and since this column is the
+  /// favourites table's UNIQUE key that meant the *same person* could be starred
+  /// twice: once from a call log where the carrier delivered `+989121234567` and
+  /// once from Contacts where the number is saved `09121234567`. Two rows, two
+  /// stars, and `isFavorite` answering false on whichever surface asked with the
+  /// other form. DB v19 rewrites the rows written before this.
+  /// Empty when [phone] holds no digits at all: `PhoneNormalizer` falls back to
+  /// returning the trimmed input for a string it cannot parse, and without this
+  /// guard «no-digits-here» would be stored as a starred "number". Callers treat
+  /// empty as "not a number, do nothing".
+  static String normalize(String phone) {
+    if (!phone.contains(_anyDigit)) return '';
+    return PhoneNormalizer.toNational(phone);
+  }
+
+  /// ASCII, Persian and Arabic-Indic digits — the same set `PhoneNormalizer`
+  /// accepts.
+  static final RegExp _anyDigit = RegExp(r'[\d۰-۹٠-٩]');
 
   Map<String, dynamic> toMap() => {
     'id': id,

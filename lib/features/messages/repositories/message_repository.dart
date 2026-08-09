@@ -3,6 +3,7 @@ import 'package:communication_super_app/core/database/database_helper.dart';
 import 'package:communication_super_app/core/constants/app_constants.dart';
 import '../models/message_model.dart';
 import '../models/template_wire.dart';
+import 'package:communication_super_app/core/utils/search_text.dart';
 import '../models/message_search_query.dart';
 
 class MessageRepository {
@@ -18,23 +19,6 @@ class MessageRepository {
     return message.id;
   }
 
-  Future<void> createMessagesBatch(List<MessageModel> messages) async {
-    if (messages.isEmpty) return;
-    final db = await _dbHelper.database;
-    final batch = db.batch();
-    for (final message in messages) {
-      // IGNORE on conflict: the unique index on (phone_number, body, timestamp,
-      // type) ensures a message that was already inserted by the live
-      // BroadcastReceiver (with a UUID id) is not duplicated by the device
-      // inbox import (which uses the device SMS id as the id value).
-      batch.insert(
-        AppConstants.messagesTable,
-        message.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
-    }
-    await batch.commit(noResult: true);
-  }
 
   Future<List<MessageModel>> getMessagesByThread(
     String threadId, {
@@ -245,10 +229,95 @@ class MessageRepository {
   /// threads on any real phone.
   static const int _kMaxScannedThreads = 4000;
 
+  /// Rows folded into the FTS index per [syncSearchIndex] call.
+  ///
+  /// The backfill of an existing mailbox runs through this in batches instead of
+  /// one long transaction: it happens behind a painted screen, and a single
+  /// 50,000-row fold would hold the isolate for seconds.
+  static const int _kIndexBatch = 500;
+
+  /// Cap on rows taken from an FTS match before the authoritative filter.
+  ///
+  /// The index is selective enough that a real query returns far fewer; this
+  /// only stops a pathological three-character needle from marshalling a whole
+  /// mailbox.
+  static const int _kMaxFtsRows = 3000;
+
   /// Cap on thread ids handed back to [getAllThreads] as bind variables — well
   /// under SQLite's 999-variable limit, and far more search hits than a list
   /// can usefully show.
   static const int _kMaxSearchThreads = 200;
+
+  // ── Search index maintenance ──────────────────────────────────────────────
+
+  /// Whether the FTS index may be trusted for a search *right now*.
+  ///
+  /// Two conditions, and the second is the subtle one: the index must exist on
+  /// this device (see `DatabaseHelper.messageSearchFtsReady`) **and** it must
+  /// have no backlog. A half-filled index is worse than no index — it answers
+  /// confidently and silently omits the rows it has not folded yet — so while
+  /// anything is unindexed every search takes the scan path instead. Existing
+  /// mailboxes therefore behave exactly as before until the backfill finishes,
+  /// and then get faster.
+  Future<bool> searchIndexReady() async {
+    if (!DatabaseHelper.messageSearchFtsReady) return false;
+    final db = await _dbHelper.database;
+    final pending = await db.rawQuery(
+      'SELECT EXISTS(SELECT 1 FROM ${AppConstants.messagesTable} '
+      'WHERE search_indexed = 0) AS pending',
+    );
+    return (pending.first['pending'] as int? ?? 1) == 0;
+  }
+
+  /// Folds up to [_kIndexBatch] unindexed message bodies into the FTS index.
+  ///
+  /// Returns the number of rows indexed, so a caller can loop until it drains.
+  /// Safe to call at any time and from anywhere: it is idempotent, it is bounded,
+  /// and it is the *only* writer of the index.
+  ///
+  /// Two details that matter:
+  /// * The indexed text is the **displayed** body, folded — a template message is
+  ///   stored as its compact payload (see [TemplateWire]), so indexing the raw
+  ///   column would make it findable only by its wire header.
+  /// * Each row is deleted from the index before being inserted. SQLite reuses
+  ///   the rowid of a hard-deleted message, and without the delete a stale entry
+  ///   would attach itself to whatever message inherits that rowid — the index
+  ///   would answer with text from a message that no longer exists.
+  Future<int> syncSearchIndex() async {
+    if (!DatabaseHelper.messageSearchFtsReady) return 0;
+    final db = await _dbHelper.database;
+    final rows = await db.query(
+      AppConstants.messagesTable,
+      columns: ['rowid', 'body'],
+      where: 'search_indexed = 0',
+      limit: _kIndexBatch,
+    );
+    if (rows.isEmpty) return 0;
+
+    final batch = db.batch();
+    for (final row in rows) {
+      final rowid = row['rowid'] as int;
+      final folded = SearchText.foldTight(
+        TemplateWire.displayText(row['body'] as String),
+      );
+      batch.delete(
+        AppConstants.messageSearchTable,
+        where: 'rowid = ?',
+        whereArgs: [rowid],
+      );
+      batch.insert(AppConstants.messageSearchTable, {
+        'rowid': rowid,
+        'folded': folded,
+      });
+      batch.rawUpdate(
+        'UPDATE ${AppConstants.messagesTable} '
+        'SET search_indexed = 1 WHERE rowid = ?',
+        [rowid],
+      );
+    }
+    await batch.commit(noResult: true);
+    return rows.length;
+  }
 
   /// Messages whose **body** matches [query], newest first, sent and received
   /// alike.
@@ -343,6 +412,35 @@ class MessageRepository {
   }) async {
     final db = await _dbHelper.database;
 
+    // Indexed path. Only taken when the index exists, has no backlog, and the
+    // needle is long enough for a trigram to speak about it; otherwise the scan
+    // below answers, with identical results.
+    if (q.canUseFts && await searchIndexReady()) {
+      final select = columns == null
+          ? 'm.*'
+          : columns.map((c) => 'm.$c').join(', ');
+      final args = <Object?>[q.ftsMatch];
+      var where = 'm.is_deleted = 0';
+      if (threadId != null) {
+        where += ' AND m.thread_id = ?';
+        args.add(threadId);
+      }
+      final matches = await db.rawQuery('''
+        SELECT $select FROM ${AppConstants.messageSearchTable} s
+        JOIN ${AppConstants.messagesTable} m ON m.rowid = s.rowid
+        WHERE s.folded MATCH ? AND $where
+        ORDER BY m.timestamp DESC, m.rowid DESC
+        LIMIT $_kMaxFtsRows
+      ''', args);
+      for (final row in matches) {
+        if (!q.matchesBody(TemplateWire.displayText(row['body'] as String))) {
+          continue;
+        }
+        if (!onRow(row)) return;
+      }
+      return;
+    }
+
     final clauses = <String>['is_deleted = 0'];
     final args = <Object?>[];
     if (threadId != null) {
@@ -373,15 +471,9 @@ class MessageRepository {
         whereArgs: args,
         // Deterministic total order (timestamps collide on multipart SMS), so
         // OFFSET paging below cannot skip or repeat a row. Backed by
-        // idx_messages_timestamp, which lets SQLite walk newest-first and stop
-        // instead of sorting the whole prefiltered set.
-        //
-        // TODO(db): a composite `idx_messages_search ON messages(is_deleted,
-        // timestamp DESC)` would let this walk skip soft-delete tombstones
-        // instead of reading and rejecting them. Not added here because
-        // database_helper.dart / app_constants.dart (and the version bump the
-        // migration needs) are owned elsewhere right now; idx_messages_timestamp
-        // already gives the ordering, so this is a nice-to-have.
+        // `idx_messages_search` (is_deleted, timestamp DESC) — the filter first
+        // so tombstones are seeked past rather than read and rejected, then the
+        // ordering, so there is no sort.
         orderBy: 'timestamp DESC, rowid DESC',
         limit: _kSearchPageSize,
         offset: sqlOffset,
@@ -628,27 +720,7 @@ class MessageRepository {
     );
   }
 
-  Future<void> deleteMessage(String messageId) async {
-    final db = await _dbHelper.database;
-    await db.delete(
-      AppConstants.messagesTable,
-      where: 'id = ?',
-      whereArgs: [messageId],
-    );
-  }
 
-  /// Hard-deletes every row of a thread. Only for local-only data (tests,
-  /// legacy paths) — the user-facing delete is [softDeleteThread], because a
-  /// hard delete throws away the `device_sms_id` tombstones the mirror-sync
-  /// needs and the whole conversation comes back on the next sync.
-  Future<void> deleteThread(String threadId) async {
-    final db = await _dbHelper.database;
-    await db.delete(
-      AppConstants.messagesTable,
-      where: 'thread_id = ?',
-      whereArgs: [threadId],
-    );
-  }
 
   /// Soft-deletes a whole conversation: the rows stay as tombstones (hidden by
   /// the `is_deleted = 0` filter on every query) so `reconcileDeviceRows` keeps
@@ -708,17 +780,6 @@ class MessageRepository {
     );
   }
 
-  /// Soft-deletes a single message (kept in DB so the dedup unique index row
-  /// survives, but hidden from every query via is_deleted = 0 filters).
-  Future<void> softDeleteMessage(String messageId) async {
-    final db = await _dbHelper.database;
-    await db.update(
-      AppConstants.messagesTable,
-      {'is_deleted': 1},
-      where: 'id = ?',
-      whereArgs: [messageId],
-    );
-  }
 
   Future<void> softDeleteMessages(List<String> messageIds) async {
     if (messageIds.isEmpty) return;
@@ -752,16 +813,6 @@ class MessageRepository {
     );
   }
 
-  Future<bool> isThreadArchived(String threadId) async {
-    final db = await _dbHelper.database;
-    final rows = await db.query(
-      AppConstants.archivedThreadsTable,
-      where: 'thread_id = ?',
-      whereArgs: [threadId],
-      limit: 1,
-    );
-    return rows.isNotEmpty;
-  }
 
   // ── Pin ────────────────────────────────────────────────────────────────
   Future<void> pinThread(String threadId) async {
@@ -785,14 +836,4 @@ class MessageRepository {
     );
   }
 
-  Future<bool> isThreadPinned(String threadId) async {
-    final db = await _dbHelper.database;
-    final rows = await db.query(
-      AppConstants.pinnedThreadsTable,
-      where: 'thread_id = ?',
-      whereArgs: [threadId],
-      limit: 1,
-    );
-    return rows.isNotEmpty;
-  }
 }

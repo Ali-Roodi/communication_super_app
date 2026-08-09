@@ -13,6 +13,7 @@ import 'package:communication_super_app/features/contacts/models/contact_model.d
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
 import 'package:communication_super_app/features/contacts/widgets/phone_number_picker.dart';
 import 'package:communication_super_app/features/call_history/models/call_log_model.dart';
+import 'package:communication_super_app/features/messages/models/template_wire.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/features/messages/models/message_model.dart';
 import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
@@ -234,6 +235,9 @@ class _ContactResult extends StatelessWidget {
 // ── Message result → opens the conversation ───────────────────────────────────
 
 class _MessageResult extends StatelessWidget {
+  /// Compiled once — this is a list row.
+  static final RegExp _whitespaceRun = RegExp(r'\s+');
+
   final MessageSearchHit hit;
   final String query;
 
@@ -307,7 +311,9 @@ class _MessageResult extends StatelessWidget {
     // returns indices into the string it was given, so measuring the range on
     // the raw body and painting the collapsed one would highlight the wrong
     // characters (see CLAUDE.md → «Contact search»).
-    final flat = hit.message.body.replaceAll(RegExp(r'\s+'), ' ').trim();
+    final flat = TemplateWire.displayText(hit.message.body)
+        .replaceAll(_whitespaceRun, ' ')
+        .trim();
     final range = SearchText.matchRange(flat, query);
 
     final spans = <TextSpan>[];

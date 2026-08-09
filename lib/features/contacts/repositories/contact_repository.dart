@@ -139,13 +139,6 @@ class ContactRepository {
     return getDeviceContacts(forceRefresh: forceRefresh);
   }
 
-  /// Resolves a device-contact display name for [phoneNumber] (E.164 or local
-  /// format), matching on the normalized national number so `+98…` and `09…`
-  /// both hit a contact saved either way. Returns null if no match.
-  Future<String?> getDeviceContactName(String phoneNumber) async {
-    final contact = await getContactByPhoneNumber(phoneNumber);
-    return (contact == null || contact.name.isEmpty) ? null : contact.name;
-  }
 
   /// Finds the device contact owning [phoneNumber], matching on the normalized
   /// national number across **all** of each contact's numbers, so `+98…` and

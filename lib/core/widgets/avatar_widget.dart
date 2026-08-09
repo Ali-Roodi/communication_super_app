@@ -71,11 +71,15 @@ class AvatarWidget extends StatelessWidget {
     '[\u200E\u200F\u202A-\u202E\u2066-\u2069]',
   );
 
+  /// Compiled once, like [_bidiControls] above it: this runs from `build` for
+  /// every avatar in every list, and `\p{L}` is the expensive kind to compile.
+  static final RegExp _letter = RegExp(r'\p{L}', unicode: true);
+
   static String initialFor(String name) {
     final cleaned = name.replaceAll(_bidiControls, '').trimLeft();
     if (cleaned.isEmpty) return '';
     final first = cleaned[0];
-    return RegExp(r'\p{L}', unicode: true).hasMatch(first)
+    return _letter.hasMatch(first)
         ? PersianUtils.getInitials(cleaned)
         : '';
   }

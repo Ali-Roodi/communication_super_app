@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
 
 class PersianUtils {
@@ -22,8 +21,11 @@ class PersianUtils {
   /// saved in the contact) and regroups Iranian numbers with spaces —
   /// `0935 645 5230` for mobiles, `021 1234 5678` for landlines. Purely
   /// cosmetic: search/matching keep working on the raw digits.
+  /// Compiled once; this runs from list rows.
+  static final RegExp _nonDialable = RegExp(r'[^\d+]');
+
   static String formatPhone(String raw) {
-    var d = toEnglishNumber(raw).replaceAll(RegExp(r'[^\d+]'), '');
+    var d = toEnglishNumber(raw).replaceAll(_nonDialable, '');
     if (d.startsWith('+98')) {
       d = '0${d.substring(3)}';
     } else if (d.startsWith('0098')) {
@@ -73,13 +75,5 @@ class PersianUtils {
     return name[0].toUpperCase();
   }
 
-  static int getAvatarColorIndex(String name) {
-    if (name.isEmpty) return 0;
-    return name.codeUnitAt(0) % AppConstants.avatarColors.length;
-  }
 
-  static Color getAvatarColor(String name) {
-    final index = getAvatarColorIndex(name);
-    return Color(AppConstants.avatarColors[index]);
-  }
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
@@ -315,8 +316,11 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
     return groups;
   }
 
-  static String _normalize(String phone) =>
-      phone.replaceAll(RegExp(r'[^\d]'), '');
+  /// Grouping key for consecutive calls to the same person. Must be the
+  /// canonical form: a digits-only strip left `+989121234567` and `09121234567`
+  /// looking like two different people, so two consecutive calls to one contact
+  /// did not collapse into one «(۲)» row.
+  static String _normalize(String phone) => PhoneNormalizer.toNational(phone);
 
   static DateTime _dayOf(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
 }

@@ -70,15 +70,21 @@ class PhoneNormalizer {
   // Private helpers
   // ---------------------------------------------------------------------------
 
+  /// Compiled once. `toNational` runs from inside `build` (a thread row prints
+  /// its number) and once per contact per keystroke in the search, so building
+  /// these per call meant compiling two regexes per visible row per frame.
+  static final RegExp _nonDigits = RegExp(r'[^\d]');
+  static final RegExp _persoArabicDigits = RegExp(r'[۰-۹٠-٩]');
+
   /// Strips all non-digit characters after converting Persian/Arabic digits.
   static String _digitsOnly(String phone) =>
-      _toEnglishDigits(phone).replaceAll(RegExp(r'[^\d]'), '');
+      _toEnglishDigits(phone).replaceAll(_nonDigits, '');
 
   /// Converts Persian (۰–۹) and Arabic-Indic (٠–٩) digits to ASCII (0–9).
   /// All other characters are passed through unchanged.
   static String _toEnglishDigits(String s) {
     // Fast path — no conversion needed for pure ASCII
-    if (!s.contains(RegExp(r'[۰-۹٠-٩]'))) return s;
+    if (!s.contains(_persoArabicDigits)) return s;
 
     const persian = '۰۱۲۳۴۵۶۷۸۹';
     const arabic = '٠١٢٣٤٥٦٧٨٩';

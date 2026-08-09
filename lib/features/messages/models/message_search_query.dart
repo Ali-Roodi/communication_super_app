@@ -72,6 +72,27 @@ class MessageSearchQuery {
 
   bool get isEmpty => raw.isEmpty;
 
+  /// The query in the space **stripped** folded space the FTS index is built in.
+  ///
+  /// Whitespace goes because `SearchText.nameContains` treats spacing as
+  /// optional («محمدرضا» finds «محمد رضا»), and a substring test over
+  /// space-stripped text is a provable *superset* of that rule: if the query
+  /// occurs contiguously with spaces, it still occurs once the same spaces are
+  /// deleted from both sides. So the index can only ever be too generous, and
+  /// [matchesBody] settles it — the same contract the `LIKE` prefilter has.
+  late final String tight = SearchText.foldTight(raw);
+
+  /// True when the FTS index can answer this query at all.
+  ///
+  /// The trigram tokenizer indexes three-character windows, so it simply cannot
+  /// speak about a one- or two-character needle; those fall back to the scan.
+  bool get canUseFts => tight.length >= 3;
+
+  /// The `MATCH` argument for a trigram substring search. A quoted phrase is
+  /// what makes FTS5 match the string *inside* a token rather than as a token;
+  /// embedded quotes are doubled, which is the only escape the syntax has.
+  String get ftsMatch => '"${tight.replaceAll('"', '""')}"';
+
   /// True when the query carries digits worth matching against a phone number.
   bool get hasDigits => !phone.isEmpty;
 
