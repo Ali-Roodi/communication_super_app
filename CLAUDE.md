@@ -27,6 +27,7 @@ This is a Flutter Android SMS/phone app with a Persian (RTL) UI. The internal ap
 - **`AuthWrapperScreen`** routes based on `AuthBloc` state: `AuthNotSet` → PIN setup, `AuthSet` → PIN entry, `AuthAuthenticated` → `PermissionGate`.
 - **`PermissionGate`** (`lib/core/widgets/`) batches all runtime permission requests (SMS, Phone, Contacts) via `PermissionService` *before* `MainNavigation` is built — this prevents a crash caused by multiple `IndexedStack` screens simultaneously requesting permissions.
 - **`MainNavigation`** is a bottom-nav shell with 4 tabs: Dialer (0), Call History (1), Contacts (2), Messages (3).
+- **`MainNavigation` picks its landing tab** when the app is opened: «پیام‌ها» if an SMS arrived while the app was away, «اخیر» if a call was missed, the newer of the two when both happened. The comparison point is a persisted `last_foreground_at` (stamped on every non-resumed lifecycle event), so "new" means *since the user last looked* — not "unread", which would re-hijack the tab on every launch until the inbox was emptied. It costs **no new queries**: every tab is mounted from the start, so it listens to `MessageBloc` / `CallLogBloc` state the app already produces, waits a short grace window for both to answer (picking the newer needs both, and one of them may have nothing to report), then unsubscribes. A notification deep link marks the decision resolved so the grace timer cannot swing the tab under an already-open conversation. A first-ever launch has no stored moment and lands on the default.
 
 ### Feature structure
 
@@ -47,13 +48,16 @@ All state is BLoC (`flutter_bloc`). BLoCs are provided globally in `AppBlocProvi
 
 ### Database
 
-Single SQLite database (`communication_app.db`, version 15) managed by `DatabaseHelper` singleton (`lib/core/database/`). Tables: `contacts`, `messages`, `call_logs`, `favorites`, `blocked_numbers`, `archived_threads`, `pinned_threads`, `message_categories`, `drafts`, `message_templates`, `scheduled_messages`. Constants in `AppConstants`.
+Single SQLite database (`communication_app.db`, version 16) managed by `DatabaseHelper` singleton (`lib/core/database/`). Tables: `contacts`, `messages`, `call_logs`, `favorites`, `blocked_numbers`, `archived_threads`, `pinned_threads`, `message_categories`, `drafts`, `message_templates`, `scheduled_messages`. Constants in `AppConstants`.
 
 **Schema invariants:**
 - `messages.thread_id` is the digits-only normalized phone number.
 - `messages` has a unique index on `(phone_number, body, timestamp, type)` (DB v3) — all batch inserts must use `ConflictAlgorithm.ignore` to silently skip duplicates.
 - `messages.is_read` marks unread messages; every *sent* row is inserted with `is_read = 1` (composer, scheduled worker, device import alike). The inbox's `unread_count` therefore counts unread rows of **any** type — it must not filter on `type = 'received'`, or «علامت‌گذاری به‌عنوان نخوانده» silently does nothing on a thread the user only ever sent to (or whose received rows are all soft-deleted): `markThreadAsUnread` flags the received rows, and falls back to the newest non-deleted row of any type when there are none. `markThreadAsRead` clears the flag on every type for the same reason — filtering it would strand such a thread bold for ever.
 - `drafts.is_pinned` / `message_categories.is_pinned` (DB v14) float a row to the top of its list. `DraftRepository.upsertDraft` REPLACEs the row, so `DraftBloc._onSave` re-reads the existing draft and carries the flag over — without that, editing a draft silently unpinned it.
+- `blocked_numbers.normalized` is the **canonical thread id** (`09xxxxxxxxx`) — the same key `messages.thread_id`, `PhoneNormalizer.toThreadId` and the native `BlockedNumbers.normalizeToThreadId` produce. It used to be a raw digits-only strip of whatever string the caller happened to hold, which is why **blocking did nothing at all**: a number blocked from a conversation was stored as `989121234567` (the address as the carrier delivered it) while every lookup — Dart and Kotlin alike — asked for `09121234567`. The row was there and the check never found it. Only `BlockedNumberModel.normalize` may produce this column; DB v16 rewrites the rows written before it (in Dart — `toThreadId` is not expressible in the SQL a migration can run — deduplicating on collision, oldest row wins, because the column is UNIQUE).
+- `blocked_numbers.is_spam` / `reported_at` (DB v16) mark «مسدود کردن و گزارش هرزنامه» as opposed to a plain block. One table, not two lists: Google keeps both in the same page and only one of them is a report.
+- A migration that ALTERs a table an earlier step of the *same* upgrade may have just created at its newest shape must guard on `_columnsOf` — an unconditional `ADD COLUMN` there aborts the whole upgrade. This is real for `blocked_numbers`: `oldVersion < 5` creates it, `oldVersion < 16` alters it.
 - `messages.device_sms_id` (DB v11) is the row id of the message inside the device SMS provider (`content://sms`). It is the key of the mirror-sync diff and of global deletes. Null means "no known provider row" (e.g. sent while the app wasn't the default SMS app) — such rows are never deleted by the sync.
 
 Migrations live in `DatabaseHelper._onUpgrade`. When bumping `AppConstants.databaseVersion`, add a migration block there.
@@ -106,6 +110,70 @@ delete.
   connector list is taken, so «مدیر [نام]» keeps «مدیر».
 - «درج نام مخاطب» is a per-template *default* (`use_contact_name`) that the fill
   screen can still flip per use; on, it prefixes «<نام> عزیز» + newline.
+
+### Template SMS wire format
+
+A filled built-in template is mostly boilerplate the receiver already has, and
+Persian SMS fits 70 UCS-2 characters per part. So a **built-in** template does
+not ship its prose — it ships a header naming the template plus the answers:
+
+```text
+[#T1:mtg:1]علی|جلسه هفتگی|۱۴۰۵/۰۵/۲۰|۱۰:۳۰|اتاق ۳   (49 chars)
+علی عزیز⏎جلسه جلسه هفتگی در مورخه ۱۴۰۵/۰۵/۲۰ ساعت ۱۰:۳۰ در محل اتاق ۳ برقرار می‌باشد.   (85)
+```
+
+`#T1` = format version 1 · `mtg` = `BuiltInTemplate.code` · `1` = flag bits (bit
+0: the first segment is the «<نام> عزیز» greeting) · then one segment per
+placeholder in `BuiltInTemplate.tokens` order, `\` `|` and newlines escaped,
+trailing blanks dropped. `TemplateWire.encode` returns **null** — plain text goes
+out instead — for a user-authored template, an edited built-in, a template with
+no placeholders, or when the payload would not actually be shorter than the
+prose (`[#T1:cng:0]سال نو` wins; a one-placeholder template with a long answer
+does not). A receiver without this app sees the header and the few words that
+were typed; that is the accepted trade, and the prose-free field list is the
+seam the next phase (encrypted SMS) plugs into.
+
+- **Bound to compiled-in constants, never to DB rows.** The built-ins exist twice:
+  as rows in `message_templates` (editable, pinnable, deletable) and as
+  `BuiltInTemplates.all`. The wire carries a `code` into the *constants*, because
+  two phones do not have the same rows — if it carried a row id, one side editing
+  «دعوت‌نامه جلسه» would silently rewrite the other side's incoming messages.
+  `BuiltInTemplates.of` therefore returns the built-in only while the row's body
+  is still pristine; an edited one falls back to full text. **Never reuse or
+  repurpose a `code`** — old messages on someone's phone still decode through it.
+- **User templates are excluded on purpose.** There is no backend, so the other
+  phone cannot know a body the user invented. They send their full text, as
+  before.
+- **The DB stores the wire; decoding is render-time only.** The row must hold the
+  body exactly as it went over the air — that is what `content://sms` holds and
+  what the mirror-sync diffs against (body+timestamp fuzzy match, stale-row
+  diff). So no stored row is ever rewritten: every surface that *displays* a body
+  goes through `TemplateWire.displayText` — bubble, inbox preview, «ستاره‌دار»,
+  the Dart fallback notification — and copy / forward / share carry the display
+  text, never the payload.
+- **The composer never shows the payload.** `TemplateFillResult` carries the
+  human text *and* the payload; `ConversationScreen` holds the pair and transmits
+  the payload only while the field is still character-identical to that text (one
+  edit and the words on screen are what the user means). `_outgoingBody` feeds
+  both the send and the schedule path, so a scheduled template travels compact
+  too. `ComposerDraftStore` persists only the visible text, so a draft restored
+  later sends as plain text — correct, the payload is not recoverable from it.
+- **A decoded bubble is just a bubble.** It briefly carried a «قالب: <عنوان>»
+  chip opening a read-only copy of the fill form; that was removed on the owner's
+  call — the rebuilt text already says everything the template said, so the chip
+  was a row of furniture under every template message that led nowhere useful.
+  `TemplateFillScreen` therefore has no reader mode: it only composes.
+- **Kotlin mirror:** `android/.../TemplateWire.kt` ports `decode` +
+  `TemplateEngine.render` (non-preview) + the catalogue, and `SmsNotifier` runs
+  every incoming body through it — all incoming-SMS notifications are posted
+  natively, so without it the shade showed the raw payload while the chat showed
+  the message. Header regex, version check, escaping, segment splitting,
+  placeholder order and every template body must match the Dart character for
+  character; **change the two together**, the same contract `ScheduledSmsWorker`
+  has with `scheduled_message_model.dart`. A mismatch does not fail loudly, it
+  renders a *different* message than the sender wrote. Only the receive half is
+  ported (encoding is always Dart), and nothing native rewrites what is written
+  to `content://sms` or to the app DB.
 
 ### Scheduled messages
 
@@ -183,6 +251,33 @@ Every contact filter — the contacts tab, the dialer suggestions, `searchContac
 - `SearchBloc` (the unified «اخیر»/inbox search) goes through the same matcher. It used to carry its own raw lowercase/digit-substring test and answered the identical query differently.
 
 **Every contact row shows its numbers under the name** (`ContactNumbersLine`, `core/widgets/`) — contacts tab, unified search, favourites picker. A name-only row cannot tell two «علی» apart. The line shows the number a digit query *matched* (emphasised via `HighlightedPhone`) when there is one, otherwise the contact's numbers separated by «·» with a «+N» tail. The contacts tab's `_kRowHeight` is sized for those two lines — it feeds the fast-scroll index's jump offsets, so changing the row's height means changing that constant.
+
+### Message search
+
+`MessageRepository.searchMessages` / `searchThreads` (with `models/message_search_query.dart`) are the only message search. They match the body of **any** message of **any type** — the previous "search" filtered the paged-in inbox list on `thread.lastMessage`, i.e. the single newest message of each *loaded* thread, which is usually the received one: that is the whole of "it never finds my own messages". It also could not see a conversation that had not been scrolled into memory, and it bypassed `SearchText`.
+
+- **Two stages, and the SQL stage may only ever be too wide.** There is no FTS index, so the prefilter is an AND over a few folded query characters, each an OR over every character that folds onto it, and the authoritative answer is `SearchText.nameContains` in Dart over the survivors. The pre-image table is **derived at runtime from `SearchText.fold` itself**, not copied from its private maps — a copy would drift and start producing false negatives. Terms also OR their `toUpperCase()`, because SQLite's `LIKE` is case-insensitive for ASCII only.
+- **Bounded, not free.** `LIKE '%x%'` cannot use an index, so the walk is newest-first over `idx_messages_timestamp`, paged, and capped (`_kMaxPrefilteredRows`): a one-letter query degrades to "search the most recent N messages" rather than scanning a full mailbox on the UI isolate.
+- **Number matching for threads runs in Dart**, one row per conversation. A `thread_id LIKE` prefilter provably *can* miss: `89121` matches the middle of the stored `+989121234567` while the thread id is `09121234567`.
+- **Contact names are the caller's half.** They live in the device address book, not in any column, so the screen matches them over the whole book and passes the ids in as `alsoThreadIds`; that is what makes a thread findable by name before it has been paged in.
+- **A compact template payload is admitted unconditionally** by the prefilter and settled on `TemplateWire.displayText` — the payload carries the answers but none of the template's prose, so the prefilter would otherwise reject a row whose rendered text plainly matches.
+- `searchThreads` renders its hits *through* `getAllThreads(restrictToThreadIds:)` rather than a second query, so the last-message pick and the unread count cannot drift.
+- The inbox search field is debounced and token-guarded, and while a query is live the list is **not** paged (`_onScroll` bails): search results are one answered query, not a page of the inbox.
+
+### Block & report («هرزنامه و مسدودشده»)
+
+Blocking was already enforced in four receive paths and still felt broken, for two independent reasons: the key never matched (see the `blocked_numbers.normalized` invariant above), and **nothing visible changed**. Both are fixed:
+
+- **A blocked conversation leaves every list `getAllThreads` returns** — inbox, archive and search alike — via an indexed `NOT IN (SELECT normalized FROM blocked_numbers)` subquery, and lives in `SpamAndBlockedScreen` instead. That is the visible half of blocking, exactly as Google Messages moves the thread into «Spam & blocked». `includeBlocked: true` opts out. The conversation stays readable; opening it does not unblock anything.
+- **One page, two entry points:** the inbox overflow menu (next to قالب‌ها / زمان‌بندی‌شده‌ها — buried under Settings it was three taps from the conversation it was about) and Settings → «هرزنامه و مسدودشده». The old settings-only `BlockedNumbersScreen` was deleted rather than kept alongside, so there is one list and not two that drift.
+- **One gesture, asked once.** `showBlockNumberDialog` / `blockNumberWithConfirm` (`settings/screens/widgets/block_number_dialog.dart`) is the whole interaction — confirmation + «گزارش به‌عنوان هرزنامه» checkbox + undo — shared by the conversation menu, the spam prompt, the call-log row, the call-detail sheet, the contact page and the inbox selection bar. The checkbox defaults **on** for a number with no contact and **off** for a saved one: reporting someone in your own address book is nearly always a mis-tap.
+- **`BlockedNumbersRepository.block` upgrades.** Reporting a number that is already blocked must set the flag rather than being swallowed by the UNIQUE constraint, and a later plain block never clears a report. «این هرزنامه نیست» (`clearReport`) drops the report and keeps the block.
+- **The report is offered inside the conversation**, on an unsaved number that has actually written — a prompt row above the thread, dismissed for the visit either way. The overflow menu alone is not where anyone decides something is junk.
+- Blocking from a conversation pops it: the thread is no longer in the list behind it.
+
+### Transient confirmations
+
+`showUndoSnack` (`core/widgets/undo_snack_bar.dart`) is the app's only snack bar carrying an action. **A `SnackBar` with an action is not guaranteed to time out**: `ScaffoldMessengerState` skips starting its dismissal timer while `MediaQuery.accessibleNavigation` is true, so with any accessibility service active «گفتگو بایگانی شد» sat on the inbox until something else replaced it. This helper owns its own `Timer` and hides the bar itself, so the 3-second window is authoritative whatever the platform reports — and it *shows* the countdown as a shrinking ring around «واگرد», because an undo the user cannot see expiring is a guessing game. `showCountdown: false` for an action that is a shortcut rather than an undo («تنظیمات»), where a ticking clock would imply a deadline that is not one.
 
 ### Keypad touch
 

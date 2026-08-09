@@ -15,6 +15,8 @@ import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
+import 'package:communication_super_app/features/settings/models/blocked_number_model.dart';
+import 'package:communication_super_app/features/settings/screens/widgets/block_number_dialog.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
@@ -23,6 +25,7 @@ import '../bloc/scheduled_bloc.dart';
 import '../bloc/scheduled_event.dart';
 import '../bloc/scheduled_state.dart';
 import '../models/scheduled_message_model.dart';
+import '../models/template_wire.dart';
 import 'drafts_list_screen.dart';
 import 'templates_list_screen.dart';
 import 'widgets/message_bubble.dart';
@@ -98,8 +101,23 @@ class _ConversationScreenState extends State<ConversationScreen> {
   /// schedule is saved or when the banner's ✕ is tapped.
   ScheduleChoice? _pendingSchedule;
 
+  /// The compact template payload waiting to be sent, and the exact human text
+  /// it renders to (see [TemplateWire]).
+  ///
+  /// The composer always shows the *text* — the user must never be looking at a
+  /// payload — so the payload is only transmitted while the field still holds
+  /// that text character for character. One edit and it is stale: the words on
+  /// screen are what the user means to send, and the payload no longer
+  /// reconstructs them.
+  String? _pendingWire;
+  String? _pendingWireText;
+
   // Per-thread unsent composer text, so leaving the chat doesn't lose it and
   // the inbox can surface it as a draft.
+  //
+  // Only the visible text is persisted, never the payload: a draft restored on
+  // a later visit therefore goes out as plain text. That is the correct
+  // outcome — the payload cannot be recovered from the text alone.
   final ComposerDraftStore _draftStore = ComposerDraftStore();
 
   /// Selected message ids (message multi-select mode).
@@ -211,19 +229,36 @@ class _ConversationScreenState extends State<ConversationScreen> {
     super.dispose();
   }
 
+  /// What actually goes over the air for the [visible] composer text: the
+  /// compact template payload when it is still the payload *for that exact
+  /// text*, otherwise the text itself.
+  String _outgoingBody(String visible) {
+    final wire = _pendingWire;
+    return (wire != null && visible == _pendingWireText) ? wire : visible;
+  }
+
+  void _clearPendingWire() {
+    _pendingWire = null;
+    _pendingWireText = null;
+  }
+
   void _sendMessage() {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
+    final body = _outgoingBody(text);
     // Armed with a time (long-press send → «زمان‌بندی ارسال») the same button
-    // schedules instead of sending, the way Google Messages does it.
+    // schedules instead of sending, the way Google Messages does it. The
+    // scheduled row stores the resolved body, so a scheduled template travels
+    // compact too.
     final schedule = _pendingSchedule;
     if (schedule != null) {
-      _scheduleMessage(text, schedule);
+      _scheduleMessage(body, schedule);
       return;
     }
     _messageController.clear();
     _draftStore.remove(widget.threadId);
-    _messageBloc.add(SendMessage(phoneNumber: widget.phoneNumber, body: text));
+    _clearPendingWire();
+    _messageBloc.add(SendMessage(phoneNumber: widget.phoneNumber, body: body));
   }
 
   void _scheduleMessage(String body, ScheduleChoice schedule) {
@@ -244,6 +279,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     );
     _messageController.clear();
     _draftStore.remove(widget.threadId);
+    _clearPendingWire();
     setState(() => _pendingSchedule = null);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('ارسال در ${formatScheduleLabel(schedule.at)}')),
@@ -324,6 +360,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
           },
           child: Column(
             children: [
+              _buildSpamPrompt(context),
               // The thread sits on its own rounded sheet, one plane above the
               // page the header shares — Google Messages' conversation surface.
               Expanded(
@@ -348,6 +385,83 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 child: const Icon(Icons.keyboard_arrow_down),
               )
             : null,
+      ),
+    );
+  }
+
+  // ── «آیا این هرزنامه است؟» ────────────────────────────────────────────────
+  //
+  // Google Messages offers the report *in the conversation it is about*, on a
+  // number the user has no contact for — not only buried in the overflow menu.
+  // That placement is the whole point: the moment someone decides a message is
+  // junk is while they are looking at it.
+  //
+  // Shown only for an unsaved number that has actually written to us, and only
+  // until it is answered (either way) — a prompt that comes back after «این
+  // هرزنامه نیست» is nagging, so the dismissal lasts for this visit.
+
+  bool _spamPromptDismissed = false;
+
+  Widget _buildSpamPrompt(BuildContext context) {
+    if (_hasName || _spamPromptDismissed || _selectionMode) {
+      return const SizedBox.shrink();
+    }
+    // Already blocked: the thread is in «هرزنامه و مسدودشده», nothing to ask.
+    final blocked = context
+        .watch<BlockedNumbersBloc>()
+        .state
+        .isBlocked(BlockedNumberModel.normalize(widget.phoneNumber));
+    if (blocked) return const SizedBox.shrink();
+
+    final state = context.read<MessageBloc>().state;
+    final received =
+        state is MessagesLoaded &&
+        state.threadId == widget.threadId &&
+        state.messages.any((m) => m.type == MessageType.received);
+    if (!received) return const SizedBox.shrink();
+
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.shield_outlined, size: 20, color: scheme.onSurfaceVariant),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'این شماره در مخاطبین شما نیست. هرزنامه است؟',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ),
+          TextButton(
+            onPressed: () => setState(() => _spamPromptDismissed = true),
+            child: const Text('نه'),
+          ),
+          TextButton(
+            onPressed: () {
+              setState(() => _spamPromptDismissed = true);
+              // Captured before the await: the pop happens after the dialog and
+              // the snack bar, by which time `context` is a lint hazard even
+              // though the State is still mounted.
+              final navigator = Navigator.of(context);
+              blockNumberWithConfirm(
+                context,
+                phoneNumber: widget.phoneNumber,
+              ).then((blocked) {
+                if (blocked && mounted) navigator.pop();
+              });
+            },
+            child: Text(
+              'گزارش هرزنامه',
+              style: TextStyle(color: scheme.error),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -386,10 +500,17 @@ class _ConversationScreenState extends State<ConversationScreen> {
           ),
         );
       case 'block':
-        context.read<BlockedNumbersBloc>().add(BlockNumber(widget.phoneNumber));
-        ScaffoldMessenger.of(
+        // Asks once, folds the spam report into the same question, and leaves
+        // the conversation: blocking moves it out of the inbox into «هرزنامه و
+        // مسدودشده», so staying here would show a thread the list no longer has.
+        final navigator = Navigator.of(context);
+        blockNumberWithConfirm(
           context,
-        ).showSnackBar(const SnackBar(content: Text('شماره مسدود شد')));
+          phoneNumber: widget.phoneNumber,
+          contactName: _hasName ? widget.contactName : null,
+        ).then((blocked) {
+          if (blocked && mounted) navigator.pop();
+        });
       case 'delete':
         _confirmDeleteConversation();
     }
@@ -492,7 +613,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
       onSendNow: () => bloc.add(SendScheduledNow(msg.id)),
       onReschedule: () => _rescheduleScheduled(msg),
       onCopy: () {
-        Clipboard.setData(ClipboardData(text: msg.body));
+        // A scheduled template row stores the wire payload, so copy what the
+        // message will *read* as.
+        Clipboard.setData(
+          ClipboardData(text: TemplateWire.displayText(msg.body)),
+        );
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('کپی شد')));
@@ -728,14 +853,16 @@ class _ConversationScreenState extends State<ConversationScreen> {
           threadId: PhoneNormalizer.toThreadId(picked.phoneNumber),
           phoneNumber: picked.phoneNumber,
           contactName: picked.name,
-          initialText: msg.body,
+          // Forwarding carries the readable message, never the payload: the new
+          // recipient's copy is composed from scratch.
+          initialText: TemplateWire.displayText(msg.body),
         ),
       ),
     );
   }
 
   void _copyMessage(MessageModel msg) {
-    Clipboard.setData(ClipboardData(text: msg.body));
+    Clipboard.setData(ClipboardData(text: TemplateWire.displayText(msg.body)));
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('کپی شد')));
@@ -779,7 +906,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
     if (state is! MessagesLoaded) return;
     final texts = state.messages
         .where((m) => _selected.contains(m.id))
-        .map((m) => m.body)
+        // The clipboard gets what the bubbles show, not the stored wire.
+        .map((m) => TemplateWire.displayText(m.body))
         .join('\n');
     Clipboard.setData(ClipboardData(text: texts));
     setState(_selected.clear);
@@ -1001,11 +1129,17 @@ class _ConversationScreenState extends State<ConversationScreen> {
   }
 
   Future<void> _insertTemplate() async {
-    final text = await showTemplatePicker(
+    final result = await showTemplatePicker(
       context,
       contactName: widget.contactName,
     );
-    if (text != null && text.isNotEmpty) _appendToComposer(text);
+    if (result == null || result.text.isEmpty) return;
+    _appendToComposer(result.text);
+    // Arm the payload against the text it renders to. If the composer already
+    // held something, the appended result is no longer the whole message, the
+    // texts differ and _outgoingBody falls back to plain text on its own.
+    _pendingWire = result.wire;
+    _pendingWireText = result.wire == null ? null : result.text;
   }
 
   void _appendToComposer(String text) {

@@ -26,6 +26,12 @@ class ContactRepository {
   void invalidateCache() {
     _cache = null;
     _generation++;
+    // Drop the derived number index too. It is keyed by the identity of the
+    // contact list it was built from, so a stale index would keep answering
+    // [cachedByPhoneNumber] with a contact that has since been deleted or
+    // renumbered until the next full read lands.
+    _indexSource = null;
+    _numberIndex = null;
   }
 
   Future<bool> _ensurePermission() async {
@@ -181,6 +187,24 @@ class ContactRepository {
     if (target.isEmpty) return null;
     return (await _numberLookup())[target];
   }
+
+  /// Non-blocking [getContactByPhoneNumber]: answers from the memoized number
+  /// index when it is already built, and null when it is not.
+  ///
+  /// Null therefore means "unknown", not "no such contact" — use
+  /// [hasNumberIndex] to tell the two apart. This exists so a list row can
+  /// resolve its contact inside `build` on the common (warm) path instead of
+  /// every row awaiting a future and rebuilding a frame later; see
+  /// `PhoneContactAvatar`.
+  static ContactModel? cachedByPhoneNumber(String phoneNumber) {
+    final index = _numberIndex;
+    if (index == null) return null;
+    final target = PhoneNormalizer.toThreadId(phoneNumber);
+    return target.isEmpty ? null : index[target];
+  }
+
+  /// Whether [cachedByPhoneNumber] can answer authoritatively.
+  static bool get hasNumberIndex => _numberIndex != null;
 
   Future<List<ContactModel>> searchContacts(String query) async {
     return matchContacts(await getDeviceContacts(), query);

@@ -12,7 +12,7 @@ import 'package:communication_super_app/features/dialer/services/native_call_ser
 import 'package:communication_super_app/features/messages/services/native_sms_service.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_state.dart';
-import 'package:communication_super_app/features/settings/screens/blocked_numbers_screen.dart';
+import 'package:communication_super_app/features/messages/screens/spam_and_blocked_screen.dart';
 import 'package:communication_super_app/features/settings/screens/settings_subpages.dart';
 
 /// The settings hub, laid out the way Google Phone's is: tinted section labels
@@ -48,8 +48,10 @@ class SettingsScreen extends StatelessWidget {
               children: [
                 SettingsRow(
                   icon: Icons.block,
-                  title: 'شماره‌های مسدودشده',
-                  onTap: () => _push(context, const BlockedNumbersScreen()),
+                  // Same page the inbox's overflow menu opens — there is one
+                  // blocked list, not a settings copy and an inbox copy.
+                  title: 'هرزنامه و مسدودشده',
+                  onTap: () => _push(context, const SpamAndBlockedScreen()),
                 ),
                 SettingsRow(
                   icon: Icons.list,

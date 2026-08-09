@@ -4,16 +4,32 @@ import 'package:communication_super_app/core/utils/search_text.dart';
 import '../../contacts/repositories/contact_repository.dart';
 import '../../call_history/models/call_log_model.dart';
 import '../../call_history/repositories/call_log_repository.dart';
+import '../../messages/repositories/message_repository.dart';
 import 'search_event.dart';
 import 'search_state.dart';
 
-/// Unified search across device contacts and recent calls.
+/// Unified search across device contacts, recent calls and **messages**.
 class SearchBloc extends Bloc<SearchEvent, SearchState> {
   final ContactRepository _contactRepository;
   final CallLogRepository _callLogRepository;
+  final MessageRepository _messageRepository;
 
-  SearchBloc(this._contactRepository, this._callLogRepository)
-    : super(const SearchIdle()) {
+  /// How many message hits the «پیام‌ها» section shows. The repository search is
+  /// bounded (see `MessageRepository.searchMessages`); this bounds the list too,
+  /// because a two-letter query can match half a mailbox and nobody scrolls a
+  /// search result past the first screenful.
+  static const int _kMessageLimit = 40;
+
+  /// [MessageRepository] defaults instead of being injected only so this
+  /// constructor stays source-compatible with `AppBlocProviders`; it is a
+  /// stateless wrapper over the `DatabaseHelper` singleton, so a local instance
+  /// is the same object graph.
+  SearchBloc(
+    this._contactRepository,
+    this._callLogRepository, [
+    MessageRepository? messageRepository,
+  ]) : _messageRepository = messageRepository ?? MessageRepository(),
+       super(const SearchIdle()) {
     on<SearchQueryChanged>(_onQueryChanged);
     on<ClearSearch>((_, emit) => emit(const SearchIdle()));
   }
@@ -35,7 +51,7 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
     final contacts = await _contactRepository.getAllContacts();
     final matchedContacts = ContactRepository.matchContacts(contacts, q);
 
-    // Build a phone → name map to enrich call-log rows.
+    // Build a phone → name map to enrich call-log and message rows.
     final nameByPhone = <String, String>{};
     for (final c in contacts) {
       for (final p in c.phoneNumbers) {
@@ -70,8 +86,30 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
       );
     }
 
+    // Emitted before the message search runs: contacts come from a warm cache
+    // and the call log is one bounded read, while the message search is a
+    // (bounded) body scan. Painting the fast sections first is the same trick
+    // `MessageBloc._emitThreads` plays with cold contact names.
+    final partial = SearchResults(
+      query: q,
+      contacts: matchedContacts,
+      callLogs: matchedLogs,
+    );
+    emit(partial);
+
+    final messages = await _messageRepository.searchMessages(
+      q,
+      limit: _kMessageLimit,
+    );
+    if (emit.isDone) return;
     emit(
-      SearchResults(query: q, contacts: matchedContacts, callLogs: matchedLogs),
+      partial.withMessages([
+        for (final m in messages)
+          MessageSearchHit(
+            message: m,
+            contactName: nameByPhone[PhoneNormalizer.toThreadId(m.phoneNumber)],
+          ),
+      ]),
     );
   }
 }

@@ -3,12 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
-import 'package:communication_super_app/core/widgets/avatar_widget.dart';
+import 'package:communication_super_app/core/widgets/phone_contact_avatar.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 
 import '../models/message_model.dart';
+import '../models/template_wire.dart';
 import '../repositories/message_repository.dart';
 import 'conversation_screen.dart';
 
@@ -115,7 +116,11 @@ class _StarredMessagesScreenState extends State<StarredMessagesScreen> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            AvatarWidget(name: title, size: 44),
+            PhoneContactAvatar(
+              phoneNumber: m.phoneNumber,
+              name: title,
+              size: 44,
+            ),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
@@ -146,7 +151,9 @@ class _StarredMessagesScreenState extends State<StarredMessagesScreen> {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    m.body,
+                    // Stored rows keep the wire payload verbatim; a template
+                    // message is rebuilt for display only.
+                    TemplateWire.displayText(m.body),
                     maxLines: 3,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
+import 'package:communication_super_app/core/widgets/undo_snack_bar.dart';
 import '../bloc/message_bloc.dart';
 import '../bloc/message_event.dart';
 import '../bloc/message_state.dart';
@@ -114,11 +115,16 @@ class _ArchivedThreadsScreenState extends State<ArchivedThreadsScreen> {
   }
 
   void _unarchive(BuildContext context, MessageThread thread) {
-    context.read<MessageBloc>().add(
+    final bloc = context.read<MessageBloc>();
+    bloc.add(
       ArchiveThreads([thread.threadId], archive: false, fromArchivedView: true),
     );
-    ScaffoldMessenger.of(
+    showUndoSnack(
       context,
-    ).showSnackBar(const SnackBar(content: Text('از بایگانی خارج شد')));
+      message: 'از بایگانی خارج شد',
+      onUndo: () => bloc.add(
+        ArchiveThreads([thread.threadId], archive: true),
+      ),
+    );
   }
 }

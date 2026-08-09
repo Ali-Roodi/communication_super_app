@@ -1,24 +1,27 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/search_text.dart';
-import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/core/widgets/contact_numbers_line.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
 import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
+import 'package:communication_super_app/core/widgets/phone_contact_avatar.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
 import 'package:communication_super_app/features/contacts/widgets/phone_number_picker.dart';
 import 'package:communication_super_app/features/call_history/models/call_log_model.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
+import 'package:communication_super_app/features/messages/models/message_model.dart';
+import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
 import '../bloc/search_bloc.dart';
 import '../bloc/search_event.dart';
 import '../bloc/search_state.dart';
 
-/// Unified search screen (contacts + recent calls). Opened from the AppBar
-/// search icon. Uses the globally-provided [SearchBloc].
+/// Unified search screen (contacts + messages + recent calls). Opened from the
+/// AppBar search icon. Uses the globally-provided [SearchBloc].
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
 
@@ -63,7 +66,7 @@ class _SearchScreenState extends State<SearchScreen> {
             textInputAction: TextInputAction.search,
             onChanged: _onChanged,
             decoration: const InputDecoration(
-              hintText: 'جستجوی مخاطبین و تماس‌ها',
+              hintText: 'جستجوی پیام‌ها، مخاطبین و تماس‌ها',
               border: InputBorder.none,
             ),
           ),
@@ -83,6 +86,10 @@ class _SearchScreenState extends State<SearchScreen> {
               return _SearchPrompt();
             }
             if (state.isEmpty) {
+              // The message section lands a beat after the others, so «نتیجه‌ای
+              // یافت نشد» must wait for it — otherwise every query flashes "no
+              // results" on its way to showing some.
+              if (!state.messagesReady) return const SizedBox.shrink();
               return EmptyState(
                 icon: Icons.search_off,
                 title: 'نتیجه‌ای یافت نشد',
@@ -103,6 +110,16 @@ class _SearchScreenState extends State<SearchScreen> {
                       contact: state.contacts[i],
                       query: state.query,
                       phoneQuery: phoneQuery,
+                    ),
+                  ),
+                ],
+                if (state.messages.isNotEmpty) ...[
+                  const SliverToBoxAdapter(child: SectionLabel('پیام‌ها')),
+                  SliverGroupedList(
+                    itemCount: state.messages.length,
+                    itemBuilder: (_, i) => _MessageResult(
+                      hit: state.messages[i],
+                      query: state.query,
                     ),
                   ),
                 ],
@@ -132,7 +149,8 @@ class _SearchPrompt extends StatelessWidget {
   @override
   Widget build(BuildContext context) => const EmptyState(
     icon: Icons.search,
-    title: 'مخاطبین و تماس‌ها را جستجو کنید',
+    title: 'پیام‌ها، مخاطبین و تماس‌ها را جستجو کنید',
+    subtitle: 'متن پیام‌های فرستاده و دریافت‌شده هم جستجو می‌شود',
   );
 }
 
@@ -213,6 +231,118 @@ class _ContactResult extends StatelessWidget {
   }
 }
 
+// ── Message result → opens the conversation ───────────────────────────────────
+
+class _MessageResult extends StatelessWidget {
+  final MessageSearchHit hit;
+  final String query;
+
+  const _MessageResult({required this.hit, required this.query});
+
+  /// Characters of the body kept before the match. A hit deep inside a long SMS
+  /// is off the end of a one-line preview, so the snippet is windowed on the
+  /// match instead of always starting at the body's first character.
+  static const int _kLead = 16;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final message = hit.message;
+    final title = hit.contactName?.isNotEmpty == true
+        ? hit.contactName!
+        : PersianUtils.displayPhone(message.phoneNumber);
+
+    return ListTile(
+      leading: PhoneContactAvatar(
+        phoneNumber: message.phoneNumber,
+        name: title,
+        size: 40,
+      ),
+      title: Row(
+        children: [
+          Expanded(
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w500),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            DateFormatter.formatRelative(message.timestamp),
+            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+          ),
+        ],
+      ),
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 3),
+        child: _snippet(context),
+      ),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ConversationScreen.forPhone(
+            message.phoneNumber,
+            contactName: hit.contactName,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// One line of the body with the matched term emphasised, prefixed «شما: » for
+  /// a message the user sent — the section deliberately shows both directions,
+  /// and the prefix is what tells them apart at a glance.
+  Widget _snippet(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final base = TextStyle(fontSize: 13, color: scheme.onSurfaceVariant);
+    final highlight = base.copyWith(
+      color: scheme.primary,
+      fontWeight: FontWeight.w700,
+    );
+
+    // Flattened FIRST and matched on the flattened copy: `SearchText.matchRange`
+    // returns indices into the string it was given, so measuring the range on
+    // the raw body and painting the collapsed one would highlight the wrong
+    // characters (see CLAUDE.md → «Contact search»).
+    final flat = hit.message.body.replaceAll(RegExp(r'\s+'), ' ').trim();
+    final range = SearchText.matchRange(flat, query);
+
+    final spans = <TextSpan>[];
+    if (hit.message.type == MessageType.sent) {
+      spans.add(TextSpan(text: 'شما: ', style: base));
+    }
+
+    if (range == null) {
+      // A spacing-only match («محمدرضا» in «محمد رضا») has no single range; the
+      // row still belongs in the list, just without emphasis.
+      spans.add(TextSpan(text: flat, style: base));
+    } else {
+      var (start, end) = range;
+      var text = flat;
+      if (start > _kLead + 4) {
+        final cut = start - _kLead;
+        text = '…${flat.substring(cut)}';
+        start -= cut - 1; // the inserted «…» is one character
+        end -= cut - 1;
+      }
+      spans.addAll([
+        TextSpan(text: text.substring(0, start), style: base),
+        TextSpan(text: text.substring(start, end), style: highlight),
+        TextSpan(text: text.substring(end), style: base),
+      ]);
+    }
+
+    return Text.rich(
+      TextSpan(children: spans),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+}
+
 // ── Call-log result → tapping dials directly ──────────────────────────────────
 
 class _CallLogResult extends StatelessWidget {
@@ -226,7 +356,13 @@ class _CallLogResult extends StatelessWidget {
         ? log.contactName!
         : PersianUtils.displayPhone(log.phoneNumber);
     return ListTile(
-      leading: AvatarWidget(name: name, size: 40),
+      // Resolves the number to its device contact, so a caller with a photo
+      // looks the same here as in the address book (this drew initials only).
+      leading: PhoneContactAvatar(
+        phoneNumber: log.phoneNumber,
+        name: name,
+        size: 40,
+      ),
       title: Text(name),
       subtitle: Directionality(
         textDirection: TextDirection.ltr,

@@ -6,7 +6,7 @@ import 'package:communication_super_app/core/theme/app_dimensions.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
-import 'package:communication_super_app/core/widgets/avatar_widget.dart';
+import 'package:communication_super_app/core/widgets/phone_contact_avatar.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
 import 'package:communication_super_app/features/call_history/bloc/call_log_bloc.dart';
@@ -20,7 +20,8 @@ import 'package:communication_super_app/features/favorites/bloc/favorites_bloc.d
 import 'package:communication_super_app/features/messages/models/message_model.dart';
 import 'package:communication_super_app/features/messages/repositories/message_repository.dart';
 import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
-import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
+import 'package:communication_super_app/features/messages/models/template_wire.dart';
+import 'package:communication_super_app/features/settings/screens/widgets/block_number_dialog.dart';
 
 /// Call detail bottom sheet — opened from the ⓘ icon on a recents row.
 ///
@@ -45,8 +46,16 @@ Future<void> showCallDetailSheet(
     context: context,
     showDragHandle: true,
     isScrollControlled: true,
-    builder: (_) =>
-        _CallDetailSheet(log: log, calls: calls, count: count, groupIds: groupIds),
+    builder: (_) => _CallDetailSheet(
+      log: log,
+      calls: calls,
+      count: count,
+      groupIds: groupIds,
+      // The page underneath. Actions that dismiss the sheet and then need a
+      // dialog or a snack bar have to run against a context that outlives it —
+      // the sheet's own context is dead the moment it pops.
+      pageContext: context,
+    ),
   );
 }
 
@@ -59,9 +68,13 @@ class _CallDetailSheet extends StatelessWidget {
   final int count;
   final List<String>? groupIds;
 
+  /// The page the sheet was opened from — see [showCallDetailSheet].
+  final BuildContext pageContext;
+
   const _CallDetailSheet({
     required this.log,
     required this.calls,
+    required this.pageContext,
     this.count = 1,
     this.groupIds,
   });
@@ -85,7 +98,11 @@ class _CallDetailSheet extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const SizedBox(height: 4),
-                AvatarWidget(name: displayName, size: 80),
+                PhoneContactAvatar(
+                  phoneNumber: log.phoneNumber,
+                  name: displayName,
+                  size: 80,
+                ),
                 const SizedBox(height: 12),
                 Text(
                   displayName,
@@ -150,16 +167,18 @@ class _CallDetailSheet extends StatelessWidget {
                     color: AppColors.callRejectRed,
                   ),
                   title: const Text(
-                    'مسدود کردن شماره',
+                    'مسدود کردن و گزارش هرزنامه',
                     style: TextStyle(color: AppColors.callRejectRed),
                   ),
                   onTap: () {
-                    context.read<BlockedNumbersBloc>().add(
-                      BlockNumber(log.phoneNumber),
-                    );
+                    // The sheet closes first, and the confirmation runs against
+                    // the page underneath: the dialog and its undo snack bar
+                    // both have to outlive this route.
                     Navigator.of(context).pop();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('شماره مسدود شد')),
+                    blockNumberWithConfirm(
+                      pageContext,
+                      phoneNumber: log.phoneNumber,
+                      contactName: log.contactName,
                     );
                   },
                 ),
@@ -393,7 +412,8 @@ class _SmsRow extends StatelessWidget {
       trailing: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 120),
         child: Text(
-          message.body,
+          // A compact template payload is unreadable raw — see TemplateWire.
+          TemplateWire.displayText(message.body),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(

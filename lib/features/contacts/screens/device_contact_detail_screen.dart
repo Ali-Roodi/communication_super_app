@@ -23,7 +23,7 @@ import 'package:communication_super_app/features/favorites/bloc/favorites_event.
 import 'package:communication_super_app/features/favorites/bloc/favorites_state.dart';
 import 'package:communication_super_app/features/favorites/models/favorite_model.dart';
 import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
-import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
+import 'package:communication_super_app/features/settings/screens/widgets/block_number_dialog.dart';
 
 /// Contact detail with a collapsing toolbar, action row, and PHONE / EMAIL /
 /// ADDRESS / NOTES sections. Header data comes from the [ContactModel]; full
@@ -563,11 +563,15 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
       ListTile(
         contentPadding: const EdgeInsetsDirectional.only(start: 20, end: 20),
         leading: Icon(Icons.block, color: scheme.error),
-        title: Text('مسدود کردن شماره‌ها', style: TextStyle(color: scheme.error)),
-        onTap: () {
-          context.read<BlockedNumbersBloc>().add(BlockNumber(_primaryPhone));
-          _snack('شماره مسدود شد');
-        },
+        title: Text(
+          'مسدود کردن و گزارش هرزنامه',
+          style: TextStyle(color: scheme.error),
+        ),
+        onTap: () => blockNumberWithConfirm(
+          context,
+          phoneNumber: _primaryPhone,
+          contactName: widget.contact.name,
+        ),
       ),
       ListTile(
         contentPadding: const EdgeInsetsDirectional.only(start: 20, end: 20),
@@ -741,7 +745,6 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
 
   void _showMoreSheet() {
-    final blockedBloc = context.read<BlockedNumbersBloc>();
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -763,13 +766,18 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
               ListTile(
                 leading: const Icon(Icons.block, color: AppColors.callRejectRed),
                 title: const Text(
-                  'مسدود کردن شماره',
+                  'مسدود کردن و گزارش هرزنامه',
                   style: TextStyle(color: AppColors.callRejectRed),
                 ),
                 onTap: () {
                   Navigator.of(sheetCtx).pop();
-                  blockedBloc.add(BlockNumber(_primaryPhone));
-                  _snack('شماره مسدود شد');
+                  // `context`, not `sheetCtx`: the confirmation and its undo
+                  // outlive the sheet being dismissed.
+                  blockNumberWithConfirm(
+                    context,
+                    phoneNumber: _primaryPhone,
+                    contactName: widget.contact.name,
+                  );
                 },
               ),
             ],

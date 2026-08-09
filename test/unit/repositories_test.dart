@@ -4,7 +4,6 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:communication_super_app/core/database/database_helper.dart';
 import 'package:communication_super_app/features/favorites/models/favorite_model.dart';
 import 'package:communication_super_app/features/favorites/repositories/favorites_repository.dart';
-import 'package:communication_super_app/features/settings/models/blocked_number_model.dart';
 import 'package:communication_super_app/features/settings/repositories/blocked_numbers_repository.dart';
 import 'package:communication_super_app/features/messages/models/message_model.dart';
 import 'package:communication_super_app/features/messages/repositories/message_repository.dart';
@@ -22,13 +21,6 @@ FavoriteModel _fav(String id, String number) => FavoriteModel(
   id: id,
   phoneNumber: number,
   normalized: FavoriteModel.normalize(number),
-  createdAt: DateTime(2026, 1, 1),
-);
-
-BlockedNumberModel _blocked(String id, String number) => BlockedNumberModel(
-  id: id,
-  phoneNumber: number,
-  normalized: BlockedNumberModel.normalize(number),
   createdAt: DateTime(2026, 1, 1),
 );
 
@@ -129,7 +121,7 @@ void main() {
   group('BlockedNumbersRepository', () {
     test('block then read returns the number', () async {
       final repo = BlockedNumbersRepository();
-      await repo.block(_blocked('1', '09121112233'));
+      await repo.block('09121112233');
 
       final all = await repo.getBlocked();
       expect(all, hasLength(1));
@@ -138,7 +130,7 @@ void main() {
 
     test('isBlocked reflects block / unblock', () async {
       final repo = BlockedNumbersRepository();
-      await repo.block(_blocked('1', '09121112233'));
+      await repo.block('09121112233');
       expect(await repo.isBlocked('09121112233'), isTrue);
 
       await repo.unblock('09121112233');
@@ -149,10 +141,198 @@ void main() {
       final favorites = FavoritesRepository();
       final blocked = BlockedNumbersRepository();
       await favorites.addFavorite(_fav('1', '09120000000'));
-      await blocked.block(_blocked('2', '09120000000'));
+      await blocked.block('09120000000');
 
       expect(await favorites.getFavorites(), hasLength(1));
       expect(await blocked.getBlocked(), hasLength(1));
+    });
+
+    // The key is the canonical thread id, not "whatever digits the caller had".
+    // Blocking from a conversation hands over the address as the carrier
+    // delivered it; if that were stored verbatim, every lookup — which asks for
+    // the national form — would miss, and blocking would silently do nothing.
+    test('every equivalent form of a number resolves to one blocked row',
+        () async {
+      final repo = BlockedNumbersRepository();
+      await repo.block('+98 912 111 2233');
+
+      final all = await repo.getBlocked();
+      expect(all, hasLength(1));
+      expect(all.single.normalized, '09121112233');
+      expect(await repo.isBlocked('09121112233'), isTrue);
+      expect(await repo.isBlocked('989121112233'), isTrue);
+      expect(await repo.isBlocked('9121112233'), isTrue);
+
+      // Blocking it again in another format must not add a second row.
+      await repo.block('00989121112233');
+      expect(await repo.getBlocked(), hasLength(1));
+    });
+
+    test('reporting an already-blocked number upgrades it to spam', () async {
+      final repo = BlockedNumbersRepository();
+      await repo.block('09121112233');
+      expect((await repo.getBlocked()).single.isSpam, isFalse);
+
+      await repo.block('09121112233', report: true);
+      final reported = (await repo.getBlocked()).single;
+      expect(reported.isSpam, isTrue);
+      expect(reported.reportedAt, isNotNull);
+
+      // A later plain block never un-reports it.
+      await repo.block('09121112233');
+      expect((await repo.getBlocked()).single.isSpam, isTrue);
+    });
+
+    test('clearReport drops the report and keeps the block', () async {
+      final repo = BlockedNumbersRepository();
+      await repo.block('09121112233', report: true);
+      await repo.clearReport('09121112233');
+
+      final row = (await repo.getBlocked()).single;
+      expect(row.isSpam, isFalse);
+      expect(row.reportedAt, isNull);
+      expect(await repo.isBlocked('09121112233'), isTrue);
+    });
+
+    test('blockedKeys returns every canonical key in one read', () async {
+      final repo = BlockedNumbersRepository();
+      await repo.block('+989121112233');
+      await repo.block('0912 000 0000');
+
+      expect(await repo.blockedKeys(), {'09121112233', '09120000000'});
+    });
+
+    test('a number with no digits is not blocked', () async {
+      final repo = BlockedNumbersRepository();
+      expect(await repo.block('no-digits'), isNull);
+      expect(await repo.getBlocked(), isEmpty);
+    });
+  });
+
+  // The reported bug: "search never finds my own messages". The old filter ran
+  // over the paged-in inbox list and could only see each thread's NEWEST message,
+  // which on a normal conversation is the received one.
+  group('message search covers sent and received alike', () {
+    test('a sent body is a hit, and so is one that is not the newest message',
+        () async {
+      final repo = MessageRepository();
+      await repo.createMessage(
+        _message(
+          '1',
+          threadId: '09121112233',
+          body: 'قرارمان سر جایش هست',
+          type: MessageType.sent,
+          minute: 0,
+        ),
+      );
+      // Newer, received, and it does NOT contain the query.
+      await repo.createMessage(
+        _message(
+          '2',
+          threadId: '09121112233',
+          body: 'باشه',
+          type: MessageType.received,
+          minute: 5,
+        ),
+      );
+
+      final hits = await repo.searchMessages('قرارمان');
+      expect(hits, hasLength(1));
+      expect(hits.single.type, MessageType.sent);
+
+      final threads = await repo.searchThreads('قرارمان');
+      expect(threads.map((t) => t.threadId), ['09121112233']);
+      // The row still shows the newest message, not the matched one.
+      expect(threads.single.lastMessage, 'باشه');
+    });
+
+    test('Persian folding applies to bodies, not just to names', () async {
+      final repo = MessageRepository();
+      await repo.createMessage(
+        _message('1', body: 'علي آمد', type: MessageType.sent),
+      );
+      expect(await repo.searchMessages('علی'), hasLength(1));
+    });
+
+    test('a soft-deleted message is never a hit', () async {
+      final repo = MessageRepository();
+      await repo.createMessage(
+        _message('1', body: 'یادگاری', type: MessageType.sent),
+      );
+      await repo.softDeleteMessages(['1']);
+      expect(await repo.searchMessages('یادگاری'), isEmpty);
+    });
+
+    // The DB holds the compact template payload verbatim (see TemplateWire), so
+    // the prose the user actually read is not in any column.
+    test('a compact template payload is searched by its rebuilt text', () async {
+      final repo = MessageRepository();
+      await repo.createMessage(
+        _message(
+          '1',
+          body: '[#T1:mtg:0]جلسه هفتگی',
+          type: MessageType.sent,
+        ),
+      );
+      expect(await repo.searchMessages('برقرار'), hasLength(1));
+      expect(await repo.searchMessages('هفتگی'), hasLength(1));
+    });
+  });
+
+  // Blocking has a visible half: the conversation leaves the lists. Without it
+  // the messages stop arriving but the thread sits in the inbox exactly as
+  // before, which is what made blocking read as a no-op.
+  group('blocked conversations leave the thread lists', () {
+    test('getAllThreads hides a blocked thread and unblocking brings it back',
+        () async {
+      final messages = MessageRepository();
+      final blocked = BlockedNumbersRepository();
+      await messages.createMessage(_message('1', threadId: '09121112233'));
+      await messages.createMessage(_message('2', threadId: '09120000000'));
+
+      expect(
+        (await messages.getAllThreads()).map((t) => t.threadId),
+        containsAll(['09121112233', '09120000000']),
+      );
+
+      // Blocked in the carrier's E.164 form — the form a conversation actually
+      // hands over — while the thread id is the national one.
+      await blocked.block('+989121112233', report: true);
+      expect(
+        (await messages.getAllThreads()).map((t) => t.threadId),
+        ['09120000000'],
+      );
+
+      // Still readable, and reachable for the «هرزنامه و مسدودشده» page.
+      expect(
+        await messages.getMessagesByThread('09121112233'),
+        hasLength(1),
+      );
+      expect(
+        (await messages.getAllThreads(includeBlocked: true))
+            .map((t) => t.threadId),
+        containsAll(['09121112233', '09120000000']),
+      );
+
+      await blocked.unblock('09121112233');
+      expect(
+        (await messages.getAllThreads()).map((t) => t.threadId),
+        containsAll(['09121112233', '09120000000']),
+      );
+    });
+
+    test('a blocked thread is hidden from search too', () async {
+      final messages = MessageRepository();
+      final blocked = BlockedNumbersRepository();
+      await messages.createMessage(
+        _message('1', threadId: '09121112233', body: 'قرار فردا'),
+      );
+      await blocked.block('09121112233');
+
+      expect(await messages.searchThreads('قرار'), isEmpty);
+      // The message itself is still findable — «ستاره‌دار» and the spam page
+      // both read rows directly; only the thread lists filter.
+      expect(await messages.searchMessages('قرار'), hasLength(1));
     });
   });
 

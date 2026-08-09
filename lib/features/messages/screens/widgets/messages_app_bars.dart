@@ -17,6 +17,7 @@ class MessagesDefaultAppBar extends StatelessWidget {
     required this.onOpenScheduled,
     required this.onOpenSettings,
     required this.onOpenStarred,
+    required this.onOpenSpamAndBlocked,
   });
 
   final VoidCallback onSearch;
@@ -26,6 +27,13 @@ class MessagesDefaultAppBar extends StatelessWidget {
   final VoidCallback onOpenScheduled;
   final VoidCallback onOpenSettings;
   final VoidCallback onOpenStarred;
+
+  /// «هرزنامه و مسدودشده». It lives in this menu, next to قالب‌ها and
+  /// زمان‌بندی‌شده‌ها, because that is where the user looks for it — buried under
+  /// Settings it was three taps away from the conversation it is about, which is
+  /// why blocking read as "nothing happened". Settings keeps an entry to the
+  /// same page.
+  final VoidCallback onOpenSpamAndBlocked;
 
   @override
   Widget build(BuildContext context) {
@@ -75,6 +83,8 @@ class MessagesDefaultAppBar extends StatelessWidget {
                 onOpenTemplates();
               case 'scheduled':
                 onOpenScheduled();
+              case 'spam':
+                onOpenSpamAndBlocked();
               case 'settings':
                 onOpenSettings();
             }
@@ -85,6 +95,7 @@ class MessagesDefaultAppBar extends StatelessWidget {
             PopupMenuItem(value: 'drafts', child: Text('پیش‌نویس‌ها')),
             PopupMenuItem(value: 'templates', child: Text('قالب‌های آماده')),
             PopupMenuItem(value: 'scheduled', child: Text('زمان‌بندی‌شده‌ها')),
+            PopupMenuItem(value: 'spam', child: Text('هرزنامه و مسدودشده')),
             PopupMenuItem(value: 'settings', child: Text('تنظیمات')),
           ],
         ),
