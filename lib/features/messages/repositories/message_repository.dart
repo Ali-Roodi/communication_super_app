@@ -425,18 +425,32 @@ class MessageRepository {
         where += ' AND m.thread_id = ?';
         args.add(threadId);
       }
-      final matches = await db.rawQuery('''
-        SELECT $select FROM ${AppConstants.messageSearchTable} s
-        JOIN ${AppConstants.messagesTable} m ON m.rowid = s.rowid
-        WHERE s.folded MATCH ? AND $where
-        ORDER BY m.timestamp DESC, m.rowid DESC
-        LIMIT $_kMaxFtsRows
-      ''', args);
-      for (final row in matches) {
-        if (!q.matchesBody(TemplateWire.displayText(row['body'] as String))) {
-          continue;
+      // Paged, exactly like the scan below, and for the same reason: a needle as
+      // common as «سلام» matches thousands of rows, and fetching + sorting all of
+      // them before Dart filters made the *indexed* path slower than the scan it
+      // replaced (measured: 94 ms against 7 ms on a 50k-message mailbox, because
+      // the scan stops as soon as the caller has its screenful). Paging restores
+      // the early-out and keeps the rare-needle win.
+      var scanned = 0;
+      var sqlOffset = 0;
+      while (scanned < _kMaxFtsRows) {
+        final page = await db.rawQuery('''
+          SELECT $select FROM ${AppConstants.messageSearchTable} s
+          JOIN ${AppConstants.messagesTable} m ON m.rowid = s.rowid
+          WHERE s.folded MATCH ? AND $where
+          ORDER BY m.timestamp DESC, m.rowid DESC
+          LIMIT $_kSearchPageSize OFFSET $sqlOffset
+        ''', args);
+        if (page.isEmpty) return;
+        scanned += page.length;
+        sqlOffset += page.length;
+        for (final row in page) {
+          if (!q.matchesBody(TemplateWire.displayText(row['body'] as String))) {
+            continue;
+          }
+          if (!onRow(row)) return;
         }
-        if (!onRow(row)) return;
+        if (page.length < _kSearchPageSize) return;
       }
       return;
     }
