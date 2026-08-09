@@ -78,11 +78,17 @@ class _Suggestions extends StatelessWidget {
       buildWhen: (a, b) =>
           a.dialedNumber != b.dialedNumber ||
           !identical(a.matchingNumbers, b.matchingNumbers),
-      builder: (context, state) => state.dialedNumber.isEmpty
+      builder: (context, state) => state.dialedNumber.isEmpty || _isCode(state)
           ? const SizedBox.shrink()
           : _SuggestionList(state: state),
     );
   }
+
+  /// A service code being typed («*100#», «*140*11#») is not a person: no
+  /// contact number carries `*` or `#`, so the only row left would be «ایجاد
+  /// مخاطب جدید» offering to save a USSD code to the address book.
+  static bool _isCode(DialerState state) =>
+      state.dialedNumber.contains('*') || state.dialedNumber.contains('#');
 }
 
 class _SuggestionList extends StatelessWidget {
