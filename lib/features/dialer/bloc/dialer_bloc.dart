@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../../contacts/repositories/contact_repository.dart';
 import '../../contacts/models/contact_model.dart';
 import '../services/native_call_service.dart';
+import '../services/speed_dial_service.dart';
 import 'dialer_event.dart';
 import 'dialer_state.dart';
 
@@ -43,6 +44,9 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
 
     add(const DialerLoadContacts());
     _listenCallEvents();
+    // Eight rows, read once: holding a key has to dial under the thumb, not
+    // wait for a table.
+    unawaited(SpeedDialService.instance.ensureLoaded());
   }
 
   // ── Call event stream ──────────────────────────────────────

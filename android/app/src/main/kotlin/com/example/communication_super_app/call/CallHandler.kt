@@ -120,7 +120,9 @@ class CallHandler(
                         openFullScreenIntentSettings()
                         result.success(true)
                     }
-                    "getVoicemailNumber" -> result.success(voicemailNumber())
+                    "getVoicemailNumber" -> result.success(
+                        voicemailNumber(call.argument<Int>("subscriptionId") ?: -1),
+                    )
                     "openNotificationSettings" -> {
                         openNotificationSettings()
                         result.success(true)
@@ -157,10 +159,23 @@ class CallHandler(
      * Iranian SIMs) or READ_PHONE_STATE was refused — the caller then tells the
      * user instead of dialing something wrong.
      */
-    private fun voicemailNumber(): String? = try {
+    private fun voicemailNumber(subscriptionId: Int): String? = try {
         val tm = context.getSystemService(Context.TELEPHONY_SERVICE)
             as? android.telephony.TelephonyManager
-        tm?.voiceMailNumber?.takeIf { it.isNotBlank() }
+        // Per SIM, not per phone: the two cards are two carriers and two
+        // mailboxes, and reading the default subscription's number would dial
+        // the wrong one — the same mistake `isInService` made before dual-SIM.
+        val forSub = if (subscriptionId >= 0) {
+            try {
+                tm?.createForSubscriptionId(subscriptionId)
+            } catch (e: Exception) {
+                Log.w(TAG, "voicemail: no TelephonyManager for sub $subscriptionId")
+                tm
+            }
+        } else {
+            tm
+        }
+        forSub?.voiceMailNumber?.takeIf { it.isNotBlank() }
     } catch (e: SecurityException) {
         Log.w(TAG, "voicemail number denied: ${e.message}")
         null

@@ -179,4 +179,79 @@ void main() {
       );
     });
   });
+
+  group('SearchText.t9MatchRange', () {
+    ({int start, int end})? range(String name, String digits) {
+      final r = SearchText.t9MatchRange(name, digits);
+      return r == null ? null : (start: r.$1, end: r.$2);
+    }
+
+    test('finds a Persian name by its keypad digits', () {
+      // ک=۷ ب=۲ ر=۴
+      expect(range('کبری رضایی', '724'), (start: 0, end: 3));
+    });
+
+    test('matches a later word from its own start', () {
+      // ر=۴ ض=۵ ا=۲ — the surname, typed on its own.
+      expect(range('کبری رضایی', '452'), (start: 5, end: 8));
+    });
+
+    test('never matches inside a word', () {
+      // «ب ر ی» is a real run of «کبری», but nobody types a name from its
+      // second letter — allowing it answers three digits with the address book.
+      expect(range('کبری رضایی', '249'), isNull);
+    });
+
+    test('folds the Arabic spellings onto the same keys', () {
+      // «ي» and «ك» come from an Arabic keyboard and must land on ی / ک.
+      expect(range('كبري', '724'), isNotNull);
+    });
+
+    test('the range indexes the ORIGINAL name, ZWNJ and all', () {
+      // م=۸ ح=۳ م=۸ د=۴ — the ZWNJ inside «محمد‌رضا» is dropped when folding,
+      // so an index taken on the folded copy would land a letter early.
+      const name = 'محمد‌رضا';
+      final r = range(name, '8384')!;
+      expect(name.substring(r.start, r.end), 'محمد');
+    });
+
+    test('reads latin names off the same keys', () {
+      expect(range('Sara', '7272'), (start: 0, end: 4));
+    });
+
+    test('one digit is not a query', () {
+      expect(range('کبری', '7'), isNull);
+    });
+  });
+
+  group('matchPhoneDigits — T9', () {
+    final repo = ContactRepository();
+    final kobra = _contact('1', 'کبری رضایی', ['0912 000 1111']);
+    final ali = _contact('2', 'علی', ['0935 000 0000']);
+
+    test('a name typed on the keys is a suggestion', () {
+      final matches = repo.matchPhoneDigits([kobra, ali], '724');
+      expect(matches.single.contact.id, '1');
+      expect(matches.single.number, '0912 000 1111');
+      expect(matches.single.isT9, isTrue);
+    });
+
+    test('number hits come first and are never repeated as T9 hits', () {
+      // ۰۹۱۲ matches کبری's number; «۰۹» is not a T9 run of any name here.
+      final matches = repo.matchPhoneDigits([kobra, ali], '0912');
+      expect(matches, hasLength(1));
+      expect(matches.single.isT9, isFalse);
+    });
+
+    test('the highlighted range points at the letters that were typed', () {
+      final match = repo.matchPhoneDigits([kobra], '724').single;
+      expect(
+        match.contact.name.substring(
+          match.nameStart,
+          match.nameStart + match.nameLength,
+        ),
+        'کبر',
+      );
+    });
+  });
 }

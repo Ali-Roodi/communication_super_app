@@ -13,6 +13,7 @@ import com.example.communication_super_app.call.CallHandler
 import com.example.communication_super_app.call.CallInCallService
 import com.example.communication_super_app.calllog.CallLogSyncHandler
 import com.example.communication_super_app.contacts.ContactExtrasHandler
+import com.example.communication_super_app.contacts.ContactLinkHandler
 import com.example.communication_super_app.contacts.SimContactsHandler
 import com.example.communication_super_app.scheduled.ScheduledSmsChannel
 import com.example.communication_super_app.scheduled.ScheduledSmsScheduler
@@ -28,6 +29,7 @@ class MainActivity : FlutterActivity() {
     private var callHandler: CallHandler? = null
     private var callLogSyncHandler: CallLogSyncHandler? = null
     private var contactExtrasHandler: ContactExtrasHandler? = null
+    private var contactLinkHandler: ContactLinkHandler? = null
     private var simHandler: SimHandler? = null
     private var simContactsHandler: SimContactsHandler? = null
     private var locationHandler: LocationHandler? = null
@@ -104,6 +106,18 @@ class MainActivity : FlutterActivity() {
             MethodChannel(
                 flutterEngine.dartExecutor.binaryMessenger,
                 ContactExtrasHandler.CHANNEL,
+            )
+        )
+
+        // ── Linking duplicate contacts (ادغام) ──────────────────────────
+        // AggregationExceptions, which flutter_contacts does not expose — see
+        // ContactLinkHandler for why this is not "write one and delete the
+        // rest".
+        contactLinkHandler = ContactLinkHandler(applicationContext)
+        contactLinkHandler?.setup(
+            MethodChannel(
+                flutterEngine.dartExecutor.binaryMessenger,
+                ContactLinkHandler.CHANNEL,
             )
         )
 

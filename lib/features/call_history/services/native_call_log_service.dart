@@ -91,6 +91,21 @@ class NativeCallLogService {
     }
   }
 
+  /// Empties the device call log. Returns the number of rows the provider
+  /// reported deleted, or -1 when it refused (no WRITE_CALL_LOG) — the caller
+  /// must not wipe the local mirror in that case, or the next sync brings
+  /// everything back and the "clear" looks like it undid itself.
+  Future<int> deleteAllDeviceCallLogs() async {
+    try {
+      return await _methodChannel.invokeMethod<int>('deleteAllCallLogs') ?? 0;
+    } on PlatformException catch (e) {
+      debugPrint('Device call-log clear failed: ${e.code} ${e.message}');
+      return -1;
+    } on MissingPluginException {
+      return -1;
+    }
+  }
+
   @visibleForTesting
   void dispose() {
     _subscription?.cancel();

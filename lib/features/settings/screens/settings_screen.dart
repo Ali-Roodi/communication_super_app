@@ -10,6 +10,7 @@ import 'package:communication_super_app/features/authentication/repositories/aut
 import 'package:communication_super_app/features/authentication/screens/pin_setup_screen.dart';
 import 'package:communication_super_app/features/authentication/screens/recovery_code_screen.dart';
 import 'package:communication_super_app/core/services/crash_reporting.dart';
+import 'package:communication_super_app/features/dialer/screens/speed_dial_screen.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/features/messages/services/native_sms_service.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
@@ -40,6 +41,13 @@ class SettingsScreen extends StatelessWidget {
                   icon: Icons.error_outline,
                   title: 'شناسه تماس‌گیرنده و هرزتماس',
                   onTap: () => _push(context, const CallerIdSettingsPage()),
+                ),
+                SettingsRow(
+                  icon: Icons.dialpad_outlined,
+                  // The gesture lives on the keypad; this is where the
+                  // assignments can actually be *seen* and changed.
+                  title: 'شماره‌گیری سریع',
+                  onTap: () => _push(context, const SpeedDialScreen()),
                 ),
               ],
             ),

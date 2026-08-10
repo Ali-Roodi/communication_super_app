@@ -53,6 +53,31 @@ class PhoneQuery {
   bool contains(String number) => match(number) != null;
 }
 
+/// A name compiled into the digits that would type it on a phone keypad, plus
+/// the bookkeeping needed to report a hit back in the *original* string.
+///
+/// Built once per name and memoized ([SearchText.t9Of]): T9 runs over the whole
+/// address book on every keypress, and rebuilding this per contact per digit is
+/// the same mistake [PhoneQuery] exists to avoid.
+class T9Name {
+  const T9Name(this.digits, this.positions, this.wordStarts);
+
+  /// One digit per letter of the folded name, spaces removed.
+  final String digits;
+
+  /// `positions[i]` is where `digits[i]`'s letter sits in the original name —
+  /// folding drops characters (ZWNJ, harakat), so an index into [digits] would
+  /// highlight the wrong letter.
+  final List<int> positions;
+
+  /// Indices into [digits] at which a word begins. A T9 query matches from a
+  /// word start only: matching anywhere inside would answer «۴» with every
+  /// contact whose name contains a «ر».
+  final List<int> wordStarts;
+
+  bool get isEmpty => digits.isEmpty;
+}
+
 /// Text folding for every place the app searches contacts by name or number.
 ///
 /// A raw `String.contains` is not a search on a Persian address book: the same
@@ -223,6 +248,114 @@ class SearchText {
 
   static const int _maxCachedForms = 8192;
   static final Map<String, List<String>> _formsCache = {};
+
+  // ── T9 (name-by-digits) ──────────────────────────────────────────────────
+
+  /// The Persian keypad's letter groups, in the layout Iranian phones have used
+  /// since the feature-phone era: 32 letters over the keys `۲`–`۹`.
+  ///
+  /// Written as one string per key rather than a `Map<int,int>` so the table is
+  /// readable against a physical keypad — which is the only way to check it.
+  static const Map<String, String> _t9Groups = {
+    '2': 'ابپتث',
+    '3': 'جچحخ',
+    '4': 'دذرزژ',
+    '5': 'سشصض',
+    '6': 'طظعغ',
+    '7': 'فقکگ',
+    '8': 'لمنو',
+    '9': 'هی',
+  };
+
+  /// Folded letter → keypad digit, built once from [_t9Groups] plus the latin
+  /// groups printed on the keys themselves.
+  ///
+  /// Derived from the table above rather than written out again: a second copy
+  /// is a second thing to keep in step, and a wrong entry here does not fail —
+  /// it silently stops finding one letter's contacts.
+  static final Map<int, int> _t9 = () {
+    final map = <int, int>{};
+    for (final entry in _t9Groups.entries) {
+      final digit = entry.key.codeUnitAt(0);
+      // Fold each letter first: the table is written in canonical Persian, and
+      // a name stored with «ك» or «ي» has to land on the same key.
+      for (final letter in entry.value.runes) {
+        map[_canonical(letter)] = digit;
+      }
+    }
+    const latin = ['abc', 'def', 'ghi', 'jkl', 'mno', 'pqrs', 'tuv', 'wxyz'];
+    for (var i = 0; i < latin.length; i++) {
+      final digit = _asciiZero + 2 + i;
+      for (final letter in latin[i].runes) {
+        map[letter] = digit;
+      }
+    }
+    return map;
+  }();
+
+  /// Shortest query T9 answers. One digit is a third of the address book — the
+  /// dialer's number suggestions are the useful answer at that length.
+  static const int minT9Length = 2;
+
+  /// [name] compiled to keypad digits. Memoized per name string.
+  static T9Name t9Of(String name) {
+    final cached = _t9Cache[name];
+    if (cached != null) return cached;
+
+    final digits = StringBuffer();
+    final positions = <int>[];
+    final wordStarts = <int>[];
+    var atWordStart = true;
+
+    for (var i = 0; i < name.length; i++) {
+      final c = name.codeUnitAt(i);
+      if (_isIgnorable(c)) continue;
+      var canonical = _canonical(c);
+      if (canonical >= 0x41 && canonical <= 0x5A) canonical += 0x20; // A–Z
+      // A digit inside a name types itself.
+      final isDigit = canonical >= _asciiZero && canonical <= _asciiZero + 9;
+      final key = _t9[canonical] ?? (isDigit ? canonical : -1);
+      if (key < 0) {
+        // Space, punctuation, or a script with no key: not a letter, so the
+        // next one that is starts a new word.
+        atWordStart = true;
+        continue;
+      }
+      if (atWordStart) {
+        wordStarts.add(digits.length);
+        atWordStart = false;
+      }
+      digits.writeCharCode(key);
+      positions.add(i);
+    }
+
+    final built = T9Name(digits.toString(), positions, wordStarts);
+    if (_t9Cache.length >= _maxCachedForms) _t9Cache.clear();
+    _t9Cache[name] = built;
+    return built;
+  }
+
+  static final Map<String, T9Name> _t9Cache = {};
+
+  /// Where the keypad digits [query] match [name], **in the original string's
+  /// indices**, or null.
+  ///
+  /// Matches from a word start only, and prefers the earliest word — «۷۲۴»
+  /// finds «کبری رضایی» on the first name, not somewhere inside the surname.
+  static (int, int)? t9MatchRange(String name, String query) {
+    if (query.length < minT9Length) return null;
+    final t9 = t9Of(name);
+    if (t9.isEmpty) return null;
+    for (final start in t9.wordStarts) {
+      if (start + query.length > t9.digits.length) continue;
+      if (!t9.digits.startsWith(query, start)) continue;
+      return (
+        t9.positions[start],
+        t9.positions[start + query.length - 1] + 1,
+      );
+    }
+    return null;
+  }
 
   /// The digit strings a typed [query] may mean.
   ///

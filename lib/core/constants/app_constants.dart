@@ -3,7 +3,7 @@ class AppConstants {
 
   // Database
   static const String databaseName = 'communication_app.db';
-  static const int databaseVersion = 20;
+  static const int databaseVersion = 21;
 
   // Tables
   static const String contactsTable = 'contacts';
@@ -21,6 +21,11 @@ class AppConstants {
   /// Which SIM each conversation last sent on (v20). Google Messages remembers
   /// the choice per conversation, not globally.
   static const String threadSimTable = 'thread_sim';
+
+  /// Speed dial (v21): the number each keypad digit ۲–۹ calls when held.
+  /// The digit itself is the primary key — there are eight of them and a
+  /// position can hold exactly one number.
+  static const String speedDialTable = 'speed_dial';
 
   /// FTS5 index over the folded text of every message body — the substring
   /// index the message search uses when the device's SQLite can build one.

@@ -311,6 +311,13 @@ class ContactRepository {
   /// This is what the dialer and the search screen render — showing the
   /// contact's first number instead would answer a search for one number with
   /// a different one.
+  ///
+  /// The same digits are also read as **T9**: the keys carry letters, so «۷۲۴»
+  /// is «کبری» as much as it is a number, and a keypad that can only find
+  /// numbers is the one thing every other dialer on the phone can do that this
+  /// one could not. Number hits come first — they are the more specific reading
+  /// — and a contact already listed for its number is never repeated as a T9
+  /// hit.
   List<PhoneMatch> matchPhoneDigits(
     List<ContactModel> contacts,
     String digits,
@@ -323,10 +330,12 @@ class ContactRepository {
     if (query.isEmpty) return [];
 
     final matches = <PhoneMatch>[];
+    final byNumber = <String>{};
     for (final contact in contacts) {
       for (final phone in contact.phoneNumbers) {
         final hit = query.match(phone);
         if (hit == null) continue;
+        byNumber.add(contact.id);
         matches.add(
           PhoneMatch(
             contact: contact,
@@ -337,6 +346,26 @@ class ContactRepository {
           ),
         );
       }
+    }
+
+    final typed = SearchText.digits(digits);
+    if (typed.length < SearchText.minT9Length) return matches;
+    for (final contact in contacts) {
+      if (byNumber.contains(contact.id)) continue;
+      // A T9 row exists to be dialled, so a contact with no number is not one.
+      final number = contact.primaryPhone;
+      if (number.isEmpty) continue;
+      final range = SearchText.t9MatchRange(contact.name, typed);
+      if (range == null) continue;
+      matches.add(
+        PhoneMatch(
+          contact: contact,
+          number: number,
+          digits: '',
+          nameStart: range.$1,
+          nameLength: range.$2 - range.$1,
+        ),
+      );
     }
     return matches;
   }

@@ -79,6 +79,22 @@ class CallLogSyncHandler(private val context: Context) {
                         result.error("QUERY_FAILED", e.message, null)
                     }
                 }
+                // "Clear the call history" — the whole provider table, not the
+                // ids that happen to be paged into the list. Deleting by id
+                // would silently leave everything below the scroll position.
+                "deleteAllCallLogs" -> {
+                    try {
+                        result.success(
+                            context.contentResolver.delete(
+                                CallLog.Calls.CONTENT_URI, null, null,
+                            ),
+                        )
+                    } catch (e: SecurityException) {
+                        result.error("PERMISSION_DENIED", "WRITE_CALL_LOG not granted", null)
+                    } catch (e: Exception) {
+                        result.error("DELETE_FAILED", e.message, null)
+                    }
+                }
                 // Registration can fail at app start if READ_CALL_LOG hasn't
                 // been granted yet; Dart calls this again after the permission
                 // gate so the observer always ends up attached.

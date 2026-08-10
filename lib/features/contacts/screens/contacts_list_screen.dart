@@ -16,7 +16,10 @@ import 'package:communication_super_app/core/widgets/google_list.dart';
 import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
+import 'package:communication_super_app/features/contacts/screens/contact_labels_screen.dart';
+import 'package:communication_super_app/features/contacts/screens/duplicate_contacts_screen.dart';
 import 'package:communication_super_app/features/contacts/services/contact_extras_service.dart';
+import 'package:communication_super_app/features/contacts/services/contact_link_service.dart';
 import 'package:communication_super_app/features/contacts/services/sim_contacts_service.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_bloc.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_event.dart';
@@ -286,6 +289,16 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
                     tooltip: 'اشتراک‌گذاری',
                     onPressed: _shareSelected,
                   ),
+                // Two or more rows that are the same person. A SIM contact has
+                // no ContactsContract row to aggregate, so it can never be part
+                // of a link.
+                if (_selected.length > 1 &&
+                    !_selectedContacts.any((c) => c.isSimContact))
+                  IconButton(
+                    icon: const Icon(Icons.merge_type),
+                    tooltip: 'ادغام',
+                    onPressed: _confirmMergeSelected,
+                  ),
                 IconButton(
                   icon: const Icon(Icons.delete_outline),
                   tooltip: 'حذف',
@@ -331,6 +344,56 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
           added == 0
               ? 'شماره‌ای برای افزودن یافت نشد'
               : '${PersianUtils.toPersianNumber('$added')} مخاطب به موردعلاقه‌ها افزوده شد',
+        ),
+      ),
+    );
+  }
+
+  /// Links the selection into one contact.
+  ///
+  /// Nothing is deleted and no field is dropped — see [ContactLinkService] — so
+  /// the confirmation says «ادغام» rather than warning about data loss, and the
+  /// undo is «جدا کردن» on the contact page.
+  Future<void> _confirmMergeSelected() async {
+    final count = _selected.length;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('ادغام مخاطبین'),
+          content: Text(
+            '${PersianUtils.toPersianNumber('$count')} مخاطب به یک مخاطب تبدیل می‌شوند. '
+            'هیچ شماره یا اطلاعاتی حذف نمی‌شود و بعداً می‌توانید از صفحهٔ مخاطب آن‌ها را جدا کنید.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('انصراف'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('ادغام'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final ids = [for (final c in _selectedContacts) c.id];
+    final messenger = ScaffoldMessenger.of(context);
+    final contactBloc = context.read<ContactBloc>();
+    final merged = await ContactLinkService.instance.link(ids);
+    ContactRepository().invalidateCache();
+    LazyContactAvatar.invalidateCache();
+    if (!mounted) return;
+    _clearSelection();
+    contactBloc.add(const RefreshContacts());
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          merged == null ? 'ادغام ممکن نشد' : 'مخاطبین ادغام شدند',
         ),
       ),
     );
@@ -474,6 +537,22 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
                   position: PopupMenuPosition.under,
                   onSelected: (action) => action(),
                   itemBuilder: (_) => [
+                    PopupMenuItem<VoidCallback>(
+                      value: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const ContactLabelsScreen(),
+                        ),
+                      ),
+                      child: const Text('برچسب‌ها'),
+                    ),
+                    PopupMenuItem<VoidCallback>(
+                      value: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const DuplicateContactsScreen(),
+                        ),
+                      ),
+                      child: const Text('مخاطب‌های تکراری'),
+                    ),
                     PopupMenuItem<VoidCallback>(
                       value: () => Navigator.of(context).push(
                         MaterialPageRoute(

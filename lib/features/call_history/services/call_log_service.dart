@@ -187,6 +187,26 @@ class CallLogService {
     invalidateCache();
   }
 
+  /// «پاک کردن سابقه تماس» — empties the device provider, then the local
+  /// mirror.
+  ///
+  /// Not `deleteCallLogsGlobally(everything on screen)`: the list is paged, so
+  /// that cleared the rows the user could see and left the rest to reappear on
+  /// the next scroll. Returns false when the provider refused (no
+  /// WRITE_CALL_LOG), in which case **nothing** local is touched — the sync
+  /// would bring it all back and the clear would look like it undid itself.
+  Future<bool> clearAllCallLogsGlobally() async {
+    final deleted = await NativeCallLogService.instance
+        .deleteAllDeviceCallLogs();
+    if (deleted < 0) return false;
+    await _repository.deleteAllCallLogs();
+    // The next sync must not treat the empty provider as "nothing new": the
+    // deletion diff is what would otherwise be skipped for five minutes.
+    _lastDeletionReconcile = null;
+    invalidateCache();
+    return true;
+  }
+
   static bool _isNumeric(String s) =>
       s.isNotEmpty && s.codeUnits.every((c) => c >= 0x30 && c <= 0x39);
 

@@ -248,11 +248,16 @@ class NativeCallService {
 
   // ── Misc system hooks ──────────────────────────────────────
 
-  /// The SIM's voicemail number, or null when the carrier never provisioned
-  /// one. Callers must handle null rather than dialing a guess.
-  Future<String?> getVoicemailNumber() async {
+  /// The voicemail number of [subscriptionId] (the system default when null),
+  /// or null when the carrier never provisioned one.
+  ///
+  /// Per SIM because the two cards are two carriers with two mailboxes.
+  /// Callers must handle null rather than dialing a guess.
+  Future<String?> getVoicemailNumber({int? subscriptionId}) async {
     try {
-      return await _method.invokeMethod<String>('getVoicemailNumber');
+      return await _method.invokeMethod<String>('getVoicemailNumber', {
+        'subscriptionId': subscriptionId ?? -1,
+      });
     } catch (_) {
       return null;
     }

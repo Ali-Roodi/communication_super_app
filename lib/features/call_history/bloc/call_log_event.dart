@@ -45,3 +45,12 @@ class DeleteCallLogs extends CallLogEvent {
   @override
   List<Object?> get props => [ids];
 }
+
+/// «پاک کردن سابقه تماس» — the whole history, device provider included.
+///
+/// Distinct from `DeleteCallLogs(everything loaded)`, which is what this used
+/// to be: the list is paged, so that only cleared what had been scrolled into
+/// memory.
+class ClearCallLogs extends CallLogEvent {
+  const ClearCallLogs();
+}
