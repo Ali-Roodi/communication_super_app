@@ -16,7 +16,15 @@ import 'package:communication_super_app/features/messages/services/native_sms_se
 /// incoming call on a locked phone cannot open this app's call screen, so the
 /// OEM dialer takes the call over — the dialer role alone is not enough on
 /// Android 14+.
-enum DefaultRole { sms, dialer, fullScreenIntent }
+///
+/// [callNotifications] is the same kind of grant and the worse failure: with
+/// notifications off (or the «تماس ورودی» channel muted) the incoming-call card
+/// is dropped *and* its full-screen intent never fires, so the phone rings with
+/// nothing on screen and no way to answer — and, because this app holds the
+/// dialer role, no OEM screen takes over either. It is asked for right after
+/// the dialer role, before the full-screen one, because the full-screen grant
+/// is worthless while the notification itself is blocked.
+enum DefaultRole { sms, dialer, callNotifications, fullScreenIntent }
 
 /// Google Messages / Google Phone style onboarding for the two default-app
 /// roles, shown between [PermissionGate] and the app itself.
@@ -49,6 +57,7 @@ class _DefaultAppGateState extends State<DefaultAppGate>
   bool? _isDefaultSms;
   bool? _isDefaultDialer;
   bool? _canFullScreen;
+  bool? _callNotifications;
 
   /// Dismissed for now; cleared on the next resume so returning to the app
   /// asks again.
@@ -93,6 +102,8 @@ class _DefaultAppGateState extends State<DefaultAppGate>
     final sms = await NativeSmsService().isDefaultSmsApp();
     final dialer = await NativeCallService.instance.isDefaultDialer();
     final fullScreen = await NativeCallService.instance.canUseFullScreenIntent();
+    final notifications = await NativeCallService.instance
+        .areCallNotificationsEnabled();
     if (!mounted) return;
 
     final hadAll = (_isDefaultSms ?? false) && (_isDefaultDialer ?? false);
@@ -101,10 +112,12 @@ class _DefaultAppGateState extends State<DefaultAppGate>
       _isDefaultSms = sms;
       _isDefaultDialer = dialer;
       _canFullScreen = fullScreen;
+      _callNotifications = notifications;
     });
 
-    // The roles drive the data sync; the full-screen grant only adds a step.
-    if (sms && dialer && fullScreen) {
+    // The roles drive the data sync; the notification and full-screen grants
+    // only add a step.
+    if (sms && dialer && fullScreen && notifications) {
       // First time we see both roles held in this session: pull everything the
       // app was blind to while another app owned them.
       if (!hadAll || !_syncedForRoles) _syncDeviceData();
@@ -164,6 +177,9 @@ class _DefaultAppGateState extends State<DefaultAppGate>
   DefaultRole? get _pendingRole {
     if (!(_isDefaultSms ?? false)) return DefaultRole.sms;
     if (!(_isDefaultDialer ?? false)) return DefaultRole.dialer;
+    // Before the full-screen grant: that grant only decides whether the card
+    // opens the call screen by itself, and a blocked card opens nothing.
+    if (!(_callNotifications ?? true)) return DefaultRole.callNotifications;
     if (!(_canFullScreen ?? true)) return DefaultRole.fullScreenIntent;
     return null;
   }
@@ -177,6 +193,8 @@ class _DefaultAppGateState extends State<DefaultAppGate>
           await NativeSmsService().requestDefaultSmsRole();
         case DefaultRole.dialer:
           await NativeCallService.instance.requestDefaultDialerRole();
+        case DefaultRole.callNotifications:
+          await NativeCallService.instance.openNotificationSettings();
         case DefaultRole.fullScreenIntent:
           // A settings page, not a sheet: the resume re-check picks the result
           // up when the user comes back.
@@ -240,11 +258,15 @@ class _DefaultRoleScreenState extends State<_DefaultRoleScreen> {
     if (mounted) setState(() => _busy = false);
   }
 
-  bool get _isFullScreen => widget.role == DefaultRole.fullScreenIntent;
+  /// The two grants that are settings pages rather than a role sheet.
+  bool get _opensSettings =>
+      widget.role == DefaultRole.fullScreenIntent ||
+      widget.role == DefaultRole.callNotifications;
 
   String get _title => switch (widget.role) {
     DefaultRole.sms => 'هم‌رسان را پیام‌رسان پیش‌فرض کنید',
     DefaultRole.dialer => 'هم‌رسان را برنامه تماس پیش‌فرض کنید',
+    DefaultRole.callNotifications => 'اعلان‌های هم‌رسان را روشن کنید',
     DefaultRole.fullScreenIntent => 'اجازه نمایش صفحه تماس را بدهید',
   };
 
@@ -253,6 +275,8 @@ class _DefaultRoleScreenState extends State<_DefaultRoleScreen> {
       'برای ارسال و دریافت پیامک و همگام ماندن با پیام‌های گوشی، هم‌رسان باید برنامه پیش‌فرض پیامک باشد.',
     DefaultRole.dialer =>
       'برای برقراری تماس و نمایش صفحه تماس ورودی، هم‌رسان باید برنامه پیش‌فرض تماس باشد.',
+    DefaultRole.callNotifications =>
+      'اعلان‌های هم‌رسان (یا دسته «تماس ورودی») خاموش است. چون هم‌رسان برنامه تماس پیش‌فرض این گوشی است، در این حالت تماس ورودی فقط زنگ می‌خورد و هیچ صفحه‌ای برای پاسخ دادن نمایش داده نمی‌شود. در صفحه‌ای که باز می‌شود، اعلان‌ها و دسته «تماس ورودی» را روشن کنید.',
     DefaultRole.fullScreenIntent =>
       'بدون این اجازه، تماس ورودی روی گوشی قفل صفحه تماس هم‌رسان را باز نمی‌کند و صفحه تماس خود گوشی نشان داده می‌شود. در صفحه‌ای که باز می‌شود، «اعلان تمام‌صفحه» را روشن کنید.',
   };
@@ -260,11 +284,12 @@ class _DefaultRoleScreenState extends State<_DefaultRoleScreen> {
   IconData get _icon => switch (widget.role) {
     DefaultRole.sms => Icons.chat_bubble_outline_rounded,
     DefaultRole.dialer => Icons.phone_in_talk_outlined,
+    DefaultRole.callNotifications => Icons.notifications_off_outlined,
     DefaultRole.fullScreenIntent => Icons.fullscreen_rounded,
   };
 
   String get _actionLabel =>
-      _isFullScreen ? 'باز کردن تنظیمات' : 'تنظیم به عنوان پیش‌فرض';
+      _opensSettings ? 'باز کردن تنظیمات' : 'تنظیم به عنوان پیش‌فرض';
 
   List<({IconData icon, String text})> get _points => switch (widget.role) {
     DefaultRole.sms => const [
@@ -279,6 +304,11 @@ class _DefaultRoleScreenState extends State<_DefaultRoleScreen> {
       (icon: Icons.call_outlined, text: 'صفحه تماس ورودی و خروجی هم‌رسان'),
       (icon: Icons.history_rounded, text: 'سابقه تماس‌ها همگام می‌شود'),
       (icon: Icons.block_outlined, text: 'مسدودسازی شماره‌های مزاحم'),
+    ],
+    DefaultRole.callNotifications => const [
+      (icon: Icons.ring_volume_outlined, text: 'دیدن تماس ورودی و پاسخ به آن'),
+      (icon: Icons.call_missed_outlined, text: 'اعلان تماس‌های بی‌پاسخ'),
+      (icon: Icons.sms_outlined, text: 'اعلان پیامک‌های تازه با پاسخ سریع'),
     ],
     DefaultRole.fullScreenIntent => const [
       (

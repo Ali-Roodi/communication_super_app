@@ -76,9 +76,12 @@ class _Suggestions extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocBuilder<DialerBloc, DialerState>(
       // Only the dialled number and the resolved matches change what is drawn
-      // here — the call-state fields of DialerState do not.
+      // here — the call-state fields of DialerState do not, except `isInCall`:
+      // the keypad reached through «افزودن تماس» is picking the second leg of
+      // a conference, and a row there dials instead of opening a contact page.
       buildWhen: (a, b) =>
           a.dialedNumber != b.dialedNumber ||
+          a.isInCall != b.isInCall ||
           !identical(a.matchingNumbers, b.matchingNumbers),
       builder: (context, state) => state.dialedNumber.isEmpty || _isCode(state)
           ? const SizedBox.shrink()
@@ -100,26 +103,33 @@ class _SuggestionList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final matches = state.matchingNumbers;
+    // «افزودن تماس» — a call is already up, so this keypad exists to pick the
+    // person to add. The whole row dials in that mode (a contact page is not
+    // what anyone is after mid-call) and «ایجاد مخاطب جدید» is dropped.
+    final addCall = state.isInCall;
     // Virtualized: a single typed digit can match the whole address book, and
     // an eager list would build (and avatar-fetch) every one of those rows.
     return CustomScrollView(
       slivers: [
-        const SliverToBoxAdapter(
+        SliverToBoxAdapter(
           child: SectionLabel(
-            'پیشنهادی',
-            padding: EdgeInsets.fromLTRB(24, 8, 24, 8),
+            addCall ? 'افزودن به تماس' : 'پیشنهادی',
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
           ),
         ),
         if (matches.isEmpty)
           SliverToBoxAdapter(
-            child: GroupedList(
-              children: [DialerUnknownRow(phone: state.dialedNumber)],
-            ),
+            child: addCall
+                ? const SizedBox.shrink()
+                : GroupedList(
+                    children: [DialerUnknownRow(phone: state.dialedNumber)],
+                  ),
           )
         else
           SliverGroupedList(
             itemCount: matches.length,
-            itemBuilder: (_, i) => DialerContactRow(match: matches[i]),
+            itemBuilder: (_, i) =>
+                DialerContactRow(match: matches[i], addCall: addCall),
           ),
         const SliverToBoxAdapter(child: SizedBox(height: 8)),
       ],
@@ -164,8 +174,14 @@ class _KeypadPanel extends StatelessWidget {
                   a.dialedNumber.isEmpty != b.dialedNumber.isEmpty ||
                   a.isInCall != b.isInCall ||
                   a.dialSubscriptionId != b.dialSubscriptionId,
+              // A live call must NOT disable the pill. This keypad is reached
+              // from «افزودن تماس» precisely to place a second call — telecom
+              // holds the first one and the two can then be merged. Gating on
+              // `isInCall` left the only green button on the screen greyed out
+              // with no way to add anyone.
               builder: (_, state) => DialerCallPill(
-                enabled: state.dialedNumber.isNotEmpty && !state.isInCall,
+                enabled: state.dialedNumber.isNotEmpty,
+                addCall: state.isInCall,
                 sim: SimService.byId(state.dialSubscriptionId),
               ),
             ),
@@ -191,8 +207,12 @@ class _KeyGrid extends StatelessWidget {
       bloc.add(DialerNumberPressed(value));
       // Audible tone (honoring the setting, read per press so toggling it in
       // settings takes effect without rebuilding the grid) + light haptic.
+      //
+      // playKeypadTone, NOT sendDtmf: this keypad is also the «افزودن تماس»
+      // one, and sendDtmf transmits the digit to whoever is already on the
+      // call.
       if (settings.state.dialpadTones) {
-        NativeCallService.instance.sendDtmf(value);
+        NativeCallService.instance.playKeypadTone(value);
       }
       HapticFeedback.lightImpact();
     }

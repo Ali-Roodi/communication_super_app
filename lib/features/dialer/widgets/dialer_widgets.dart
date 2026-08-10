@@ -351,10 +351,20 @@ class _DialKeyState extends State<DialKey> with SingleTickerProviderStateMixin {
 class DialerCallPill extends StatelessWidget {
   final bool enabled;
 
+  /// A call is already up: this dial adds a second leg («افزودن تماس»), which
+  /// the label says so nobody wonders what pressing it will do to the call
+  /// they are on.
+  final bool addCall;
+
   /// SIM chosen for this dial, or null to follow the system default.
   final SimCard? sim;
 
-  const DialerCallPill({super.key, required this.enabled, this.sim});
+  const DialerCallPill({
+    super.key,
+    required this.enabled,
+    this.addCall = false,
+    this.sim,
+  });
 
   /// Hands the dial to the BLoC, asking for a SIM only when there is a real
   /// choice to make and the user has not already made one on the chip.
@@ -423,17 +433,21 @@ class DialerCallPill extends StatelessWidget {
           onLongPress: enabled && SimService.isMultiSim
               ? () => _dial(context, forcePick: true)
               : null,
-          child: const SizedBox(
+          child: SizedBox(
             width: 168,
             height: 56,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.phone, color: Colors.white, size: 24),
-                SizedBox(width: 10),
+                Icon(
+                  addCall ? Icons.add_call : Icons.phone,
+                  color: Colors.white,
+                  size: 24,
+                ),
+                const SizedBox(width: 10),
                 Text(
-                  'تماس',
-                  style: TextStyle(
+                  addCall ? 'افزودن تماس' : 'تماس',
+                  style: const TextStyle(
                     color: Colors.white,
                     fontSize: 17,
                     fontWeight: FontWeight.w500,
@@ -481,9 +495,27 @@ class DialerCallPill extends StatelessWidget {
 class DialerContactRow extends StatelessWidget {
   final PhoneMatch match;
 
-  const DialerContactRow({super.key, required this.match});
+  /// Reached from «افزودن تماس» while a call is live: the row is a *picker*
+  /// for the second leg of the conference, so tapping anywhere on it dials.
+  /// Opening a contact page there is never what the user meant, and hunting
+  /// for the small call icon at the edge is what made the flow feel like the
+  /// button "wasn't there".
+  final bool addCall;
+
+  const DialerContactRow({
+    super.key,
+    required this.match,
+    this.addCall = false,
+  });
 
   ContactModel get contact => match.contact;
+
+  /// Dials [match] and closes the keypad sheet so the in-call UI is clear.
+  Future<void> _dial(BuildContext context) async {
+    final navigator = Navigator.of(context);
+    final called = await placeCall(context, match.number);
+    if (called) navigator.maybePop();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -491,12 +523,14 @@ class DialerContactRow extends StatelessWidget {
     final phone = match.number;
 
     return InkWell(
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => DeviceContactDetailScreen(contact: contact),
-        ),
-      ),
+      onTap: addCall
+          ? () => _dial(context)
+          : () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => DeviceContactDetailScreen(contact: contact),
+              ),
+            ),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
         child: Row(
@@ -551,7 +585,9 @@ class DialerContactRow extends StatelessWidget {
               ),
             ),
             // Direct-dial the matched contact — tapping the icon must NOT
-            // open the contact page (that's the row tap).
+            // open the contact page (that's the row tap, outside add-call
+            // mode). Filled green while adding to a call: it is the primary
+            // action of that screen, not a secondary affordance.
             GestureDetector(
               onLongPress: SimService.isMultiSim
                   ? () async {
@@ -563,17 +599,20 @@ class DialerContactRow extends StatelessWidget {
                     }
                   : null,
               child: IconButton(
-                icon: const Icon(Icons.call_outlined, size: 24),
-                color: scheme.onSurfaceVariant,
+                icon: Icon(
+                  addCall ? Icons.add_call : Icons.call_outlined,
+                  size: 24,
+                ),
+                color: addCall ? Colors.white : scheme.onSurfaceVariant,
+                style: addCall
+                    ? IconButton.styleFrom(
+                        backgroundColor: AppColors.callAnswerGreen,
+                      )
+                    : null,
                 tooltip: SimService.isMultiSim
                     ? 'تماس · نگه‌داشتن برای انتخاب سیم‌کارت'
                     : 'تماس',
-                onPressed: () {
-                  placeCall(context, phone);
-                  // Dialer lives in a modal sheet — dismiss it so the in-call
-                  // UI is unobstructed.
-                  Navigator.of(context).maybePop();
-                },
+                onPressed: () => _dial(context),
               ),
             ),
           ],

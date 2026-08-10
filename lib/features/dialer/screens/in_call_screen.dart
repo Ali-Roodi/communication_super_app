@@ -108,6 +108,13 @@ class _InCallScreenState extends State<InCallScreen> {
             prev.activePhone != curr.activePhone,
         listener: (context, state) {
           if (state.callStatus == CallStatus.active) _ensureTimerStarted();
+          // The call ended: stop counting immediately. The route lingers ~600 ms
+          // so the keyguard handover doesn't flash the app's own UI, and a timer
+          // still ticking through it reads as "the call is somehow still up".
+          if (state.callStatus == CallStatus.idle) {
+            _timer?.cancel();
+            _timer = null;
+          }
           // Foreground call switched (add-call / swap) — refresh the identity.
           _resolveContact(_currentPhone(state));
         },
@@ -170,7 +177,12 @@ class _InCallScreenState extends State<InCallScreen> {
                     ),
                   ],
                   const SizedBox(height: 10),
-                  onHold
+                  state.callStatus == CallStatus.idle
+                      ? const Text(
+                          'تماس پایان یافت',
+                          style: TextStyle(color: Colors.white54, fontSize: 16),
+                        )
+                      : onHold
                       ? const _PulsingText('در انتظار')
                       : dialing
                       ? const _PulsingText('در حال برقراری تماس…')
@@ -244,7 +256,13 @@ class _InCallScreenState extends State<InCallScreen> {
           ),
           const SizedBox(height: 28),
           // Second call in progress: conference controls (ادغام / تعویض).
-          if (state.callCount > 1) ...[
+          //
+          // `isConference` is checked as well as the count: once the two legs
+          // are merged they become children of one conference call, and until
+          // telecom finishes re-parenting them the count can still read 2 —
+          // which is what left «ادغام تماس» sitting on top of an already
+          // merged call.
+          if (state.callCount > 1 && !state.isConference) ...[
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -252,13 +270,12 @@ class _InCallScreenState extends State<InCallScreen> {
                   icon: Icons.call_merge,
                   label: 'ادغام تماس',
                   active: false,
-                  onTap: state.canMerge
-                      ? () => bloc.add(const MergeCalls())
-                      : () => ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('ادغام تماس در دسترس نیست'),
-                          ),
-                        ),
+                  // Dimmed rather than absent while telecom says the two legs
+                  // cannot be conferenced (one still dialing): a button that
+                  // appears and disappears under the thumb is worse than one
+                  // that is visibly not ready yet.
+                  enabled: state.canMerge,
+                  onTap: () => bloc.add(const MergeCalls()),
                 ),
                 _ControlButton(
                   icon: Icons.swap_calls,
@@ -481,6 +498,7 @@ class _ControlButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool active;
+  final bool enabled;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
 
@@ -489,6 +507,7 @@ class _ControlButton extends StatelessWidget {
     required this.label,
     required this.active,
     required this.onTap,
+    this.enabled = true,
     this.onLongPress,
   });
 
@@ -496,27 +515,30 @@ class _ControlButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: 84,
-      child: GestureDetector(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        child: Column(
-          children: [
-            Container(
-              width: 64,
-              height: 64,
-              decoration: BoxDecoration(
-                color: active ? _kActiveTint : Colors.white12,
-                shape: BoxShape.circle,
+      child: Opacity(
+        opacity: enabled ? 1 : 0.4,
+        child: GestureDetector(
+          onTap: enabled ? onTap : null,
+          onLongPress: enabled ? onLongPress : null,
+          child: Column(
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: active ? _kActiveTint : Colors.white12,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: active ? _kBg : Colors.white, size: 26),
               ),
-              child: Icon(icon, color: active ? _kBg : Colors.white, size: 26),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white70, fontSize: 12),
-            ),
-          ],
+              const SizedBox(height: 8),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+            ],
+          ),
         ),
       ),
     );

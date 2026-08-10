@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_bloc.dart';
+import 'package:communication_super_app/features/dialer/bloc/dialer_event.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_state.dart';
 import 'package:communication_super_app/features/dialer/screens/incoming_call_screen.dart';
 import 'package:communication_super_app/features/dialer/screens/in_call_screen.dart';
@@ -26,10 +27,34 @@ class CallUiCoordinator extends StatefulWidget {
   State<CallUiCoordinator> createState() => _CallUiCoordinatorState();
 }
 
-class _CallUiCoordinatorState extends State<CallUiCoordinator> {
+class _CallUiCoordinatorState extends State<CallUiCoordinator>
+    with WidgetsBindingObserver {
   /// Previous call status — the listener needs the transition (not just the
   /// new value) to decide between push / pushReplacement / no-op.
   CallStatus _lastCallStatus = CallStatus.idle;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// Coming back to the app is the moment to check the call screen is not a
+  /// ghost: every teardown path is an event, and a missed event leaves the
+  /// user staring at a call that ended (timer still ticking). Telecom is asked
+  /// directly instead.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    if (!mounted) return;
+    context.read<DialerBloc>().add(const SyncCallState());
+  }
 
   /// The call route currently pushed by this coordinator. Kept so that going
   /// idle removes exactly THIS route — a blind `navigator.pop()` could pop an
