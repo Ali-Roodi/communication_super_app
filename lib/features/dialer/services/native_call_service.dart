@@ -272,6 +272,19 @@ class NativeCallService {
     }
   }
 
+  /// Opens the phone's «Sound & vibration» settings.
+  ///
+  /// The call ringtone and the vibrate-on-ring behaviour belong to Telecom —
+  /// this app holds the dialer role but never plays the ringer — so the
+  /// settings page links there instead of offering a switch it could not honour.
+  Future<void> openSoundSettings() async {
+    try {
+      await _method.invokeMethod('openSoundSettings');
+    } catch (_) {
+      // A device with no such settings activity: nothing to do.
+    }
+  }
+
   /// Whether an incoming call may open the app's own call screen. False on
   /// Android 14+ until the user grants it — the app took the dialer role after
   /// install, so the permission is not auto-granted and a call on a locked

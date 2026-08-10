@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:equatable/equatable.dart';
+import 'package:communication_super_app/core/utils/contact_name_style.dart';
 
 /// Where a contact row physically lives.
 ///
@@ -26,6 +27,15 @@ class ContactModel extends Equatable {
   final DateTime updatedAt;
   final Uint8List? avatar;
 
+  /// The provider's structured name parts, kept alongside the rendered [name].
+  ///
+  /// [name] is already formatted per «قالب نام» (see `ContactNameStyle`), which
+  /// makes it useless for ordering by family name — and a SIM (ADN) record or a
+  /// company row has no parts at all, so both are nullable and every caller
+  /// falls back to [name].
+  final String? firstName;
+  final String? lastName;
+
   /// Which address book this row came from.
   final ContactSource source;
 
@@ -43,11 +53,24 @@ class ContactModel extends Equatable {
     required this.createdAt,
     required this.updatedAt,
     this.avatar,
+    this.firstName,
+    this.lastName,
     this.source = ContactSource.phone,
     this.simSubscriptionId,
   });
 
   bool get isSimContact => source == ContactSource.sim;
+
+  /// The string this contact is ordered and bucketed by.
+  ///
+  /// It is NOT always [name]: under «مرتب‌سازی بر اساس نام خانوادگی» a contact
+  /// has to sort — and appear under the section letter — of the family name,
+  /// while the row still reads whatever «قالب نام» says.
+  String get sortName => ContactNameStyle.sortSource(
+    displayName: name,
+    first: firstName,
+    last: lastName,
+  );
 
   String get primaryPhone =>
       phoneNumbers.isNotEmpty ? phoneNumbers.first : phoneNumber;
@@ -115,6 +138,8 @@ class ContactModel extends Equatable {
     DateTime? createdAt,
     DateTime? updatedAt,
     Uint8List? avatar,
+    String? firstName,
+    String? lastName,
     ContactSource? source,
     int? simSubscriptionId,
   }) {
@@ -127,6 +152,8 @@ class ContactModel extends Equatable {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       avatar: avatar ?? this.avatar,
+      firstName: firstName ?? this.firstName,
+      lastName: lastName ?? this.lastName,
       source: source ?? this.source,
       simSubscriptionId: simSubscriptionId ?? this.simSubscriptionId,
     );
@@ -142,6 +169,8 @@ class ContactModel extends Equatable {
     createdAt,
     updatedAt,
     avatar,
+    firstName,
+    lastName,
     source,
     simSubscriptionId,
   ];

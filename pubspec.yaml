@@ -71,6 +71,10 @@ dependencies:
   # Persistence for lightweight key/value flags (theme, settings, sms-import).
   shared_preferences: ^2.3.2
 
+  # Settings → «درباره برنامه» reads the real versionName/versionCode off the
+  # installed package instead of a hardcoded string that drifts every release.
+  package_info_plus: ^8.1.1
+
   # Crash reporting. OFF unless the user opts in AND a DSN was compiled in —
   # see CrashReporting; nothing about a message ever leaves the device.
   #

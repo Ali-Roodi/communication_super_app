@@ -224,7 +224,9 @@ class _KeyGrid extends StatelessWidget {
       if (settings.state.dialpadTones) {
         NativeCallService.instance.playKeypadTone(value);
       }
-      HapticFeedback.lightImpact();
+      if (settings.state.dialpadHaptics) {
+        HapticFeedback.lightImpact();
+      }
     }
 
     // Force LTR so 1-2-3 always appear left→right (universal keypad layout).

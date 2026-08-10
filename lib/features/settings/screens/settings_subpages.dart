@@ -3,7 +3,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/theme/theme_bloc.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
-import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_event.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_state.dart';
 import 'package:communication_super_app/features/settings/screens/settings_screen.dart';
@@ -112,8 +111,10 @@ class DisplayOptionsPage extends StatelessWidget {
         const Divider(height: 24),
         const _Heading('شماره‌گیر'),
         SettingsSwitch(
-          title: 'نمایش صفحه‌کلید هنگام شروع',
-          summary: 'با باز شدن شماره‌گیر، صفحه‌کلید باز باشد',
+          // The keypad is a bottom sheet opened from the FAB, so "on start"
+          // means "when the app opens" — the only moment there is to pop it.
+          title: 'باز کردن صفحه‌کلید هنگام اجرای برنامه',
+          summary: 'با باز شدن برنامه، صفحه‌کلید شماره‌گیری نمایش داده شود',
           value: s.showDialpadOnStart,
           onChanged: (v) =>
               bloc.add(SetBoolSetting(BoolSetting.showDialpadOnStart, v)),
@@ -135,25 +136,88 @@ class SoundSettingsPage extends StatelessWidget {
     return _SubPage(
       title: 'صدا و لرزش',
       children: [
+        const _Heading('صفحه‌کلید شماره‌گیری'),
         SettingsSwitch(
-          title: 'صدای شماره‌گیر',
+          title: 'صدای کلیدها',
           summary: 'پخش بوق DTMF هنگام لمس کلیدها',
           value: s.dialpadTones,
           onChanged: (v) =>
               bloc.add(SetBoolSetting(BoolSetting.dialpadTones, v)),
         ),
         SettingsSwitch(
-          title: 'صدای صفحه‌کلید',
-          value: s.keypadTones,
-          onChanged: (v) => bloc.add(SetBoolSetting(BoolSetting.keypadTones, v)),
+          title: 'لرزش کلیدها',
+          summary: 'لرزش کوتاه هنگام لمس هر کلید',
+          value: s.dialpadHaptics,
+          onChanged: (v) =>
+              bloc.add(SetBoolSetting(BoolSetting.dialpadHaptics, v)),
         ),
-        SettingsSwitch(
-          title: 'لرزش هنگام تماس',
-          summary: 'علاوه بر زنگ، گوشی بلرزد',
-          value: s.alsoVibrate,
-          onChanged: (v) => bloc.add(SetBoolSetting(BoolSetting.alsoVibrate, v)),
+        const Divider(height: 24),
+        const _Heading('زنگ تماس'),
+        // Not a switch: the ringtone and the vibrate-on-ring behaviour belong
+        // to Telecom, which rings for the incoming call — this app never plays
+        // it, so a toggle here could only pretend. The row opens the screen
+        // that does own it.
+        _LinkRow(
+          title: 'آهنگ زنگ و لرزش تماس',
+          summary: 'در تنظیمات صدای اندروید تعیین می‌شود',
+          onTap: NativeCallService.instance.openSoundSettings,
+        ),
+        _LinkRow(
+          title: 'اعلان‌های تماس',
+          summary: 'صدا و اولویت کانال‌های «تماس ورودی» و «تماس بی‌پاسخ»',
+          onTap: NativeCallService.instance.openNotificationSettings,
         ),
       ],
+    );
+  }
+}
+
+/// A plain sub-page row that leaves the app for a system settings screen.
+class _LinkRow extends StatelessWidget {
+  final String title;
+  final String summary;
+  final VoidCallback onTap;
+
+  const _LinkRow({
+    required this.title,
+    required this.summary,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(fontSize: 17, color: scheme.onSurface),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    summary,
+                    style: TextStyle(
+                      fontSize: 14,
+                      height: 1.4,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Icon(Icons.open_in_new, size: 18, color: scheme.onSurfaceVariant),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -170,22 +234,10 @@ class MessageSettingsPage extends StatelessWidget {
     return _SubPage(
       title: 'پیامک‌ها',
       children: [
-        InkWell(
+        _LinkRow(
+          title: 'اعلان‌ها',
+          summary: 'صدا، اولویت و کانال‌های اعلان در تنظیمات اندروید',
           onTap: NativeCallService.instance.openNotificationSettings,
-          child: const Padding(
-            padding: EdgeInsets.fromLTRB(24, 16, 24, 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('اعلان‌ها', style: TextStyle(fontSize: 17)),
-                SizedBox(height: 4),
-                Text(
-                  'صدا، اولویت و کانال‌های اعلان در تنظیمات اندروید',
-                  style: TextStyle(fontSize: 14),
-                ),
-              ],
-            ),
-          ),
         ),
         SettingsSwitch(
           title: 'گزارش تحویل',
@@ -211,162 +263,5 @@ class MessageSettingsPage extends StatelessWidget {
         ),
       ],
     );
-  }
-}
-
-// ── شناسه تماس‌گیرنده و هرزتماس ──────────────────────────────────────────────
-
-class CallerIdSettingsPage extends StatelessWidget {
-  const CallerIdSettingsPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final s = context.settings;
-    final bloc = context.settingsBloc;
-    return _SubPage(
-      title: 'شناسه تماس‌گیرنده و هرزتماس',
-      children: [
-        SettingsSwitch(
-          title: 'نمایش شناسه و هرزتماس',
-          summary: 'شناسایی شماره‌های ناشناس و مشکوک',
-          value: s.callerIdSpam,
-          onChanged: (v) =>
-              bloc.add(SetBoolSetting(BoolSetting.callerIdSpam, v)),
-        ),
-        SettingsSwitch(
-          title: 'فیلتر هرزتماس‌ها',
-          summary: 'نیازمند فعال بودن شناسه تماس‌گیرنده',
-          value: s.filterSpam,
-          onChanged: s.callerIdSpam
-              ? (v) => bloc.add(SetBoolSetting(BoolSetting.filterSpam, v))
-              : null,
-        ),
-      ],
-    );
-  }
-}
-
-// ── دسترس‌پذیری ──────────────────────────────────────────────────────────────
-
-class AccessibilityPage extends StatelessWidget {
-  const AccessibilityPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final s = context.settings;
-    final bloc = context.settingsBloc;
-    return _SubPage(
-      title: 'دسترس‌پذیری',
-      children: [
-        SettingsChoice<TtyMode>(
-          title: 'حالت TTY',
-          current: s.ttyMode,
-          options: const {
-            TtyMode.off: 'خاموش',
-            TtyMode.full: 'کامل',
-            TtyMode.hco: 'HCO',
-            TtyMode.vco: 'VCO',
-          },
-          onSelected: (m) => bloc.add(SetTtyMode(m)),
-        ),
-        SettingsSwitch(
-          title: 'سازگاری با سمعک',
-          value: s.hearingAids,
-          onChanged: (v) => bloc.add(SetBoolSetting(BoolSetting.hearingAids, v)),
-        ),
-        SettingsSwitch(
-          title: 'کاهش نویز',
-          value: s.noiseReduction,
-          onChanged: (v) =>
-              bloc.add(SetBoolSetting(BoolSetting.noiseReduction, v)),
-        ),
-      ],
-    );
-  }
-}
-
-// ── پاسخ‌های سریع ────────────────────────────────────────────────────────────
-
-class QuickRepliesPage extends StatelessWidget {
-  const QuickRepliesPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final s = context.settings;
-    final bloc = context.settingsBloc;
-    final scheme = Theme.of(context).colorScheme;
-    return _SubPage(
-      title: 'پاسخ‌های سریع',
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
-          child: Text(
-            'این پیام‌ها هنگام رد کردن تماس با پیامک پیشنهاد می‌شوند.',
-            style: TextStyle(
-              fontSize: 14,
-              height: 1.5,
-              color: scheme.onSurfaceVariant,
-            ),
-          ),
-        ),
-        for (var i = 0; i < s.quickReplies.length; i++)
-          InkWell(
-            onTap: () => _edit(context, bloc, i, s.quickReplies[i]),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      s.quickReplies[i],
-                      style: TextStyle(fontSize: 17, color: scheme.onSurface),
-                    ),
-                  ),
-                  Icon(Icons.edit_outlined, size: 20, color: scheme.onSurfaceVariant),
-                ],
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-
-  Future<void> _edit(
-    BuildContext context,
-    SettingsBloc bloc,
-    int index,
-    String current,
-  ) async {
-    // Disposed after the dialog closes; it belongs to this function, not to a
-    // State with a `dispose` to hang it on.
-    final controller = TextEditingController(text: current);
-    final result = await showDialog<String>(
-      context: context,
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          title: const Text('ویرایش پاسخ سریع'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            maxLines: 2,
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('انصراف'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(controller.text),
-              child: const Text('ذخیره'),
-            ),
-          ],
-        ),
-      ),
-    );
-    controller.dispose();
-    if (result != null && result.trim().isNotEmpty) {
-      bloc.add(UpdateQuickReply(index, result.trim()));
-    }
   }
 }

@@ -20,6 +20,7 @@ import 'package:communication_super_app/features/call_history/screens/call_histo
 import 'package:communication_super_app/features/call_history/bloc/call_log_bloc.dart';
 import 'package:communication_super_app/features/call_history/bloc/call_log_event.dart';
 import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
+import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
 import 'package:communication_super_app/core/services/deep_link_service.dart';
 import 'widgets/message_nav_icon.dart';
 
@@ -69,8 +70,27 @@ class _MainNavigationState extends State<MainNavigation>
       ..registerHandler();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final threadId = await DeepLinkService.instance.consumeInitialThreadId();
-      if (threadId != null) _openThreadFromNotification(threadId);
+      if (threadId != null) {
+        _openThreadFromNotification(threadId);
+        return;
+      }
+      await _openDialpadIfRequested();
     });
+  }
+
+  /// Pops the keypad sheet on launch when «باز کردن صفحه‌کلید هنگام اجرای
+  /// برنامه» is on.
+  ///
+  /// Only on a cold start (this runs from `initState`, once per process) and
+  /// only when nothing else already owns the screen: a notification deep link
+  /// returns before this is reached, and an incoming call arriving during
+  /// launch puts its own route on top — dropping a modal sheet over a ringing
+  /// call is exactly the sort of thing that leaves a phone unanswerable.
+  Future<void> _openDialpadIfRequested() async {
+    if (!await SettingsBloc.readShowDialpadOnStart()) return;
+    if (!mounted) return;
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    await showDialerBottomSheet(context);
   }
 
   /// Opens the conversation a notification points at. The threadId IS the

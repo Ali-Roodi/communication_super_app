@@ -9,6 +9,7 @@ import '../bloc/contact_event.dart';
 import '../bloc/contact_state.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
+import 'package:communication_super_app/core/utils/persian_alphabet.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/search_text.dart';
 import 'package:communication_super_app/core/widgets/contact_numbers_line.dart';
@@ -35,35 +36,6 @@ import '../models/contact_model.dart';
 // two contacts with the same name apart.
 const double _kRowHeight = 72;
 const double _kHeaderHeight = 44;
-
-// Stock-phone style fast-scroll index. Which alphabet is shown follows the
-// device language: Persian phone → Persian letters + '#', otherwise A–Z + '#'.
-// '#' is always last and collects every initial outside the active alphabet.
-const List<String> _kLatinIndexLetters = [
-  'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', //
-  'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '#',
-];
-
-const List<String> _kPersianIndexLetters = [
-  'ا', 'ب', 'پ', 'ت', 'ث', 'ج', 'چ', 'ح', 'خ', 'د', 'ذ', 'ر', 'ز', 'ژ', //
-  'س', 'ش', 'ص', 'ض', 'ط', 'ظ', 'ع', 'غ', 'ف', 'ق', 'ک', 'گ', 'ل', 'م', //
-  'ن', 'و', 'ه', 'ی', '#',
-];
-
-/// Maps the Arabic-script variants a name can start with onto the canonical
-/// Persian letter used for its section (e.g. «آرش» and «احمد» both → «ا»).
-const Map<String, String> _kPersianLetterAliases = {
-  'آ': 'ا', 'أ': 'ا', 'إ': 'ا', 'ٱ': 'ا', 'ء': 'ا', //
-  'ك': 'ک',
-  'ي': 'ی', 'ى': 'ی', 'ئ': 'ی',
-  'ة': 'ه', 'ۀ': 'ه',
-  'ؤ': 'و',
-};
-
-/// `true` when the device language is Persian, so the contacts index should use
-/// the Persian alphabet.
-bool isPersianDeviceLocale() =>
-    WidgetsBinding.instance.platformDispatcher.locale.languageCode == 'fa';
 
 class ContactsListScreen extends StatefulWidget {
   const ContactsListScreen({super.key});
@@ -114,8 +86,7 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
   List<_Section> _sections = [];
 
   /// Index alphabet for the current device language.
-  List<String> get _indexLetters =>
-      isPersianDeviceLocale() ? _kPersianIndexLetters : _kLatinIndexLetters;
+  List<String> get _indexLetters => activeIndexLetters();
 
   List<_Section> _getOrBuildSections(List<ContactModel> contacts) {
     final letters = _indexLetters;
@@ -130,10 +101,7 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
   }
 
   /// Ordering rank of [letter] within the active alphabet ('#' sorts last).
-  int _indexRank(String letter) {
-    final i = _indexLetters.indexOf(letter);
-    return i < 0 ? _indexLetters.length : i;
-  }
+  int _indexRank(String letter) => letterRank(letter, _indexLetters);
 
   @override
   void initState() {
@@ -780,23 +748,14 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
   ) {
     final grouped = <String, List<ContactModel>>{};
     for (final c in contacts) {
-      grouped.putIfAbsent(_sectionLetter(c.name, letters), () => []).add(c);
+      // `sortName`, not `name`: under «مرتب‌سازی بر اساس نام خانوادگی» the row
+      // belongs to the section of the family name, which is not the letter the
+      // displayed name starts with.
+      grouped.putIfAbsent(sectionLetterFor(c.sortName, letters), () => []).add(c);
     }
     final keys = grouped.keys.toList()
       ..sort((a, b) => _indexRank(a).compareTo(_indexRank(b)));
     return [for (final k in keys) _Section(k, grouped[k]!)];
-  }
-
-  /// Section letter for [name] within the active alphabet [letters]. Latin
-  /// initials are uppercased; Persian initials are folded onto their canonical
-  /// letter (آ → ا, ك → ک, …). Anything the active alphabet doesn't contain
-  /// (digits, symbols, or the *other* script) falls under '#'.
-  static String _sectionLetter(String name, List<String> letters) {
-    final trimmed = name.trimLeft();
-    if (trimmed.isEmpty) return '#';
-    final first = trimmed[0];
-    final folded = _kPersianLetterAliases[first] ?? first.toUpperCase();
-    return letters.contains(folded) && folded != '#' ? folded : '#';
   }
 
   Widget _buildEmptyState(ThemeData theme) => const EmptyState(

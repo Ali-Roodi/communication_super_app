@@ -9,7 +9,14 @@ import '../../../core/utils/persian_utils.dart';
 import '../../contacts/repositories/contact_repository.dart';
 import '../../messages/bloc/message_bloc.dart';
 import '../../messages/bloc/message_event.dart';
-import '../../settings/bloc/settings_bloc.dart';
+
+/// The canned answers offered by «پاسخ» when rejecting a call with an SMS.
+const List<String> _kQuickReplies = [
+  'الان نمی‌توانم صحبت کنم',
+  'بعداً تماس می‌گیرم',
+  'در راه هستم',
+  'لطفاً پیام بدهید',
+];
 
 class IncomingCallScreen extends StatefulWidget {
   final String phone;
@@ -181,8 +188,10 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
   void _showReplySheet(BuildContext context) {
     final dialerBloc = context.read<DialerBloc>();
     final messageBloc = context.read<MessageBloc>();
-    // Quick replies are user-editable in Settings → "Quick responses".
-    final quickReplies = context.read<SettingsBloc>().state.quickReplies;
+    // A fixed list, not a setting. The editable version lived on a settings
+    // page nobody reached — «نوشتن پیام...» below is the escape hatch for
+    // anything these four don't say, and it is one tap away.
+    const quickReplies = _kQuickReplies;
 
     void replyAndReject(String text) {
       messageBloc.add(SendMessage(phoneNumber: phone, body: text));
