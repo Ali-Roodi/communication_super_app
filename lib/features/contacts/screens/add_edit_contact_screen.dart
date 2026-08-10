@@ -15,7 +15,9 @@ import '../bloc/contact_bloc.dart';
 import '../bloc/contact_event.dart';
 import '../models/contact_form_entries.dart';
 import '../repositories/contact_repository.dart';
+import '../services/contact_groups_service.dart';
 import '../services/sim_contacts_service.dart';
+import '../widgets/group_picker_sheet.dart';
 import 'widgets/contact_form_fields.dart';
 
 /// Full-screen Add / Edit contact form. Writes to the **device** contacts
@@ -56,6 +58,17 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
   final List<PhoneEntry> _phones = [];
   final List<EmailEntry> _emails = [];
   DateTime? _birthday;
+
+  /// Labels («برچسب‌ها») this contact carries — the ones a person applied.
+  /// Written back only through `updateContact(withGroups: true)` — see [_save].
+  List<Group> _groups = const [];
+
+  /// The platform's own groups on this contact («My Contacts», «Starred in
+  /// Android»). They are never shown and never picked, but they **must be
+  /// written back**: a group write replaces the whole membership list, so
+  /// leaving them out would quietly drop the contact out of the default view
+  /// of every other contacts app on the phone.
+  List<Group> _systemGroups = const [];
 
   Contact? _editing; // populated in edit mode
   Uint8List? _photo; // selected/loaded profile photo
@@ -124,6 +137,11 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
       widget.contactId!,
       withProperties: true,
       withPhoto: true,
+      // Opt-in, both of them: without `withAccounts` an update throws on
+      // Android (no raw id), and without `withGroups` the contact comes back
+      // with an empty label list that would be written straight back over the
+      // real one.
+      withGroups: true,
       withAccounts: true,
     );
     if (c == null) {
@@ -132,6 +150,14 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
     }
     _editing = c;
     _photo = c.photo;
+    _groups = [
+      for (final g in c.groups)
+        if (!ContactGroupsService.isInternal(g.name)) g,
+    ];
+    _systemGroups = [
+      for (final g in c.groups)
+        if (ContactGroupsService.isInternal(g.name)) g,
+    ];
     _firstName.text = c.name.first;
     _lastName.text = c.name.last;
     _nickname.text = c.name.nickname;
@@ -219,10 +245,22 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
               ),
             ];
 
+      contact.groups = [..._systemGroups, ..._groups];
+
       if (_isEdit) {
-        await contact.update();
+        // `withGroups: true` or the label edit is silently dropped — the
+        // default update writes every other field and leaves the group rows
+        // exactly as they were.
+        await contact.update(withGroups: true);
       } else {
-        await contact.insert();
+        final inserted = await contact.insert();
+        // Insert has no `withGroups`, so a new contact's labels are a second
+        // write. Skipped entirely when there are none, which is the common
+        // case — no point paying for a round trip to write an empty list.
+        if (_groups.isNotEmpty) {
+          inserted.groups = [...inserted.groups, ..._groups];
+          await inserted.update(withGroups: true);
+        }
       }
 
       ContactRepository().invalidateCache();
@@ -671,6 +709,21 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
           icon: Icons.language_outlined,
           label: 'وب‌سایت',
         ),
+        // Labels are a *device* thing — they sync with the account and every
+        // other contacts app on the phone sees them. The row reads like the
+        // other value fields; the picker behind it can also create, rename and
+        // delete, so a label never has to be made somewhere else first.
+        ContactValueField(
+          icon: Icons.label_outline,
+          label: 'برچسب‌ها',
+          value: _groups.isEmpty
+              ? 'بدون برچسب'
+              : ContactGroupsService.visibleNames(_groups).join('، '),
+          onTap: _pickGroups,
+          onClear: _groups.isEmpty
+              ? null
+              : () => setState(() => _groups = const []),
+        ),
         // Same rail/metrics as the text fields above (see ContactValueField).
         ContactValueField(
           icon: Icons.cake_outlined,
@@ -685,6 +738,12 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
         ),
       ],
     );
+  }
+
+  Future<void> _pickGroups() async {
+    final picked = await showGroupPickerSheet(context, selected: _groups);
+    if (picked == null || !mounted) return;
+    setState(() => _groups = picked);
   }
 
   Future<void> _pickBirthday() async {

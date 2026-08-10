@@ -24,14 +24,37 @@ class PhoneMatch extends Equatable {
   /// Length of the matched query in [digits].
   final int matchLength;
 
+  /// Index into [ContactModel.name] where the typed digits matched as **T9**
+  /// (the keypad's letters), or -1 when the hit came from the number.
+  ///
+  /// Kept in the original string's indices so the row can highlight the letters
+  /// the user actually typed — the same rule [SearchText.matchRange] follows.
+  final int nameStart;
+
+  /// Length of the T9 hit inside [ContactModel.name].
+  final int nameLength;
+
+  /// Whether this row is here because the name was typed on the keypad rather
+  /// than the number.
+  bool get isT9 => nameStart >= 0;
+
   const PhoneMatch({
     required this.contact,
     required this.number,
     required this.digits,
     this.matchStart = -1,
     this.matchLength = 0,
+    this.nameStart = -1,
+    this.nameLength = 0,
   });
 
   @override
-  List<Object?> get props => [contact.id, number, matchStart, matchLength];
+  List<Object?> get props => [
+    contact.id,
+    number,
+    matchStart,
+    matchLength,
+    nameStart,
+    nameLength,
+  ];
 }

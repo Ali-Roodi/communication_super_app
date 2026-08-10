@@ -32,6 +32,7 @@ class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
     on<SyncCallLogs>(_onSyncCallLogs);
     on<DeleteCallLog>(_onDeleteCallLog);
     on<DeleteCallLogs>(_onDeleteCallLogs);
+    on<ClearCallLogs>(_onClearCallLogs);
 
     // Live sync: the device call-log provider changed (a call just ended, a
     // row was deleted elsewhere) → silent mirror-sync. Disabled in unit tests.
@@ -167,6 +168,27 @@ class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
       emit,
       () => _service.deleteCallLogsGlobally(event.ids),
     );
+  }
+
+  /// Empties the history. Emits the empty list only when the *provider* delete
+  /// went through — a refused one leaves the rows on screen with an error,
+  /// rather than showing an empty list that fills itself back in.
+  Future<void> _onClearCallLogs(
+    ClearCallLogs event,
+    Emitter<CallLogState> emit,
+  ) async {
+    try {
+      if (await _service.clearAllCallLogsGlobally()) {
+        emit(const CallLogsLoaded([], hasMore: false));
+      } else {
+        // Report it, then put the list back: a refused clear must not leave the
+        // user on an error page with no way back to their calls.
+        emit(const CallLogError('پاک کردن سابقه تماس ممکن نشد'));
+        add(const LoadCallLogs());
+      }
+    } catch (e) {
+      emit(CallLogError(e.toString()));
+    }
   }
 
   Future<void> _deleteThenReload(

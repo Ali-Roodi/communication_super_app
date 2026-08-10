@@ -6,7 +6,9 @@ import 'package:communication_super_app/core/sim/widgets/sim_picker.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
+import 'package:communication_super_app/core/utils/persian_utils.dart';
 import '../../models/message_model.dart';
+import '../../models/one_time_code.dart';
 import '../../models/template_wire.dart';
 import 'link_preview_card.dart';
 import 'linkified_text.dart';
@@ -87,6 +89,10 @@ class MessageBubbleBody extends StatelessWidget {
 
     final previewUrl = showLinkPreview ? LinkifiedText.firstUrl(body) : null;
 
+    // Only on an incoming message: a code in something the user sent is a code
+    // they already have.
+    final code = isSent ? null : OneTimeCode.find(body);
+
     return Container(
       key: boxKey,
       constraints: BoxConstraints(
@@ -110,10 +116,72 @@ class MessageBubbleBody extends StatelessWidget {
               enableTaps: enableLinkTaps,
             ),
           ),
+          if (code != null)
+            OneTimeCodeChip(code: code, enabled: enableLinkTaps),
           if (previewUrl != null)
             LinkPreviewCard(url: previewUrl, onDark: isSent),
         ],
       ),
+    );
+  }
+}
+
+/// «کپی ۱۲۳۴۵» under a message carrying a one-time code.
+///
+/// The code is the one thing anyone does with such a message, and getting it
+/// out by hand means a long-press, a lift, a word selection and a toolbar tap —
+/// on digits that expire in two minutes. The chip is the whole interaction.
+///
+/// It copies **ASCII** digits (see [OneTimeCode.find]) while displaying Persian
+/// ones: the string is going into another app's field.
+class OneTimeCodeChip extends StatelessWidget {
+  final String code;
+
+  /// False inside the long-press overlay, where every tap belongs to the text
+  /// selection — the chip is still drawn so the lifted copy looks identical.
+  final bool enabled;
+
+  const OneTimeCodeChip({super.key, required this.code, this.enabled = true});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Material(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(18),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: enabled ? () => _copy(context) : null,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.content_copy, size: 15, color: cs.primary),
+                const SizedBox(width: 6),
+                Text(
+                  'کپی ${PersianUtils.toPersianNumber(code)}',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: cs.primary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _copy(BuildContext context) {
+    Clipboard.setData(ClipboardData(text: code));
+    HapticFeedback.lightImpact();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('کد کپی شد'), duration: Duration(seconds: 2)),
     );
   }
 }

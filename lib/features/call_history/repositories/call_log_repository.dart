@@ -108,4 +108,11 @@ class CallLogRepository {
       whereArgs: ids,
     );
   }
+
+  /// Empties the local mirror. Only ever called after the device provider has
+  /// actually been emptied — a local-only wipe is undone by the next sync.
+  Future<void> deleteAllCallLogs() async {
+    final db = await _dbHelper.database;
+    await db.delete(AppConstants.callLogsTable);
+  }
 }

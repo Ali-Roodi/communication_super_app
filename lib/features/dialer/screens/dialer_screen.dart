@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:communication_super_app/core/sim/sim_call.dart';
 import 'package:communication_super_app/core/sim/sim_service.dart';
+import 'package:communication_super_app/core/utils/persian_utils.dart';
+import 'package:communication_super_app/features/contacts/widgets/contact_picker_sheet.dart';
+import 'package:communication_super_app/features/dialer/models/speed_dial_entry.dart';
+import 'package:communication_super_app/features/dialer/services/speed_dial_service.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
+import 'package:communication_super_app/features/dialer/services/voicemail.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_bloc.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_event.dart';
@@ -24,22 +29,27 @@ import 'package:communication_super_app/features/dialer/widgets/dialer_widgets.d
 class DialerScreen extends StatelessWidget {
   const DialerScreen({super.key});
 
-  /// `[Persian display, value sent to the BLoC, latin letter group]`
+  /// `[Persian display, value sent to the BLoC, letter group]`
+  ///
+  /// The letters are **Persian**, and they are the same table T9 matches on
+  /// (`SearchText._t9Groups`): a keypad that finds «کبری» under ۷۲۴ has to say
+  /// so on the keys, or the feature is invisible. Latin names are still found —
+  /// the keys just don't have room to print both alphabets.
   static const List<List<List<String>>> _keyRows = [
     [
       ['۱', '1', ''],
-      ['۲', '2', 'ABC'],
-      ['۳', '3', 'DEF'],
+      ['۲', '2', 'ا ب پ ت ث'],
+      ['۳', '3', 'ج چ ح خ'],
     ],
     [
-      ['۴', '4', 'GHI'],
-      ['۵', '5', 'JKL'],
-      ['۶', '6', 'MNO'],
+      ['۴', '4', 'د ذ ر ز ژ'],
+      ['۵', '5', 'س ش ص ض'],
+      ['۶', '6', 'ط ظ ع غ'],
     ],
     [
-      ['۷', '7', 'PQRS'],
-      ['۸', '8', 'TUV'],
-      ['۹', '9', 'WXYZ'],
+      ['۷', '7', 'ف ق ک گ'],
+      ['۸', '8', 'ل م ن و'],
+      ['۹', '9', 'ه ی'],
     ],
     [
       ['*', '*', ''],
@@ -272,10 +282,10 @@ class _KeyGrid extends StatelessWidget {
     return null;
   }
 
-  /// Long-press behaviours: 0 → «+», 1 → voicemail.
+  /// Long-press behaviours: 0 → «+», 1 → voicemail, 2–9 → speed dial.
   ///
-  /// The key already typed its digit on touch-down (see [DialKey]), so both of
-  /// these first delete that digit — otherwise holding `0` would leave «۰+».
+  /// The key already typed its digit on touch-down (see [DialKey]), so each of
+  /// these first deletes that digit — otherwise holding `0` would leave «۰+».
   VoidCallback? _longPressFor(BuildContext context, String value) {
     if (value == '0') {
       return () {
@@ -292,26 +302,89 @@ class _KeyGrid extends StatelessWidget {
         _callVoicemail(context);
       };
     }
+    final position = int.tryParse(value);
+    if (position != null && SpeedDialEntry.isAssignable(position)) {
+      return () => _speedDial(context, position);
+    }
     return null;
   }
 
-  /// Dials the SIM's voicemail number. Carriers that never provisioned one
-  /// (common on Iranian SIMs) report null — say so rather than dialing a guess.
-  Future<void> _callVoicemail(BuildContext context) async {
-    final messenger = ScaffoldMessenger.of(context);
-    final navigator = Navigator.of(context);
-    final number = await NativeCallService.instance.getVoicemailNumber();
-    if (number == null || number.isEmpty) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('شماره پست صوتی روی سیم‌کارت تنظیم نشده')),
-      );
+  /// Holding ۲–۹ calls that key's contact, or offers to put one there.
+  ///
+  /// **Only from an empty field.** The digit that was just typed is the first
+  /// one, or the user is in the middle of dialling a number and holding a key
+  /// is not a request to call someone else — Google Phone draws the line in
+  /// exactly the same place.
+  Future<void> _speedDial(BuildContext context, int position) async {
+    final bloc = context.read<DialerBloc>();
+    if (bloc.state.dialedNumber.length != 1) return;
+
+    HapticFeedback.mediumImpact();
+    bloc.add(const DialerNumberDeleted());
+
+    final entry = await SpeedDialService.instance.entryFor(position);
+    if (!context.mounted) return;
+    if (entry == null) {
+      await _offerAssign(context, position);
       return;
     }
+    final navigator = Navigator.of(context);
+    // The keypad lives in a modal sheet — leave it only once a call was
+    // actually placed, so a dismissed SIM picker hands it back.
+    if (await placeCall(context, entry.phoneNumber)) navigator.maybePop();
+  }
+
+  /// An unassigned key: ask, rather than doing nothing. A long-press that
+  /// silently does nothing reads as a broken keypad.
+  Future<void> _offerAssign(BuildContext context, int position) async {
+    final digit = PersianUtils.toPersianNumber('$position');
+    final assign = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: Text('کلید $digit خالی است'),
+          content: Text(
+            'می‌خواهید مخاطبی را روی کلید $digit بگذارید تا با نگه‌داشتن آن تماس گرفته شود؟',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('نه'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('انتخاب مخاطب'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (assign != true || !context.mounted) return;
+    final picked = await showContactPickerSheet(
+      context,
+      title: 'مخاطب کلید $digit',
+    );
+    if (picked == null) return;
+    await SpeedDialService.instance.assign(
+      position: position,
+      phoneNumber: picked.number,
+      name: picked.contact.name,
+      contactId: picked.contact.id,
+    );
     if (!context.mounted) return;
-    // Voicemail is a call like any other: on a dual-SIM phone it has to say
-    // which card's mailbox — the numbers differ per carrier.
-    await placeCall(context, number);
-    // The dialer lives in a modal sheet — dismiss it so the call UI is clear.
-    navigator.maybePop();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('${picked.contact.name} روی کلید $digit تنظیم شد')),
+    );
+  }
+
+  /// Dials the SIM's voicemail. The whole interaction (SIM choice, the
+  /// "no mailbox provisioned" case) lives in [callVoicemail] — the recents menu
+  /// offers the same thing and the two must not drift.
+  Future<void> _callVoicemail(BuildContext context) async {
+    final navigator = Navigator.of(context);
+    // The dialer lives in a modal sheet — dismiss it, but only once a call was
+    // actually placed, so a dismissed SIM picker hands the keypad back.
+    if (await callVoicemail(context)) navigator.maybePop();
   }
 }

@@ -48,7 +48,7 @@ All state is BLoC (`flutter_bloc`). BLoCs are provided globally in `AppBlocProvi
 
 ### Database
 
-Single SQLite database (`communication_app.db`, version 20) managed by `DatabaseHelper` singleton (`lib/core/database/`). Tables: `contacts`, `messages`, `call_logs`, `favorites`, `blocked_numbers`, `archived_threads`, `pinned_threads`, `message_categories`, `drafts`, `message_templates`, `scheduled_messages`, `thread_sim`. Constants in `AppConstants`.
+Single SQLite database (`communication_app.db`, version 21) managed by `DatabaseHelper` singleton (`lib/core/database/`). Tables: `contacts`, `messages`, `call_logs`, `favorites`, `blocked_numbers`, `archived_threads`, `pinned_threads`, `message_categories`, `drafts`, `message_templates`, `scheduled_messages`, `thread_sim`, `speed_dial`. Constants in `AppConstants`.
 
 **Schema invariants:**
 - `messages.thread_id` is the digits-only normalized phone number.
@@ -238,6 +238,17 @@ The stale-row diff (`removeRowsMissingFromDevice`) runs **inside SQLite** agains
 
 **Contact extras / «برنامه‌های متصل»:** `ContactExtrasHandler.kt` reads the third-party Data rows on a contact (rows whose MIME type is outside the standard set). Two things this depends on, both easy to break: the manifest `<queries>` entries for `android.accounts.AccountAuthenticator` and `VIEW`+`vnd.android.cursor.item/*` (targetSdk 30+ package visibility otherwise hides the authenticator, `packageForAccountType` returns null and the whole section renders empty), and resolving the row's action to a **concrete component** before launching — messengers register several activity-aliases per custom MIME type, so an implicit intent (even with `setPackage`) pops an "Open with" sheet listing the same app twice.
 
+**Merging duplicates is `AggregationExceptions`, not a rewrite.** `ContactLinkHandler.kt` (+ `ContactLinkService`) writes `TYPE_KEEP_TOGETHER` over every pair of the raw contacts behind the selected contacts — `flutter_contacts` cannot do this, and "write one contact and delete the others" is a different, lossy thing: nothing is copied, nothing is deleted, each account keeps its own row, and `unlink` (`TYPE_KEEP_SEPARATE`, so the provider's matcher cannot silently re-aggregate) takes it apart again. The row is written with `newUpdate` — the provider upserts on the (raw1, raw2) key and an insert throws.
+
+- Three entry points: the contacts selection bar («ادغام», hidden when the selection includes a SIM contact — an ADN record has no ContactsContract row to aggregate), `DuplicateContactsScreen` (union-find over *shared number* **or** *same folded name*; both rules are needed, and grouping has to be transitive), and «جدا کردن مخاطب‌های پیوندشده» on the contact page, shown only when `rawContactCount > 1`.
+- The linked id is **not** necessarily one of the inputs — the provider re-aggregates and picks — so callers refresh instead of assuming.
+
+**Labels («برچسب‌ها») are editable, and the provider's group list is not the user's.** Every account carries its own «Family»/«Coworkers», and a Google contact also sits in «My Contacts» and «Starred in Android». `ContactGroupsService` therefore exposes a `ContactLabel` = *name* + every group id carrying it: one row on screen, reads and writes fanned out, internal names hidden (`isInternal` / `visibleNames`). Without that the labels screen listed «Coworkers» three times.
+
+- **A group write replaces the whole membership**, so `AddEditContactScreen` keeps the internal groups it loaded (`_systemGroups`) and writes them back with the picked ones — dropping «My Contacts» would quietly remove the contact from the default view of every other contacts app.
+- `withGroups: true` is opt-in on **both** the read and `update()`; miss it on the read and the editor writes an empty label list over the real one, miss it on the write and the edit is silently dropped. `insertContact` has no such flag, so a new contact's labels are a second write.
+- `groupFor` prefers an id the contact already carries, so saving does not move the tag to another account.
+
 **Contacts:** all writes go straight to the device address book via `flutter_contacts` (`AddEditContactScreen`); there are deliberately NO create/update/delete bloc events. `ContactRepository.getContactByPhoneNumber` resolves against the device-contact cache (normalized-number match) — the local `contacts` table is legacy and nothing writes to it.
 
 The static contact cache carries a **generation counter**: `invalidateCache()` / `forceRefresh` bump it, and a read that started before the bump refuses to publish its (pre-write) snapshot. Saving a contact invalidates the cache while the `FlutterContacts.addListener` refresh already has a read in flight — without the guard that stale snapshot won, and a contact added from a call log stayed missing from the list *and* the search until the next app start.
@@ -251,6 +262,13 @@ Every contact filter — the contacts tab, the dialer suggestions, `searchContac
 - **Performance:** a query is compiled **once per list** into a `PhoneQuery`, never per contact, and `phoneForms` is memoized per number string. Both matter: this runs over the whole address book per keystroke. The contacts screen also resolves the matched number per *query* (`_resultNumbers`), not in each row's `build`.
 - `DialerBloc._onFilterContacts` **re-reads `getAllContacts()` on every filter** (a cached-list hand-back in the normal case). Filtering the snapshot taken in the constructor is why a number just saved never became a suggestion until restart.
 - `SearchBloc` (the unified «اخیر»/inbox search) goes through the same matcher. It used to carry its own raw lowercase/digit-substring test and answered the identical query differently.
+
+**The keypad is also a T9 name search.** The same digits are read twice: as a number (`PhoneQuery`) and as the letters printed on the keys (`SearchText.t9Of` / `t9MatchRange`), both inside `matchPhoneDigits`. A `PhoneMatch` carrying `nameStart >= 0` is a T9 hit and the dialer row highlights the *name* instead of the number.
+
+- The letter table is **Persian** (`SearchText._t9Groups`, ۲ `ابپتث` … ۹ `هی`) plus the latin groups, and `DialerScreen._keyRows` prints the same table on the keys — a keypad that finds «کبری» under ۷۲۴ has to say so, or the feature is invisible. Latin names are still matched; the keys just have no room for two alphabets.
+- **Matches start at a word only** (`T9Name.wordStarts`) and need ≥ `SearchText.minT9Length` digits. Matching mid-word answers three digits with the whole address book, and one digit is a third of it — the number suggestions are the useful answer at that length.
+- Number hits are listed first and a contact already listed for its number is never repeated as a T9 hit.
+- `T9Name.positions` maps each digit back to the **original** name, for the same reason `SearchText.matchRange` does: folding drops characters, so an index into the folded copy highlights the wrong letter.
 
 **Every contact row shows its numbers under the name** (`ContactNumbersLine`, `core/widgets/`) — contacts tab, unified search, favourites picker. A name-only row cannot tell two «علی» apart. The line shows the number a digit query *matched* (emphasised via `HighlightedPhone`) when there is one, otherwise the contact's numbers separated by «·» with a «+N» tail. The contacts tab's `_kRowHeight` is sized for those two lines — it feeds the fast-scroll index's jump offsets, so changing the row's height means changing that constant.
 
@@ -330,6 +348,15 @@ The app also requests the **default-dialer role** (ROLE_DIALER) — `CallHandler
 - **An MMI dial is not a call and must never enter the call UI.** Telephony answers it itself (`com.android.phone` shows the network's reply in its own dialog). AOSP telecom already withholds it from `InCallService`, but `CallInCallService.onCallAdded` drops it too (`isMmiCode`: starts with `*`/`#` **and** ends with `#`, AOSP's own `TelephonyConnectionService` rule) — an OEM that does deliver it would otherwise flash the in-call screen and yank the activity to the front, twice, over the USSD dialog. `onCallRemoved` early-returns for any call not in `trackedCalls`, so neither an MMI nor a rejected blocked caller publishes a `DISCONNECTED` that would repaint a *live* call's screen. Note the trailing `#` in the rule: «#31#0912…» is an MMI prefix on a real call (caller-ID suppression) and keeps the normal UI.
 - The dialer hides the suggestion block once `*` or `#` is typed — no contact number carries them, so the only row left was «ایجاد مخاطب جدید» offering to save a USSD code to the address book.
 
+**Speed dial & voicemail — the two things a held key does.** `DialKey`'s long-press already typed its digit (touch-down), so every branch deletes it first.
+
+- **۰ → «+», ۱ → پست صوتی, ۲–۹ → شماره‌گیری سریع.** Speed dial lives in `speed_dial` (DB v21, `position` IS the primary key — one digit, one number) behind `SpeedDialService`, a **synchronously readable** cache loaded once from `DialerBloc`'s constructor: holding a key must dial under the thumb, not wait for a table. The name is denormalized into the row so the manage screen can name the person without reading the address book, and a deleted contact still leaves a working key.
+- **Only from an empty field** (`dialedNumber.length != 1` bails). Holding a key in the middle of dialling a number is not a request to call someone else — Google Phone draws the line in the same place.
+- An unassigned key **asks** rather than doing nothing (a long-press that silently does nothing reads as a broken keypad), then goes through `showContactPickerSheet`. Settings → «شماره‌گیری سریع» (`SpeedDialScreen`) is where the assignments can be *seen*; ۱ is listed there but never assignable.
+- Voicemail is `callVoicemail` (`dialer/services/voicemail.dart`), shared by the held «۱» and the recents overflow menu — this app holds the dialer role, so no stock dialer is left to reach the mailbox from and a gesture inside a modal keypad is not an entry point anyone finds. It asks **which SIM before reading the number** (`getVoicemailNumber(subscriptionId:)`, `TelephonyManager.createForSubscriptionId`): two cards are two carriers with two mailboxes. A carrier that never provisioned one is reported, never guessed at.
+
+**«پاک کردن سابقه تماس» clears the table, not the page.** `ClearCallLogs` → `CallLogService.clearAllCallLogsGlobally` → a native `delete(CallLog.Calls.CONTENT_URI, null, null)` then the local wipe. It used to be `DeleteCallLogs(everything loaded)`, and the list is paginated, so it cleared what was on screen and left the rest to reappear on the next scroll. The local half runs **only** if the provider delete went through (`< 0` = refused), or the next sync brings it all back.
+
 **Role prompts** (`DefaultAppGate`, `lib/core/widgets/default_app_gate.dart`, wraps `MainNavigation` inside `PermissionGate`): a Google-Messages/Phone-style request page, SMS first then dialer. `PermissionGate` NEVER fires a role request itself — the system sheet only opens on the user's tap, which is what makes re-asking safe (Android permanently auto-denies a role after two refusals of the *system* sheet, so the nagging has to live in our own UI).
 
 - It re-checks on every `resumed`, so making another app default elsewhere and coming back asks again; «فعلاً نه» only lasts until the next resume.
@@ -397,6 +424,17 @@ panel is taller than the screen and the composer's `Column` overflows.
 - The measured height is `static`, so a freshly opened conversation already knows it instead of falling back to the default.
 - The active tab is a `ValueNotifier`, not `setState`: it changes continuously while scrolling and rebuilding the panel would rebuild every grid sliver.
 - Skin tones: the modifier goes straight after the base code point and **replaces** a following `FE0F` (✌️ is `270C FE0F`; its toned form is `270C 1F3FD`, not `270C FE0F 1F3FD`, which renders a stray colour swatch).
+
+### One-time codes («کپی ۱۲۳۴۵»)
+
+`OneTimeCode.find` (`messages/models/one_time_code.dart`) puts a copy chip under a **received** bubble carrying a verification code — the one thing anyone does with such a message, against a long-press → lift → word-select → toolbar tap on digits that expire in two minutes.
+
+Two gates keep it off every number in the inbox, and both are load-bearing:
+
+- The message has to **say** it is carrying a code (folded keyword list: رمز/کد/پویا/تایید/otp/…), and the run nearest that word wins.
+- The digits have to **stand alone**: 4–8 long, not a slice of a bigger number (a separator with digits on the far side — a date, a time, a thousands separator; a bare full stop is a sentence, not a decimal), not followed by a unit (تومان/ریال/درصد/روز…), and not suspiciously round (≥3 trailing zeros). That last pair is what stopped «کد تخفیف ۳۰۰۰۰۰ تومانی» from offering to copy the *price* — the wrong number under the right label.
+- The code is copied as **ASCII** whatever the message used (it is pasted into another app's field) while the chip shows Persian digits.
+- **Alphanumeric codes are deliberately out of scope**: OTPs here are numeric, and matching uppercase tokens would fire on every English promo.
 
 ### Delivery status (bubble ticks)
 

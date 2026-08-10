@@ -545,11 +545,15 @@ class DialerContactRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    contact.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  // Highlighted when the row is here because the *name* was
+                  // typed on the keys (T9) — without it the suggestion looks
+                  // unrelated to what the user pressed.
+                  _MatchedName(
+                    name: contact.name,
+                    start: match.nameStart,
+                    length: match.nameLength,
                     style: TextStyle(fontSize: 16, color: scheme.onSurface),
+                    highlight: scheme.primary,
                   ),
                   const SizedBox(height: 2),
                   Row(
@@ -618,6 +622,56 @@ class DialerContactRow extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// A contact name with the T9-matched letters emphasised.
+///
+/// [start]/[length] index the **original** name (see [PhoneMatch.nameStart]);
+/// a range outside it is simply ignored rather than throwing — a name can change
+/// underneath a match that was computed a frame earlier.
+class _MatchedName extends StatelessWidget {
+  final String name;
+  final int start;
+  final int length;
+  final TextStyle style;
+  final Color highlight;
+
+  const _MatchedName({
+    required this.name,
+    required this.start,
+    required this.length,
+    required this.style,
+    required this.highlight,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final end = start + length;
+    final valid = start >= 0 && length > 0 && end <= name.length;
+    if (!valid) {
+      return Text(
+        name,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: style,
+      );
+    }
+    return Text.rich(
+      TextSpan(
+        style: style,
+        children: [
+          TextSpan(text: name.substring(0, start)),
+          TextSpan(
+            text: name.substring(start, end),
+            style: TextStyle(color: highlight, fontWeight: FontWeight.w700),
+          ),
+          TextSpan(text: name.substring(end)),
+        ],
+      ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
     );
   }
 }

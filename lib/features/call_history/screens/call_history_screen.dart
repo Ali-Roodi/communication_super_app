@@ -8,6 +8,7 @@ import '../bloc/call_log_bloc.dart';
 import '../bloc/call_log_event.dart';
 import '../bloc/call_log_state.dart';
 import '../models/call_log_model.dart';
+import 'package:communication_super_app/features/dialer/services/voicemail.dart';
 import 'widgets/call_log_tile.dart';
 
 /// The recents tab — Google Phone's home screen.
@@ -151,6 +152,10 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
         children: [
           HomeSearchHeader(
             extraMenuItems: {
+              // This app holds the dialer role, so there is no stock dialer
+              // left to reach the mailbox from — a long-press on «۱» inside a
+              // modal keypad is not an entry point anyone finds.
+              'پست صوتی': () => callVoicemail(context),
               'پاک کردن سابقه تماس': () => _confirmClearHistory(context),
             },
           ),
@@ -167,7 +172,17 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
             },
           ),
           Expanded(
-            child: BlocBuilder<CallLogBloc, CallLogState>(
+            child: BlocConsumer<CallLogBloc, CallLogState>(
+              // A failed clear reports itself and then puts the list back, so
+              // the message has to be a snack — the error state it passes
+              // through is gone by the next frame.
+              listener: (context, state) {
+                if (state is CallLogError) {
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(SnackBar(content: Text(state.message)));
+                }
+              },
               builder: (context, state) {
                 if (state is CallLogLoading) {
                   return const Center(child: CircularProgressIndicator());
@@ -266,7 +281,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
         child: AlertDialog(
           title: const Text('پاک کردن سابقه تماس'),
           content: const Text(
-            'همه تماس‌های نمایش‌داده‌شده از گوشی حذف می‌شوند. این کار برگشت‌پذیر نیست.',
+            'همه تماس‌ها از گوشی حذف می‌شوند، نه فقط آن‌هایی که اینجا دیده می‌شوند. این کار برگشت‌پذیر نیست.',
           ),
           actions: [
             TextButton(
@@ -284,9 +299,10 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
         ),
       ),
     );
-    if (confirmed == true) {
-      bloc.add(DeleteCallLogs([for (final l in state.callLogs) l.id]));
-    }
+    // The whole table, not the ids that happen to be paged in: the list is
+    // paginated, so deleting what is on screen left everything below the
+    // scroll position to reappear the moment the user scrolled.
+    if (confirmed == true) bloc.add(const ClearCallLogs());
   }
 
   /// Collapses consecutive calls to/from the same number on the same calendar

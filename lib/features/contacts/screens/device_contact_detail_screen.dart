@@ -18,6 +18,8 @@ import 'package:communication_super_app/features/contacts/models/contact_model.d
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
 import 'package:communication_super_app/features/contacts/services/contact_extras_service.dart';
+import 'package:communication_super_app/features/contacts/services/contact_groups_service.dart';
+import 'package:communication_super_app/features/contacts/services/contact_link_service.dart';
 import 'package:communication_super_app/features/contacts/services/sim_contacts_service.dart';
 import 'package:communication_super_app/features/contacts/widgets/phone_number_picker.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_bloc.dart';
@@ -50,6 +52,11 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
   /// Third-party rows on this contact («برنامه‌های متصل»).
   List<ConnectedApp> _connectedApps = const [];
 
+  /// How many raw contacts this one aggregates. More than one means it was
+  /// linked (by the user or by the provider's own matcher), which is the only
+  /// thing that makes «جدا کردن» meaningful.
+  int _rawCount = 1;
+
   @override
   void initState() {
     super.initState();
@@ -64,10 +71,14 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
     final service = ContactExtrasService.instance;
     final extras = await service.getSettings(widget.contact.id);
     final apps = await service.getConnectedApps(widget.contact.id);
+    final rawCount = await ContactLinkService.instance.rawContactCount(
+      widget.contact.id,
+    );
     if (!mounted) return;
     setState(() {
       _extras = extras;
       _connectedApps = apps;
+      _rawCount = rawCount;
     });
   }
 
@@ -159,6 +170,51 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
       // If the contact was deleted while editing, leave the detail screen.
       if (mounted && _full == null) Navigator.of(context).pop();
     }
+  }
+
+  /// «جدا کردن»: breaks a linked contact back into one contact per raw
+  /// contact and leaves the page — the contact this screen was showing no
+  /// longer exists under that id.
+  Future<void> _confirmUnlink() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('جدا کردن مخاطب‌ها'),
+          content: Text(
+            '«$_name» دوباره به ${PersianUtils.toPersianNumber('$_rawCount')} مخاطب جداگانه تبدیل می‌شود. '
+            'چیزی حذف نمی‌شود.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('انصراف'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('جدا کردن'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final navigator = Navigator.of(context);
+    final contactBloc = context.read<ContactBloc>();
+    final separated = await ContactLinkService.instance.unlink(
+      widget.contact.id,
+    );
+    ContactRepository().invalidateCache();
+    LazyContactAvatar.invalidateCache();
+    if (!mounted) return;
+    if (separated == 0) {
+      _snack('جدا کردن ممکن نشد');
+      return;
+    }
+    contactBloc.add(const contact_events.RefreshContacts());
+    navigator.pop();
   }
 
   /// «حذف مخاطب» from the overflow menu: confirm, delete from the DEVICE
@@ -522,12 +578,20 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
         ),
     ]);
 
-    section('گروه‌ها', [
-      for (final g in _full?.groups ?? const <Group>[])
+    // «برچسب‌ها», not «گروه‌ها»: same rows, but it is the word the editor and
+    // the labels screen use, and one feature must not have two names.
+    //
+    // Through `visibleNames`, because the provider's group list is not the
+    // user's: every account carries its own «Family», and a Google contact is
+    // also in «My Contacts» and «Starred in Android», which are plumbing.
+    section('برچسب‌ها', [
+      for (final name in ContactGroupsService.visibleNames(
+        _full?.groups ?? const <Group>[],
+      ))
         ListTile(
           contentPadding: const EdgeInsetsDirectional.only(start: 20, end: 20),
           leading: const Icon(Icons.label_outline),
-          title: Text(g.name),
+          title: Text(name),
         ),
     ]);
 
@@ -616,6 +680,20 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
                 }
               },
       ),
+      // Only on a contact that actually is several. This is the undo for
+      // «ادغام», and it is also the way out of a link the *provider* made on
+      // its own — two accounts holding the same number are aggregated without
+      // anyone asking.
+      if (_rawCount > 1)
+        ListTile(
+          contentPadding: const EdgeInsetsDirectional.only(start: 20, end: 20),
+          leading: const Icon(Icons.call_split),
+          title: const Text('جدا کردن مخاطب‌های پیوندشده'),
+          subtitle: Text(
+            '${PersianUtils.toPersianNumber('$_rawCount')} مخاطب به هم پیوند خورده‌اند',
+          ),
+          onTap: _confirmUnlink,
+        ),
       ListTile(
         contentPadding: const EdgeInsetsDirectional.only(start: 20, end: 20),
         leading: Icon(Icons.block, color: scheme.error),

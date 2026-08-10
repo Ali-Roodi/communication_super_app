@@ -315,6 +315,11 @@ class DatabaseHelper {
       );
       await _createThreadSimTable(db);
     }
+
+    // v21: speed dial — one contact per keypad digit ۲–۹.
+    if (oldVersion < 21) {
+      await _createSpeedDialTable(db);
+    }
   }
 
   /// ALTERs [table] only when [column] is not already there.
@@ -343,6 +348,28 @@ class DatabaseHelper {
       CREATE TABLE IF NOT EXISTS ${AppConstants.threadSimTable} (
         thread_id TEXT PRIMARY KEY,
         subscription_id INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  /// Speed dial (v21): what each keypad digit ۲–۹ dials when it is held down.
+  ///
+  /// `position` **is** the primary key — a digit holds exactly one number, and
+  /// assigning a new contact to a key replaces what was there. `۱` is not a
+  /// position: it is voicemail on every phone ever made, and `۰` types «+».
+  ///
+  /// The name is denormalized on purpose. The manage screen and the keypad's
+  /// confirmation both have to say who is about to be called *before* the
+  /// address book has been read — and a contact deleted from the phone must
+  /// still leave a usable number on the key rather than a blank row.
+  Future<void> _createSpeedDialTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.speedDialTable} (
+        position INTEGER PRIMARY KEY,
+        phone_number TEXT NOT NULL,
+        name TEXT,
+        contact_id TEXT,
         updated_at INTEGER NOT NULL
       )
     ''');
@@ -870,6 +897,9 @@ class DatabaseHelper {
 
       // Per-conversation SIM memory (v20)
       await _createThreadSimTable(db);
+
+      // Speed dial (v21)
+      await _createSpeedDialTable(db);
     } catch (e) {
       throw Exception('Failed to create database tables: $e');
     }
