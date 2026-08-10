@@ -127,6 +127,10 @@ class CallHandler(
                         openNotificationSettings()
                         result.success(true)
                     }
+                    "openSoundSettings" -> {
+                        openSoundSettings()
+                        result.success(true)
+                    }
                     else              -> result.notImplemented()
                 }
             } catch (e: SecurityException) {
@@ -185,6 +189,33 @@ class CallHandler(
      * Opens this app's notification settings — the system screen Google
      * Messages links to from «اعلان‌ها».
      */
+    /**
+     * The system "Sound & vibration" screen.
+     *
+     * The ringtone and the vibrate-on-ring behaviour are Telecom's, not this
+     * app's — it holds the dialer role but never plays the ringer — so
+     * «آهنگ زنگ و لرزش تماس» sends the user where the setting actually lives.
+     * A device without that screen (rare, but it is an optional activity) falls
+     * back to the top-level settings rather than throwing.
+     */
+    private fun openSoundSettings() {
+        val host = activity ?: context
+        val flags = if (activity == null) Intent.FLAG_ACTIVITY_NEW_TASK else 0
+        // Tried, not probed: `resolveActivity` is filtered by targetSdk-30
+        // package visibility and can answer null for a screen that is plainly
+        // there.
+        try {
+            host.startActivity(
+                Intent(android.provider.Settings.ACTION_SOUND_SETTINGS).addFlags(flags),
+            )
+        } catch (e: android.content.ActivityNotFoundException) {
+            Log.w(TAG, "No sound settings screen: ${e.message}")
+            host.startActivity(
+                Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(flags),
+            )
+        }
+    }
+
     private fun openNotificationSettings() {
         val intent = Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
             .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)

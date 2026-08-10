@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/sim/sim_card.dart';
 import 'package:communication_super_app/core/sim/sim_service.dart';
+import 'package:communication_super_app/core/utils/contact_name_style.dart';
 import 'contact_event.dart';
 import 'contact_state.dart';
 import '../repositories/contact_repository.dart';
@@ -17,6 +18,12 @@ class ContactBloc extends Bloc<ContactEvent, ContactState> {
   /// reported bug; the other half was never reading the ICC provider at all.
   StreamSubscription<List<SimCard>>? _simSub;
 
+  /// «قالب نام» / «مرتب‌سازی بر اساس» are applied while each ContactModel is
+  /// built, so the cached list still carries the previous format and order
+  /// after the user changes them. Same shape as the SIM subscription above: the
+  /// setting changes somewhere else, the roster has to be re-read.
+  StreamSubscription<void>? _nameStyleSub;
+
   ContactBloc(this._repository) : super(const ContactInitial()) {
     on<LoadContacts>(_onLoadContacts);
     on<RefreshContacts>(_onRefreshContacts);
@@ -25,11 +32,15 @@ class ContactBloc extends Bloc<ContactEvent, ContactState> {
     _simSub = SimService.instance.onChanged.listen((_) {
       add(const RefreshContacts());
     });
+    _nameStyleSub = ContactNameStyle.onChanged.listen((_) {
+      add(const RefreshContacts());
+    });
   }
 
   @override
   Future<void> close() {
     _simSub?.cancel();
+    _nameStyleSub?.cancel();
     return super.close();
   }
 

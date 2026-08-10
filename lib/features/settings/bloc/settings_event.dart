@@ -21,14 +21,6 @@ class SetBoolSetting extends SettingsEvent {
   List<Object?> get props => [key, value];
 }
 
-class SetTtyMode extends SettingsEvent {
-  final TtyMode mode;
-  const SetTtyMode(this.mode);
-
-  @override
-  List<Object?> get props => [mode];
-}
-
 /// Switches every date display and date picker between the Jalali and
 /// Gregorian calendars.
 class SetCalendarType extends SettingsEvent {
@@ -37,13 +29,4 @@ class SetCalendarType extends SettingsEvent {
 
   @override
   List<Object?> get props => [calendarType];
-}
-
-class UpdateQuickReply extends SettingsEvent {
-  final int index;
-  final String text;
-  const UpdateQuickReply(this.index, this.text);
-
-  @override
-  List<Object?> get props => [index, text];
 }

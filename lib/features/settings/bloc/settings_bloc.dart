@@ -1,5 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:communication_super_app/core/utils/contact_name_style.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/features/messages/services/sms_service.dart';
 import 'settings_event.dart';
@@ -9,19 +10,43 @@ import 'settings_state.dart';
 /// SharedPreferences. Keys are prefixed with `set_`.
 class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
   static const _prefix = 'set_';
-  static const _ttyKey = '${_prefix}tty_mode';
   static const _calendarKey = '${_prefix}calendar_type';
-  static const _quickKey = '${_prefix}quick_replies';
+
+  /// Preferences written by versions that had settings this app no longer has
+  /// (the accessibility page, the quick replies, the caller-ID switches, the
+  /// keypad-sound/vibration pair). Dropped once on load so an upgraded install
+  /// does not carry dead keys around for ever.
+  static const List<String> _retiredKeys = [
+    '${_prefix}tty_mode',
+    '${_prefix}quick_replies',
+    '${_prefix}hearingAids',
+    '${_prefix}noiseReduction',
+    '${_prefix}callerIdSpam',
+    '${_prefix}filterSpam',
+    '${_prefix}alsoVibrate',
+    '${_prefix}keypadTones',
+  ];
 
   SettingsBloc() : super(const SettingsState()) {
     on<LoadSettings>(_onLoad);
     on<SetBoolSetting>(_onSetBool);
-    on<SetTtyMode>(_onSetTty);
     on<SetCalendarType>(_onSetCalendar);
-    on<UpdateQuickReply>(_onUpdateReply);
   }
 
-  String _boolKey(BoolSetting k) => '$_prefix${k.name}';
+  static String _keyOf(BoolSetting k) => '$_prefix${k.name}';
+
+  String _boolKey(BoolSetting k) => _keyOf(k);
+
+  /// Reads «باز کردن صفحه‌کلید هنگام اجرای برنامه» straight from storage.
+  ///
+  /// `MainNavigation` needs the answer in its first post-frame callback, and
+  /// `LoadSettings` is an async event that may not have landed yet — reading
+  /// the state there would silently mean "off" on a slow cold start. Same key,
+  /// so the two can't drift.
+  static Future<bool> readShowDialpadOnStart() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_keyOf(BoolSetting.showDialpadOnStart)) ?? false;
+  }
 
   Future<void> _onLoad(LoadSettings event, Emitter<SettingsState> emit) async {
     final prefs = await SharedPreferences.getInstance();
@@ -29,11 +54,6 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
 
     bool b(BoolSetting k) => prefs.getBool(_boolKey(k)) ?? defaults.boolFor(k);
 
-    final ttyName = prefs.getString(_ttyKey);
-    final tty = TtyMode.values.firstWhere(
-      (m) => m.name == ttyName,
-      orElse: () => TtyMode.off,
-    );
     final calendarName = prefs.getString(_calendarKey);
     final calendar = CalendarType.values.firstWhere(
       (c) => c.name == calendarName,
@@ -45,56 +65,54 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     // Same reason for delivery reports: sends originate in plain services and
     // in the native scheduled worker, neither of which can read this BLoC.
     SmsService.deliveryReports = b(BoolSetting.deliveryReports);
-
-    final replies =
-        prefs.getStringList(_quickKey) ?? SettingsState.defaultQuickReplies;
+    // And for the contact name style, which is applied in ContactRepository as
+    // each ContactModel is built. This runs before the first contacts read, so
+    // no reload is triggered here (`apply` is a no-op at the defaults anyway).
+    ContactNameStyle.apply(
+      lastNameFirst: b(BoolSetting.nameFormatLastFirst),
+      sortByLastName: b(BoolSetting.sortByLastName),
+    );
 
     emit(
       SettingsState(
         showDialpadOnStart: b(BoolSetting.showDialpadOnStart),
         sortByLastName: b(BoolSetting.sortByLastName),
         nameFormatLastFirst: b(BoolSetting.nameFormatLastFirst),
-        alsoVibrate: b(BoolSetting.alsoVibrate),
-        keypadTones: b(BoolSetting.keypadTones),
         dialpadTones: b(BoolSetting.dialpadTones),
-        hearingAids: b(BoolSetting.hearingAids),
-        noiseReduction: b(BoolSetting.noiseReduction),
-        callerIdSpam: b(BoolSetting.callerIdSpam),
-        filterSpam: b(BoolSetting.filterSpam),
+        dialpadHaptics: b(BoolSetting.dialpadHaptics),
         linkPreviews: b(BoolSetting.linkPreviews),
         swipeActions: b(BoolSetting.swipeActions),
         deliveryReports: b(BoolSetting.deliveryReports),
-        ttyMode: tty,
         calendarType: calendar,
-        quickReplies: replies,
       ),
     );
+
+    for (final key in _retiredKeys) {
+      if (prefs.containsKey(key)) await prefs.remove(key);
+    }
   }
 
   Future<void> _onSetBool(
     SetBoolSetting event,
     Emitter<SettingsState> emit,
   ) async {
-    var next = state.withBool(event.key, event.value);
-    // Spam filtering requires caller-ID to be on.
-    if (event.key == BoolSetting.callerIdSpam && !event.value) {
-      next = next.copyWith(filterSpam: false);
-    }
+    final next = state.withBool(event.key, event.value);
     if (event.key == BoolSetting.deliveryReports) {
       SmsService.deliveryReports = event.value;
+    }
+    // Applied before the state is emitted: `apply` invalidates the contact
+    // cache and wakes ContactBloc, and a reload that started while the statics
+    // still said the old thing would re-cache the old names.
+    if (event.key == BoolSetting.nameFormatLastFirst ||
+        event.key == BoolSetting.sortByLastName) {
+      ContactNameStyle.apply(
+        lastNameFirst: next.nameFormatLastFirst,
+        sortByLastName: next.sortByLastName,
+      );
     }
     emit(next);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_boolKey(event.key), event.value);
-    if (event.key == BoolSetting.callerIdSpam && !event.value) {
-      await prefs.setBool(_boolKey(BoolSetting.filterSpam), false);
-    }
-  }
-
-  Future<void> _onSetTty(SetTtyMode event, Emitter<SettingsState> emit) async {
-    emit(state.copyWith(ttyMode: event.mode));
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_ttyKey, event.mode.name);
   }
 
   Future<void> _onSetCalendar(
@@ -105,17 +123,5 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     emit(state.copyWith(calendarType: event.calendarType));
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_calendarKey, event.calendarType.name);
-  }
-
-  Future<void> _onUpdateReply(
-    UpdateQuickReply event,
-    Emitter<SettingsState> emit,
-  ) async {
-    if (event.index < 0 || event.index >= state.quickReplies.length) return;
-    final updated = List<String>.from(state.quickReplies);
-    updated[event.index] = event.text;
-    emit(state.copyWith(quickReplies: updated));
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(_quickKey, updated);
   }
 }

@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter_contacts/flutter_contacts.dart' as device_contacts;
 import 'package:communication_super_app/core/services/device_sync_queue.dart';
+import 'package:communication_super_app/core/utils/contact_name_style.dart';
+import 'package:communication_super_app/core/utils/persian_alphabet.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:communication_super_app/core/utils/search_text.dart';
 import '../models/contact_model.dart';
@@ -95,10 +97,21 @@ class ContactRepository {
         // (their call/message actions simply grey out). Call sites that *need*
         // a number — the SMS recipient picker, the favourites picker — filter
         // on `phoneNumbers` themselves.
+        // «قالب نام» is applied here, at the one place a ContactModel is built
+        // from the provider, so every surface in the app — list, search, dialer
+        // suggestions, call-log resolution — shows the same string. The parts
+        // are kept too: the editor and the sort need them.
+        final display = c.displayName.isNotEmpty ? c.displayName : 'بدون نام';
         list.add(
           ContactModel(
             id: c.id,
-            name: c.displayName.isNotEmpty ? c.displayName : 'بدون نام',
+            name: ContactNameStyle.format(
+              displayName: display,
+              first: c.name.first,
+              last: c.name.last,
+            ),
+            firstName: c.name.first,
+            lastName: c.name.last,
             phoneNumber: phones.isNotEmpty ? phones.first : '',
             phoneNumbers: phones,
             email: c.emails.isNotEmpty ? c.emails.first.address : null,
@@ -108,7 +121,7 @@ class ContactRepository {
         );
       }
       // The SIM address book is a SEPARATE provider — see [_mergeSimContacts].
-      final merged = await _mergeSimContacts(list);
+      final merged = _sorted(await _mergeSimContacts(list));
 
       // Stale snapshot (the address book changed while this read was running):
       // hand the caller the fresh data instead of caching what it just missed.
@@ -119,6 +132,26 @@ class ContactRepository {
       _loading = null;
       completer.complete();
     }
+  }
+
+  /// Orders the merged address book.
+  ///
+  /// Three things need this and none of them come free from the provider:
+  /// «مرتب‌سازی بر اساس نام خانوادگی» is not an ordering `ContactsContract` was
+  /// asked for, the SIM cards' contacts are appended *after* the phone's (so
+  /// they sat in a clump at the bottom of the list), and the fast-scroll index
+  /// jumps to an offset computed from the section ranks — an order that
+  /// disagrees with those ranks lands the jump on the wrong name.
+  ///
+  /// Decorate–sort–undecorate: the key folds the name and is built once per
+  /// contact, not once per comparison.
+  List<ContactModel> _sorted(List<ContactModel> contacts) {
+    final letters = activeIndexLetters();
+    final keyed = [
+      for (final c in contacts)
+        (key: PersianCollator.sortKey(c.sortName, letters), contact: c),
+    ]..sort((a, b) => a.key.compareTo(b.key));
+    return [for (final e in keyed) e.contact];
   }
 
   /// Appends the SIM cards' own address books to the phone's.

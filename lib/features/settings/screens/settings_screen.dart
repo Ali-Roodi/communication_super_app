@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:communication_super_app/core/theme/theme_bloc.dart';
+import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_bloc.dart';
@@ -38,11 +40,6 @@ class SettingsScreen extends StatelessWidget {
             GroupedList(
               children: [
                 SettingsRow(
-                  icon: Icons.error_outline,
-                  title: 'شناسه تماس‌گیرنده و هرزتماس',
-                  onTap: () => _push(context, const CallerIdSettingsPage()),
-                ),
-                SettingsRow(
                   icon: Icons.dialpad_outlined,
                   // The gesture lives on the keypad; this is where the
                   // assignments can actually be *seen* and changed.
@@ -78,16 +75,6 @@ class SettingsScreen extends StatelessWidget {
                   title: 'پیامک‌ها',
                   onTap: () => _push(context, const MessageSettingsPage()),
                 ),
-                SettingsRow(
-                  icon: Icons.quickreply_outlined,
-                  title: 'پاسخ‌های سریع',
-                  onTap: () => _push(context, const QuickRepliesPage()),
-                ),
-                SettingsRow(
-                  icon: Icons.accessibility_new_outlined,
-                  title: 'دسترس‌پذیری',
-                  onTap: () => _push(context, const AccessibilityPage()),
-                ),
               ],
             ),
 
@@ -109,29 +96,7 @@ class SettingsScreen extends StatelessWidget {
 
             // ── About ──────────────────────────────────────
             const SectionLabel('درباره برنامه'),
-            GroupedList(
-              children: [
-                const SettingsRow(
-                  icon: Icons.info_outline,
-                  title: 'نام برنامه',
-                  summary: 'هم‌رسان',
-                ),
-                const SettingsRow(
-                  icon: Icons.tag,
-                  title: 'نسخه',
-                  summary: '۱.۰.۰',
-                ),
-                SettingsRow(
-                  icon: Icons.description_outlined,
-                  title: 'مجوزهای متن‌باز',
-                  onTap: () => showLicensePage(
-                    context: context,
-                    applicationName: 'هم‌رسان',
-                    applicationVersion: '۱.۰.۰',
-                  ),
-                ),
-              ],
-            ),
+            const _AboutGroup(),
           ],
         ),
       ),
@@ -210,6 +175,55 @@ class _DefaultAppsGroupState extends State<_DefaultAppsGroup> {
             }
             await _refresh();
           },
+        ),
+      ],
+    );
+  }
+}
+
+// ── About ────────────────────────────────────────────────────────────────────
+
+/// Name + version, the version read off the installed package.
+///
+/// A hardcoded version string is wrong the moment a release goes out and the
+/// one place it matters is a bug report, so it comes from `package_info_plus`
+/// (the manifest's own versionName/versionCode) instead.
+class _AboutGroup extends StatefulWidget {
+  const _AboutGroup();
+
+  @override
+  State<_AboutGroup> createState() => _AboutGroupState();
+}
+
+class _AboutGroupState extends State<_AboutGroup> {
+  String? _version;
+
+  @override
+  void initState() {
+    super.initState();
+    PackageInfo.fromPlatform().then((info) {
+      if (!mounted) return;
+      setState(
+        () => _version = PersianUtils.toPersianNumber(
+          '${info.version} (${info.buildNumber})',
+        ),
+      );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GroupedList(
+      children: [
+        const SettingsRow(
+          icon: Icons.info_outline,
+          title: 'نام برنامه',
+          summary: 'هم‌رسان',
+        ),
+        SettingsRow(
+          icon: Icons.tag,
+          title: 'نسخه',
+          summary: _version ?? '…',
         ),
       ],
     );
