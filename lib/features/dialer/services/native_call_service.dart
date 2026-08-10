@@ -19,6 +19,27 @@ enum NativeCallEvent {
   callsChanged,
 }
 
+/// Where the call's audio is coming out.
+///
+/// A boolean «speaker on/off» cannot express a bluetooth headset, which is why
+/// «بلوتوث» in the output picker used to be a hardcoded «دستگاه بلوتوثی یافت
+/// نشد» that did nothing whatever was connected.
+enum CallAudioRoute {
+  earpiece,
+  speaker,
+  bluetooth,
+  wired;
+
+  static CallAudioRoute parse(String? name) => switch (name) {
+    'speaker' => CallAudioRoute.speaker,
+    'bluetooth' => CallAudioRoute.bluetooth,
+    'wired' => CallAudioRoute.wired,
+    _ => CallAudioRoute.earpiece,
+  };
+
+  String get wireName => name;
+}
+
 /// اطلاعات یک رویداد تماس
 class CallInfo {
   final NativeCallEvent event;
@@ -32,6 +53,13 @@ class CallInfo {
   /// Only meaningful for [NativeCallEvent.audioState].
   final bool? speaker;
   final bool? muted;
+
+  /// The live output, and which outputs telecom says exist. `hasBluetooth` is
+  /// what tells a usable «بلوتوث» row from one that would do nothing.
+  final CallAudioRoute? route;
+  final bool? hasBluetooth;
+  final bool? hasWiredHeadset;
+  final String? bluetoothName;
 
   /// Only meaningful for [NativeCallEvent.callsChanged].
   final int? callCount;
@@ -52,6 +80,10 @@ class CallInfo {
     this.direction = 'outgoing',
     this.speaker,
     this.muted,
+    this.route,
+    this.hasBluetooth,
+    this.hasWiredHeadset,
+    this.bluetoothName,
     this.callCount,
     this.canMerge,
     this.isConference,
@@ -98,6 +130,12 @@ class NativeCallService {
         direction: map['direction'] as String? ?? 'outgoing',
         speaker: map['speaker'] as bool?,
         muted: map['muted'] as bool?,
+        route: map.containsKey('route')
+            ? CallAudioRoute.parse(map['route'] as String?)
+            : null,
+        hasBluetooth: map['hasBluetooth'] as bool?,
+        hasWiredHeadset: map['hasWiredHeadset'] as bool?,
+        bluetoothName: map['bluetoothName'] as String?,
         callCount: map['count'] as int?,
         canMerge: map['canMerge'] as bool?,
         isConference: map['isConference'] as bool?,
@@ -136,6 +174,36 @@ class NativeCallService {
 
   Future<void> setSpeakerphone({required bool on}) =>
       _method.invokeMethod('setSpeakerphone', {'on': on});
+
+  /// Routes the call's audio explicitly. The only way to reach a bluetooth
+  /// headset — [setSpeakerphone] can only pick between the two built-in
+  /// outputs.
+  Future<void> setAudioRoute(CallAudioRoute route) =>
+      _method.invokeMethod('setAudioRoute', {'route': route.wireName});
+
+  /// The live audio state, for a call screen that mounted before any
+  /// AUDIO_STATE event arrived (cold start into an ongoing call). Null when no
+  /// call is bound.
+  Future<CallInfo?> getAudioState() async {
+    try {
+      final raw = await _method.invokeMethod<Map<Object?, Object?>>(
+        'getAudioState',
+      );
+      if (raw == null) return null;
+      final map = Map<String, dynamic>.from(raw);
+      return CallInfo(
+        event: NativeCallEvent.audioState,
+        speaker: map['speaker'] as bool?,
+        muted: map['muted'] as bool?,
+        route: CallAudioRoute.parse(map['route'] as String?),
+        hasBluetooth: map['hasBluetooth'] as bool?,
+        hasWiredHeadset: map['hasWiredHeadset'] as bool?,
+        bluetoothName: map['bluetoothName'] as String?,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// Plays the DTMF tone **and transmits it to the remote party** — the in-call
   /// keypad (IVR menus).

@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'package:communication_super_app/features/contacts/models/phone_match.dart';
+import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 
 /// وضعیت چرخه‌حیات تماس
 enum CallStatus { idle, connecting, ringing, active, incoming, onHold }
@@ -23,6 +24,16 @@ class DialerState extends Equatable {
   final String? activeName;
   final bool isMuted;
   final bool isSpeakerOn;
+
+  /// The live audio output and what telecom says is available.
+  ///
+  /// [isSpeakerOn] stays because the control grid's speaker button is a plain
+  /// toggle, but it cannot describe a bluetooth headset — which is why the
+  /// output picker needs the route itself.
+  final CallAudioRoute audioRoute;
+  final bool hasBluetooth;
+  final bool hasWiredHeadset;
+  final String? bluetoothName;
 
   /// تعداد تماس‌های هم‌زمان (بدون فرزندان کنفرانس) و امکان ادغام آن‌ها.
   final int callCount;
@@ -54,6 +65,10 @@ class DialerState extends Equatable {
     this.activeName,
     this.isMuted = false,
     this.isSpeakerOn = false,
+    this.audioRoute = CallAudioRoute.earpiece,
+    this.hasBluetooth = false,
+    this.hasWiredHeadset = false,
+    this.bluetoothName,
     this.callCount = 0,
     this.canMerge = false,
     this.isConference = false,
@@ -78,6 +93,10 @@ class DialerState extends Equatable {
     String? activeName,
     bool? isMuted,
     bool? isSpeakerOn,
+    CallAudioRoute? audioRoute,
+    bool? hasBluetooth,
+    bool? hasWiredHeadset,
+    String? bluetoothName,
     int? callCount,
     bool? canMerge,
     bool? isConference,
@@ -96,6 +115,10 @@ class DialerState extends Equatable {
       activeName: activeName ?? this.activeName,
       isMuted: isMuted ?? this.isMuted,
       isSpeakerOn: isSpeakerOn ?? this.isSpeakerOn,
+      audioRoute: audioRoute ?? this.audioRoute,
+      hasBluetooth: hasBluetooth ?? this.hasBluetooth,
+      hasWiredHeadset: hasWiredHeadset ?? this.hasWiredHeadset,
+      bluetoothName: bluetoothName ?? this.bluetoothName,
       callCount: callCount ?? this.callCount,
       canMerge: canMerge ?? this.canMerge,
       isConference: isConference ?? this.isConference,
@@ -116,6 +139,10 @@ class DialerState extends Equatable {
     activeName,
     isMuted,
     isSpeakerOn,
+    audioRoute,
+    hasBluetooth,
+    hasWiredHeadset,
+    bluetoothName,
     callCount,
     canMerge,
     isConference,

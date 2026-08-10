@@ -33,6 +33,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     on<RejectCall>(_onReject);
     on<ToggleMute>(_onToggleMute);
     on<ToggleSpeaker>(_onToggleSpeaker);
+    on<SelectAudioRoute>(_onSelectAudioRoute);
     on<HoldCall>(_onHold);
     on<SendDtmf>(_onSendDtmf);
     on<MergeCalls>(_onMergeCalls);
@@ -238,11 +239,17 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
           state.copyWith(callStatus: CallStatus.idle, error: 'تماس برقرار نشد'),
         );
       case NativeCallEvent.audioState:
-        // Telecom changed the route/mute outside our toggles (e.g. bluetooth).
+        // Telecom changed the route/mute outside our toggles (e.g. a headset
+        // connected mid-call). This is the ONLY source of truth for the live
+        // output — the picker must never guess it from its own last tap.
         emit(
           state.copyWith(
             isSpeakerOn: info.speaker ?? state.isSpeakerOn,
             isMuted: info.muted ?? state.isMuted,
+            audioRoute: info.route ?? state.audioRoute,
+            hasBluetooth: info.hasBluetooth ?? state.hasBluetooth,
+            hasWiredHeadset: info.hasWiredHeadset ?? state.hasWiredHeadset,
+            bluetoothName: info.bluetoothName,
           ),
         );
       case NativeCallEvent.callsChanged:
@@ -279,6 +286,21 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     final on = !state.isSpeakerOn;
     await _callService.setSpeakerphone(on: on);
     emit(state.copyWith(isSpeakerOn: on));
+  }
+
+  /// Fire-and-forget: the authoritative route comes back as an AUDIO_STATE
+  /// event from telecom. Echoing the tap into the state here would let the
+  /// picker show an output that telecom refused (a headset that dropped
+  /// between the sheet opening and the tap).
+  Future<void> _onSelectAudioRoute(
+    SelectAudioRoute event,
+    Emitter<DialerState> emit,
+  ) async {
+    try {
+      await _callService.setAudioRoute(event.route);
+    } catch (e) {
+      debugPrint('DialerBloc: setAudioRoute error: $e');
+    }
   }
 
   Future<void> _onEndCall(EndCall event, Emitter<DialerState> emit) async {
@@ -377,6 +399,9 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     activePhone: '',
     isMuted: false,
     isSpeakerOn: false,
+    audioRoute: CallAudioRoute.earpiece,
+    hasBluetooth: false,
+    hasWiredHeadset: false,
     callCount: 0,
     canMerge: false,
     isConference: false,
@@ -402,7 +427,26 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
       debugPrint('DialerBloc: isInCall failed: $e');
       return; // Never tear a live call's UI down on a channel error.
     }
-    if (!inCall) emit(_idleState());
+    if (!inCall) {
+      emit(_idleState());
+      return;
+    }
+    // Still up: re-read the audio route too. A screen that mounted into an
+    // ongoing call (cold start, or coming back from the shade) may never have
+    // seen an AUDIO_STATE event, and the picker would show «گوشی» while the
+    // audio is on a headset.
+    final audio = await _callService.getAudioState();
+    if (audio == null) return;
+    emit(
+      state.copyWith(
+        isSpeakerOn: audio.speaker ?? state.isSpeakerOn,
+        isMuted: audio.muted ?? state.isMuted,
+        audioRoute: audio.route ?? state.audioRoute,
+        hasBluetooth: audio.hasBluetooth ?? state.hasBluetooth,
+        hasWiredHeadset: audio.hasWiredHeadset ?? state.hasWiredHeadset,
+        bluetoothName: audio.bluetoothName,
+      ),
+    );
   }
 
   static String _digitsOnly(String s) => s.replaceAll(RegExp(r'[^\d]'), '');

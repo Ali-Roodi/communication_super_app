@@ -41,6 +41,19 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <!-- Incoming-call notification must be able to launch the in-call UI -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+    <!-- PROXIMITY_SCREEN_OFF_WAKE_LOCK: blanks the screen while the phone is
+         at the ear during a call. The default dialer owns the in-call UI, so
+         the system does not do this for us — without it the cheek presses
+         «بی‌صدا»/«پایان». See ProximityGate. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+
+    <!-- «موقعیت» in the composer's attachment sheet: the user's coordinates
+         are read once, on that tap only, and inserted into the message as
+         text. Nothing is tracked and nothing is sent anywhere else. COARSE is
+         listed so a user who grants only the approximate location still gets a
+         usable answer. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
 
     <!-- Exact alarms for background scheduled-SMS delivery (زمان‌بندی ارسال).
          USE_EXACT_ALARM is auto-granted on Android 13+; SCHEDULE_EXACT_ALARM

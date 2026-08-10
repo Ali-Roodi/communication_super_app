@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/dialer_bloc.dart';
 import '../bloc/dialer_event.dart';
 import '../bloc/dialer_state.dart';
+import '../services/native_call_service.dart';
 import '../widgets/dialer_bottom_sheet.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/persian_utils.dart';
@@ -245,11 +246,31 @@ class _InCallScreenState extends State<InCallScreen> {
                 active: false,
                 onTap: () => _showDtmfPad(context),
               ),
+              // The button says where the audio IS, not just whether the
+              // speaker is on: with a headset connected «بلندگو» off was the
+              // only thing the screen said while the sound was in someone's
+              // ear. Long-press (and a tap while routed to a headset) opens
+              // the full picker — a plain toggle cannot express three outputs.
               _ControlButton(
-                icon: state.isSpeakerOn ? Icons.volume_up : Icons.volume_down,
-                label: 'بلندگو',
-                active: state.isSpeakerOn,
-                onTap: () => bloc.add(const ToggleSpeaker()),
+                icon: switch (state.audioRoute) {
+                  CallAudioRoute.bluetooth => Icons.bluetooth_audio,
+                  CallAudioRoute.wired => Icons.headset_outlined,
+                  CallAudioRoute.speaker => Icons.volume_up,
+                  CallAudioRoute.earpiece => Icons.volume_down,
+                },
+                label: switch (state.audioRoute) {
+                  CallAudioRoute.bluetooth => 'بلوتوث',
+                  CallAudioRoute.wired => 'هدست',
+                  _ => 'بلندگو',
+                },
+                active: state.audioRoute != CallAudioRoute.earpiece,
+                onTap: () {
+                  if (state.hasBluetooth || state.hasWiredHeadset) {
+                    _showAudioPicker(context, state);
+                  } else {
+                    bloc.add(const ToggleSpeaker());
+                  }
+                },
                 onLongPress: () => _showAudioPicker(context, state),
               ),
             ],
@@ -291,10 +312,14 @@ class _InCallScreenState extends State<InCallScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
+              // Telecom holds at most two top-level calls; a third dial would
+              // be refused with nothing on screen to explain it. Once they are
+              // merged into a conference there is room again.
               _ControlButton(
                 icon: Icons.add_call,
                 label: 'افزودن تماس',
                 active: false,
+                enabled: state.callCount < 2,
                 onTap: () => showDialerBottomSheet(context),
               ),
               _ControlButton(
@@ -378,54 +403,84 @@ class _InCallScreenState extends State<InCallScreen> {
 
   // ── Audio output picker (speaker long-press) ─────────────────────────────────
 
+  /// Google Phone's output picker.
+  ///
+  /// Every row is driven by telecom's `supportedRouteMask` and its live route:
+  /// a headset that is not connected is not listed at all, and the tick sits on
+  /// whatever the audio is actually coming out of. The old sheet was three
+  /// hardcoded rows whose «بلوتوث» always answered «دستگاه بلوتوثی یافت نشد» —
+  /// with a headset connected and playing.
   void _showAudioPicker(BuildContext context, DialerState state) {
     final bloc = context.read<DialerBloc>();
     showModalBottomSheet<void>(
       context: context,
-      builder: (sheetCtx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.phone_in_talk),
-                title: const Text('گوشی'),
-                trailing: state.isSpeakerOn
-                    ? null
-                    : const Icon(Icons.check, color: AppColors.callAnswerGreen),
-                onTap: () {
-                  if (state.isSpeakerOn) bloc.add(const ToggleSpeaker());
-                  Navigator.of(sheetCtx).pop();
-                },
+      // Rebuilds with the state: a headset connecting or dropping while the
+      // sheet is open has to move the tick.
+      builder: (sheetCtx) => BlocProvider.value(
+        value: bloc,
+        child: BlocBuilder<DialerBloc, DialerState>(
+          buildWhen: (a, b) =>
+              a.audioRoute != b.audioRoute ||
+              a.hasBluetooth != b.hasBluetooth ||
+              a.hasWiredHeadset != b.hasWiredHeadset ||
+              a.bluetoothName != b.bluetoothName,
+          builder: (_, live) => Directionality(
+            textDirection: TextDirection.rtl,
+            child: SafeArea(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final row in _audioRows(live))
+                    ListTile(
+                      leading: Icon(row.icon),
+                      title: Text(row.label),
+                      trailing: live.audioRoute == row.route
+                          ? const Icon(
+                              Icons.check,
+                              color: AppColors.callAnswerGreen,
+                            )
+                          : null,
+                      onTap: () {
+                        bloc.add(SelectAudioRoute(row.route));
+                        Navigator.of(sheetCtx).pop();
+                      },
+                    ),
+                ],
               ),
-              ListTile(
-                leading: const Icon(Icons.volume_up),
-                title: const Text('بلندگو'),
-                trailing: state.isSpeakerOn
-                    ? const Icon(Icons.check, color: AppColors.callAnswerGreen)
-                    : null,
-                onTap: () {
-                  if (!state.isSpeakerOn) bloc.add(const ToggleSpeaker());
-                  Navigator.of(sheetCtx).pop();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.bluetooth),
-                title: const Text('بلوتوث'),
-                onTap: () {
-                  Navigator.of(sheetCtx).pop();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('دستگاه بلوتوثی یافت نشد')),
-                  );
-                },
-              ),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
+
+  /// The outputs this call actually has. «گوشی» and «بلندگو» always exist on a
+  /// phone; the headsets are listed only while telecom reports them.
+  List<({CallAudioRoute route, IconData icon, String label})> _audioRows(
+    DialerState state,
+  ) => [
+    (
+      route: CallAudioRoute.earpiece,
+      icon: Icons.phone_in_talk,
+      label: 'گوشی',
+    ),
+    (route: CallAudioRoute.speaker, icon: Icons.volume_up, label: 'بلندگو'),
+    if (state.hasWiredHeadset)
+      (
+        route: CallAudioRoute.wired,
+        icon: Icons.headset_outlined,
+        label: 'هدست سیمی',
+      ),
+    if (state.hasBluetooth)
+      (
+        route: CallAudioRoute.bluetooth,
+        icon: Icons.bluetooth_audio,
+        // Naming the device is what tells two paired headsets apart.
+        label: state.bluetoothName == null
+            ? 'بلوتوث'
+            : 'بلوتوث · ${state.bluetoothName}',
+      ),
+  ];
 
   static const List<List<List<String>>> _dtmfRows = [
     [

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/services/composer_draft_store.dart';
 import 'package:communication_super_app/core/services/deep_link_service.dart';
+import 'package:communication_super_app/core/services/location_service.dart';
 import '../bloc/message_bloc.dart';
 import '../bloc/message_event.dart';
 import '../bloc/message_state.dart';
@@ -1191,10 +1192,35 @@ class _ConversationScreenState extends State<ConversationScreen> {
       onInsertDraft: _insertDraft,
       onInsertTemplate: _insertTemplate,
       onSchedule: _armSchedule,
-      onComingSoon: () => ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('به‌زودی'))),
+      onInsertLocation: _insertLocation,
     );
+  }
+
+  /// «موقعیت» — reads one fix and appends «lat, long» to the message being
+  /// written.
+  ///
+  /// Text, not an attachment: this is an SMS app with MMS deliberately
+  /// dropped, so the coordinates travel as characters the receiver can paste
+  /// into any map. The read can take a couple of seconds on a cold GPS, hence
+  /// the snack bar — silence there reads as a dead button.
+  Future<void> _insertLocation() async {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('در حال گرفتن موقعیت…'),
+        duration: Duration(seconds: 20),
+      ),
+    );
+    final result = await LocationService.instance.currentLocation();
+    messenger.hideCurrentSnackBar();
+    if (!mounted) return;
+    if (!result.ok) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(LocationService.messageFor(result.failure!))),
+      );
+      return;
+    }
+    _appendToComposer(result.messageText);
   }
 
   /// Opens the drafts picker and inserts the chosen draft's body into the

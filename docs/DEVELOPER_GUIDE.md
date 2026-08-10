@@ -319,6 +319,9 @@ The app also requests the **default-dialer role** (ROLE_DIALER) — `CallHandler
 - **The keypad plays `playKeypadTone`, never `sendDtmf`.** `sendDtmf` pushes the digit into `Call.playDtmfTone` whenever a call exists, and the keypad reached from «افزودن تماس» sits on top of a live one — so typing the number of the person to add played every digit into the ear of the person already on the call. Only the in-call DTMF pad may use `sendDtmf`.
 - **The dialer's green pill must NOT be gated on `isInCall`.** That keypad is reached from «افزودن تماس» precisely to place a second call; gating it left the only green button on the screen greyed out with no way to add anyone. In that mode the pill reads «افزودن تماس», the whole suggestion row dials (a contact page is not what anyone is after mid-call) and «ایجاد مخاطب جدید» is dropped.
 - **Notifications being off makes every incoming call invisible**, and nothing in the call path can notice. With notifications disabled for the app — or the «تماس ورودی» channel muted — the CallStyle card is dropped *and* its full-screen intent never fires, and because this app holds the dialer role no OEM screen takes over either: the phone rings with nothing on screen and no way to answer. `CallInCallService.ensureChannels` runs from `MainActivity.onCreate` so the channels exist before the first call (otherwise "switched off" is indistinguishable from "never created"), `areCallNotificationsEnabled` reports it, and `DefaultRole.callNotifications` asks for it — **before** `fullScreenIntent`, which is worthless while the card itself is blocked.
+- **The screen must blank against the ear — that is the default dialer's own job.** `ProximityGate` holds a `PROXIMITY_SCREEN_OFF_WAKE_LOCK` while a live call is routed to the **earpiece**, refreshed from `onCallAdded` / `onStateChanged` / `onCallAudioStateChanged` / `onCallRemoved` and released in `onDestroy`. It is dropped on speaker, wired headset and bluetooth, where the phone is not at the ear. Equally load-bearing: `FLAG_KEEP_SCREEN_ON` is now set **only while a call is RINGING** (`CallInCallService.hasRingingCall()`), not for the whole call — it holds a screen-bright wake lock, so the call screen stayed lit against the cheek for the entire conversation with «پایان» and «بی‌صدا» exactly where an ear lands. `MainActivity.syncLockScreenVisibility()` is therefore called on every state change, not just on add/remove.
+- **Audio output is a route, not a boolean.** `CallAudioState.supportedRouteMask` and the live `route` are published with every AUDIO_STATE event (plus `bluetoothName` on API 28+, best-effort — the app does not hold BLUETOOTH_CONNECT). The picker renders exactly the outputs telecom reports and ticks the live one; `setAudioRoute` is the only way to reach a headset, since `setSpeakerphone` can only flip between the two built-in outputs. Before this, «بلوتوث» was a hardcoded row that answered «دستگاه بلوتوثی یافت نشد» with a headset connected and playing. `SelectAudioRoute` is fire-and-forget: the authoritative route comes back from telecom, so the picker can never show an output telecom refused. A screen that mounted into an ongoing call seeds itself from `getAudioState()` inside `SyncCallState`.
+- **«افزودن تماس» is disabled at two calls** — telecom holds at most two top-level calls and a third dial is refused with nothing on screen to explain it. Merging them frees the slot.
 - **A rejected call that goes ACTIVE is the carrier, not a bug.** On Irancell, rejecting sends the caller to an operator announcement, so telephony reports `ALERTING -> ACTIVE` and the app correctly shows a connected call. Verified in a telecom trace; do not "fix" it.
 
 **USSD / MMI codes.** `CallHandler.makeCall` sanitizes with **`PhoneNumberUtils.stripSeparators`**, never a hand-rolled character class. A `[^+0-9]` strip is what made USSD impossible: «*100#» reached telecom as «100», so the dialer looked like it *deleted* the `*` and the `#`. The platform rule keeps every dialable character — `*` `#` (USSD/MMI, call forwarding), `,` `;` (post-dial pause/wait for IVR extensions stored in contacts), `N` — and folds Persian/Arabic-Indic digits to ASCII on the way.
@@ -342,6 +345,30 @@ ALL incoming-SMS notifications are posted natively by `SmsNotifier` — from the
 - Notifications are tagged with the threadId; opening a conversation calls `clearThreadNotifications` and `setVisibleThread` over the intents channel — `SmsNotifier` suppresses notifications for the visible thread while the activity is resumed.
 - Tap deep-links: the launch intent carries a `threadId` extra → `DeepLinkService` (cold start: `consumeInitialThreadId` in MainNavigation; warm: `onNewIntent` → `openThread`). Registered post-auth so a tap never bypasses the app lock.
 - Blocked numbers are enforced in BOTH receive paths natively (`BlockedNumbers.isBlocked` mirrors `PhoneNormalizer`) and in the Dart listeners; `SmsDeliverReceiver` also skips the provider write, and `CallInCallService` rejects ringing calls from blocked numbers before any UI. Missed calls post a native «تماس بی‌پاسخ» notification (default-dialer duty).
+
+### Composer attachments («+» sheet)
+
+Every row does something. «دوربین» / «گالری» / «صدا» were **removed**, not left as
+"coming soon": MMS is deliberately unsupported, so there is nothing for them to
+ever do, and three dead entries are worse than a shorter menu.
+
+- **«موقعیت» inserts text, not an attachment** — `LocationService.currentLocation()`
+  → «35.762397, 51.403567» appended to the composer. **ASCII digits and a leading
+  LRM on purpose**: the receiver pastes this into a map, so Persian digits would
+  be useless, and the mark keeps the pair in order inside an RTL sentence. Six
+  decimals ≈ 10 cm; past that the digits are noise.
+- **Platform `LocationManager`, no plugin** (`LocationHandler.kt`): one coordinate
+  pair on one tap is not a location library, and every plugin here drags in the
+  Kotlin Gradle Plugin the build already warns about. `getCurrentLocation`
+  (API 30+) is the only call that will turn the radio on; `getLastKnownLocation`
+  is the fallback and is trusted only while it is under two minutes old — an
+  hour-old fix from another city is worse than admitting there is none. The
+  result is answered **at most once** (`replied` guard): a fresh fix landing
+  after the fallback already replied would crash on a second `Result` call.
+- Each failure has its own Persian sentence (`LocationService.messageFor`) —
+  permission refused, refused permanently, location services off, no fix — because
+  «نشد» leaves the user with nothing to do. Nothing is stored or tracked; the
+  coordinates leave the device only inside the SMS the user chooses to send.
 
 ### Composer growth
 
