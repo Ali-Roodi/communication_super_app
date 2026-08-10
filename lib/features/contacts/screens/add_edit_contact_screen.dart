@@ -396,6 +396,11 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
                     const Divider(height: 24),
                     _buildEmailSection(theme),
                     const Divider(height: 24),
+                    // Labels sit in the form proper, NOT behind «فیلدهای
+                    // بیشتر»: buried there nobody found them, which is the
+                    // whole reason labels went unused. Google Contacts keeps
+                    // them on the first screen too.
+                    _buildLabelsRow(),
                     ContactFormField(
                       controller: _address,
                       icon: Icons.home_outlined,
@@ -608,11 +613,25 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
         children: [
           ContactFieldLeading(icon: i == 0 ? Icons.phone_outlined : null),
           const SizedBox(width: 16),
+          // The field itself is LTR, alone on this form: a phone number is
+          // left-to-right content, and in the page's RTL direction the digits
+          // were laid out right-aligned with the caret on the wrong side —
+          // typing «۰۹۹۰…» read as if it were being entered backwards, and a
+          // leading «+» landed at the far end of the number.
           Expanded(
-            child: TextFormField(
-              controller: entry.controller,
-              keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(labelText: 'شماره تلفن'),
+            child: Directionality(
+              textDirection: TextDirection.ltr,
+              child: TextFormField(
+                controller: entry.controller,
+                keyboardType: TextInputType.phone,
+                textAlign: TextAlign.left,
+                decoration: const InputDecoration(
+                  labelText: 'شماره تلفن',
+                  // The label belongs to the Persian form, not to the LTR
+                  // field it floats over.
+                  alignLabelWithHint: true,
+                ),
+              ),
             ),
           ),
           const SizedBox(width: 8),
@@ -709,21 +728,6 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
           icon: Icons.language_outlined,
           label: 'وب‌سایت',
         ),
-        // Labels are a *device* thing — they sync with the account and every
-        // other contacts app on the phone sees them. The row reads like the
-        // other value fields; the picker behind it can also create, rename and
-        // delete, so a label never has to be made somewhere else first.
-        ContactValueField(
-          icon: Icons.label_outline,
-          label: 'برچسب‌ها',
-          value: _groups.isEmpty
-              ? 'بدون برچسب'
-              : ContactGroupsService.visibleNames(_groups).join('، '),
-          onTap: _pickGroups,
-          onClear: _groups.isEmpty
-              ? null
-              : () => setState(() => _groups = const []),
-        ),
         // Same rail/metrics as the text fields above (see ContactValueField).
         ContactValueField(
           icon: Icons.cake_outlined,
@@ -739,6 +743,20 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
       ],
     );
   }
+
+  /// «برچسب‌ها» — a *device* thing: labels sync with the account and every
+  /// other contacts app on the phone sees them. The picker behind this row can
+  /// also create, rename and delete, so a label never has to be made somewhere
+  /// else first.
+  Widget _buildLabelsRow() => ContactValueField(
+    icon: Icons.label_outline,
+    label: 'برچسب‌ها',
+    value: _groups.isEmpty
+        ? 'بدون برچسب'
+        : ContactGroupsService.visibleNames(_groups).join('، '),
+    onTap: _pickGroups,
+    onClear: _groups.isEmpty ? null : () => setState(() => _groups = const []),
+  );
 
   Future<void> _pickGroups() async {
     final picked = await showGroupPickerSheet(context, selected: _groups);
