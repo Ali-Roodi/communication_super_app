@@ -8,12 +8,16 @@ import '../bloc/message_event.dart';
 import '../bloc/message_state.dart';
 import '../models/message_model.dart';
 import '../repositories/message_repository.dart';
+import '../repositories/thread_sim_repository.dart';
+import 'package:communication_super_app/core/sim/sim_card.dart';
+import 'package:communication_super_app/core/sim/sim_call.dart';
+import 'package:communication_super_app/core/sim/sim_service.dart';
+import 'package:communication_super_app/core/sim/widgets/sim_picker.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
-import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
 import 'package:communication_super_app/features/settings/models/blocked_number_model.dart';
 import 'package:communication_super_app/features/settings/screens/widgets/block_number_dialog.dart';
@@ -120,6 +124,14 @@ class _ConversationScreenState extends State<ConversationScreen> {
   // outcome — the payload cannot be recovered from the text alone.
   final ComposerDraftStore _draftStore = ComposerDraftStore();
 
+  /// SIM this conversation sends on, and whether the user chose it *here*.
+  ///
+  /// The flag matters because the seed is async: without it a pick made before
+  /// the stored preference arrived would be overwritten by it.
+  final ThreadSimRepository _threadSim = ThreadSimRepository();
+  SimCard? _sim;
+  bool _simPickedByUser = false;
+
   /// Selected message ids (message multi-select mode).
   final Set<String> _selected = {};
   bool get _selectionMode => _selected.isNotEmpty;
@@ -146,11 +158,40 @@ class _ConversationScreenState extends State<ConversationScreen> {
     // keyboard" — close the panel so the two are never stacked.
     _composerFocus.addListener(_onComposerFocusChanged);
     _restoreComposerDraft();
+    _restoreThreadSim();
     // Native notifier: suppress notifications for this (visible) thread and
     // dismiss the ones already in the shade.
     DeepLinkService.instance
       ..setVisibleThread(widget.threadId)
       ..clearThreadNotifications(widget.threadId);
+  }
+
+  /// Seeds the composer's SIM: what this conversation last sent on, else the
+  /// system default, else (dual SIM, «هر بار بپرس») nothing — an unset chip
+  /// that asks, rather than a chip naming a card the send would not use.
+  ///
+  /// Seeded synchronously from the repository's in-memory mirror first so a
+  /// re-opened conversation does not flash an unset chip for one frame.
+  Future<void> _restoreThreadSim() async {
+    _sim = ThreadSimRepository.cachedSimFor(widget.threadId);
+    final resolved = await _threadSim.initialSimFor(widget.threadId);
+    if (!mounted || _simPickedByUser) return;
+    setState(() => _sim = resolved);
+  }
+
+  Future<void> _pickSim() async {
+    final chosen = await showSimPicker(
+      context,
+      title: 'ارسال با کدام سیم‌کارت؟',
+      subtitle: _title,
+      selected: _sim,
+    );
+    if (chosen == null || !mounted) return;
+    setState(() {
+      _sim = chosen;
+      // A later async seed must not undo an explicit choice.
+      _simPickedByUser = true;
+    });
   }
 
   void _onComposerFocusChanged() {
@@ -258,7 +299,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
     _messageController.clear();
     _draftStore.remove(widget.threadId);
     _clearPendingWire();
-    _messageBloc.add(SendMessage(phoneNumber: widget.phoneNumber, body: body));
+    _messageBloc.add(
+      SendMessage(
+        phoneNumber: widget.phoneNumber,
+        body: body,
+        subscriptionId: _sim?.subscriptionId,
+      ),
+    );
   }
 
   void _scheduleMessage(String body, ScheduleChoice schedule) {
@@ -275,6 +322,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
         endType: schedule.endType,
         endDate: schedule.endDate,
         maxOccurrences: schedule.maxOccurrences,
+        // A scheduled message goes out on the conversation's SIM too — it is
+        // delivered by a worker that has no composer to ask.
+        subscriptionId: _sim?.subscriptionId,
       ),
     );
     _messageController.clear();
@@ -474,7 +524,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
       phoneNumber: widget.phoneNumber,
       hasName: _hasName,
       onOpenContact: _openContact,
-      onCall: () => NativeCallService.instance.makeCall(widget.phoneNumber),
+      onCall: () => placeCall(context, widget.phoneNumber),
+      onCallPickingSim: SimService.isMultiSim
+          ? () => placeCallPickingSim(context, widget.phoneNumber)
+          : null,
       onMenuSelected: _onMenu,
     );
   }
@@ -902,6 +955,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
               Text('زمان: ${DateFormatter.formatDateTime(msg.timestamp)}'),
               const SizedBox(height: 8),
               if (msg.type == MessageType.sent) Text('وضعیت: $statusLabel'),
+              // Named in full here (the bubble only has room for the slot
+              // number). Absent when the row never recorded a SIM, which is
+              // every message from before dual-SIM support.
+              if (SimService.byId(msg.subscriptionId) case final sim?) ...[
+                const SizedBox(height: 8),
+                Text('سیم‌کارت: ${sim.slotLabel} · ${sim.name}'),
+              ],
             ],
           ),
           actions: [
@@ -1036,6 +1096,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
       onClearSchedule: () => setState(() => _pendingSchedule = null),
       // Tapping the banner re-opens the sheet seeded with the armed choice.
       onEditSchedule: _armSchedule,
+      sim: _sim,
+      // The chip itself renders nothing on a single-SIM phone; passing the
+      // callback unconditionally keeps that decision in one place.
+      onPickSim: _pickSim,
     );
   }
 

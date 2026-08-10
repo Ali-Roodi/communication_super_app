@@ -8,10 +8,14 @@ import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/core/widgets/jalali_date_picker.dart';
 import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/core/services/image_picker_service.dart';
+import 'package:communication_super_app/core/sim/sim_card.dart';
+import 'package:communication_super_app/core/sim/sim_service.dart';
+import 'package:communication_super_app/core/theme/app_dimensions.dart';
 import '../bloc/contact_bloc.dart';
 import '../bloc/contact_event.dart';
 import '../models/contact_form_entries.dart';
 import '../repositories/contact_repository.dart';
+import '../services/sim_contacts_service.dart';
 import 'widgets/contact_form_fields.dart';
 
 /// Full-screen Add / Edit contact form. Writes to the **device** contacts
@@ -23,7 +27,16 @@ class AddEditContactScreen extends StatefulWidget {
   final String? contactId;
   final String? initialPhone;
 
-  const AddEditContactScreen({super.key, this.contactId, this.initialPhone});
+  /// Pre-fills the name when creating. Used by «کپی در تلفن» on a SIM contact,
+  /// which is a *new* phone contact seeded from a read-only ADN record.
+  final String? initialName;
+
+  const AddEditContactScreen({
+    super.key,
+    this.contactId,
+    this.initialPhone,
+    this.initialName,
+  });
 
   @override
   State<AddEditContactScreen> createState() => _AddEditContactScreenState();
@@ -50,7 +63,19 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
   bool _saving = false;
   bool _showMore = false;
 
+  /// Where a *new* contact is written. Null = the phone's address book, which
+  /// is the default and the only option on a phone with no SIM contacts.
+  ///
+  /// Google Contacts asks the same question («ذخیره در») and for the same
+  /// reason: a contact on the card travels with the card. Edit mode has no
+  /// picker — moving a contact between address books is a copy, not a field.
+  SimCard? _saveToSim;
+
   bool get _isEdit => widget.contactId != null;
+
+  /// The SIM destinations offered. Empty on a phone with no readable SIM,
+  /// which is what keeps this whole row off a single-SIM-less device.
+  List<SimCard> get _simTargets => _isEdit ? const [] : SimService.cached;
 
   @override
   void initState() {
@@ -59,6 +84,19 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
       _loadContact();
     } else {
       _phones.add(PhoneEntry(text: widget.initialPhone ?? ''));
+      final name = widget.initialName?.trim() ?? '';
+      if (name.isNotEmpty) {
+        // The card stores one undivided name; splitting on the last space is
+        // the same guess the platform importer makes, and the user can fix it
+        // in the two fields right in front of them.
+        final cut = name.lastIndexOf(' ');
+        if (cut <= 0) {
+          _firstName.text = name;
+        } else {
+          _firstName.text = name.substring(0, cut).trim();
+          _lastName.text = name.substring(cut + 1).trim();
+        }
+      }
     }
   }
 
@@ -137,6 +175,12 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
         return;
       }
 
+      final simTarget = _saveToSim;
+      if (simTarget != null) {
+        await _saveToSimCard(simTarget);
+        return;
+      }
+
       final contact = _editing ?? Contact();
       contact.photo = _photo;
       contact.name = Name(
@@ -190,6 +234,45 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
       _snack('ذخیره ناموفق بود: $e');
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  /// Writes the contact to a SIM card instead of the phone.
+  ///
+  /// An ADN record is **one name and one number** with a length limit set by
+  /// the card, and it carries no photo, email, address or second number. Rather
+  /// than silently dropping what the user typed, only the first number goes and
+  /// the rest is reported — the same trade Google Contacts spells out before
+  /// saving to a SIM.
+  Future<void> _saveToSimCard(SimCard sim) async {
+    final numbers = _phones
+        .map((p) => p.controller.text.trim())
+        .where((t) => t.isNotEmpty)
+        .toList();
+    if (numbers.isEmpty) {
+      _snack('برای ذخیره روی سیم‌کارت، یک شماره لازم است');
+      setState(() => _saving = false);
+      return;
+    }
+    final name = '${_firstName.text.trim()} ${_lastName.text.trim()}'.trim();
+    final ok = await SimContactsService.insert(
+      subscriptionId: sim.subscriptionId,
+      name: name,
+      number: numbers.first,
+    );
+    if (!ok) {
+      // A full card, or a name the record cannot hold. Never report a save
+      // that did not happen — the contact would silently vanish.
+      _snack('ذخیره روی ${sim.slotLabel} ممکن نشد (حافظه سیم‌کارت پر است؟)');
+      if (mounted) setState(() => _saving = false);
+      return;
+    }
+    ContactRepository().invalidateCache();
+    if (!mounted) return;
+    if (numbers.length > 1) {
+      _snack('روی سیم‌کارت فقط نام و شماره اول ذخیره شد');
+    }
+    context.read<ContactBloc>().add(const RefreshContacts());
+    Navigator.of(context).pop(true);
   }
 
   Future<void> _delete() async {
@@ -268,6 +351,7 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
                   children: [
                     _buildAvatarSection(theme),
                     const SizedBox(height: 8),
+                    _buildSaveTargetRow(theme),
                     _buildNameSection(),
                     const Divider(height: 24),
                     _buildPhoneSection(theme),
@@ -299,6 +383,69 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
               ),
       ),
     );
+  }
+
+  /// «ذخیره در: تلفن» — the destination row Google Contacts puts above the
+  /// name. Absent entirely when there is no SIM to offer, so a phone without
+  /// one looks exactly as it did.
+  Widget _buildSaveTargetRow(ThemeData theme) {
+    final targets = _simTargets;
+    if (targets.isEmpty) return const SizedBox.shrink();
+    final selected = _saveToSim;
+    return ListTile(
+      dense: true,
+      leading: Icon(
+        selected == null ? Icons.smartphone_outlined : Icons.sim_card_outlined,
+        color: theme.colorScheme.onSurfaceVariant,
+        size: AppDimensions.iconLg,
+      ),
+      title: Text('ذخیره در', style: theme.textTheme.bodySmall),
+      subtitle: Text(
+        selected == null ? 'تلفن' : '${selected.slotLabel} · ${selected.name}',
+        style: theme.textTheme.bodyMedium,
+      ),
+      trailing: const Icon(Icons.arrow_drop_down),
+      onTap: () => _pickSaveTarget(targets),
+    );
+  }
+
+  Future<void> _pickSaveTarget(List<SimCard> targets) async {
+    final chosen = await showModalBottomSheet<Object>(
+      context: context,
+      builder: (sheetContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: AppDimensions.paddingSm),
+              ListTile(
+                leading: const Icon(Icons.smartphone_outlined),
+                title: const Text('تلفن'),
+                subtitle: const Text('همهٔ فیلدها، عکس و چند شماره'),
+                trailing: _saveToSim == null
+                    ? const Icon(Icons.check_circle)
+                    : null,
+                onTap: () => Navigator.of(sheetContext).pop('phone'),
+              ),
+              for (final sim in targets)
+                ListTile(
+                  leading: const Icon(Icons.sim_card_outlined),
+                  title: Text('${sim.slotLabel} · ${sim.name}'),
+                  subtitle: const Text('فقط نام و یک شماره'),
+                  trailing: _saveToSim?.subscriptionId == sim.subscriptionId
+                      ? const Icon(Icons.check_circle)
+                      : null,
+                  onTap: () => Navigator.of(sheetContext).pop(sim),
+                ),
+              const SizedBox(height: AppDimensions.paddingSm),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    setState(() => _saveToSim = chosen is SimCard ? chosen : null);
   }
 
   Widget _buildAvatarSection(ThemeData theme) {

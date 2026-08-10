@@ -57,12 +57,26 @@ class SmsDeliverReceiver : BroadcastReceiver() {
             return
         }
 
+        // Which SIM took the message. The broadcast carries it as the
+        // "subscription" extra; every other SMS app reads the provider column,
+        // so an unstamped row loses the SIM for the whole phone, not just us.
+        val subscriptionId = if (
+            android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP_MR1
+        ) {
+            intent.getIntExtra("subscription", -1)
+        } else {
+            -1
+        }
+
         val values = ContentValues().apply {
             put(Telephony.Sms.ADDRESS, address)
             put(Telephony.Sms.BODY, body)
             put(Telephony.Sms.DATE, timestamp)
             put(Telephony.Sms.READ, 0)
             put(Telephony.Sms.SEEN, 0)
+            if (subscriptionId != -1) {
+                put(Telephony.Sms.SUBSCRIPTION_ID, subscriptionId)
+            }
         }
         val uri = context.contentResolver.insert(Telephony.Sms.Inbox.CONTENT_URI, values)
         Log.d(TAG, "Incoming SMS stored in provider: $uri")

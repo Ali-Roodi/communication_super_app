@@ -58,6 +58,8 @@ dependencies:
 
   # Security & Storage
   flutter_secure_storage: ^9.2.4
+  # Salted hashing of the PIN/pattern and the recovery code (AuthRepository).
+  crypto: ^3.0.6
   local_auth: ^3.0.1
 
   # Utilities
@@ -68,6 +70,17 @@ dependencies:
 
   # Persistence for lightweight key/value flags (theme, settings, sms-import).
   shared_preferences: ^2.3.2
+
+  # Crash reporting. OFF unless the user opts in AND a DSN was compiled in —
+  # see CrashReporting; nothing about a message ever leaves the device.
+  #
+  # The pure-Dart `sentry`, NOT `sentry_flutter`: that package ships its own
+  # Android Gradle plugin pinned to AGP 7.4.2, which cannot be resolved under
+  # this project's build (`Could not find com.android.tools.build:gradle:7.4.2`
+  # → assembleDebug fails outright). The cost is that native Kotlin crashes are
+  # not captured; Dart/Flutter errors, which is where this app's logic lives,
+  # are. Revisit when sentry_flutter drops its own buildscript.
+  sentry: ^9.7.0
 
 dev_dependencies:
   flutter_test:

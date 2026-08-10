@@ -17,6 +17,7 @@ import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
 import 'package:communication_super_app/features/contacts/services/contact_extras_service.dart';
+import 'package:communication_super_app/features/contacts/services/sim_contacts_service.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_bloc.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_event.dart';
 import 'package:communication_super_app/features/settings/screens/settings_screen.dart';
@@ -376,17 +377,26 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
     );
     if (confirmed != true || !mounted) return;
 
-    final ids = _selected.toList();
+    final selection = _selectedContacts;
     final messenger = ScaffoldMessenger.of(context);
     final contactBloc = context.read<ContactBloc>();
     try {
+      // Two address books, two delete calls. A SIM contact has no
+      // ContactsContract row, so `getContact` on its id returns null and the
+      // old loop silently deleted nothing while reporting success.
+      var deleted = 0;
       final targets = <device_contacts.Contact>[];
-      for (final id in ids) {
-        final c = await device_contacts.FlutterContacts.getContact(id);
+      for (final contact in selection) {
+        if (contact.isSimContact) {
+          if (await SimContactsService.delete(contact)) deleted++;
+          continue;
+        }
+        final c = await device_contacts.FlutterContacts.getContact(contact.id);
         if (c != null) targets.add(c);
       }
       if (targets.isNotEmpty) {
         await device_contacts.FlutterContacts.deleteContacts(targets);
+        deleted += targets.length;
       }
       ContactRepository().invalidateCache();
       LazyContactAvatar.invalidateCache();
@@ -396,7 +406,7 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
       messenger.showSnackBar(
         SnackBar(
           content: Text(
-            '${PersianUtils.toPersianNumber('${targets.length}')} مخاطب حذف شد',
+            '${PersianUtils.toPersianNumber('$deleted')} مخاطب حذف شد',
           ),
         ),
       );
@@ -839,7 +849,24 @@ class _ContactRow extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _name(scheme),
+                      // A SIM contact reads as an ordinary row apart from a
+                      // small card glyph — it behaves differently (no photo,
+                      // no editing in place, one number), and the row is where
+                      // the user finds that out before tapping.
+                      if (contact.isSimContact)
+                        Row(
+                          children: [
+                            Flexible(child: _name(scheme)),
+                            const SizedBox(width: 6),
+                            Icon(
+                              Icons.sim_card_outlined,
+                              size: 14,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ],
+                        )
+                      else
+                        _name(scheme),
                       const SizedBox(height: 3),
                       ContactNumbersLine(
                         numbers: contact.phoneNumbers,

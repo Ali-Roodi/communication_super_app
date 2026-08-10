@@ -21,6 +21,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<SkipAuthSetup>(_onSkipAuthSetup);
     on<DisableAuth>(_onDisableAuth);
     on<LockApp>(_onLockApp);
+    on<RecoverWithCode>(_onRecoverWithCode);
+    on<RegenerateRecoveryCode>(_onRegenerateRecoveryCode);
   }
 
   Future<void> _onCheckAuthStatus(
@@ -55,10 +57,46 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       await _repository.setAuthSkipped(false);
       // After setting PIN, automatically authenticate the user
       await _repository.setAuthenticated(true);
+      // A new recovery code is minted with every new PIN, and it is emitted
+      // BEFORE AuthAuthenticated so the setup screen can show it — this is the
+      // only moment it is readable. Without it, forgetting the PIN is a
+      // permanent lockout: there is no account and no server to reset from.
+      final code = await _repository.regenerateRecoveryCode();
+      emit(AuthRecoveryCodeIssued(code, duringSetup: true));
       emit(const AuthAuthenticated());
     } catch (e) {
       emit(AuthValidationFailure(e.toString()));
     }
+  }
+
+  /// «رمز را فراموش کرده‌ام». A correct code clears the credential and drops
+  /// the app to the set-a-PIN flow; it never unlocks the app directly, because
+  /// a code the user wrote on paper must not become a second password.
+  Future<void> _onRecoverWithCode(
+    RecoverWithCode event,
+    Emitter<AuthState> emit,
+  ) async {
+    emit(const AuthLoading());
+    final valid = await _repository.validateRecoveryCode(event.code);
+    if (!valid) {
+      final authType = await _repository.getAuthType();
+      emit(const AuthValidationFailure('کد بازیابی نادرست است'));
+      emit(AuthSet(authType));
+      return;
+    }
+    await _repository.clearAuth();
+    emit(const AuthNotSet());
+  }
+
+  Future<void> _onRegenerateRecoveryCode(
+    RegenerateRecoveryCode event,
+    Emitter<AuthState> emit,
+  ) async {
+    final code = await _repository.regenerateRecoveryCode();
+    emit(AuthRecoveryCodeIssued(code));
+    // The user is already inside the app; hand the state back so nothing
+    // navigates away behind the code sheet.
+    emit(const AuthAuthenticated());
   }
 
   /// «ادامه بدون رمز» — enter the app; never re-prompt setup on launch.

@@ -74,3 +74,23 @@ class DisableAuth extends AuthEvent {
 class LockApp extends AuthEvent {
   const LockApp();
 }
+
+/// «رمز را فراموش کرده‌ام»: the user typed the recovery code shown at setup.
+///
+/// On a match the stored credential is cleared and the app drops to the
+/// set-a-PIN flow. It does NOT unlock the app as-is — a code that has been
+/// written on paper should not be a second password.
+class RecoverWithCode extends AuthEvent {
+  final String code;
+
+  const RecoverWithCode(this.code);
+
+  @override
+  List<Object?> get props => [code];
+}
+
+/// Settings → «کد بازیابی جدید»: mints a fresh code (invalidating the old one)
+/// and shows it once. Only reachable from inside an unlocked app.
+class RegenerateRecoveryCode extends AuthEvent {
+  const RegenerateRecoveryCode();
+}

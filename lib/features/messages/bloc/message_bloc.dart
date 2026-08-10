@@ -127,19 +127,10 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     if (current is! MessagesLoaded) return;
     final index = current.messages.indexWhere((m) => m.id == event.messageId);
     if (index == -1) return;
-    final old = current.messages[index];
-    final updated = MessageModel(
-      id: old.id,
-      threadId: old.threadId,
-      contactId: old.contactId,
-      phoneNumber: old.phoneNumber,
-      body: old.body,
-      type: old.type,
-      status: event.status,
-      timestamp: old.timestamp,
-      isRead: old.isRead,
-      deviceSmsId: old.deviceSmsId,
-    );
+    // copyWith, NOT a hand-built model: rebuilding it field by field drops
+    // whatever was added last (this is exactly how a bubble lost its SIM badge
+    // the instant its delivery report landed).
+    final updated = current.messages[index].copyWith(status: event.status);
     final messages = [...current.messages];
     messages[index] = updated;
     emit(
@@ -491,7 +482,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     Emitter<MessageState> emit,
   ) async {
     try {
-      final result = await _smsService.sendSms(event.phoneNumber, event.body);
+      final result = await _smsService.sendSms(
+        event.phoneNumber,
+        event.body,
+        subscriptionId: event.subscriptionId,
+      );
       if (result.success) {
         emit(const MessageSent());
         // Let the UI screens decide what to reload based on their context.
@@ -602,18 +597,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
           // keeps is_read=0 and leaving the chat shows a ghost unread badge.
           if (message.type == MessageType.received && !message.isRead) {
             await _repository.markThreadAsRead(message.threadId);
-            merged = MessageModel(
-              id: message.id,
-              threadId: message.threadId,
-              contactId: message.contactId,
-              phoneNumber: message.phoneNumber,
-              body: message.body,
-              type: message.type,
-              status: message.status,
-              timestamp: message.timestamp,
-              isRead: true,
-              deviceSmsId: message.deviceSmsId,
-            );
+            merged = message.copyWith(isRead: true);
           }
           // Dedupe: avoid appending if this message is already in the list (e.g. duplicate event).
           final alreadyPresent = current.messages.any(

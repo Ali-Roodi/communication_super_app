@@ -81,7 +81,7 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
                 callType: log.callType,
                 duration: log.duration,
                 timestamp: log.timestamp,
-                simSlot: log.simSlot,
+                subscriptionId: log.subscriptionId,
               ),
       );
     }

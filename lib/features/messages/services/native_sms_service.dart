@@ -146,35 +146,6 @@ class NativeSmsService {
     }
   }
 
-  /// Get available SIM subscriptions (for dual-SIM devices)
-  ///
-  /// Returns a list of [SimSubscription] objects
-  /// Returns empty list if:
-  /// - Device doesn't support dual-SIM
-  /// - Permission is denied
-  /// - No SIM cards are available
-  Future<List<SimSubscription>> getAvailableSubscriptions() async {
-    try {
-      final result = await _methodChannel.invokeMethod<List>(
-        'getAvailableSubscriptions',
-      );
-
-      if (result == null) {
-        return [];
-      }
-
-      return result.map((item) {
-        return SimSubscription.fromMap(Map<String, dynamic>.from(item));
-      }).toList();
-    } on PlatformException catch (e) {
-      debugPrint('Error getting subscriptions: ${e.code} - ${e.message}');
-      return [];
-    } catch (e) {
-      debugPrint('Error getting subscriptions: $e');
-      return [];
-    }
-  }
-
   // ── SMS provider queries (mirror-sync source) ──────────────────────────
 
   /// Recent rows of a provider box ('inbox' | 'sent'), newest first.
@@ -305,11 +276,16 @@ class DeviceSmsRow {
   final String body;
   final int date;
 
+  /// SIM the provider recorded for this row. Null when the column is unset —
+  /// a pre-dual-SIM row, or an OEM provider that never fills it.
+  final int? subscriptionId;
+
   const DeviceSmsRow({
     required this.id,
     required this.address,
     required this.body,
     required this.date,
+    this.subscriptionId,
   });
 
   factory DeviceSmsRow.fromMap(Map<String, dynamic> map) => DeviceSmsRow(
@@ -317,6 +293,7 @@ class DeviceSmsRow {
     address: map['address'] as String? ?? '',
     body: map['body'] as String? ?? '',
     date: (map['date'] as num?)?.toInt() ?? 0,
+    subscriptionId: (map['subscriptionId'] as num?)?.toInt(),
   );
 }
 
@@ -428,40 +405,3 @@ class SmsSendResult {
   }
 }
 
-/// SIM card subscription information (for dual-SIM devices)
-class SimSubscription {
-  final int subscriptionId;
-  final String displayName;
-  final String carrierName;
-  final int slotIndex;
-
-  SimSubscription({
-    required this.subscriptionId,
-    required this.displayName,
-    required this.carrierName,
-    required this.slotIndex,
-  });
-
-  factory SimSubscription.fromMap(Map<String, dynamic> map) {
-    return SimSubscription(
-      subscriptionId: map['subscriptionId'] as int? ?? -1,
-      displayName: map['displayName'] as String? ?? '',
-      carrierName: map['carrierName'] as String? ?? '',
-      slotIndex: map['slotIndex'] as int? ?? -1,
-    );
-  }
-
-  Map<String, dynamic> toMap() {
-    return {
-      'subscriptionId': subscriptionId,
-      'displayName': displayName,
-      'carrierName': carrierName,
-      'slotIndex': slotIndex,
-    };
-  }
-
-  @override
-  String toString() {
-    return 'SimSubscription(id: $subscriptionId, name: $displayName, carrier: $carrierName, slot: $slotIndex)';
-  }
-}

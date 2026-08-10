@@ -76,7 +76,11 @@ class ScheduledDeliveryService {
   /// until the stale-claim timeout — so every failure path ends in an upsert.
   Future<bool> _deliverOne(ScheduledMessage msg, DateTime now) async {
     try {
-      final result = await _smsService.sendSms(msg.phoneNumber, msg.body);
+      final result = await _smsService.sendSms(
+        msg.phoneNumber,
+        msg.body,
+        subscriptionId: msg.subscriptionId,
+      );
       if (result.success) {
         await _repository.upsert(msg.advanceAfterSend(now: now));
         return true;

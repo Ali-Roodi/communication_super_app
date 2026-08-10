@@ -11,6 +11,7 @@ import android.os.Build
 import android.provider.Telephony
 import android.telephony.SmsManager
 import android.util.Log
+import com.example.communication_super_app.sim.SimRegistry
 import java.util.UUID
 
 /**
@@ -35,6 +36,9 @@ class SmsNotificationActionReceiver : BroadcastReceiver() {
         const val EXTRA_ADDRESS = "address"
         const val EXTRA_THREAD_ID = "thread_id"
         const val EXTRA_NOTIF_ID = "notif_id"
+
+        /** SIM the incoming message arrived on — the reply goes out on it. */
+        const val EXTRA_SUBSCRIPTION_ID = "subscription_id"
         const val KEY_REPLY_TEXT = "key_reply_text"
     }
 
@@ -65,12 +69,36 @@ class SmsNotificationActionReceiver : BroadcastReceiver() {
             return
         }
 
-        // 1. Send.
+        // 1. Send — on the SIM the message came in on. Answering a work
+        //    number from the personal card because the shade forgot which one
+        //    it was is exactly the mistake dual-SIM support exists to prevent.
+        //    -1 (unknown SIM, or a phone with one) falls back to the default.
+        val requestedSubId = intent.getIntExtra(EXTRA_SUBSCRIPTION_ID, -1)
+        val subscriptionId = if (requestedSubId >= 0) {
+            requestedSubId
+        } else {
+            SimRegistry.defaultSmsSubscriptionId()
+        }
         @Suppress("DEPRECATION")
-        val sm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        val base = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             context.getSystemService(SmsManager::class.java)
         } else {
             SmsManager.getDefault()
+        }
+        val sm = if (
+            subscriptionId >= 0 &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1
+        ) {
+            runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    base.createForSubscriptionId(subscriptionId)
+                } else {
+                    @Suppress("DEPRECATION")
+                    SmsManager.getSmsManagerForSubscriptionId(subscriptionId)
+                }
+            }.getOrDefault(base)
+        } else {
+            base
         }
         val parts = sm.divideMessage(text)
         if (parts.size == 1) {
@@ -89,6 +117,11 @@ class SmsNotificationActionReceiver : BroadcastReceiver() {
                     put(Telephony.Sms.BODY, text)
                     put(Telephony.Sms.DATE, now)
                     put(Telephony.Sms.READ, 1)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1 &&
+                        subscriptionId >= 0
+                    ) {
+                        put(Telephony.Sms.SUBSCRIPTION_ID, subscriptionId)
+                    }
                 }
                 deviceId = context.contentResolver
                     .insert(Telephony.Sms.Sent.CONTENT_URI, values)
@@ -111,6 +144,7 @@ class SmsNotificationActionReceiver : BroadcastReceiver() {
                 put("timestamp", now)
                 put("is_read", 1)
                 if (deviceId != null) put("device_sms_id", deviceId)
+                if (subscriptionId >= 0) put("subscription_id", subscriptionId)
             }
             db.insertWithOnConflict(
                 "messages", null, values, SQLiteDatabase.CONFLICT_IGNORE,

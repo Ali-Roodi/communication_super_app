@@ -15,6 +15,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
 import androidx.core.graphics.drawable.IconCompat
+import com.example.communication_super_app.sim.SimRegistry
 
 /**
  * Single notification pipeline for incoming SMS — used by BOTH receive paths
@@ -38,6 +39,7 @@ object SmsNotifier {
         body: String,
         timestamp: Long,
         threadId: String,
+        subscriptionId: Int = -1,
     ) {
         try {
             // The user is LOOKING at this conversation right now — no
@@ -95,7 +97,12 @@ object SmsNotifier {
                     .setPackage(context.packageName)
                     .putExtra(SmsNotificationActionReceiver.EXTRA_ADDRESS, address)
                     .putExtra(SmsNotificationActionReceiver.EXTRA_THREAD_ID, threadId)
-                    .putExtra(SmsNotificationActionReceiver.EXTRA_NOTIF_ID, notifId),
+                    .putExtra(SmsNotificationActionReceiver.EXTRA_NOTIF_ID, notifId)
+                    // Reply on the card the message arrived on.
+                    .putExtra(
+                        SmsNotificationActionReceiver.EXTRA_SUBSCRIPTION_ID,
+                        subscriptionId,
+                    ),
                 mutableFlags,
             )
             val replyAction = NotificationCompat.Action
@@ -134,6 +141,16 @@ object SmsNotifier {
                 .setCategory(Notification.CATEGORY_MESSAGE)
                 .setAutoCancel(true)
                 .setContentIntent(contentIntent)
+                // «سیم ۲ · ایرانسل» under the sender on a dual-SIM phone —
+                // which card took the message is part of reading it. Null on a
+                // single-SIM phone (SimRegistry answers null for an unknown or
+                // sole subscription), so the shade is unchanged there.
+                .apply {
+                    if (SimRegistry.isMultiSim(context)) {
+                        SimRegistry.labelOf(context, subscriptionId)
+                            ?.let { setSubText(it) }
+                    }
+                }
                 .addAction(replyAction)
                 .addAction(0, "خواندم", markReadIntent)
                 .build()

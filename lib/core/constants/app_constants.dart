@@ -3,7 +3,7 @@ class AppConstants {
 
   // Database
   static const String databaseName = 'communication_app.db';
-  static const int databaseVersion = 19;
+  static const int databaseVersion = 20;
 
   // Tables
   static const String contactsTable = 'contacts';
@@ -17,6 +17,10 @@ class AppConstants {
   static const String messageCategoriesTable = 'message_categories';
   static const String messageTemplatesTable = 'message_templates';
   static const String scheduledMessagesTable = 'scheduled_messages';
+
+  /// Which SIM each conversation last sent on (v20). Google Messages remembers
+  /// the choice per conversation, not globally.
+  static const String threadSimTable = 'thread_sim';
 
   /// FTS5 index over the folded text of every message body — the substring
   /// index the message search uses when the device's SQLite can build one.
@@ -33,6 +37,11 @@ class AppConstants {
   /// PIN later). Auth setup is never re-prompted while this is true; the PIN
   /// can still be set from Settings.
   static const String authSkippedKey = 'auth_skipped';
+
+  /// Hash of the one-time recovery code that can reset a forgotten PIN. There
+  /// is no account and no server behind this app, so the code the user wrote
+  /// down at setup is the only way back in — see `AuthRepository`.
+  static const String recoveryCodeKey = 'auth_recovery_code';
 
   // Auth Types
   static const String authTypePin = 'pin';

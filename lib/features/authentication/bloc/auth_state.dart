@@ -43,6 +43,22 @@ class AuthUnauthenticated extends AuthState {
 }
 
 
+/// A recovery code was just minted and must be shown to the user — this is
+/// the only moment it exists in readable form.
+class AuthRecoveryCodeIssued extends AuthState {
+  final String code;
+
+  /// True when the code was issued as part of setting a PIN (the setup flow
+  /// continues into the app afterwards), false when it was regenerated from
+  /// Settings.
+  final bool duringSetup;
+
+  const AuthRecoveryCodeIssued(this.code, {this.duringSetup = false});
+
+  @override
+  List<Object?> get props => [code, duringSetup];
+}
+
 class AuthValidationFailure extends AuthState {
   final String error;
 

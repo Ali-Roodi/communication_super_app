@@ -8,10 +8,12 @@ import android.media.AudioManager
 import android.media.ToneGenerator
 import android.net.Uri
 import android.os.Build
+import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
 import android.telecom.VideoProfile
 import android.telephony.PhoneNumberUtils
 import android.util.Log
+import com.example.communication_super_app.sim.SimRegistry
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
@@ -56,7 +58,11 @@ class CallHandler(
         ).setMethodCallHandler { call, result ->
             try {
                 when (call.method) {
-                    "makeCall"        -> makeCall(call.argument<String>("phone") ?: "", result)
+                    "makeCall"        -> makeCall(
+                        call.argument<String>("phone") ?: "",
+                        call.argument<Int>("subscriptionId") ?: -1,
+                        result,
+                    )
                     "endCall"         -> { endCall(); result.success(null) }
                     "answerCall"      -> { answerCall(); result.success(null) }
                     "rejectCall"      -> { rejectCall(); result.success(null) }
@@ -238,7 +244,7 @@ class CallHandler(
     // while this app is the default dialer); fall back to the legacy
     // CallConnection (self-managed VoIP path).
 
-    private fun makeCall(phone: String, result: MethodChannel.Result) {
+    private fun makeCall(phone: String, subscriptionId: Int, result: MethodChannel.Result) {
         // PhoneNumberUtils.stripSeparators, NOT a hand-rolled `[^+0-9]` strip.
         // The platform's own rule keeps every character that is actually
         // dialable — `*` `#` (USSD/MMI: «*100#», «*140*11#», call forwarding),
@@ -256,13 +262,27 @@ class CallHandler(
         // via getSchemeSpecificPart(). Uri.parse("tel:$clean") would truncate
         // at the `#` — it would read as a fragment.
         val uri = Uri.fromParts("tel", clean, null)
+
+        // Which SIM to dial from. A null handle means "let telecom choose",
+        // which is the right behaviour on a single-SIM phone and whenever the
+        // user has a default voice SIM pinned — telecom then honours the system
+        // setting instead of us second-guessing it. It also covers the case
+        // where the requested subscription has no matching phone account (a
+        // card removed between the picker and the tap).
+        val account: PhoneAccountHandle? = SimRegistry.phoneAccountFor(context, subscriptionId)
+
         if (isDefaultDialer()) {
             // Default-dialer path: TelecomManager.placeCall is the direct API —
             // no UserCallActivity trampoline over this app. The trampoline made
             // Samsung's SCallUI fallback think no dialer UI was foreground
             // ("isTopActivity: false") and launch the OEM in-call screen on top.
             val tm = context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
-            tm.placeCall(uri, android.os.Bundle())
+            val extras = android.os.Bundle().apply {
+                if (account != null) {
+                    putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, account)
+                }
+            }
+            tm.placeCall(uri, extras)
         } else {
             // Not the default dialer: hand over to the system dialer app. An
             // MMI code survives this too — but only because [uri] escapes the
@@ -270,6 +290,9 @@ class CallHandler(
             // Uri.parse("tel:*100#") losing everything from the `#` onwards.
             val intent = Intent(Intent.ACTION_CALL, uri).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (account != null) {
+                    putExtra(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, account)
+                }
             }
             context.startActivity(intent)
         }

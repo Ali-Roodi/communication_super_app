@@ -8,6 +8,7 @@ import android.os.Build
 import android.provider.Telephony
 import android.telephony.SmsManager
 import android.util.Log
+import com.example.communication_super_app.sim.SimRegistry
 import java.util.Calendar
 import java.util.UUID
 
@@ -62,13 +63,26 @@ object ScheduledSmsWorker {
             val due = claimDue(db, now, token)
             Log.d(TAG, "Claimed ${due.size} due scheduled message(s)")
             for (row in due) {
-                val sent = sendSms(context, row.phoneNumber, row.body)
+                // The SIM the row was armed with; -1 resolves to the system
+                // default, which is also what a row written before dual-SIM
+                // support means. Resolved once so the send, the provider row
+                // and the chat row all name the same card.
+                val subscriptionId = if (row.subscriptionId != null) {
+                    row.subscriptionId
+                } else {
+                    SimRegistry.defaultSmsSubscriptionId()
+                }
+                val sent = sendSms(context, row.phoneNumber, row.body, subscriptionId)
                 if (sent) {
                     // Provider write-through (default-SMS-app only): the system
                     // doesn't store sends from the role holder, so without this
                     // a background-scheduled SMS is invisible to other SMS apps.
-                    val deviceId = writeSentToProvider(context, row.phoneNumber, row.body, now)
-                    persistSentMessage(db, row.phoneNumber, row.body, now, deviceId)
+                    val deviceId = writeSentToProvider(
+                        context, row.phoneNumber, row.body, now, subscriptionId,
+                    )
+                    persistSentMessage(
+                        db, row.phoneNumber, row.body, now, deviceId, subscriptionId,
+                    )
                     db.update(TABLE, advance(row, now), "id = ?", arrayOf(row.id))
                 } else {
                     db.update(TABLE, failAttempt(row, now), "id = ?", arrayOf(row.id))
@@ -236,6 +250,8 @@ object ScheduledSmsWorker {
         val occurrenceCount: Int,
         val attemptCount: Int,
         val jitter: String,
+        /** SIM to send on; null = the system default at delivery time. */
+        val subscriptionId: Int?,
     )
 
     private fun readRow(c: Cursor): Row {
@@ -266,6 +282,7 @@ object ScheduledSmsWorker {
             occurrenceCount = intOrNull("occurrence_count") ?: 0,
             attemptCount = intOrNull("attempt_count") ?: 0,
             jitter = strOrNull("jitter") ?: "none",
+            subscriptionId = intOrNull("subscription_id"),
         )
     }
 
@@ -366,13 +383,35 @@ object ScheduledSmsWorker {
 
     // ── Sending ────────────────────────────────────────────────────────────--
 
-    private fun sendSms(context: Context, phone: String, body: String): Boolean {
+    private fun sendSms(
+        context: Context,
+        phone: String,
+        body: String,
+        subscriptionId: Int = -1,
+    ): Boolean {
         return try {
             @Suppress("DEPRECATION")
-            val sm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val base = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 context.getSystemService(SmsManager::class.java)
             } else {
                 SmsManager.getDefault()
+            }
+            // createForSubscriptionId on a manager obtained either way; a bad
+            // id would throw, so fall back rather than drop the message.
+            val sm = if (
+                subscriptionId >= 0 &&
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1
+            ) {
+                runCatching {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        base.createForSubscriptionId(subscriptionId)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        SmsManager.getSmsManagerForSubscriptionId(subscriptionId)
+                    }
+                }.getOrDefault(base)
+            } else {
+                base
             }
             val parts = sm.divideMessage(body)
             if (parts.size == 1) {
@@ -403,6 +442,7 @@ object ScheduledSmsWorker {
         address: String,
         body: String,
         timestamp: Long,
+        subscriptionId: Int = -1,
     ): Long? {
         if (Telephony.Sms.getDefaultSmsPackage(context) != context.packageName) return null
         return try {
@@ -411,6 +451,11 @@ object ScheduledSmsWorker {
                 put(Telephony.Sms.BODY, body)
                 put(Telephony.Sms.DATE, timestamp)
                 put(Telephony.Sms.READ, 1)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1 &&
+                    subscriptionId >= 0
+                ) {
+                    put(Telephony.Sms.SUBSCRIPTION_ID, subscriptionId)
+                }
             }
             context.contentResolver
                 .insert(Telephony.Sms.Sent.CONTENT_URI, values)
@@ -427,6 +472,7 @@ object ScheduledSmsWorker {
         body: String,
         timestamp: Long,
         deviceSmsId: Long? = null,
+        subscriptionId: Int = -1,
     ) {
         try {
             val values = ContentValues().apply {
@@ -440,6 +486,7 @@ object ScheduledSmsWorker {
                 put("timestamp", timestamp)
                 put("is_read", 1)
                 if (deviceSmsId != null) put("device_sms_id", deviceSmsId)
+                if (subscriptionId >= 0) put("subscription_id", subscriptionId)
             }
             // OR IGNORE: the unique (phone_number, body, timestamp, type) index
             // dedups against a later device-inbox import.

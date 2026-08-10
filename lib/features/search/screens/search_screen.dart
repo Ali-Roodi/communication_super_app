@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:communication_super_app/core/sim/sim_call.dart';
+import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
@@ -14,7 +16,6 @@ import 'package:communication_super_app/features/contacts/screens/device_contact
 import 'package:communication_super_app/features/contacts/widgets/phone_number_picker.dart';
 import 'package:communication_super_app/features/call_history/models/call_log_model.dart';
 import 'package:communication_super_app/features/messages/models/template_wire.dart';
-import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/features/messages/models/message_model.dart';
 import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
 import '../bloc/search_bloc.dart';
@@ -184,19 +185,27 @@ class _ContactResult extends StatelessWidget {
 
   /// A name search on a multi-number contact has no matched number, so the
   /// call button asks which one.
-  Future<void> _call(BuildContext context) async {
+  /// [pickSim] forces the SIM picker — the long-press gesture on the call
+  /// button. The *number* picker still runs first when the contact has several
+  /// numbers and none of them matched the query: which person, then which card.
+  Future<void> _call(BuildContext context, {bool pickSim = false}) async {
     final matched = _matchedNumber;
+    var number = matched ?? contact.primaryPhone;
     if (matched == null && contact.phoneNumbers.length > 1) {
       final picked = await pickContactNumber(
         context,
         numbers: contact.phoneNumbers,
         title: 'تماس با ${contact.name}',
       );
-      if (picked == null) return;
-      await NativeCallService.instance.makeCall(picked);
-      return;
+      if (picked == null || !context.mounted) return;
+      number = picked;
     }
-    await NativeCallService.instance.makeCall(matched ?? contact.primaryPhone);
+    if (!context.mounted) return;
+    if (pickSim) {
+      await placeCallPickingSim(context, number);
+    } else {
+      await placeCall(context, number);
+    }
   }
 
   @override
@@ -218,9 +227,17 @@ class _ContactResult extends StatelessWidget {
           query: SearchText.digits(query),
         ),
       ),
-      trailing: IconButton(
-        icon: const Icon(Icons.call, color: AppColors.callAnswerGreen),
-        onPressed: () => _call(context),
+      trailing: GestureDetector(
+        onLongPress: SimService.isMultiSim
+            ? () => _call(context, pickSim: true)
+            : null,
+        child: IconButton(
+          icon: const Icon(Icons.call, color: AppColors.callAnswerGreen),
+          tooltip: SimService.isMultiSim
+              ? 'تماس · نگه‌داشتن برای انتخاب سیم‌کارت'
+              : 'تماس',
+          onPressed: () => _call(context),
+        ),
       ),
       onTap: () => Navigator.push(
         context,
@@ -379,7 +396,10 @@ class _CallLogResult extends StatelessWidget {
         ),
       ),
       trailing: const Icon(Icons.call, color: AppColors.callAnswerGreen),
-      onTap: () => NativeCallService.instance.makeCall(log.phoneNumber),
+      onTap: () => placeCall(context, log.phoneNumber),
+      onLongPress: SimService.isMultiSim
+          ? () => placeCallPickingSim(context, log.phoneNumber)
+          : null,
     );
   }
 }

@@ -5,6 +5,7 @@ import '../bloc/auth_bloc.dart';
 import '../bloc/auth_event.dart';
 import '../bloc/auth_state.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
+import 'recovery_code_screen.dart';
 import 'widgets/pin_pad.dart';
 
 class PinSetupScreen extends StatefulWidget {
@@ -67,6 +68,23 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
     });
   }
 
+  /// Code minted with this PIN, held until the bloc confirms the save.
+  String? _pendingRecoveryCode;
+
+  Future<void> _finish() async {
+    final code = _pendingRecoveryCode;
+    _pendingRecoveryCode = null;
+    if (code != null) {
+      await showRecoveryCode(context, code, duringSetup: true);
+      if (!mounted) return;
+    }
+    if (widget.fromSettings) {
+      Navigator.of(context).pop(true);
+    } else {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    }
+  }
+
   void _showError(String message) {
     ScaffoldMessenger.of(
       context,
@@ -81,14 +99,16 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
           _showError(state.error);
           _reset();
         }
+        // The recovery code is emitted just before AuthAuthenticated and is
+        // readable exactly once — show it before leaving this screen, or a
+        // forgotten PIN becomes a permanent lockout.
+        if (state is AuthRecoveryCodeIssued) {
+          _pendingRecoveryCode = state.code;
+        }
         if (state is AuthAuthenticated) {
           // PIN saved. This screen is always pushed as a route now (from the
           // first-entry choice screen or from Settings) — leave it.
-          if (widget.fromSettings) {
-            Navigator.of(context).pop(true);
-          } else {
-            Navigator.of(context).popUntil((route) => route.isFirst);
-          }
+          _finish();
         }
       },
       child: Directionality(

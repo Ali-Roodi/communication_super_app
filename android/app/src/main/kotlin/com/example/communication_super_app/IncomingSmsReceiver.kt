@@ -56,6 +56,9 @@ class IncomingSmsReceiver : BroadcastReceiver() {
         val body = parts.joinToString("") { it.messageBody ?: "" }
         val timestamp = parts[0].timestampMillis
         val threadId = normalizeToThreadId(address)
+        // Which SIM took it. The broadcast carries it as the "subscription"
+        // extra; -1 stays "unknown" all the way into the DB, never SIM 1.
+        val subscriptionId = intent.getIntExtra("subscription", -1)
 
         // Blocked sender: drop silently — no persist, no notification.
         if (BlockedNumbers.isBlocked(context, address)) {
@@ -63,8 +66,8 @@ class IncomingSmsReceiver : BroadcastReceiver() {
             return
         }
 
-        persist(context, address, body, timestamp, threadId)
-        SmsNotifier.notifySms(context, address, body, timestamp, threadId)
+        persist(context, address, body, timestamp, threadId, subscriptionId)
+        SmsNotifier.notifySms(context, address, body, timestamp, threadId, subscriptionId)
         Log.d(TAG, "Delivered background SMS from $address")
     }
 
@@ -76,6 +79,7 @@ class IncomingSmsReceiver : BroadcastReceiver() {
         body: String,
         timestamp: Long,
         threadId: String,
+        subscriptionId: Int,
     ) {
         val dbFile = context.getDatabasePath(DB_NAME)
         if (!dbFile.exists()) return // DB is created on first app launch
@@ -96,6 +100,7 @@ class IncomingSmsReceiver : BroadcastReceiver() {
                 put("status", "delivered")
                 put("timestamp", timestamp)
                 put("is_read", 0)
+                if (subscriptionId >= 0) put("subscription_id", subscriptionId)
             }
             // OR IGNORE: the unique (phone_number, body, timestamp, type) index
             // dedups against a later device-inbox import.

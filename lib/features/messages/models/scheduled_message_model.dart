@@ -116,6 +116,11 @@ class ScheduledMessage extends Equatable {
   /// Error code of the last failed attempt (`NO_SERVICE`, `NO_SIM_CARD`, …).
   final String? lastError;
 
+  /// SIM to send on, captured from the conversation when the schedule was
+  /// armed. Null = whichever SIM is the system default at *delivery* time —
+  /// which is also what every row written before dual-SIM support means.
+  final int? subscriptionId;
+
   const ScheduledMessage({
     required this.id,
     required this.phoneNumber,
@@ -135,6 +140,7 @@ class ScheduledMessage extends Equatable {
     this.attemptCount = 0,
     this.nextAttemptAt,
     this.lastError,
+    this.subscriptionId,
   });
 
   /// A row claimed longer ago than this is assumed abandoned (the process that
@@ -331,6 +337,7 @@ class ScheduledMessage extends Equatable {
     'attempt_count': attemptCount,
     'next_attempt_at': nextAttemptAt?.millisecondsSinceEpoch,
     'last_error': lastError,
+    'subscription_id': subscriptionId,
   };
 
   factory ScheduledMessage.fromMap(Map<String, dynamic> m) => ScheduledMessage(
@@ -356,6 +363,7 @@ class ScheduledMessage extends Equatable {
         ? null
         : DateTime.fromMillisecondsSinceEpoch(m['next_attempt_at'] as int),
     lastError: m['last_error'] as String?,
+    subscriptionId: (m['subscription_id'] as num?)?.toInt(),
   );
 
   static Set<int> _parseWeekdays(String? csv) {
@@ -384,6 +392,7 @@ class ScheduledMessage extends Equatable {
     int? attemptCount,
     DateTime? nextAttemptAt,
     String? lastError,
+    int? subscriptionId,
     bool clearNextAttemptAt = false,
     bool clearLastError = false,
   }) => ScheduledMessage(
@@ -407,6 +416,7 @@ class ScheduledMessage extends Equatable {
         ? null
         : (nextAttemptAt ?? this.nextAttemptAt),
     lastError: clearLastError ? null : (lastError ?? this.lastError),
+    subscriptionId: subscriptionId ?? this.subscriptionId,
   );
 
   @override
@@ -429,5 +439,6 @@ class ScheduledMessage extends Equatable {
     attemptCount,
     nextAttemptAt,
     lastError,
+    subscriptionId,
   ];
 }

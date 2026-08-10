@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:communication_super_app/core/sim/sim_card.dart';
+import 'package:communication_super_app/core/sim/sim_service.dart';
+import 'package:communication_super_app/core/sim/widgets/sim_picker.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
@@ -234,6 +237,15 @@ class _MessageBubbleState extends State<MessageBubble> {
 
   MessageModel get message => widget.message;
 
+  /// The SIM to badge this bubble with, or null when there is nothing to say:
+  /// a single-SIM phone, a card that has since been removed, or a row that was
+  /// never stamped (everything sent or received before dual-SIM support).
+  ///
+  /// Read from the synchronous roster cache — a bubble may not await a platform
+  /// channel inside `build`.
+  SimCard? get _sim =>
+      SimService.isMultiSim ? SimService.byId(message.subscriptionId) : null;
+
   void _handleLongPress() {
     final box = _boxKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null || !box.hasSize) return;
@@ -300,6 +312,13 @@ class _MessageBubbleState extends State<MessageBubble> {
                       DateFormatter.formatTime(message.timestamp),
                       style: theme.textTheme.bodySmall?.copyWith(fontSize: 12),
                     ),
+                    // Which SIM carried it — only on a dual-SIM phone, and only
+                    // when the row actually recorded one. A null subscription
+                    // is "unknown", never SIM 1, so the badge is simply absent.
+                    if (_sim != null) ...[
+                      const SizedBox(width: 5),
+                      SimBadge(sim: _sim!),
+                    ],
                     if (isSent) ...[
                       const SizedBox(width: 6),
                       // Google labels the transport under the sent bubble.

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:communication_super_app/core/sim/sim_call.dart';
+import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
@@ -160,9 +162,11 @@ class _KeypadPanel extends StatelessWidget {
             BlocBuilder<DialerBloc, DialerState>(
               buildWhen: (a, b) =>
                   a.dialedNumber.isEmpty != b.dialedNumber.isEmpty ||
-                  a.isInCall != b.isInCall,
+                  a.isInCall != b.isInCall ||
+                  a.dialSubscriptionId != b.dialSubscriptionId,
               builder: (_, state) => DialerCallPill(
                 enabled: state.dialedNumber.isNotEmpty && !state.isInCall,
+                sim: SimService.byId(state.dialSubscriptionId),
               ),
             ),
             const SizedBox(height: 16),
@@ -283,7 +287,10 @@ class _KeyGrid extends StatelessWidget {
       );
       return;
     }
-    NativeCallService.instance.makeCall(number);
+    if (!context.mounted) return;
+    // Voicemail is a call like any other: on a dual-SIM phone it has to say
+    // which card's mailbox — the numbers differ per carrier.
+    await placeCall(context, number);
     // The dialer lives in a modal sheet — dismiss it so the call UI is clear.
     navigator.maybePop();
   }

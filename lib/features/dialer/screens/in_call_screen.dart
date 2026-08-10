@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/dialer_bloc.dart';
 import '../bloc/dialer_event.dart';
@@ -80,6 +81,17 @@ class _InCallScreenState extends State<InCallScreen> {
     super.dispose();
   }
 
+  /// The carrier line under the top of the call screen.
+  ///
+  /// Falls back to the generic word whenever there is nothing to disambiguate:
+  /// a single-SIM phone, a VoIP call, or a card the roster cannot name.
+  String _simLine(DialerState state) {
+    if (!SimService.isMultiSim) return 'سیم‌کارت';
+    final sim = SimService.byId(state.activeSubscriptionId);
+    if (sim == null) return 'سیم‌کارت';
+    return '${sim.slotLabel} · ${sim.name}';
+  }
+
   String get _formattedTime {
     final m = (_seconds ~/ 60).toString().padLeft(2, '0');
     final s = (_seconds % 60).toString().padLeft(2, '0');
@@ -123,10 +135,13 @@ class _InCallScreenState extends State<InCallScreen> {
               child: Column(
                 children: [
                   const Spacer(flex: 2),
-                  // Carrier / SIM line (no carrier data available → generic).
-                  const Text(
-                    'سیم‌کارت',
-                    style: TextStyle(color: Colors.white38, fontSize: 13),
+                  // The SIM this call is on — Google Phone's carrier line.
+                  // On a single-SIM phone it stays the generic word (there is
+                  // nothing to disambiguate); on a dual-SIM one it names the
+                  // slot and the carrier, which is the whole point of the line.
+                  Text(
+                    _simLine(state),
+                    style: const TextStyle(color: Colors.white38, fontSize: 13),
                   ),
                   const SizedBox(height: 24),
                   _buildAvatar(conference: conference),

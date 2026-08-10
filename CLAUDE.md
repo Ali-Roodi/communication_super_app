@@ -48,7 +48,7 @@ All state is BLoC (`flutter_bloc`). BLoCs are provided globally in `AppBlocProvi
 
 ### Database
 
-Single SQLite database (`communication_app.db`, version 19) managed by `DatabaseHelper` singleton (`lib/core/database/`). Tables: `contacts`, `messages`, `call_logs`, `favorites`, `blocked_numbers`, `archived_threads`, `pinned_threads`, `message_categories`, `drafts`, `message_templates`, `scheduled_messages`. Constants in `AppConstants`.
+Single SQLite database (`communication_app.db`, version 20) managed by `DatabaseHelper` singleton (`lib/core/database/`). Tables: `contacts`, `messages`, `call_logs`, `favorites`, `blocked_numbers`, `archived_threads`, `pinned_threads`, `message_categories`, `drafts`, `message_templates`, `scheduled_messages`, `thread_sim`. Constants in `AppConstants`.
 
 **Schema invariants:**
 - `messages.thread_id` is the digits-only normalized phone number.
@@ -397,11 +397,40 @@ Long-press is the *same gesture everywhere*, matching Google Messages / Phone / 
 
 **Inbox scroll position.** `MessagesListScreen` caches the last `ThreadsLoaded` it painted (`_lastInbox`) and keeps rendering it while the (shared) bloc sits in a state the inbox can't paint — `MessagesLoaded` for the open conversation, `ThreadsLoaded(archived: true)` for the archived screen. Swapping the list for a `SliverFillRemaining` spinner in those moments tore the sliver down and with it the scroll offset, so every return from a conversation landed at the top of the inbox. The selection actions read `_lastInbox` for the same reason.
 
+### Dual SIM
+
+`lib/core/sim/` (model · service · bloc · widgets) over `android/.../sim/SimRegistry.kt` + `SimHandler.kt`. Google Messages' and Google Phone's behaviour, followed exactly:
+
+- **One SIM ⇒ nothing changes.** Every affordance — the composer chip, the pickers, the bubble/call-log badges, the notification subtext, the «ذخیره در» row — hangs off `SimService.isMultiSim`. A single-SIM phone must look byte-identical to the app before this existed.
+- **The identity that travels is the `subscriptionId`; the *slot* is only ever displayed.** A subscription id is an opaque per-device counter that changes when a card is re-inserted, so a stored preference names the subscription while «سیم ۱» names the tray.
+- **NULL means unknown, never SIM 1.** `messages.subscription_id`, `call_logs.subscription_id` and `CallInfo.subscriptionId` are null for every row that predates this, for provider rows the OEM never stamped, and for VoIP calls. A wrong SIM badge is worse than none, so the UI omits it.
+- **`SimRegistry` is an `object`, not a handler**, because `SmsNotifier`, `IncomingSmsReceiver` and `ScheduledSmsWorker` need SIM answers *while the Flutter engine is dead*. Every read is wrapped: `SubscriptionManager` throws until READ_PHONE_STATE is granted and the app must degrade to "single, unknown SIM" rather than drop an SMS.
+- **Telecom names a `PhoneAccountHandle`, not a subscription, and no public API maps the two.** `SimRegistry.phoneAccountFor` / `subscriptionIdForAccountId` match on `handle.id == subId` (modern AOSP — verified on the SM A336E: id `"10"`), then the ICC ID, then the account label, then slot order. The same mapping serves outgoing calls (`EXTRA_PHONE_ACCOUNT_HANDLE`) and the call log's `PHONE_ACCOUNT_ID`; Dart caches it in `SimService.subscriptionForAccountId`.
+- **`CallLogService` must `await SimService.instance.ensureLoaded()` before mapping rows.** The mapping's result is *persisted*, so running before the roster exists stamps "no SIM" on every call permanently. `SimBloc` loads at startup but the call-log sync wins that race on a cold start.
+- `call_logs.sim_slot` is dead: it stored `simDisplayName != null ? 1 : null`, i.e. **every** call on either card claimed «سیم ۱». The column is left in place (rebuilding a table for a value nothing believes is not worth it) and `subscription_id` (DB v20) replaces it.
+- **SMS remembers the SIM per conversation** (`thread_sim`, `ThreadSimRepository`), written *on the send* rather than on the pick, so it reflects what actually went out. A global "selected SIM" would be wrong for every conversation but the last. The notification quick-reply answers on the SIM the message arrived on.
+- **The picker only appears when there is a real choice**: two SIMs *and* no system default pinned (`SimService.defaultFor`). Second-guessing the user's Android setting is the bug, not the feature. `placeCall` (`core/sim/sim_call.dart`) is the ONE dial path in the app for exactly this reason — do not call `NativeCallService.makeCall` directly.
+- **…but there is ALWAYS an explicit override**, or a pinned default makes the other card unreachable from the app — which is exactly what the first pass got wrong. Three affordances, all through `placeCallPickingSim`: the keypad's SIM chip beside the call pill (a *setting*, kept in `DialerState.dialSubscriptionId` because the keypad lives in a sheet that gets torn down), a **long-press on every call button** in the app, and the explicit «تماس با سیم …» rows `simCallRows` adds to the call-log / favourites / number sheets.
+- **The send pre-flight is per-SIM.** `SmsHandler.isInService(subscriptionId)` builds a `TelephonyManager.createForSubscriptionId`; reading the *default* subscription's `ServiceState` made the two cards lie about each other — a send on SIM 2 refused with NO_SERVICE because SIM 1 had no signal, and a send on a card that genuinely had none sailing past the check into the radio queue (which reads to the user as "it sent, very late").
+- **`SimRegistry.subscriptions` is cached** (30 s TTL, dropped by `OnSubscriptionsChangedListener`). It is several binder round-trips — plus one per SIM for the card's own number on API 33+ — and it sits on the incoming-SMS notification path (twice) and on every telecom call-state change. `withNumbers` is opt-in and uncached: only the Dart picker displays numbers.
+- **Never rebuild a `MessageModel` field by field — use `copyWith`.** `MessageBloc._onMessageStatusChanged` and `_mergePersistedMessage` did, and each silently dropped whatever field was added last: a bubble lost its SIM badge the instant its ✓✓ landed and only got it back on the next read from the DB.
+- **Scheduled messages carry `subscription_id`** and `ScheduledSmsWorker` (Kotlin) resolves null to the system default before sending, so the send, the provider row and the chat row all name the same card. Change it with `scheduled_message_model.dart`, as ever.
+
+**SIM contacts are NOT in `ContactsContract`.** The provider only carries them once the device's *default* contacts app has registered a SIM account and imported the card — which does not happen on a phone where this app is the contacts surface, so `flutter_contacts` returns the same list with a second SIM inserted as without one. `SimContactsHandler.kt` reads `content://icc/adn/subId/<subId>` per active subscription (the bare `content://icc/adn` always resolves to the *default* subscription, so a naive version shows SIM 1's contacts twice), and `ContactRepository._mergeSimContacts` appends them, dropping any whose number the phone book already has. They are `ContactSource.sim`: no photo, no editing in place (an ADN record is one name, one number, a card-set length limit and no durable id), so «ویرایش» becomes «کپی در تلفن» and deletes go through the ICC provider by content match. `ContactBloc` re-reads on every roster change — that is the other half of "the new SIM's contacts never appeared".
+
 ### Authentication & app lock
 
-- Auth type (PIN or pattern) and credentials are stored in `flutter_secure_storage`.
+- Auth type (PIN or pattern) is stored in `flutter_secure_storage`; the credential itself is stored **salted and stretched** (`v2:<salt>:<hash>`, 60 k rounds of SHA-256), not in plaintext. Rows written by older versions are plaintext and are upgraded in place on the first *successful* validation — never on a wrong guess.
+- **A forgotten PIN is no longer a permanent lockout.** Setting a PIN mints a one-time recovery code (`AuthRepository.regenerateRecoveryCode`, hash-only storage, unambiguous alphabet with no O/0 or I/1) which `PinSetupScreen` shows once via `RecoveryCodeScreen`. `AuthBloc` emits `AuthRecoveryCodeIssued` **before** `AuthAuthenticated` for that reason — reorder them and the code is minted and lost in the same frame. «رمز را فراموش کرده‌ام» on both lock screens verifies it and drops to the set-a-PIN flow; it never unlocks the app directly, because a code written on paper must not become a second password. Settings → «کد بازیابی جدید» re-mints it from inside an unlocked app.
 - `AppLockService` tracks the locked/unlocked state in memory.
 - `AppLockWrapper` listens for `AppLifecycleState` changes and can re-lock the app on resume.
+
+### Crash reporting
+
+`CrashReporting` (`core/services/`) wraps `main`. Off unless a DSN was compiled in (`--dart-define=SENTRY_DSN=…`) **and** the user opted in (Settings → «تشخیص خطا», default off, takes effect next launch).
+
+- It uses the **pure-Dart `sentry`**, not `sentry_flutter`: that package ships its own Android Gradle plugin pinned to AGP 7.4.2, which this project's build cannot resolve — `assembleDebug` fails outright. The cost is that Kotlin-side crashes are not reported; `FlutterError.onError` and `PlatformDispatcher.onError` are hooked by hand for the Dart half.
+- **Nothing about a message leaves the device**: `sendDefaultPii` off, no screenshots or view hierarchy, `console`/`http`/`query` breadcrumbs dropped whole (`debugPrint` in this app legitimately prints bodies), breadcrumb `data` blanked, and every remaining string run through a redactor that replaces any run of ≥ 4 digits. Do not relax any of these — this is the default SMS app.
 
 ### RTL / Persian
 

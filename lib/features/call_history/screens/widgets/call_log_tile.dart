@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:communication_super_app/core/sim/sim_service.dart';
+import 'package:communication_super_app/core/sim/widgets/sim_picker.dart';
+import 'package:communication_super_app/core/sim/sim_call.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
@@ -12,7 +15,6 @@ import 'package:communication_super_app/features/call_history/bloc/call_log_even
 import 'package:communication_super_app/features/call_history/models/call_log_model.dart';
 import 'package:communication_super_app/features/call_history/screens/widgets/call_detail_sheet.dart';
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
-import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_bloc.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_event.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_state.dart';
@@ -96,13 +98,21 @@ class CallLogTile extends StatelessWidget {
                   ),
                   const SizedBox(width: 14),
                   Expanded(child: _titleBlock(context)),
-                  IconButton(
-                    icon: const Icon(Icons.call_outlined),
-                    iconSize: 24,
-                    color: scheme.onSurfaceVariant,
-                    tooltip: 'تماس',
-                    onPressed: () =>
-                        NativeCallService.instance.makeCall(log.phoneNumber),
+                  // Tap dials with the default; long-press asks which card.
+                  // On a single-SIM phone the long-press is simply absent.
+                  GestureDetector(
+                    onLongPress: SimService.isMultiSim
+                        ? () => placeCallPickingSim(context, log.phoneNumber)
+                        : null,
+                    child: IconButton(
+                      icon: const Icon(Icons.call_outlined),
+                      iconSize: 24,
+                      color: scheme.onSurfaceVariant,
+                      tooltip: SimService.isMultiSim
+                          ? 'تماس · نگه‌داشتن برای انتخاب سیم‌کارت'
+                          : 'تماس',
+                      onPressed: () => placeCall(context, log.phoneNumber),
+                    ),
                   ),
                 ],
               ),
@@ -184,16 +194,12 @@ class CallLogTile extends StatelessWidget {
                 ),
               ),
             ),
-            if (log.simSlot != null) ...[
+            // Only on a dual-SIM phone, and only when the row really recorded
+            // a card. The badge used to appear on every call claiming «SIM ۱»,
+            // because the stored slot was faked — see CallLogModel.
+            if (SimService.isMultiSim && log.sim != null) ...[
               const SizedBox(width: 6),
-              Text(
-                'SIM${PersianUtils.toPersianNumber('${log.simSlot}')}',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: scheme.primary,
-                ),
-              ),
+              SimBadge(sim: log.sim!),
             ],
           ],
         ),
