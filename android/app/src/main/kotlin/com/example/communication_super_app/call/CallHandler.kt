@@ -78,6 +78,18 @@ class CallHandler(
                         setSpeakerphone(call.argument<Boolean>("on") ?: false)
                         result.success(null)
                     }
+                    // Explicit output selection — the only way to reach a
+                    // bluetooth headset, which is neither "speaker on" nor
+                    // "speaker off".
+                    "setAudioRoute"   -> {
+                        CallInCallService.instance?.setAudioRouteByName(
+                            call.argument<String>("route") ?: "earpiece",
+                        )
+                        result.success(null)
+                    }
+                    "getAudioState"   -> result.success(
+                        CallInCallService.instance?.currentAudioState(),
+                    )
                     "sendDtmf"        -> {
                         sendDtmf(call.argument<String>("digit") ?: "")
                         result.success(null)

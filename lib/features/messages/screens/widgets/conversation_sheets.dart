@@ -119,14 +119,19 @@ class _ScheduledSheetHeader extends StatelessWidget {
   }
 }
 
-/// Composer attachment sheet — the two functional rows (draft / template) plus
-/// the placeholder media rows that report "coming soon".
+/// Composer attachment sheet.
+///
+/// Every row here does something. The «دوربین» / «گالری» / «صدا» rows were
+/// removed rather than left as "coming soon": MMS is deliberately not
+/// supported, so there is nothing for them to ever do, and a menu of three
+/// dead entries is worse than a shorter menu. «موقعیت» stayed because it has a
+/// plain-SMS answer — the coordinates as text.
 Future<void> showAttachmentSheet(
   BuildContext context, {
   required VoidCallback onInsertDraft,
   required VoidCallback onInsertTemplate,
   required VoidCallback onSchedule,
-  required VoidCallback onComingSoon,
+  required VoidCallback onInsertLocation,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -161,20 +166,15 @@ Future<void> showAttachmentSheet(
               },
             ),
             const Divider(height: 1),
-            for (final item in const [
-              (Icons.photo_camera_outlined, 'دوربین'),
-              (Icons.photo_library_outlined, 'گالری'),
-              (Icons.mic_none_outlined, 'صدا'),
-              (Icons.location_on_outlined, 'موقعیت'),
-            ])
-              ListTile(
-                leading: Icon(item.$1),
-                title: Text(item.$2),
-                onTap: () {
-                  Navigator.pop(sheetCtx);
-                  onComingSoon();
-                },
-              ),
+            ListTile(
+              leading: const Icon(Icons.location_on_outlined),
+              title: const Text('موقعیت'),
+              subtitle: const Text('درج مختصات فعلی در متن پیام'),
+              onTap: () {
+                Navigator.pop(sheetCtx);
+                onInsertLocation();
+              },
+            ),
           ],
         ),
       ),

@@ -103,6 +103,13 @@ class CallInCallService : InCallService() {
         fun hasLiveCall(): Boolean =
             trackedCalls.any { it.state != Call.STATE_DISCONNECTED }
 
+        /** A call is ringing and has to be answerable — the ONE case where the
+         *  screen is forced to stay on. Once answered the proximity sensor
+         *  owns the display; see [ProximityGate]. */
+        @JvmStatic
+        fun hasRingingCall(): Boolean =
+            trackedCalls.any { it.state == Call.STATE_RINGING }
+
         /** True when an active+held pair (or a telecom merge capability) exists. */
         @JvmStatic
         fun canMerge(): Boolean {
@@ -252,6 +259,12 @@ class CallInCallService : InCallService() {
             if (call == currentCall) publishState(call, state)
             // Mergeability depends on the active/held mix — keep Flutter posted.
             publishCallsChanged()
+            // Answered / put on hold / ended — whether the ear may blank the
+            // screen changes with every one of those, and so does the
+            // keep-screen-on flag (held only while RINGING).
+            ProximityGate.refresh(applicationContext)
+            com.example.communication_super_app.MainActivity.instance
+                ?.syncLockScreenVisibility()
             // Nothing live is left, but the call this state belongs to is not
             // the one the UI is following (it hung up while a stale STATE_NEW
             // placeholder was `currentCall`): tear the screen down here rather
@@ -306,6 +319,9 @@ class CallInCallService : InCallService() {
 
     override fun onDestroy() {
         instance = null
+        // The service is the only owner of the proximity lock; leaving it held
+        // would blank the phone with no call to explain it.
+        ProximityGate.release()
         super.onDestroy()
     }
 
@@ -467,6 +483,7 @@ class CallInCallService : InCallService() {
         // still up" is what left the call screen on screen, counting seconds,
         // after everyone had hung up.
         val remaining = topLevelCalls()
+        ProximityGate.refresh(applicationContext)
         if (remaining.isEmpty()) {
             // Last call gone — tear the in-call UI down and stop showing the
             // app over the keyguard (the inbox must stay behind the app lock).
@@ -538,14 +555,84 @@ class CallInCallService : InCallService() {
 
     override fun onCallAudioStateChanged(audioState: CallAudioState) {
         super.onCallAudioStateChanged(audioState)
-        // Keep Flutter's speaker/mute toggles honest if the state is changed
-        // elsewhere (e.g. bluetooth connects).
+        // The screen may only blank against the ear while the audio actually
+        // comes out of the earpiece.
+        ProximityGate.onAudioRouteChanged(audioState, applicationContext)
+        publishAudioState(audioState)
+    }
+
+    /**
+     * Publishes the full audio picture, not just "speaker on/off".
+     *
+     * The route is an enumeration, not a boolean: a bluetooth headset is
+     * neither speaker nor earpiece, and the picker cannot show which output is
+     * live — or whether bluetooth is even an option — from one flag. The
+     * supported mask is what tells «بلوتوث» from a row that would do nothing.
+     */
+    private fun publishAudioState(audioState: CallAudioState) {
+        val mask = audioState.supportedRouteMask
         CallEventStreamHandler.sendRaw(
             mapOf(
                 "event" to "AUDIO_STATE",
+                "route" to routeName(audioState.route),
+                // Kept for the plain speaker toggle, which is still a boolean.
                 "speaker" to (audioState.route == CallAudioState.ROUTE_SPEAKER),
                 "muted" to audioState.isMuted,
+                "hasBluetooth" to
+                    (mask and CallAudioState.ROUTE_BLUETOOTH != 0),
+                "hasWiredHeadset" to
+                    (mask and CallAudioState.ROUTE_WIRED_HEADSET != 0),
+                "hasEarpiece" to (mask and CallAudioState.ROUTE_EARPIECE != 0),
+                "bluetoothName" to bluetoothName(audioState),
             ),
+        )
+    }
+
+    private fun routeName(route: Int): String = when (route) {
+        CallAudioState.ROUTE_SPEAKER -> "speaker"
+        CallAudioState.ROUTE_BLUETOOTH -> "bluetooth"
+        CallAudioState.ROUTE_WIRED_HEADSET -> "wired"
+        else -> "earpiece"
+    }
+
+    /** The connected headset's name, so the row reads «بلوتوث · Galaxy Buds»
+     *  the way Google Phone's output picker does. Null when the platform will
+     *  not say (needs BLUETOOTH_CONNECT on 31+, which this app does not ask
+     *  for — the row still works, it just stays generic). */
+    private fun bluetoothName(audioState: CallAudioState): String? = try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            audioState.activeBluetoothDevice?.name
+        } else {
+            null
+        }
+    } catch (e: SecurityException) {
+        null
+    }
+
+    /** Explicit output selection from the picker. */
+    fun setAudioRouteByName(name: String) {
+        val route = when (name) {
+            "speaker" -> CallAudioState.ROUTE_SPEAKER
+            "bluetooth" -> CallAudioState.ROUTE_BLUETOOTH
+            "wired" -> CallAudioState.ROUTE_WIRED_HEADSET
+            else -> CallAudioState.ROUTE_EARPIECE
+        }
+        setAudioRoute(route)
+    }
+
+    /** The current audio state as the picker's map, for a fresh screen that
+     *  has not seen an AUDIO_STATE event yet. */
+    fun currentAudioState(): Map<String, Any?>? {
+        val state = callAudioState ?: return null
+        val mask = state.supportedRouteMask
+        return mapOf(
+            "route" to routeName(state.route),
+            "speaker" to (state.route == CallAudioState.ROUTE_SPEAKER),
+            "muted" to state.isMuted,
+            "hasBluetooth" to (mask and CallAudioState.ROUTE_BLUETOOTH != 0),
+            "hasWiredHeadset" to (mask and CallAudioState.ROUTE_WIRED_HEADSET != 0),
+            "hasEarpiece" to (mask and CallAudioState.ROUTE_EARPIECE != 0),
+            "bluetoothName" to bluetoothName(state),
         )
     }
 

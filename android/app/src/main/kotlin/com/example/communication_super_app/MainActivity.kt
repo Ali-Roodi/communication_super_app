@@ -30,6 +30,7 @@ class MainActivity : FlutterActivity() {
     private var contactExtrasHandler: ContactExtrasHandler? = null
     private var simHandler: SimHandler? = null
     private var simContactsHandler: SimContactsHandler? = null
+    private var locationHandler: LocationHandler? = null
 
     /// Deep-link channel: SMS-notification taps carry a `threadId` extra.
     private var intentsChannel: MethodChannel? = null
@@ -123,6 +124,17 @@ class MainActivity : FlutterActivity() {
         simContactsHandler = SimContactsHandler(applicationContext)
         simContactsHandler?.setup(
             MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SimContactsHandler.CHANNEL)
+        )
+
+        // ── Location («موقعیت» در پیوست پیام) ───────────────────────────
+        // One coordinate pair, on one tap, inserted as text. Platform
+        // LocationManager rather than a plugin — see LocationHandler.
+        locationHandler = LocationHandler(applicationContext)
+        locationHandler?.setup(
+            MethodChannel(
+                flutterEngine.dartExecutor.binaryMessenger,
+                LocationHandler.CHANNEL,
+            )
         )
 
         // ── Media picker (انتخاب عکس مخاطب) ─────────────────────────────
@@ -346,16 +358,22 @@ class MainActivity : FlutterActivity() {
                 setShowWhenLocked(show)
                 setTurnScreenOn(show)
             }
-            // Pre-27 equivalents (deprecated after, so only set there). The
-            // keep-screen-on flag applies on every version.
-            val legacy = WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
-            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
-            } else {
-                legacy or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+            // Pre-27 equivalents (deprecated after, so only set there).
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) {
+                val legacy = WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                if (show) window.addFlags(legacy) else window.clearFlags(legacy)
             }
-            if (show) window.addFlags(flags) else window.clearFlags(flags)
+            // KEEP_SCREEN_ON only while a call is RINGING — a call the user
+            // cannot see is a call they cannot answer. It must NOT span the
+            // whole call: it holds a screen-bright wake lock, so the display
+            // stayed lit against the ear for the entire conversation and «پایان»
+            // / «بی‌صدا» sat exactly where a cheek lands. Once answered the
+            // proximity sensor owns the display (see ProximityGate), which is
+            // also what Google Phone does.
+            val keepOn = show && CallInCallService.hasRingingCall()
+            val keepFlag = WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+            if (keepOn) window.addFlags(keepFlag) else window.clearFlags(keepFlag)
             // An *insecure* keyguard (swipe only) still covers the window, so
             // ask for it to be taken down. A secure one is left alone: the call
             // UI is meant to show over it without unlocking the phone.
@@ -380,6 +398,7 @@ class MainActivity : FlutterActivity() {
         simHandler?.dispose()
         simHandler = null
         simContactsHandler = null
+        locationHandler = null
         // The engine is going away: the alarm receiver must go back to delivering
         // scheduled messages natively.
         ScheduledSmsChannel.channel = null

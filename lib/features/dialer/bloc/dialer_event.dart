@@ -108,6 +108,18 @@ class SwapCalls extends DialerEvent {
   const SwapCalls();
 }
 
+/// Routes the call audio explicitly (گوشی / بلندگو / بلوتوث / هدست سیمی).
+///
+/// Separate from [ToggleSpeaker], which can only flip between the two built-in
+/// outputs and therefore cannot reach a bluetooth headset at all.
+class SelectAudioRoute extends DialerEvent {
+  final CallAudioRoute route;
+  const SelectAudioRoute(this.route);
+
+  @override
+  List<Object?> get props => [route];
+}
+
 /// Re-reads the live call state from telecom and drops the call UI when there
 /// is no call. Fired on every app resume — the safety net under the event
 /// stream, because a missed DISCONNECTED strands the user on a dead call
