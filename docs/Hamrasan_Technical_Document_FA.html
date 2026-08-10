@@ -1,0 +1,1604 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>هم‌رسان — مستند فنی</title>
+<style>
+@font-face{font-family:Vazirmatn;src:url('Vazirmatn-Regular.ttf');font-weight:400;}
+@font-face{font-family:Vazirmatn;src:url('Vazirmatn-Medium.ttf');font-weight:500;}
+@font-face{font-family:Vazirmatn;src:url('Vazirmatn-SemiBold.ttf');font-weight:600;}
+@font-face{font-family:Vazirmatn;src:url('Vazirmatn-Bold.ttf');font-weight:700;}
+
+:root{
+  --ink:#0b0b0b; --ink-2:#52514e; --muted:#898781;
+  --rule:#e1e0d9; --surface:#fcfcfb; --plane:#f5f5f2;
+  --brand:#2a78d6; --brand-d:#184f95;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  --good:#0ca30c; --warn:#fab219; --crit:#d03b3b;
+}
+
+@page{ size:A4; margin:17mm 15mm 18mm 15mm; }
+@page :first{ margin:0; }
+
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  font-family:Vazirmatn,'Segoe UI',sans-serif;
+  direction:rtl; text-align:right;
+  color:var(--ink); font-size:10.3pt; line-height:1.85;
+  background:#fff; -webkit-print-color-adjust:exact; print-color-adjust:exact;
+}
+p{margin:0 0 8pt; text-align:justify;}
+strong{font-weight:600;}
+code,.mono{font-family:'Consolas','Courier New',monospace; direction:ltr; unicode-bidi:isolate;
+  font-size:8.9pt; background:#f1f1ee; border:1px solid #e4e4df; border-radius:3px; padding:0 3px;}
+
+/* ---------- cover ---------- */
+.cover{height:297mm; page-break-after:always; position:relative; overflow:hidden;
+  background:linear-gradient(155deg,#11253f 0%,#184f95 45%,#2a78d6 100%); color:#fff;}
+.cover .glow{position:absolute; width:520mm; height:520mm; right:-260mm; top:-330mm;
+  border-radius:50%; background:radial-gradient(circle,rgba(255,255,255,.14) 0%,rgba(255,255,255,0) 62%);}
+.cover .grid{position:absolute; inset:0; opacity:.10;
+  background-image:linear-gradient(#fff 1px,transparent 1px),linear-gradient(90deg,#fff 1px,transparent 1px);
+  background-size:14mm 14mm;}
+.cover-in{position:relative; padding:48mm 22mm 0 22mm;}
+.kicker{font-size:10.5pt; letter-spacing:.10em; opacity:.85; font-weight:500;}
+.cover h1{font-size:44pt; font-weight:700; line-height:1.15; margin:9mm 0 0;}
+.cover h2{font-size:15pt; font-weight:400; opacity:.92; margin:5mm 0 0; line-height:1.7;}
+.cover .rule{width:38mm; height:3px; background:#fff; opacity:.9; margin:11mm 0;}
+.cover .devbox{margin-top:2mm; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.28);
+  border-radius:10px; padding:7mm 9mm; display:inline-block; min-width:92mm;}
+.cover .devbox .lbl{font-size:9.5pt; opacity:.8;}
+.cover .devbox .nm{font-size:22pt; font-weight:700; margin-top:2mm;}
+.cover .devbox .role{font-size:10pt; opacity:.85; margin-top:1mm;}
+.cover-foot{position:absolute; bottom:20mm; right:22mm; left:22mm;
+  display:flex; justify-content:space-between; font-size:9.5pt; opacity:.85;
+  border-top:1px solid rgba(255,255,255,.3); padding-top:4mm;}
+.cover .chips{margin-top:9mm;}
+.cover .chip{display:inline-block; border:1px solid rgba(255,255,255,.4); border-radius:99px;
+  padding:1.4mm 4.5mm; font-size:9pt; margin:0 0 2mm 2mm;}
+
+/* ---------- structure ---------- */
+h1.sec{font-size:19pt; font-weight:700; margin:0 0 3mm; padding-bottom:3mm;
+  border-bottom:2px solid var(--brand); page-break-after:avoid;}
+h1.sec .num{color:var(--brand); font-weight:700;}
+h2{font-size:13pt; font-weight:600; margin:7mm 0 2.5mm; page-break-after:avoid;
+  border-right:3px solid var(--brand); padding-right:3mm;}
+h3{font-size:11pt; font-weight:600; margin:5mm 0 2mm; color:var(--brand-d); page-break-after:avoid;}
+section{page-break-before:always;}
+section:first-of-type{page-break-before:auto;}
+ul,ol{margin:0 0 8pt; padding-right:18px;}
+li{margin-bottom:3pt; text-align:justify;}
+
+/* ---------- tables ---------- */
+table{width:100%; border-collapse:collapse; margin:3mm 0 6mm; font-size:9.2pt;
+  page-break-inside:avoid;}
+thead th{background:var(--brand-d); color:#fff; font-weight:600; text-align:right;
+  padding:2.2mm 2.5mm; border:1px solid var(--brand-d); font-size:9.2pt;}
+td{border:1px solid var(--rule); padding:2mm 2.5mm; vertical-align:top;}
+tbody tr:nth-child(even) td{background:#f7f7f4;}
+td.c,th.c{text-align:center;}
+table.tight td{padding:1.5mm 2.5mm;}
+
+/* ---------- callouts ---------- */
+.note{border-right:4px solid var(--brand); background:#f2f7fd; padding:3.5mm 4mm;
+  border-radius:0 6px 6px 0; margin:4mm 0; page-break-inside:avoid;}
+.warn{border-right:4px solid var(--warn); background:#fff8e9; padding:3.5mm 4mm;
+  border-radius:0 6px 6px 0; margin:4mm 0; page-break-inside:avoid;}
+.crit{border-right:4px solid var(--crit); background:#fdf1f1; padding:3.5mm 4mm;
+  border-radius:0 6px 6px 0; margin:4mm 0; page-break-inside:avoid;}
+.note .t,.warn .t,.crit .t{font-weight:600; display:block; margin-bottom:1mm;}
+
+pre{background:#1d2430; color:#e8eef7; border-radius:6px; padding:3.5mm 4mm;
+  direction:ltr; text-align:left; font-family:'Consolas','Courier New',monospace;
+  font-size:8.4pt; line-height:1.6; overflow:hidden; white-space:pre-wrap;
+  page-break-inside:avoid; margin:3mm 0 5mm;}
+pre.tree{background:#f7f7f4; color:#26262a; border:1px solid var(--rule); direction:ltr;}
+
+figure{margin:5mm 0 6mm; page-break-inside:avoid; text-align:center;}
+figure svg{max-width:100%; height:auto;}
+figcaption{font-size:8.8pt; color:var(--ink-2); margin-top:2mm; text-align:center;}
+
+/* ---------- stat tiles ---------- */
+.tiles{display:flex; gap:3mm; margin:4mm 0 6mm; flex-wrap:wrap;}
+.tile{flex:1 1 30mm; border:1px solid var(--rule); border-radius:8px; padding:3.5mm 3mm;
+  background:var(--surface); text-align:center;}
+.tile .v{font-size:19pt; font-weight:700; color:var(--brand-d); line-height:1.2;}
+.tile .k{font-size:8.6pt; color:var(--ink-2); margin-top:1mm;}
+
+/* ---------- toc ---------- */
+.toc{margin-top:4mm;}
+.toc a{color:var(--ink); text-decoration:none;}
+.toc-row{display:flex; color:inherit; text-decoration:none; align-items:baseline; gap:2mm; padding:1.7mm 0;
+  border-bottom:1px dotted var(--rule); font-size:10.2pt;}
+.toc-row .n{color:var(--brand); font-weight:600; min-width:9mm;}
+.toc-row .t{font-weight:500;}
+.toc-row .d{flex:1; color:var(--muted); font-size:8.8pt; text-align:left;}
+
+.badge{display:inline-block; border-radius:99px; padding:.3mm 2.4mm; font-size:8.2pt;
+  font-weight:600; border:1px solid;}
+.b-ok{color:#0a6b0a; border-color:#9ed69e; background:#eef8ee;}
+.b-wip{color:#8a5a00; border-color:#f0d69a; background:#fdf6e6;}
+.b-no{color:#8f2020; border-color:#e8b3b3; background:#fbeeee;}
+</style>
+</head>
+<body>
+
+<!-- ══════════════════ COVER ══════════════════ -->
+<div class="cover">
+  <div class="grid"></div><div class="glow"></div>
+  <div class="cover-in">
+    <div class="kicker">مستند فنی پروژه · نسخه ۱٫۰</div>
+    <h1>هم‌رسان</h1>
+    <h2>اَبَراپلیکیشن ارتباطی اندروید<br>پیامک، تماس، مخاطبین و شماره‌گیر</h2>
+    <div class="rule"></div>
+
+    <div class="devbox">
+      <div class="lbl">توسعه‌دهنده</div>
+      <div class="nm">علی رودی</div>
+      <div class="role">طراحی معماری، پیاده‌سازی Flutter و لایه بومی اندروید</div>
+    </div>
+
+    <div class="chips">
+      <span class="chip">Flutter / Dart</span>
+      <span class="chip">Kotlin — Android Native</span>
+      <span class="chip">BLoC</span>
+      <span class="chip">SQLite</span>
+      <span class="chip">Default SMS App</span>
+      <span class="chip">Default Dialer</span>
+      <span class="chip">Dual SIM</span>
+    </div>
+  </div>
+  <div class="cover-foot">
+    <div>شناسه بسته: <span style="direction:ltr;display:inline-block">ir.hamrasan.app</span></div>
+    <div>مرداد ۱۴۰۵</div>
+  </div>
+</div>
+
+<!-- ══════════════════ TOC ══════════════════ -->
+<section id="toc" style="page-break-before:auto">
+<h1 class="sec"><span class="num">·</span> فهرست مطالب</h1>
+
+<div class="toc">
+  <a class="toc-row" href="#s1"><span class="n">۱</span><span class="t">خلاصه اجرایی</span><span class="d">این پروژه چیست و چه مسئله‌ای را حل می‌کند</span></a>
+  <a class="toc-row" href="#s2"><span class="n">۲</span><span class="t">دامنه محصول و قابلیت‌ها</span><span class="d">فهرست کامل امکانات کاربر</span></a>
+  <a class="toc-row" href="#s3"><span class="n">۳</span><span class="t">آمار پروژه و مقیاس کد</span><span class="d">حجم، توزیع و نمودارها</span></a>
+  <a class="toc-row" href="#s4"><span class="n">۴</span><span class="t">پشته فناوری و وابستگی‌ها</span><span class="d">چه چیزی به‌کار رفته و چرا</span></a>
+  <a class="toc-row" href="#s5"><span class="n">۵</span><span class="t">معماری کلان</span><span class="d">لایه‌بندی، مرزها، جریان داده</span></a>
+  <a class="toc-row" href="#s6"><span class="n">۶</span><span class="t">جریان راه‌اندازی برنامه</span><span class="d">از main تا صفحه اصلی</span></a>
+  <a class="toc-row" href="#s7"><span class="n">۷</span><span class="t">ساختار پوشه‌ها</span><span class="d">قرارداد نام‌گذاری و محل افزودن کد</span></a>
+  <a class="toc-row" href="#s8"><span class="n">۸</span><span class="t">مدیریت وضعیت (BLoC)</span><span class="d">۱۴ بلاک سراسری و قواعد آن‌ها</span></a>
+  <a class="toc-row" href="#s9"><span class="n">۹</span><span class="t">لایه داده و پایگاه‌داده</span><span class="d">۱۵ جدول، ۲۱ نسخه مهاجرت، قواعد ثابت</span></a>
+  <a class="toc-row" href="#s10"><span class="n">۱۰</span><span class="t">پل بومی اندروید</span><span class="d">۲۹ کلاس Kotlin و کانال‌های ارتباطی</span></a>
+  <a class="toc-row" href="#s11"><span class="n">۱۱</span><span class="t">نقش «پیامک پیش‌فرض» و همگام‌سازی آینه‌ای</span><span class="d">سنگین‌ترین بخش فنی پروژه</span></a>
+  <a class="toc-row" href="#s12"><span class="n">۱۲</span><span class="t">نقش «شماره‌گیر پیش‌فرض» و رابط تماس</span><span class="d">Telecom، صفحه تماس، قفل صفحه</span></a>
+  <a class="toc-row" href="#s13"><span class="n">۱۳</span><span class="t">موتور جستجو و پردازش متن فارسی</span><span class="d">نرمال‌سازی، T9، مرتب‌سازی الفبایی</span></a>
+  <a class="toc-row" href="#s14"><span class="n">۱۴</span><span class="t">پیام زمان‌بندی‌شده و قالب‌های آماده</span><span class="d">تحویل پس‌زمینه و پروتکل فشرده</span></a>
+  <a class="toc-row" href="#s15"><span class="n">۱۵</span><span class="t">پشتیبانی دو سیم‌کارت</span><span class="d">هویت اشتراک در برابر شماره شیار</span></a>
+  <a class="toc-row" href="#s16"><span class="n">۱۶</span><span class="t">امنیت و حریم خصوصی</span><span class="d">قفل برنامه، رمزنگاری، گزارش خطا</span></a>
+  <a class="toc-row" href="#s17"><span class="n">۱۷</span><span class="t">کارایی و بهینه‌سازی</span><span class="d">مشکلات واقعی و اندازه‌گیری‌ها</span></a>
+  <a class="toc-row" href="#s18"><span class="n">۱۸</span><span class="t">تست و تضمین کیفیت</span><span class="d">۳۲ فایل تست، ۴٬۷۱۸ خط</span></a>
+  <a class="toc-row" href="#s19"><span class="n">۱۹</span><span class="t">دفترچه تصمیم‌های مهندسی</span><span class="d">چرا این‌طور و نه آن‌طور</span></a>
+  <a class="toc-row" href="#s20"><span class="n">۲۰</span><span class="t">محدودیت‌های شناخته‌شده و نقشه راه</span><span class="d">آنچه هست، آنچه نیست</span></a>
+  <a class="toc-row" href="#s21"><span class="n">۲۱</span><span class="t">پیوست — مجوزها و ساخت خروجی</span><span class="d">Manifest و فرایند Release</span></a>
+</div>
+
+<div class="note" style="margin-top:9mm">
+  <span class="t">این سند برای دو نوع خواننده نوشته شده است</span>
+  بخش‌های ۱ تا ۳ و ۲۰ بدون پیش‌زمینه فنی قابل‌فهم‌اند و تصویر کلی محصول را می‌دهند.
+  بخش‌های ۵ تا ۱۹ عمق فنی دارند و برای مرور معماری، بازبینی کد و ارزیابی تصمیم‌های
+  مهندسی نوشته شده‌اند. هر بخش فنی با یک پاراگراف «به زبان ساده» شروع می‌شود.
+</div>
+</section>
+
+<!-- ══════════════════ 1 ══════════════════ -->
+<section id="s1">
+<h1 class="sec"><span class="num">۱.</span> خلاصه اجرایی</h1>
+
+<h2>مسئله</h2>
+<p>
+روی هر گوشی اندرویدی، چهار کار پایه‌ای ارتباطی — پیامک، تماس، تاریخچه تماس و دفترچه مخاطبین —
+معمولاً در سه یا چهار برنامه جدا انجام می‌شود که هرکدام حافظه، تنظیمات و منطق جستجوی مستقل دارند.
+برای کاربر فارسی‌زبان، این وضعیت دو مشکل اضافه هم دارد: جستجوی نام‌های فارسی در این برنامه‌ها
+عملاً کار نمی‌کند (چون «ی» عربی و فارسی، فاصله‌ی مجازی و اعراب را یکسان نمی‌بیند) و
+مرتب‌سازی الفبایی فارسی نادرست است، چون بر پایه ترتیب کدهای یونیکد انجام می‌شود و
+حروف پ، چ، ژ، ک و گ در آن ترتیب سر جای خود نیستند.
+</p>
+
+<h2>راه‌حل</h2>
+<p>
+<strong>هم‌رسان</strong> یک اپلیکیشن اندرویدی است که هر چهار کار را در یک برنامه جمع می‌کند و
+جای برنامه پیامک و شماره‌گیر پیش‌فرض گوشی را می‌گیرد. برنامه کاملاً فارسی و راست‌به‌چپ است،
+تقویم شمسی دارد، و موتور جستجوی متن فارسی مخصوص خودش را دارد که مسائل بالا را حل می‌کند.
+تمام داده روی خود دستگاه می‌ماند؛ پروژه هیچ سرور و هیچ بک‌اندی ندارد.
+</p>
+
+<div class="tiles">
+  <div class="tile"><div class="v">۴۳٬۵۰۴</div><div class="k">خط کد تولیدی<br>(Dart + Kotlin)</div></div>
+  <div class="tile"><div class="v">۲۱۴</div><div class="k">فایل منبع</div></div>
+  <div class="tile"><div class="v">۱۵</div><div class="k">جدول پایگاه‌داده</div></div>
+  <div class="tile"><div class="v">۳۲</div><div class="k">فایل تست خودکار</div></div>
+  <div class="tile"><div class="v">۱۰۲</div><div class="k">کامیت در ۸ ماه</div></div>
+</div>
+
+<h2>چه چیزی این پروژه را از یک تمرین Flutter جدا می‌کند</h2>
+<p>
+اکثر پروژه‌های Flutter یک لایه رابط کاربری روی یک API هستند. این پروژه <strong>API ندارد</strong>؛
+منبع دادهٔ آن خودِ سیستم‌عامل اندروید است. برنامه دو نقش سیستمی حساس را می‌گیرد:
+</p>
+<ul>
+  <li><strong>Default SMS App (ROLE_SMS)</strong> — به‌محض گرفتن این نقش، اندروید دیگر خودش پیامک‌های
+  ورودی را در پایگاه‌دادهٔ سیستم ذخیره نمی‌کند؛ این وظیفه بر عهدهٔ برنامه می‌افتد. یعنی یک باگ در
+  این مسیر برابر است با <em>گم‌شدن پیامک کاربر</em>.</li>
+  <li><strong>Default Dialer (ROLE_DIALER)</strong> — پس از گرفتن این نقش، تنها رابط تماس دستگاه
+  این برنامه است. اگر صفحهٔ تماس بالا نیاید، کاربر <em>هیچ راهی برای جواب‌دادن به تماس ندارد</em>.</li>
+</ul>
+<p>
+هر دو نقش، خطای «نرم» ندارند. همین موضوع باعث شد بخش بزرگی از مهندسی پروژه صرف مسیرهای
+شکست، همگام‌سازی دوطرفه با پایگاه‌دادهٔ سیستم، و اجرای درست کد در حالتی شود که
+<strong>پروسهٔ برنامه اصلاً زنده نیست</strong> (دریافت پیامک با گوشی خاموش‌شده، ارسال زمان‌بندی‌شده،
+پاسخ سریع از نوتیفیکیشن).
+</p>
+
+<h2>وضعیت فعلی</h2>
+<table>
+  <thead><tr><th style="width:30%">محور</th><th>وضعیت</th></tr></thead>
+  <tbody>
+    <tr><td>قابلیت‌های اصلی</td><td><span class="badge b-ok">کامل</span> — پیامک، تماس، مخاطبین، شماره‌گیر، جستجو، زمان‌بندی، قالب، دو سیم‌کارت</td></tr>
+    <tr><td>پایداری روی دستگاه واقعی</td><td><span class="badge b-ok">تأییدشده</span> روی Samsung SM-A336E دو سیم‌کارته، اندروید ۱۶</td></tr>
+    <tr><td>خروجی Release</td><td><span class="badge b-ok">آماده</span> — امضا، R8/کوچک‌سازی و شناسهٔ نهایی <span class="mono">ir.hamrasan.app</span></td></tr>
+    <tr><td>پوشش تست</td><td><span class="badge b-wip">در حال بهبود</span> — لایهٔ BLoC و منطق خالص پوشش دارد؛ تست ابزار (Instrumentation) ندارد</td></tr>
+    <tr><td>MMS</td><td><span class="badge b-no">خارج از دامنه</span> — تصمیم آگاهانه، توضیح در بخش ۲۰</td></tr>
+    <tr><td>iOS</td><td><span class="badge b-no">غیرممکن</span> — iOS اجازهٔ جایگزینی برنامهٔ پیامک/تماس را نمی‌دهد</td></tr>
+  </tbody>
+</table>
+</section>
+
+<!-- ══════════════════ 2 ══════════════════ -->
+<section id="s2">
+<h1 class="sec"><span class="num">۲.</span> دامنه محصول و قابلیت‌ها</h1>
+
+<p>
+برنامه یک پوستهٔ چهارتبی است: <strong>شماره‌گیر</strong>، <strong>اخیر</strong> (تاریخچهٔ تماس)،
+<strong>مخاطبین</strong> و <strong>پیام‌ها</strong>. جدول زیر همهٔ قابلیت‌های تحویل‌شده را
+به تفکیک ماژول فهرست می‌کند.
+</p>
+
+<h2>۲٫۱ پیام‌ها</h2>
+<table class="tight">
+  <thead><tr><th style="width:26%">قابلیت</th><th>توضیح</th></tr></thead>
+  <tbody>
+    <tr><td>صندوق ورودی</td><td>گفتگومحور، صفحه‌بندی‌شده (Pagination)، با سنجاق‌کردن، بایگانی و شمارش نخوانده‌ها</td></tr>
+    <tr><td>ارسال و دریافت</td><td>مسیر بومی کامل؛ وضعیت تحویل روی حباب پیام: ⏱ در انتظار ← ✓ ارسال ← ✓✓ تحویل / خطا با امکان تلاش مجدد</td></tr>
+    <tr><td>جستجوی پیام</td><td>جستجوی متن کامل روی بدنهٔ همهٔ پیام‌ها (نه فقط پیام‌های بارگذاری‌شده)، با موتور تطبیق فارسی</td></tr>
+    <tr><td>پیش‌نویس</td><td>تخته دوستونی، دسته‌بندی، سنجاق، چندانتخابی</td></tr>
+    <tr><td>قالب آماده</td><td>متن با جای‌گذار <span class="mono">[...]</span>؛ فرم پرکردن به‌صورت خودکار از روی جای‌گذارها ساخته می‌شود</td></tr>
+    <tr><td>زمان‌بندی ارسال</td><td>زمان مشخص، تکرار، «پراکندگی زمان ارسال»، پایان تکرار — با تحویل در پس‌زمینه حتی وقتی برنامه بسته است</td></tr>
+    <tr><td>کپی کد یکبارمصرف</td><td>تشخیص خودکار کد تأیید در پیام دریافتی و نمایش دکمهٔ «کپی»</td></tr>
+    <tr><td>موقعیت مکانی</td><td>درج مختصات جاری به‌صورت متن در نویسنده پیام (بدون وابستگی به کتابخانه بیرونی)</td></tr>
+    <tr><td>صفحه‌کلید ایموجی</td><td>پنل اختصاصی با دسته‌بندی، «اخیر» و تنوع رنگ پوست</td></tr>
+    <tr><td>هرزنامه و مسدودسازی</td><td>مسدودسازی شماره + گزارش هرزنامه؛ گفتگوی مسدود از صندوق خارج و به صفحهٔ مخصوص منتقل می‌شود</td></tr>
+    <tr><td>انتخاب و عملیات گروهی</td><td>نگه‌داشتن انگشت روی ردیف ← نوار انتخاب چندتایی (حذف، بایگانی، سنجاق، مسدود)</td></tr>
+  </tbody>
+</table>
+
+<h2>۲٫۲ تماس و شماره‌گیر</h2>
+<table class="tight">
+  <thead><tr><th style="width:26%">قابلیت</th><th>توضیح</th></tr></thead>
+  <tbody>
+    <tr><td>صفحهٔ تماس کامل</td><td>ورودی و خروجی؛ سکوت، بلندگو، نگه‌داشتن، ادغام تماس، صفحه‌کلید DTMF</td></tr>
+    <tr><td>نمایش روی قفل صفحه</td><td>تماس ورودی روی صفحهٔ قفل نمایش داده می‌شود و صفحه را روشن می‌کند</td></tr>
+    <tr><td>حسگر نزدیکی</td><td>خاموش‌کردن صفحه هنگام نزدیک‌شدن به گوش — فقط وقتی خروجی صدا گوشی است، نه بلندگو یا هدست</td></tr>
+    <tr><td>انتخاب خروجی صدا</td><td>فهرست خروجی‌هایی که Telecom واقعاً گزارش می‌کند (گوشی، بلندگو، هدست سیمی، بلوتوث با نام دستگاه)</td></tr>
+    <tr><td>جستجوی T9</td><td>شماره‌گیری با حروف — کلیدهای عددی هم شماره و هم نامِ فارسی مخاطب را جستجو می‌کنند</td></tr>
+    <tr><td>شماره‌گیری سریع</td><td>نگه‌داشتن کلیدهای ۲ تا ۹؛ ۰ ← «+» و ۱ ← پست صوتی (با انتخاب سیم‌کارت)</td></tr>
+    <tr><td>کدهای USSD/MMI</td><td>پشتیبانی کامل از <span class="mono">*100#</span> و نظایر آن، با مسیر جداگانه از رابط تماس</td></tr>
+    <tr><td>تاریخچهٔ تماس</td><td>همگام‌سازی دوطرفه با تاریخچهٔ سیستم، گروه‌بندی تماس‌های پیاپی، حذف سراسری</td></tr>
+    <tr><td>تماس بی‌پاسخ</td><td>نوتیفیکیشن بومی (وظیفهٔ شماره‌گیر پیش‌فرض)</td></tr>
+  </tbody>
+</table>
+
+<h2>۲٫۳ مخاطبین</h2>
+<table class="tight">
+  <thead><tr><th style="width:26%">قابلیت</th><th>توضیح</th></tr></thead>
+  <tbody>
+    <tr><td>منبع داده</td><td>مستقیم روی دفترچهٔ تلفن دستگاه — بدون کپی محلی، بدون خطر ناهمگامی</td></tr>
+    <tr><td>مخاطبین سیم‌کارت</td><td>خوانده‌شدن مستقیم از <span class="mono">content://icc/adn</span> به‌ازای هر سیم‌کارت فعال</td></tr>
+    <tr><td>برچسب‌ها</td><td>گروه‌های مخاطب قابل ویرایش، با پنهان‌کردن گروه‌های داخلی سیستم</td></tr>
+    <tr><td>ادغام تکراری‌ها</td><td>تشخیص خودکار (اشتراک شماره یا نام یکسان) و ادغام از راه <span class="mono">AggregationExceptions</span></td></tr>
+    <tr><td>قالب نام و مرتب‌سازی</td><td>«نام / نام خانوادگی» به‌عنوان تنظیم — روی فهرست، جستجو، نوار حروف و تاریخچهٔ تماس همزمان اثر می‌گذارد</td></tr>
+    <tr><td>برنامه‌های متصل</td><td>نمایش اقدام‌های ثبت‌شده توسط پیام‌رسان‌های دیگر روی همان مخاطب</td></tr>
+    <tr><td>علاقه‌مندی‌ها</td><td>جدول مستقل با کلید یکتای نرمال‌شده</td></tr>
+  </tbody>
+</table>
+
+<h2>۲٫۴ سراسری</h2>
+<table class="tight">
+  <thead><tr><th style="width:26%">قابلیت</th><th>توضیح</th></tr></thead>
+  <tbody>
+    <tr><td>قفل برنامه</td><td>PIN یا الگو، با ذخیرهٔ نمکی و کشیده‌شده (Salted + Stretched) و کد بازیابی یکبارمصرف</td></tr>
+    <tr><td>دو سیم‌کارت</td><td>انتخاب سیم در شماره‌گیری و ارسال، حافظهٔ سیم به‌ازای هر گفتگو، نشان سیم روی حباب و تاریخچه</td></tr>
+    <tr><td>تم روشن و تیره</td><td>سامانهٔ طراحی مشترک بر پایهٔ نقش سطوح</td></tr>
+    <tr><td>تقویم شمسی</td><td>تبدیل دستی جلالی، بدون وابستگی بیرونی</td></tr>
+    <tr><td>جستجوی یکپارچه</td><td>یک موتور مشترک برای مخاطب، تماس و پیام</td></tr>
+  </tbody>
+</table>
+</section>
+
+<!-- ══════════════════ 3 ══════════════════ -->
+<section id="s3">
+<h1 class="sec"><span class="num">۳.</span> آمار پروژه و مقیاس کد</h1>
+
+<p>
+اعداد زیر مستقیماً از مخزن استخراج شده‌اند و مقیاس واقعی کار را نشان می‌دهند؛
+هدف از آوردنشان این است که خواننده بداند با چه اندازه‌ای از کدِ نگه‌داری‌شونده روبه‌روست.
+</p>
+
+<table>
+  <thead><tr><th>سنجه</th><th class="c">مقدار</th><th>توضیح</th></tr></thead>
+  <tbody>
+    <tr><td>کد Dart (لایهٔ برنامه)</td><td class="c">۳۷٬۶۰۷ خط / ۱۸۵ فایل</td><td>رابط کاربری، منطق، BLoC، مخازن داده</td></tr>
+    <tr><td>کد Kotlin (لایهٔ بومی)</td><td class="c">۵٬۸۹۷ خط / ۲۹ فایل</td><td>سرویس‌ها، گیرنده‌ها، پل‌های پلتفرم</td></tr>
+    <tr><td>کد تست</td><td class="c">۴٬۷۱۸ خط / ۳۲ فایل</td><td>واحد، BLoC و ویجت</td></tr>
+    <tr><td>جدول‌های پایگاه‌داده</td><td class="c">۱۵</td><td>نسخهٔ اسکیما: ۲۱</td></tr>
+    <tr><td>بلاک‌های سراسری</td><td class="c">۱۴</td><td>همه در یک نقطه فراهم می‌شوند</td></tr>
+    <tr><td>ماژول‌های ویژگی</td><td class="c">۸</td><td>ساختار یکسان در همه</td></tr>
+    <tr><td>مجوزهای اندروید</td><td class="c">۲۵</td><td>هرکدام با کاربرد مشخص — بخش ۲۱</td></tr>
+    <tr><td>تاریخچه</td><td class="c">۱۰۲ کامیت</td><td>آذر ۱۴۰۴ تا مرداد ۱۴۰۵</td></tr>
+  </tbody>
+</table>
+
+<figure>
+<svg viewBox="0 0 620 300" xmlns="http://www.w3.org/2000/svg" font-family="Vazirmatn,sans-serif">
+  <text x="600" y="18" text-anchor="start" font-size="12.5" font-weight="600" fill="#0b0b0b">توزیع خطوط کد بر حسب ماژول (Dart)</text>
+  <text x="600" y="34" text-anchor="start" font-size="9.5" fill="#898781">ماژول «پیام‌ها» به‌تنهایی ۴۳٪ کل کد لایهٔ برنامه است</text>
+
+  <!-- bars: right-anchored at x=520, growing left -->
+  <g font-size="10">
+    <!-- messages -->
+    <text x="600" y="62" text-anchor="start" fill="#0b0b0b">پیام‌ها</text>
+    <rect x="80" y="52" width="440" height="13" rx="4" fill="#2a78d6"/>
+    <text x="74" y="62" text-anchor="start" font-size="9.5" fill="#52514e">۱۶٬۲۵۷</text>
+
+    <text x="600" y="88" text-anchor="start" fill="#0b0b0b">هستهٔ مشترک</text>
+    <rect x="343" y="78" width="177" height="13" rx="4" fill="#2a78d6"/>
+    <text x="337" y="88" text-anchor="start" font-size="9.5" fill="#52514e">۶٬۵۳۰</text>
+
+    <text x="600" y="114" text-anchor="start" fill="#0b0b0b">مخاطبین</text>
+    <rect x="386" y="104" width="134" height="13" rx="4" fill="#2a78d6"/>
+    <text x="380" y="114" text-anchor="start" font-size="9.5" fill="#52514e">۴٬۹۳۸</text>
+
+    <text x="600" y="140" text-anchor="start" fill="#0b0b0b">شماره‌گیر</text>
+    <rect x="427" y="130" width="93" height="13" rx="4" fill="#2a78d6"/>
+    <text x="421" y="140" text-anchor="start" font-size="9.5" fill="#52514e">۳٬۴۳۱</text>
+
+    <text x="600" y="166" text-anchor="start" fill="#0b0b0b">تاریخچهٔ تماس</text>
+    <rect x="459" y="156" width="61" height="13" rx="4" fill="#2a78d6"/>
+    <text x="453" y="166" text-anchor="start" font-size="9.5" fill="#52514e">۲٬۲۳۷</text>
+
+    <text x="600" y="192" text-anchor="start" fill="#0b0b0b">تنظیمات</text>
+    <rect x="479" y="182" width="41" height="13" rx="4" fill="#2a78d6"/>
+    <text x="473" y="192" text-anchor="start" font-size="9.5" fill="#52514e">۱٬۵۲۷</text>
+
+    <text x="600" y="218" text-anchor="start" fill="#0b0b0b">احراز هویت</text>
+    <rect x="483" y="208" width="37" height="13" rx="4" fill="#2a78d6"/>
+    <text x="477" y="218" text-anchor="start" font-size="9.5" fill="#52514e">۱٬۳۷۷</text>
+
+    <text x="600" y="244" text-anchor="start" fill="#0b0b0b">علاقه‌مندی‌ها</text>
+    <rect x="502" y="234" width="18" height="13" rx="4" fill="#2a78d6"/>
+    <text x="496" y="244" text-anchor="start" font-size="9.5" fill="#52514e">۶۷۳</text>
+
+    <text x="600" y="270" text-anchor="start" fill="#0b0b0b">جستجو</text>
+    <rect x="505" y="260" width="15" height="13" rx="4" fill="#2a78d6"/>
+    <text x="499" y="270" text-anchor="start" font-size="9.5" fill="#52514e">۵۵۲</text>
+  </g>
+  <line x1="520" y1="46" x2="520" y2="280" stroke="#c3c2b7" stroke-width="1"/>
+</svg>
+<figcaption>نمودار ۱ — توزیع خطوط کد میان ماژول‌های ویژگی و هستهٔ مشترک</figcaption>
+</figure>
+
+<figure>
+<svg viewBox="0 0 620 200" xmlns="http://www.w3.org/2000/svg" font-family="Vazirmatn,sans-serif">
+  <text x="600" y="18" text-anchor="start" font-size="12.5" font-weight="600" fill="#0b0b0b">ترکیب کل مخزن بر حسب زبان و نوع</text>
+
+  <g font-size="10">
+    <text x="600" y="58" text-anchor="start" fill="#0b0b0b">Dart — لایهٔ برنامه</text>
+    <rect x="100" y="48" width="420" height="15" rx="4" fill="#2a78d6"/>
+    <text x="94" y="59" text-anchor="start" font-size="9.5" fill="#52514e">۳۷٬۶۰۷</text>
+
+    <text x="600" y="98" text-anchor="start" fill="#0b0b0b">Kotlin — لایهٔ بومی</text>
+    <rect x="454" y="88" width="66" height="15" rx="4" fill="#2a78d6"/>
+    <text x="448" y="99" text-anchor="start" font-size="9.5" fill="#52514e">۵٬۸۹۷</text>
+
+    <text x="600" y="138" text-anchor="start" fill="#0b0b0b">Dart — تست‌ها</text>
+    <rect x="467" y="128" width="53" height="15" rx="4" fill="#2a78d6"/>
+    <text x="461" y="139" text-anchor="start" font-size="9.5" fill="#52514e">۴٬۷۱۸</text>
+  </g>
+  <line x1="520" y1="42" x2="520" y2="155" stroke="#c3c2b7" stroke-width="1"/>
+  <text x="600" y="178" text-anchor="start" font-size="9" fill="#898781">نسبت تست به کد لایهٔ برنامه: حدود ۱ به ۸ — پوشش روی منطق، نه روی رابط کاربری</text>
+</svg>
+<figcaption>نمودار ۲ — ترکیب مخزن؛ حجم کد بومی نشان‌دهندهٔ عمق یکپارچگی با سیستم‌عامل است</figcaption>
+</figure>
+</section>
+
+<!-- ══════════════════ 4 ══════════════════ -->
+<section id="s4">
+<h1 class="sec"><span class="num">۴.</span> پشته فناوری و وابستگی‌ها</h1>
+
+<p>
+سیاست وابستگی پروژه محافظه‌کارانه است: هر کتابخانه باید کاری بکند که نوشتنش
+به‌دست خودمان گران‌تر از نگه‌داری وابستگی باشد. سه مورد آگاهانه <em>حذف</em> شدند،
+که در انتهای همین بخش آمده است.
+</p>
+
+<table>
+  <thead><tr><th style="width:22%">لایه</th><th style="width:26%">انتخاب</th><th>دلیل</th></tr></thead>
+  <tbody>
+    <tr><td>چارچوب UI</td><td>Flutter (Dart SDK ‎^3.10.1‎)</td><td>یک پایگاه کد، کنترل کامل روی رندر راست‌به‌چپ</td></tr>
+    <tr><td>مدیریت وضعیت</td><td><span class="mono">flutter_bloc</span> + <span class="mono">equatable</span></td><td>رویداد/وضعیت صریح و قابل تست؛ همهٔ گذارها قابل بازپخش در تست‌اند</td></tr>
+    <tr><td>ذخیره‌سازی</td><td><span class="mono">sqflite</span> (SQLite)</td><td>تنها موتوری که هم Dart و هم Kotlin می‌توانند روی یک فایل بخوانند</td></tr>
+    <tr><td>مخاطبین</td><td><span class="mono">flutter_contacts</span></td><td>دسترسی مستقیم به ContactsContract؛ نوشتن بدون کپی محلی</td></tr>
+    <tr><td>مجوزها</td><td><span class="mono">permission_handler</span></td><td>درخواست دسته‌ای پیش از ساخت پوستهٔ اصلی</td></tr>
+    <tr><td>امنیت</td><td><span class="mono">flutter_secure_storage</span> + <span class="mono">crypto</span></td><td>ذخیرهٔ نوع قفل در Keystore؛ هش نمکی ۶۰٬۰۰۰ دوری SHA-256</td></tr>
+    <tr><td>نوتیفیکیشن</td><td><span class="mono">flutter_local_notifications</span> + مسیر بومی</td><td>نوتیفیکیشن پیامک تماماً بومی است تا با پروسهٔ خاموش هم کار کند</td></tr>
+    <tr><td>تنظیمات سبک</td><td><span class="mono">shared_preferences</span></td><td>پرچم‌های کلید/مقدار</td></tr>
+    <tr><td>گزارش خطا</td><td><span class="mono">sentry</span> (نسخهٔ خالص Dart)</td><td>پیش‌فرض خاموش؛ توضیح در بخش ۱۶</td></tr>
+    <tr><td>فونت</td><td>Vazirmatn (۴ وزن)</td><td>جایگزین آزاد و نزدیک به IRANYekanX در طرح Figma</td></tr>
+    <tr><td>تست</td><td><span class="mono">bloc_test</span>, <span class="mono">mocktail</span>, <span class="mono">sqflite_common_ffi</span></td><td>پایگاه‌دادهٔ درون‌حافظه‌ای برای تست واقعی مخازن</td></tr>
+  </tbody>
+</table>
+
+<h2>وابستگی‌هایی که حذف شدند — و چرا</h2>
+<table>
+  <thead><tr><th style="width:26%">کتابخانه</th><th>مشکل و تصمیم</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><span class="mono">another_telephony</span></td>
+      <td>شنوندهٔ سراسری <span class="mono">onRequestPermissionsResult</span> آن، نتیجهٔ یک MethodChannel را دوبار پاسخ می‌داد
+      («Reply already submitted») و هر بار که یک فراخوانی تلفنی با دیالوگ مجوز هم‌پوشانی می‌کرد برنامه کرش می‌کرد.
+      <strong>تصمیم:</strong> کل دسترسی به Provider پیامک به Kotlin منتقل شد. این حذف، خودش دلیل بخش بزرگی از کد بومی پروژه است.</td>
+    </tr>
+    <tr>
+      <td><span class="mono">sentry_flutter</span></td>
+      <td>پلاگین Gradle مخصوص خودش را با AGP ۷٫۴٫۲ پین می‌کند و ساخت پروژه را می‌شکند
+      (<span class="mono">Could not find com.android.tools.build:gradle:7.4.2</span>).
+      <strong>تصمیم:</strong> نسخهٔ خالص Dart استفاده شد؛ هزینه‌اش این است که کرش‌های سمت Kotlin گزارش نمی‌شوند.</td>
+    </tr>
+    <tr>
+      <td>کتابخانهٔ موقعیت مکانی</td>
+      <td>یک جفت مختصات با یک ضربه، یک «کتابخانهٔ موقعیت» نیست. <strong>تصمیم:</strong> استفادهٔ مستقیم از
+      <span class="mono">LocationManager</span> پلتفرم در ۱۲۰ خط Kotlin، بدون افزودن وابستگی جدید به زنجیرهٔ ساخت.</td>
+    </tr>
+    <tr>
+      <td>کتابخانهٔ تقویم شمسی</td>
+      <td>تبدیل جلالی یک تابع ریاضی مشخص است. <strong>تصمیم:</strong> پیاده‌سازی داخلی
+      (<span class="mono">JalaliDate</span>) با تست واحد اختصاصی.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <span class="t">قاعدهٔ کلی که از این تجربه بیرون آمد</span>
+  در برنامه‌ای که نقش سیستمی می‌گیرد، هر کتابخانه‌ای که به کانال‌های پلتفرم دست می‌زند
+  یک <em>سطح حمله برای باگ‌های همزمانی</em> است. جایی که کتابخانه فقط یک لفاف نازک روی
+  API پلتفرم است، نوشتن مستقیم آن لفاف ارزان‌تر و قابل‌پیش‌بینی‌تر است.
+</div>
+</section>
+
+<!-- ══════════════════ 5 ══════════════════ -->
+<section id="s5">
+<h1 class="sec"><span class="num">۵.</span> معماری کلان</h1>
+
+<p><strong>به زبان ساده:</strong> برنامه از پنج لایه ساخته شده. هر لایه فقط با لایهٔ زیر خودش حرف می‌زند.
+صفحه‌ها هیچ‌وقت مستقیماً به پایگاه‌داده یا به اندروید دست نمی‌زنند؛ همیشه از راه یک «بلاک»
+درخواست می‌دهند و منتظر وضعیت جدید می‌مانند. این قاعده باعث می‌شود بشود هر لایه را جدا تست کرد.</p>
+
+<figure>
+<svg viewBox="0 0 620 400" xmlns="http://www.w3.org/2000/svg" font-family="Vazirmatn,sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 z" fill="#52514e"/>
+    </marker>
+  </defs>
+
+  <!-- L1 -->
+  <rect x="40" y="14" width="540" height="52" rx="8" fill="#eaf2fd" stroke="#2a78d6" stroke-width="1.4"/>
+  <text x="560" y="36" text-anchor="start" font-size="12" font-weight="600" fill="#184f95">لایهٔ نمایش — Screens &amp; Widgets</text>
+  <text x="560" y="54" text-anchor="start" font-size="9.5" fill="#52514e">صفحه‌ها، ویجت‌های مشترک، سامانهٔ طراحی، راست‌به‌چپ · بدون منطق کسب‌وکار</text>
+
+  <!-- L2 -->
+  <rect x="40" y="86" width="540" height="52" rx="8" fill="#fdf0e9" stroke="#eb6834" stroke-width="1.4"/>
+  <text x="560" y="108" text-anchor="start" font-size="12" font-weight="600" fill="#a83f18">لایهٔ وضعیت — BLoC</text>
+  <text x="560" y="126" text-anchor="start" font-size="9.5" fill="#52514e">۱۴ بلاک سراسری · رویداد ← وضعیت · نگهبان‌های وضعیت · حافظه‌های نهان جلسه‌ای</text>
+
+  <!-- L3 -->
+  <rect x="40" y="158" width="540" height="52" rx="8" fill="#e9f7f1" stroke="#1baf7a" stroke-width="1.4"/>
+  <text x="560" y="180" text-anchor="start" font-size="12" font-weight="600" fill="#0e7351">لایهٔ دامنه — Repositories &amp; Services</text>
+  <text x="560" y="198" text-anchor="start" font-size="9.5" fill="#52514e">مخازن (SQL) · سرویس‌ها (هماهنگی، پل بومی) · مدل‌ها و منطق خالص</text>
+
+  <!-- L4 -->
+  <rect x="40" y="230" width="258" height="60" rx="8" fill="#f3f3f0" stroke="#898781" stroke-width="1.2"/>
+  <text x="278" y="252" text-anchor="start" font-size="11.5" font-weight="600" fill="#0b0b0b">SQLite محلی</text>
+  <text x="278" y="270" text-anchor="start" font-size="9" fill="#52514e">۱۵ جدول · نسخهٔ ۲۱</text>
+  <text x="278" y="284" text-anchor="start" font-size="9" fill="#52514e">تنها فایل مشترک Dart و Kotlin</text>
+
+  <rect x="322" y="230" width="258" height="60" rx="8" fill="#f3f3f0" stroke="#898781" stroke-width="1.2"/>
+  <text x="560" y="252" text-anchor="start" font-size="11.5" font-weight="600" fill="#0b0b0b">کانال‌های پلتفرم</text>
+  <text x="560" y="270" text-anchor="start" font-size="9" fill="#52514e">MethodChannel (فرمان) · EventChannel (جریان)</text>
+  <text x="560" y="284" text-anchor="start" font-size="9" fill="#52514e">نزدیک‌ترین چیز به «API شبکه» در این پروژه</text>
+
+  <!-- L5 -->
+  <rect x="40" y="310" width="540" height="66" rx="8" fill="#11253f" stroke="#11253f"/>
+  <text x="560" y="332" text-anchor="start" font-size="12" font-weight="600" fill="#ffffff">لایهٔ بومی اندروید — Kotlin</text>
+  <text x="560" y="350" text-anchor="start" font-size="9.5" fill="#c9d6e6">InCallService · SMS Receivers · ContentProviders · AlarmManager · SubscriptionManager</text>
+  <text x="560" y="366" text-anchor="start" font-size="9.5" fill="#c9d6e6">بخشی از این کد وقتی اجرا می‌شود که پروسهٔ Flutter اصلاً زنده نیست</text>
+
+  <!-- arrows -->
+  <line x1="310" y1="66" x2="310" y2="84" stroke="#52514e" stroke-width="1.2" marker-end="url(#ar)"/>
+  <line x1="310" y1="138" x2="310" y2="156" stroke="#52514e" stroke-width="1.2" marker-end="url(#ar)"/>
+  <line x1="170" y1="210" x2="170" y2="228" stroke="#52514e" stroke-width="1.2" marker-end="url(#ar)"/>
+  <line x1="450" y1="210" x2="450" y2="228" stroke="#52514e" stroke-width="1.2" marker-end="url(#ar)"/>
+  <line x1="450" y1="290" x2="450" y2="308" stroke="#52514e" stroke-width="1.2" marker-end="url(#ar)"/>
+  <line x1="170" y1="308" x2="170" y2="292" stroke="#52514e" stroke-width="1.2" marker-end="url(#ar)"/>
+</svg>
+<figcaption>نمودار ۳ — لایه‌بندی؛ فلش دوطرفهٔ سمت راست نشان می‌دهد که لایهٔ بومی هم روی همان فایل SQLite می‌نویسد</figcaption>
+</figure>
+
+<h2>۵٫۱ قاعده‌های مرزی</h2>
+<table>
+  <thead><tr><th style="width:30%">قاعده</th><th>چرا</th></tr></thead>
+  <tbody>
+    <tr><td>هیچ <span class="mono">BlocProvider</span> داخل صفحه‌ها ساخته نمی‌شود</td>
+        <td>همهٔ بلاک‌ها در <span class="mono">AppBlocProviders</span> فراهم می‌شوند؛ در غیر این‌صورت باز و بستهٔ یک صفحه، وضعیت گفتگوی باز را دور می‌ریخت</td></tr>
+    <tr><td>صفحه‌ها هرگز مستقیم به مخزن یا کانال دست نمی‌زنند</td>
+        <td>هر مسیر داده باید از راه رویداد بگذرد تا در تست قابل بازپخش باشد</td></tr>
+    <tr><td>شمارهٔ تلفن نرمال‌شده، کلید اتصال سراسری است</td>
+        <td>پیام، تماس، مخاطب، مسدودی و علاقه‌مندی همه با یک شکل واحد (<span class="mono">09xxxxxxxxx</span>) به هم وصل می‌شوند</td></tr>
+    <tr><td>هر تغییر اسکیما فقط با مهاجرت</td>
+        <td>روی گوشی کاربر پیامک واقعی هست؛ ساخت دوبارهٔ جدول یعنی از دست رفتن داده</td></tr>
+    <tr><td>هیچ همگام‌سازی، رنگ‌آمیزی فریم را بلوکه نمی‌کند</td>
+        <td>همگام‌سازی به‌صورت Future جدا اجرا می‌شود و فقط نتیجه‌اش به‌شکل رویداد برمی‌گردد</td></tr>
+  </tbody>
+</table>
+
+<h2>۵٫۲ چهار مرز داده</h2>
+<p>پروژه لایهٔ شبکه ندارد، اما چهار مرز ورودی/خروجی دارد که هر کدام الگوی تاب‌آوری خودش را دارد:</p>
+<table>
+  <thead><tr><th style="width:22%">مرز</th><th style="width:30%">چه چیزی از آن می‌آید</th><th>حالت شکست و پاسخ ما</th></tr></thead>
+  <tbody>
+    <tr><td>SQLite</td><td>همهٔ دادهٔ آینه‌شدهٔ برنامه</td><td>خطای قفل یا اسکیما ← مهاجرت محافظت‌شده و درج با <span class="mono">ConflictAlgorithm.ignore</span></td></tr>
+    <tr><td>کانال‌های پلتفرم</td><td>پیامک، تماس، سیم‌کارت، موقعیت</td><td>کدهای خطای نام‌دار (<span class="mono">NO_SIM_CARD</span>، <span class="mono">NO_SERVICE</span>، …) و پیام فارسی مخصوص هر کدام</td></tr>
+    <tr><td>پلاگین‌های دستگاه</td><td>مخاطبین، تاریخچهٔ تماس، مجوزها</td><td>نبود مجوز باید به «حالت تقلیل‌یافته» منجر شود، نه به کرش</td></tr>
+    <tr><td>کلید/مقدار</td><td>تنظیمات، تم، پرچم‌ها</td><td>خواندن همزمان از پیش‌بارگذاری‌شده برای فریم اول</td></tr>
+  </tbody>
+</table>
+</section>
+
+<!-- ══════════════════ 6 ══════════════════ -->
+<section id="s6">
+<h1 class="sec"><span class="num">۶.</span> جریان راه‌اندازی برنامه</h1>
+
+<p><strong>به زبان ساده:</strong> بین لحظه‌ای که کاربر آیکن را می‌زند تا لحظه‌ای که فهرست پیام‌ها را می‌بیند،
+پنج دروازه پشت سر هم رد می‌شود: راه‌اندازی سرویس‌ها، قفل برنامه، مجوزها، درخواست نقش‌های
+پیش‌فرض، و در آخر پوستهٔ اصلی. ترتیب این دروازه‌ها اتفاقی نیست — هر کدام یک باگ واقعی را حل می‌کند.</p>
+
+<figure>
+<svg viewBox="0 0 620 330" xmlns="http://www.w3.org/2000/svg" font-family="Vazirmatn,sans-serif">
+  <defs>
+    <marker id="ar2" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 z" fill="#2a78d6"/>
+    </marker>
+  </defs>
+  <g font-size="10.5">
+    <rect x="360" y="14" width="220" height="38" rx="7" fill="#11253f"/>
+    <text x="470" y="38" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">main() — CrashReporting.wrap</text>
+
+    <rect x="360" y="66" width="220" height="38" rx="7" fill="#eaf2fd" stroke="#2a78d6"/>
+    <text x="470" y="83" text-anchor="middle" font-weight="600" fill="#184f95">AppBlocProviders</text>
+    <text x="470" y="97" text-anchor="middle" font-size="8.5" fill="#52514e">۱۴ بلاک، یکجا و سراسری</text>
+
+    <rect x="360" y="118" width="220" height="38" rx="7" fill="#eaf2fd" stroke="#2a78d6"/>
+    <text x="470" y="135" text-anchor="middle" font-weight="600" fill="#184f95">CallUiCoordinator</text>
+    <text x="470" y="149" text-anchor="middle" font-size="8.5" fill="#52514e">بالای همه‌چیز — عمداً بالاتر از قفل</text>
+
+    <rect x="360" y="170" width="220" height="38" rx="7" fill="#eaf2fd" stroke="#2a78d6"/>
+    <text x="470" y="187" text-anchor="middle" font-weight="600" fill="#184f95">AppLockWrapper → AuthWrapper</text>
+    <text x="470" y="201" text-anchor="middle" font-size="8.5" fill="#52514e">PIN / الگو / کد بازیابی</text>
+
+    <rect x="360" y="222" width="220" height="38" rx="7" fill="#eaf2fd" stroke="#2a78d6"/>
+    <text x="470" y="239" text-anchor="middle" font-weight="600" fill="#184f95">PermissionGate</text>
+    <text x="470" y="253" text-anchor="middle" font-size="8.5" fill="#52514e">درخواست دسته‌ای همهٔ مجوزها</text>
+
+    <rect x="360" y="274" width="220" height="38" rx="7" fill="#eaf2fd" stroke="#2a78d6"/>
+    <text x="470" y="291" text-anchor="middle" font-weight="600" fill="#184f95">DefaultAppGate → MainNavigation</text>
+    <text x="470" y="305" text-anchor="middle" font-size="8.5" fill="#52514e">درخواست نقش‌ها، سپس پوستهٔ ۴ تبی</text>
+
+    <line x1="470" y1="52" x2="470" y2="64" stroke="#2a78d6" marker-end="url(#ar2)"/>
+    <line x1="470" y1="104" x2="470" y2="116" stroke="#2a78d6" marker-end="url(#ar2)"/>
+    <line x1="470" y1="156" x2="470" y2="168" stroke="#2a78d6" marker-end="url(#ar2)"/>
+    <line x1="470" y1="208" x2="470" y2="220" stroke="#2a78d6" marker-end="url(#ar2)"/>
+    <line x1="470" y1="260" x2="470" y2="272" stroke="#2a78d6" marker-end="url(#ar2)"/>
+
+    <!-- annotations on the left -->
+    <g font-size="9" fill="#52514e">
+      <rect x="30" y="118" width="300" height="38" rx="6" fill="#fff8e9" stroke="#fab219"/>
+      <text x="320" y="134" text-anchor="start" font-weight="600" fill="#8a5a00">چرا بالای قفل؟</text>
+      <text x="320" y="148" text-anchor="start">تماس ورودی باید روی صفحهٔ PIN بیاید؛ فقط صفحات تماس نمایان می‌شوند</text>
+
+      <rect x="30" y="222" width="300" height="38" rx="6" fill="#fff8e9" stroke="#fab219"/>
+      <text x="320" y="238" text-anchor="start" font-weight="600" fill="#8a5a00">چرا دسته‌ای؟</text>
+      <text x="320" y="252" text-anchor="start">چند صفحهٔ IndexedStack همزمان مجوز می‌خواستند و برنامه کرش می‌کرد</text>
+
+      <rect x="30" y="274" width="300" height="38" rx="6" fill="#fff8e9" stroke="#fab219"/>
+      <text x="320" y="290" text-anchor="start" font-weight="600" fill="#8a5a00">چرا صفحهٔ خودمان؟</text>
+      <text x="320" y="304" text-anchor="start">اندروید پس از دو رد، نقش را برای همیشه رد می‌کند؛ پس اصرار در UI خودمان می‌ماند</text>
+    </g>
+  </g>
+</svg>
+<figcaption>نمودار ۴ — زنجیرهٔ راه‌اندازی و دلیل مهندسی هر دروازه</figcaption>
+</figure>
+
+<h2>۶٫۱ انتخاب تب فرود</h2>
+<p>
+برنامه هنگام باز شدن تصمیم می‌گیرد کاربر را روی کدام تب بگذارد: «پیام‌ها» اگر در غیاب کاربر
+پیامکی رسیده باشد، «اخیر» اگر تماس بی‌پاسخی بوده، و تازه‌ترینِ این دو اگر هر دو رخ داده باشد.
+نکتهٔ طراحی مهم این است که مبنا <strong>«از آخرین باری که کاربر نگاه کرده»</strong> است، نه «خوانده‌نشده»:
+اگر مبنا خوانده‌نشده بود، تا وقتی صندوق خالی نمی‌شد هر بار اجرای برنامه تب را می‌ربود.
+این تصمیم <strong>هیچ پرس‌وجوی اضافه‌ای نمی‌گیرد</strong> — از همان وضعیتی که بلاک‌ها به‌هرحال تولید می‌کنند
+شنیده می‌شود، با یک پنجرهٔ مهلت کوتاه، و اگر کاربر از راه نوتیفیکیشن وارد شده باشد تصمیم
+از پیش قطعی است تا تب زیر دست کاربر عوض نشود.
+</p>
+</section>
+
+<!-- ══════════════════ 7 ══════════════════ -->
+<section id="s7">
+<h1 class="sec"><span class="num">۷.</span> ساختار پوشه‌ها</h1>
+
+<p>
+هر ماژول ویژگی دقیقاً یک شکل دارد. این یکنواختی عمدی است: کسی که یک ماژول را بلد باشد،
+بقیه را هم بلد است و می‌داند کد جدید کجا باید برود.
+</p>
+
+<pre class="tree">lib/
+├─ main.dart                     نقطهٔ ورود + CallUiCoordinator
+├─ core/                         آنچه بیش از یک ویژگی به آن نیاز دارد
+│  ├─ bloc_providers/            تنها محل ثبت بلاک‌ها
+│  ├─ constants/                 AppConstants — نام جدول‌ها، نسخهٔ اسکیما
+│  ├─ database/                  DatabaseHelper (تک‌نمونه) + مهاجرت‌ها
+│  ├─ navigation/                MainNavigation — پوستهٔ ۴ تبی
+│  ├─ services/                  CrashReporting, DeepLink, Permission, AppLock
+│  ├─ sim/                       مدل/سرویس/بلاک/ویجت دو سیم‌کارت
+│  ├─ theme/                     سامانهٔ طراحی، نقش سطوح، تم روشن/تیره
+│  ├─ utils/                     SearchText, PersianCollator, PhoneNormalizer,
+│  │                             DateFormatter (جلالی), ContactNameStyle
+│  └─ widgets/                   ویجت‌های مشترک بین ویژگی‌ها
+└─ features/
+   ├─ authentication/            قفل برنامه
+   ├─ call_history/              «اخیر»
+   ├─ contacts/                  دفترچهٔ تلفن
+   ├─ dialer/                    صفحه‌کلید، تماس، سرعت‌شماره‌گیری
+   ├─ favorites/                 علاقه‌مندی‌ها
+   ├─ messages/                  بزرگ‌ترین ماژول — ۴۳٪ کد
+   ├─ search/                    جستجوی یکپارچه
+   └─ settings/                  تنظیمات، مسدودی، هرزنامه
+
+هر ماژول:
+   bloc/          رویداد، وضعیت، کلاس بلاک
+   models/        مدل‌های داده و منطق خالص
+   repositories/  دسترسی SQLite از راه DatabaseHelper
+   screens/       صفحه‌ها  (+ screens/widgets/ برای اجزای همان صفحه)
+   services/      پل بومی — فقط در messages، call_history، contacts، dialer</pre>
+
+<h2>قرارداد نام‌گذاری</h2>
+<table class="tight">
+  <thead><tr><th style="width:34%">الگو</th><th>مثال</th></tr></thead>
+  <tbody>
+    <tr><td><span class="mono">&lt;name&gt;_bloc.dart</span> / <span class="mono">_event</span> / <span class="mono">_state</span></td><td><span class="mono">message_bloc.dart</span></td></tr>
+    <tr><td><span class="mono">&lt;name&gt;_model.dart</span></td><td><span class="mono">scheduled_message_model.dart</span></td></tr>
+    <tr><td><span class="mono">&lt;name&gt;_repository.dart</span></td><td><span class="mono">message_repository.dart</span></td></tr>
+    <tr><td><span class="mono">&lt;name&gt;_screen.dart</span></td><td><span class="mono">conversation_screen.dart</span></td></tr>
+    <tr><td><span class="mono">&lt;name&gt;_service.dart</span></td><td><span class="mono">sms_service.dart</span></td></tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <span class="t">جای افزودن کد جدید</span>
+  ویژگی جدید ← پوشهٔ تازه زیر <span class="mono">features/</span> با همان پنج زیرپوشه، و ثبت بلاکش در
+  <span class="mono">AppBlocProviders</span>. جدول جدید ← ثابت آن در <span class="mono">AppConstants</span>،
+  بلوک ساخت در <span class="mono">_onCreate</span> و <strong>حتماً</strong> یک بلوک مهاجرت در
+  <span class="mono">_onUpgrade</span>. قابلیت بومی جدید ← یک Handler در Kotlin و یک سرویس Dart
+  که کانال را می‌پوشاند؛ صفحه‌ها هیچ‌وقت مستقیم با <span class="mono">MethodChannel</span> حرف نمی‌زنند.
+</div>
+</section>
+
+<!-- ══════════════════ 8 ══════════════════ -->
+<section id="s8">
+<h1 class="sec"><span class="num">۸.</span> مدیریت وضعیت (BLoC)</h1>
+
+<p><strong>به زبان ساده:</strong> «بلاک» جعبه‌ای است که فقط دو دهانه دارد — رویداد می‌گیرد و وضعیت بیرون می‌دهد.
+صفحه‌ها هیچ متغیر مشترکی ندارند؛ هر تغییری روی داده باید به‌صورت یک رویداد اعلام شود.
+مزیت عملی این است که هر رفتار برنامه را می‌شود بدون باز کردن رابط کاربری تست کرد.</p>
+
+<h2>۸٫۱ بلاک‌های سراسری</h2>
+<table class="tight">
+  <thead><tr><th style="width:24%">بلاک</th><th style="width:24%">مسئولیت</th><th>نکتهٔ مهم</th></tr></thead>
+  <tbody>
+    <tr><td>ThemeBloc</td><td>تم روشن/تیره</td><td>در فریم اول بارگذاری می‌شود</td></tr>
+    <tr><td>AuthBloc</td><td>قفل برنامه</td><td>کد بازیابی <em>پیش از</em> وضعیت «احرازشده» منتشر می‌شود، وگرنه در همان فریم ساخته و گم می‌شود</td></tr>
+    <tr><td>SimBloc</td><td>فهرست سیم‌کارت‌ها</td><td>در راه‌اندازی بارگذاری می‌شود؛ همگام‌سازی تاریخچهٔ تماس منتظر آن می‌ماند</td></tr>
+    <tr><td>ContactBloc</td><td>دفترچهٔ تلفن</td><td>به تغییر تنظیم «قالب نام» و به تغییر سیم‌کارت گوش می‌دهد</td></tr>
+    <tr><td>MessageBloc</td><td>صندوق و گفتگو</td><td>سنگین‌ترین بلاک؛ نگهبان‌های وضعیت آن در ادامه</td></tr>
+    <tr><td>DraftBloc</td><td>پیش‌نویس و دسته‌بندی</td><td>هنگام حذف دسته، فیلتر فعال را هم پاک می‌کند</td></tr>
+    <tr><td>TemplateBloc</td><td>قالب‌های آماده</td><td>قالب‌های پیش‌فرض ردیف عادی پایگاه‌داده‌اند و قابل ویرایش</td></tr>
+    <tr><td>ScheduledMessageBloc</td><td>پیام زمان‌بندی‌شده</td><td>هر ۳۰ ثانیه تیک می‌زند و جدول را بازخوانی می‌کند</td></tr>
+    <tr><td>CallLogBloc</td><td>تاریخچهٔ تماس</td><td>همگام‌سازی «بی‌صدا» بدون از دست دادن صفحه‌بندی</td></tr>
+    <tr><td>DialerBloc</td><td>صفحه‌کلید و تماس</td><td>در هر فیلتر، فهرست مخاطبین را بازمی‌خواند تا شمارهٔ تازه‌ذخیره‌شده دیده شود</td></tr>
+    <tr><td>FavoritesBloc</td><td>علاقه‌مندی‌ها</td><td>کلید یکتای نرمال‌شده</td></tr>
+    <tr><td>SearchBloc</td><td>جستجوی یکپارچه</td><td>از همان موتور تطبیق مخاطبین استفاده می‌کند، نه یک نسخهٔ موازی</td></tr>
+    <tr><td>SettingsBloc</td><td>تنظیمات</td><td>کلیدهای بازنشسته را در اولین بارگذاری از حافظه پاک می‌کند</td></tr>
+    <tr><td>BlockedNumbersBloc</td><td>مسدودی و هرزنامه</td><td>مسدودسازی مجدد، «گزارش» را ارتقا می‌دهد و پاک نمی‌کند</td></tr>
+  </tbody>
+</table>
+
+<h2>۸٫۲ نگهبان‌های وضعیت — هرکدام یک باگ واقعی</h2>
+<table>
+  <thead><tr><th style="width:32%">نگهبان</th><th>نشانه‌ای که بدون آن دیده می‌شد</th></tr></thead>
+  <tbody>
+    <tr><td>‏<span class="mono">LoadThreads</span> وقتی وضعیت فعلی «بارگذاری‌شده» است، وضعیت «در حال بارگذاری» منتشر نمی‌کند</td>
+        <td>رسیدن یک پیامک در پس‌زمینه، صفحهٔ گفتگوی باز را سفید می‌کرد</td></tr>
+    <tr><td>پرچم «در حال اجرا» برای صفحهٔ بعدی (<span class="mono">_loadingMoreThreads</span>)</td>
+        <td>یک اسکرول سریع، ده‌ها پرس‌وجوی صفحه‌بندی پشت‌سرهم می‌ساخت و چند ثانیه برنامه را قفل می‌کرد</td></tr>
+    <tr><td>تازه‌سازی نباید فهرست بارگذاری‌شده را کوچک کند</td>
+        <td>بازگشت از یک گفتگو، فهرست ۲۰۰ ردیفی را به ۵۰ ردیف برمی‌گرداند و اسکرول به بالا می‌پرید</td></tr>
+    <tr><td>حافظهٔ آخرین وضعیت قابل‌رسم صندوق (<span class="mono">_lastInbox</span>)</td>
+        <td>چون بلاک بین صندوق و گفتگو مشترک است، هر بازگشت از گفتگو اسکرول را از دست می‌داد</td></tr>
+    <tr><td>ساخت مدل فقط با <span class="mono">copyWith</span>، هرگز فیلد‌به‌فیلد</td>
+        <td>با رسیدن تیک تحویل، نشان سیم‌کارت از روی حباب پیام حذف می‌شد</td></tr>
+    <tr><td>بازخوانی جدول در <em>هر</em> تیک زمان‌بندی، حتی وقتی چیزی ارسال نشده</td>
+        <td>کارگر بومی ردیف را مستقیم در SQLite تمام می‌کرد و «حباب شبح» تا ری‌استارت می‌ماند</td></tr>
+  </tbody>
+</table>
+
+<h2>۸٫۳ حافظه‌های نهان جلسه‌ای</h2>
+<p>
+چند حافظهٔ نهان درون بلاک‌ها و سرویس‌ها زندگی می‌کنند تا کار سنگین یک‌بار در هر اجرا انجام شود:
+نگاشت «شماره ← نام» برای غنی‌سازی صندوق، حافظهٔ نهان مخاطبین با <strong>شمارندهٔ نسل</strong>، و
+حافظهٔ نهان فهرست سیم‌کارت‌ها با عمر ۳۰ ثانیه.
+</p>
+<div class="warn">
+  <span class="t">شمارندهٔ نسل — یک باگ همزمانی کلاسیک</span>
+  ذخیرهٔ یک مخاطب، حافظهٔ نهان را باطل می‌کند؛ اما شنوندهٔ تغییرات دفترچهٔ تلفن در همان لحظه
+  یک خواندن در جریان دارد. بدون شمارنده، آن عکسِ <em>قدیمی</em> برنده می‌شد و مخاطبی که
+  از روی یک تماس ذخیره شده بود تا اجرای بعدی برنامه نه در فهرست بود و نه در جستجو.
+  راه‌حل: هر باطل‌سازی شماره را یک واحد بالا می‌برد و خواندنی که پیش از آن شروع شده،
+  حق انتشار نتیجه‌اش را ندارد.
+</div>
+</section>
+
+<!-- ══════════════════ 9 ══════════════════ -->
+<section id="s9">
+<h1 class="sec"><span class="num">۹.</span> لایهٔ داده و پایگاه‌داده</h1>
+
+<p><strong>به زبان ساده:</strong> برنامه یک فایل پایگاه‌دادهٔ SQLite دارد که هم کد Flutter و هم کد اندروید
+روی همان می‌نویسند. این فایل «آینه»ی دادهٔ سیستم است، نه منبع حقیقت آن: منبع حقیقت
+همچنان پایگاه‌دادهٔ خود اندروید است و بخش ۱۱ توضیح می‌دهد این دو چطور هم‌تراز نگه داشته می‌شوند.</p>
+
+<h2>۹٫۱ جدول‌ها</h2>
+<table class="tight">
+  <thead><tr><th style="width:24%">جدول</th><th style="width:12%" class="c">نسخه</th><th>نقش</th></tr></thead>
+  <tbody>
+    <tr><td><span class="mono">messages</span></td><td class="c">۱</td><td>آینهٔ پیامک‌ها؛ کلید گفتگو = شمارهٔ نرمال‌شده</td></tr>
+    <tr><td><span class="mono">call_logs</span></td><td class="c">۱</td><td>آینهٔ تاریخچهٔ تماس</td></tr>
+    <tr><td><span class="mono">contacts</span></td><td class="c">۱</td><td>میراثی — چیزی روی آن نمی‌نویسد؛ مخاطبین مستقیم از دستگاه خوانده می‌شوند</td></tr>
+    <tr><td><span class="mono">favorites</span></td><td class="c">۱</td><td>کلید یکتای نرمال‌شده (بازنویسی‌شده در نسخهٔ ۱۹)</td></tr>
+    <tr><td><span class="mono">blocked_numbers</span></td><td class="c">۵</td><td>مسدودی + پرچم هرزنامه و زمان گزارش (نسخهٔ ۱۶)</td></tr>
+    <tr><td><span class="mono">archived_threads</span> / <span class="mono">pinned_threads</span></td><td class="c">۶</td><td>وضعیت گفتگو</td></tr>
+    <tr><td><span class="mono">drafts</span></td><td class="c">۹</td><td>پیش‌نویس + سنجاق (نسخهٔ ۱۴)</td></tr>
+    <tr><td><span class="mono">message_categories</span></td><td class="c">۹</td><td>دسته‌بندی پیش‌نویس</td></tr>
+    <tr><td><span class="mono">message_templates</span></td><td class="c">۱۵</td><td>قالب‌های آماده — پیش‌فرض‌ها با شناسهٔ ثابت کاشته می‌شوند</td></tr>
+    <tr><td><span class="mono">scheduled_messages</span></td><td class="c">۱۰</td><td>صف ارسال زمان‌بندی‌شده با نشانهٔ ادعا (Claim Token)</td></tr>
+    <tr><td><span class="mono">message_search</span></td><td class="c">۱۸</td><td>نمایهٔ FTS5 — ساخته می‌شود ولی روی اندروید غیرفعال است (بخش ۱۳)</td></tr>
+    <tr><td><span class="mono">thread_sim</span></td><td class="c">۲۰</td><td>سیم‌کارت به‌ازای هر گفتگو</td></tr>
+    <tr><td><span class="mono">speed_dial</span></td><td class="c">۲۱</td><td>شماره‌گیری سریع؛ کلید اصلی خودِ رقم است</td></tr>
+  </tbody>
+</table>
+
+<h2>۹٫۲ قواعد ثابت اسکیما (Invariants)</h2>
+<p>این‌ها قواعدی هستند که شکستنشان باگ‌های خاموش می‌سازد — یعنی چیزی کرش نمی‌کند، فقط نتیجه غلط می‌شود.</p>
+
+<table>
+  <thead><tr><th style="width:32%">قاعده</th><th>پیامد شکستن آن</th></tr></thead>
+  <tbody>
+    <tr><td><span class="mono">messages</span> نمایهٔ یکتا روی
+        <span class="mono">(phone_number, body, timestamp, type)</span> دارد؛ هر درج دسته‌ای باید
+        <span class="mono">ConflictAlgorithm.ignore</span> باشد</td>
+        <td>هر همگام‌سازی، پیام‌ها را تکراری می‌کرد</td></tr>
+    <tr><td>ستون <span class="mono">normalized</span> در مسدودی و علاقه‌مندی باید <strong>دقیقاً</strong>
+        همان کلید <span class="mono">thread_id</span> باشد</td>
+        <td>باگ واقعی و شدید: شماره‌ای که کاربر مسدود می‌کرد به‌شکل <span class="mono">989121234567</span> ذخیره می‌شد،
+        درحالی‌که هر جستجو <span class="mono">09121234567</span> می‌پرسید. ردیف موجود بود و هیچ‌وقت پیدا نمی‌شد —
+        یعنی <em>مسدودسازی اصلاً کار نمی‌کرد</em>. نسخهٔ ۱۶ ردیف‌های قدیمی را بازنویسی می‌کند.</td></tr>
+    <tr><td>هر ردیف <em>ارسالی</em> با <span class="mono">is_read = 1</span> درج می‌شود؛ شمارش نخوانده‌ها
+        نباید روی <span class="mono">type = 'received'</span> فیلتر شود</td>
+        <td>«علامت‌گذاری به‌عنوان نخوانده» روی گفتگویی که فقط پیام فرستاده‌ایم بی‌اثر می‌شد</td></tr>
+    <tr><td>حذف محلی باید <strong>نرم</strong> باشد (سنگ‌قبر با حفظ شناسهٔ سیستمی)</td>
+        <td>حذف سخت تا همگام‌سازی بعدی درست به‌نظر می‌رسید و بعد همه‌چیز برمی‌گشت</td></tr>
+    <tr><td>مهاجرتی که جدولی را تغییر می‌دهد که <em>مرحلهٔ قبلی همان ارتقا</em> ساخته است،
+        باید ستون‌ها را بررسی کند</td>
+        <td>یک <span class="mono">ADD COLUMN</span> بی‌قید، کل ارتقا را نیمه‌کاره رها می‌کرد</td></tr>
+  </tbody>
+</table>
+
+<h2>۹٫۳ الگوی پرس‌وجوی صندوق</h2>
+<p>
+فهرست صندوق ورودی با یک <span class="mono">CTE</span> صفحه‌بندی می‌شود که فقط سه ستون سبک
+حمل می‌کند (شناسهٔ گفتگو، زمان آخرین پیام، سنجاق‌بودن)؛ کار سنگین — انتخاب آخرین پیام هر گفتگو
+و شمارش نخوانده‌ها — تنها روی ردیف‌هایی اجرا می‌شود که از <span class="mono">LIMIT</span> جان سالم به در برده‌اند.
+اگر این ساختار مسطح شود، به‌ازای هر پیامِ کل جدول یک زیرپرس‌وجوی همبسته اجرا می‌شود.
+</p>
+</section>
+
+<!-- ══════════════════ 10 ══════════════════ -->
+<section id="s10">
+<h1 class="sec"><span class="num">۱۰.</span> پل بومی اندروید</h1>
+
+<p><strong>به زبان ساده:</strong> Flutter به‌تنهایی نمی‌تواند پیامک بگیرد، تماس را جواب بدهد یا از سیم‌کارت
+مخاطب بخواند. برای این کارها یک لایهٔ Kotlin نوشته شده که با دو نوع کانال به Flutter وصل است:
+<strong>MethodChannel</strong> برای فرمان‌های تک‌شات (مثل «این پیامک را بفرست») و
+<strong>EventChannel</strong> برای جریان‌های مداوم (مثل «پیامک تازه رسید» یا «وضعیت تماس عوض شد»).</p>
+
+<h2>۱۰٫۱ اجزای Kotlin</h2>
+<table class="tight">
+  <thead><tr><th style="width:32%">فایل</th><th>مسئولیت</th></tr></thead>
+  <tbody>
+    <tr><td><span class="mono">MainActivity.kt</span></td><td>ثبت همهٔ کانال‌ها، نتیجهٔ درخواست نقش‌ها، نمایش روی قفل صفحه</td></tr>
+    <tr><td><span class="mono">SmsHandler.kt</span></td><td>ارسال پیامک با پیش‌بررسی سیم/شبکه، خواندن Provider، درخواست نقش پیامک</td></tr>
+    <tr><td><span class="mono">SmsDeliverReceiver.kt</span></td><td>هنگام داشتن نقش: <em>فقط</em> نوشتن پیامک ورودی در پایگاه‌دادهٔ سیستم</td></tr>
+    <tr><td><span class="mono">IncomingSmsReceiver.kt</span></td><td>مسیر «شروع سرد» — وقتی پروسهٔ برنامه اصلاً بالا نیست</td></tr>
+    <tr><td><span class="mono">SmsNotifier.kt</span></td><td>تنها تولیدکنندهٔ نوتیفیکیشن پیامک؛ رندر قالب‌های فشرده هم اینجاست</td></tr>
+    <tr><td><span class="mono">SmsNotificationActionReceiver.kt</span></td><td>پاسخ سریع و «خوانده شد» — با برنامهٔ بسته هم کار می‌کند</td></tr>
+    <tr><td><span class="mono">CallInCallService.kt</span></td><td>قلب رابط تماس؛ آینه‌کردن وضعیت‌های Telecom به Flutter</td></tr>
+    <tr><td><span class="mono">CallHandler.kt</span></td><td>اقدام‌های تماس، USSD، درخواست نقش شماره‌گیر</td></tr>
+    <tr><td><span class="mono">CallEventStreamHandler.kt</span></td><td>جریان رویداد تماس؛ وضعیت چسبنده برای موتور تازه‌راه‌افتاده</td></tr>
+    <tr><td><span class="mono">ProximityGate.kt</span></td><td>قفل بیداری حسگر نزدیکی — فقط وقتی خروجی صدا گوشی است</td></tr>
+    <tr><td><span class="mono">CallLogSyncHandler.kt</span></td><td>ناظر محتوا روی تاریخچهٔ تماس با ضدلرزش</td></tr>
+    <tr><td><span class="mono">ScheduledSmsWorker.kt</span></td><td>تحویل پیام زمان‌بندی‌شده وقتی برنامه مرده است</td></tr>
+    <tr><td><span class="mono">ScheduledSmsAlarmReceiver.kt</span> / <span class="mono">Scheduler</span> / <span class="mono">Channel</span></td><td>زنجیرهٔ AlarmManager و بازگرداندن تحویل به Dart وقتی موتور زنده است</td></tr>
+    <tr><td><span class="mono">SimRegistry.kt</span></td><td>‏<span class="mono">object</span> و نه Handler — چون باید با موتور Flutter مرده هم پاسخ بدهد</td></tr>
+    <tr><td><span class="mono">SimContactsHandler.kt</span></td><td>خواندن مخاطبین از <span class="mono">content://icc/adn/subId/&lt;id&gt;</span></td></tr>
+    <tr><td><span class="mono">ContactLinkHandler.kt</span></td><td>ادغام مخاطب با <span class="mono">AggregationExceptions</span></td></tr>
+    <tr><td><span class="mono">ContactExtrasHandler.kt</span></td><td>«برنامه‌های متصل» روی یک مخاطب</td></tr>
+    <tr><td><span class="mono">BlockedNumbers.kt</span></td><td>آینهٔ Kotlin از نرمال‌ساز شماره — اجرای مسدودی در مسیر بومی</td></tr>
+    <tr><td><span class="mono">TemplateWire.kt</span></td><td>آینهٔ Kotlin از رمزگشای قالب فشرده</td></tr>
+    <tr><td><span class="mono">LocationHandler.kt</span></td><td>یک مختصات با <span class="mono">LocationManager</span> پلتفرم</td></tr>
+    <tr><td><span class="mono">HeadlessSmsSendService.kt</span> / <span class="mono">MmsReceiver.kt</span></td><td>اجزای اجباری نقش پیامک (MMS عمداً رها می‌شود)</td></tr>
+    <tr><td><span class="mono">BootReceiver.kt</span></td><td>بازچینش هشدارهای زمان‌بندی پس از راه‌اندازی مجدد گوشی</td></tr>
+  </tbody>
+</table>
+
+<h2>۱۰٫۲ قرارداد آینه‌ها — گران‌ترین بدهی فنی پروژه</h2>
+<div class="crit">
+  <span class="t">سه منطق در دو زبان تکرار شده‌اند و باید همزمان تغییر کنند</span>
+  <ul style="margin-bottom:0">
+    <li><strong>نرمال‌سازی شماره</strong> — <span class="mono">PhoneNormalizer</span> (Dart) و <span class="mono">BlockedNumbers</span> (Kotlin)</li>
+    <li><strong>منطق تکرار، تلاش مجدد و ادعای پیام زمان‌بندی‌شده</strong> — <span class="mono">scheduled_message_model.dart</span> و <span class="mono">ScheduledSmsWorker.kt</span></li>
+    <li><strong>پروتکل قالب فشرده</strong> — <span class="mono">TemplateWire</span> در هر دو زبان، کاراکتر به کاراکتر</li>
+  </ul>
+  <p style="margin:2mm 0 0">
+  دلیل ناگزیر بودنش: این کدها باید در حالتی اجرا شوند که موتور Dart وجود ندارد.
+  خطر واقعی‌اش هم این است که ناهماهنگی <em>با خطا اعلام نمی‌شود</em> — فقط پیامی متفاوت از
+  آنچه فرستنده نوشته رندر می‌شود. به همین دلیل هر سه مورد تست آینه‌ای مشترک دارند.
+  </p>
+</div>
+</section>
+
+<!-- ══════════════════ 11 ══════════════════ -->
+<section id="s11">
+<h1 class="sec"><span class="num">۱۱.</span> نقش «پیامک پیش‌فرض» و همگام‌سازی آینه‌ای</h1>
+
+<p><strong>به زبان ساده:</strong> وقتی کاربر این برنامه را به‌عنوان برنامهٔ پیامک پیش‌فرض انتخاب می‌کند،
+اندروید مسئولیت ذخیرهٔ پیامک‌ها را به آن واگذار می‌کند. از آن لحظه دو انبار داده وجود دارد:
+انبار خودِ سیستم (که همهٔ برنامه‌های دیگر می‌بینند) و انبار محلی برنامه. کار سختِ این بخش،
+هم‌تراز نگه‌داشتن این دو در هر شرایطی است — از جمله وقتی پیامکی خارج از برنامه پاک شده باشد.</p>
+
+<h2>۱۱٫۱ تقسیم مسئولیت هنگام داشتن نقش</h2>
+<table>
+  <thead><tr><th style="width:34%">مسیر</th><th>چه کسی انجام می‌دهد</th></tr></thead>
+  <tbody>
+    <tr><td>نوشتن پیامک ورودی در Provider سیستم</td><td><span class="mono">SmsDeliverReceiver</span> — و <strong>فقط</strong> همین</td></tr>
+    <tr><td>ذخیره در پایگاه‌دادهٔ برنامه + نوتیفیکیشن + به‌روزرسانی رابط</td><td>مسیر <span class="mono">SMS_RECEIVED</span> مثل قبل</td></tr>
+    <tr><td>هر ارسال موفق</td><td>علاوه بر ارسال، <em>نوشتن در</em> <span class="mono">content://sms/sent</span> — وگرنه پیام ارسالی برای هیچ برنامهٔ دیگری دیده نمی‌شود</td></tr>
+    <tr><td>حذف</td><td>همیشه سراسری: اول ردیف Provider، بعد حذف نرم محلی</td></tr>
+  </tbody>
+</table>
+<div class="warn">
+  <span class="t">تلهٔ «دوبار انجام دادن»</span>
+  اگر هم <span class="mono">SmsDeliverReceiver</span> و هم مسیر معمول، پیام را در پایگاه‌دادهٔ برنامه بنویسند،
+  کاربر هر پیامک را دوتا می‌بیند. تقسیم بالا عمداً یک نقطهٔ نوشتن برای هر مقصد تعریف می‌کند.
+</div>
+
+<h2>۱۱٫۲ الگوریتم همگام‌سازی آینه‌ای</h2>
+<figure>
+<svg viewBox="0 0 620 260" xmlns="http://www.w3.org/2000/svg" font-family="Vazirmatn,sans-serif">
+  <defs><marker id="ar3" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+    <path d="M0,0 L7,3 L0,6 z" fill="#1baf7a"/></marker></defs>
+
+  <rect x="360" y="14" width="220" height="46" rx="7" fill="#e9f7f1" stroke="#1baf7a"/>
+  <text x="470" y="33" text-anchor="middle" font-size="10.5" font-weight="600" fill="#0e7351">۱ — تکمیل شناسه‌ها</text>
+  <text x="470" y="49" text-anchor="middle" font-size="8.5" fill="#52514e">ردیف‌های محلی بدون device_sms_id</text>
+
+  <rect x="360" y="72" width="220" height="60" rx="7" fill="#e9f7f1" stroke="#1baf7a"/>
+  <text x="470" y="90" text-anchor="middle" font-size="10.5" font-weight="600" fill="#0e7351">۲ — تطبیق ۵۰۰ ردیف اخیر</text>
+  <text x="470" y="105" text-anchor="middle" font-size="8.5" fill="#52514e">شناسهٔ شناخته‌شده ← رد شو</text>
+  <text x="470" y="118" text-anchor="middle" font-size="8.5" fill="#52514e">تطبیق دقیق محتوا ← تطبیق فازی ±۲ دقیقه ← درج</text>
+
+  <rect x="360" y="144" width="220" height="60" rx="7" fill="#e9f7f1" stroke="#1baf7a"/>
+  <text x="470" y="162" text-anchor="middle" font-size="10.5" font-weight="600" fill="#0e7351">۳ — حذف ردیف‌های بیات</text>
+  <text x="470" y="177" text-anchor="middle" font-size="8.5" fill="#52514e">شناسه‌هایی که از Provider ناپدید شده‌اند</text>
+  <text x="470" y="190" text-anchor="middle" font-size="8.5" fill="#52514e">تفریق داخل خود SQLite، نه در Dart</text>
+
+  <line x1="470" y1="60" x2="470" y2="70" stroke="#1baf7a" marker-end="url(#ar3)"/>
+  <line x1="470" y1="132" x2="470" y2="142" stroke="#1baf7a" marker-end="url(#ar3)"/>
+
+  <g font-size="9" fill="#52514e">
+    <rect x="30" y="72" width="300" height="60" rx="6" fill="#fff8e9" stroke="#fab219"/>
+    <text x="320" y="90" text-anchor="start" font-weight="600" fill="#8a5a00">چرا تطبیق فازی لازم شد؟</text>
+    <text x="320" y="105" text-anchor="start">پیام دریافتی زنده، زمانِ داخل خود بستهٔ SMS را ذخیره می‌کند،</text>
+    <text x="320" y="118" text-anchor="start">اما Provider زمان دریافت را — دو عدد متفاوت برای یک پیام</text>
+
+    <rect x="30" y="144" width="300" height="60" rx="6" fill="#fff8e9" stroke="#fab219"/>
+    <text x="320" y="162" text-anchor="start" font-weight="600" fill="#8a5a00">چرا داخل SQLite؟</text>
+    <text x="320" y="177" text-anchor="start">کشیدن همهٔ ردیف‌های محلی از کانال پلتفرم برای تفریق در Dart،</text>
+    <text x="320" y="190" text-anchor="start">روی گوشی پر، وسط اسکرول، رشتهٔ رابط کاربری را قفل می‌کرد</text>
+  </g>
+  <text x="600" y="232" text-anchor="start" font-size="9" fill="#898781">اجرا: یک‌بار در هر جلسه هنگام بارگذاری صندوق، و بی‌صدا در هر بازگشت به برنامه</text>
+  <text x="600" y="248" text-anchor="start" font-size="9" fill="#898781">هرگز روی صف رویداد بلاک نمی‌نشیند — به‌صورت Future جدا اجرا و فقط نتیجه‌اش رویداد می‌شود</text>
+</svg>
+<figcaption>نمودار ۵ — سه گام همگام‌سازی آینه‌ای و دو تصمیم کلیدی پشت آن</figcaption>
+</figure>
+
+<h2>۱۱٫۳ چرا این همگام‌سازی نباید هیچ‌چیز را بلوکه کند</h2>
+<p>
+در نسخهٔ اول، همگام‌سازی داخل خودِ کنترل‌کنندهٔ رویداد <span class="mono">await</span> می‌شد.
+نتیجه: حدود <strong>۵ ثانیه چرخ‌دنده در شروع سرد</strong> و بدتر از آن، به‌صف‌شدن هر رویداد دیگری
+پشت آن — یعنی باز کردن یک گفتگو تا پایان همگام‌سازی هیچ واکنشی نداشت.
+شکل فعلی: صندوق ابتدا از آینهٔ محلی رسم می‌شود، همگام‌سازی جدا اجرا می‌شود و فقط
+<em>پایانش</em> به‌شکل یک رویداد برمی‌گردد. پیامدهایی که باید حفظ شوند:
+</p>
+<ul>
+  <li>پرچم «انجام شد» فقط در حالت موفق ست می‌شود، تا اجرای اول با مجوز رد شده دوباره تلاش کند.</li>
+  <li>شنوندهٔ پیامک ورودی <em>پیش از</em> همگام‌سازی راه می‌افتد؛ وگرنه پیامی که وسط آن می‌رسید شنونده‌ای نداشت.</li>
+  <li>خطای «مجوز نداریم و محلی هم چیزی نیست» از نتیجهٔ همگام‌سازی می‌آید، نه از بارگذاری.</li>
+</ul>
+
+<h2>۱۱٫۴ نوتیفیکیشن پیامک — یک خط لولهٔ واحد</h2>
+<p>
+همهٔ نوتیفیکیشن‌های پیامک ورودی <strong>بومی</strong> ساخته می‌شوند؛ مسیر Dart برای این کار
+حذف شده است، چون وجود هر دو یعنی نوتیفیکیشن تکراری. اقدام‌ها (پاسخ درجا با
+<span class="mono">RemoteInput</span> و «خوانده شد») نیز کاملاً بومی‌اند و با برنامهٔ بسته کار می‌کنند.
+نوتیفیکیشن‌ها با شناسهٔ گفتگو برچسب می‌خورند و باز کردن گفتگو، هم نوتیفیکیشن‌های آن را پاک می‌کند
+و هم «گفتگوی نمایان» را اعلام می‌کند تا تا وقتی صفحه باز است نوتیفیکیشنی ساخته نشود.
+</p>
+</section>
+
+<!-- ══════════════════ 12 ══════════════════ -->
+<section id="s12">
+<h1 class="sec"><span class="num">۱۲.</span> نقش «شماره‌گیر پیش‌فرض» و رابط تماس</h1>
+
+<p><strong>به زبان ساده:</strong> با گرفتن این نقش، هر تماس ورودی و خروجی گوشی باید توسط این برنامه
+نمایش داده شود. اگر صفحهٔ تماس بالا نیاید یا سر جایش نماند، کاربر عملاً گوشی‌اش را از دست می‌دهد.
+به همین دلیل این بخش بیشترین تعداد «مسیر پشتیبان» را در کل پروژه دارد.</p>
+
+<h2>۱۲٫۱ زنجیرهٔ تماس ورودی</h2>
+<figure>
+<svg viewBox="0 0 620 250" xmlns="http://www.w3.org/2000/svg" font-family="Vazirmatn,sans-serif">
+  <defs><marker id="ar4" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+    <path d="M0,0 L7,3 L0,6 z" fill="#184f95"/></marker></defs>
+  <g font-size="9.5">
+    <rect x="440" y="20" width="140" height="42" rx="7" fill="#11253f"/>
+    <text x="510" y="38" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">Telecom</text>
+    <text x="510" y="53" text-anchor="middle" font-size="8.5" fill="#c9d6e6">onCallAdded</text>
+
+    <rect x="270" y="20" width="150" height="42" rx="7" fill="#eaf2fd" stroke="#2a78d6"/>
+    <text x="345" y="38" text-anchor="middle" font-weight="600" fill="#184f95">CallInCallService</text>
+    <text x="345" y="53" text-anchor="middle" font-size="8.5" fill="#52514e">ثبت Call.Callback</text>
+
+    <rect x="60" y="20" width="185" height="42" rx="7" fill="#fdf1f1" stroke="#d03b3b"/>
+    <text x="152" y="38" text-anchor="middle" font-weight="600" fill="#8f2020">شمارهٔ مسدود؟</text>
+    <text x="152" y="53" text-anchor="middle" font-size="8.5" fill="#52514e">رد تماس پیش از هر رابطی</text>
+
+    <rect x="330" y="92" width="250" height="42" rx="7" fill="#eaf2fd" stroke="#2a78d6"/>
+    <text x="455" y="110" text-anchor="middle" font-weight="600" fill="#184f95">نوتیفیکیشن CallStyle + Full-Screen Intent</text>
+    <text x="455" y="125" text-anchor="middle" font-size="8.5" fill="#52514e">دکمه‌های پاسخ/رد روی صفحهٔ قفل</text>
+
+    <rect x="330" y="150" width="250" height="42" rx="7" fill="#eaf2fd" stroke="#2a78d6"/>
+    <text x="455" y="168" text-anchor="middle" font-weight="600" fill="#184f95">showOverLockScreen(true)</text>
+    <text x="455" y="183" text-anchor="middle" font-size="8.5" fill="#52514e">setShowWhenLocked + setTurnScreenOn</text>
+
+    <rect x="330" y="208" width="250" height="34" rx="7" fill="#e9f7f1" stroke="#1baf7a"/>
+    <text x="455" y="230" text-anchor="middle" font-weight="600" fill="#0e7351">صفحهٔ تماس روی صفحهٔ قفل</text>
+
+    <line x1="440" y1="41" x2="424" y2="41" stroke="#184f95" marker-end="url(#ar4)"/>
+    <line x1="270" y1="41" x2="250" y2="41" stroke="#184f95" marker-end="url(#ar4)"/>
+    <line x1="345" y1="62" x2="345" y2="90" stroke="#184f95" marker-end="url(#ar4)"/>
+    <line x1="455" y1="134" x2="455" y2="148" stroke="#184f95" marker-end="url(#ar4)"/>
+    <line x1="455" y1="192" x2="455" y2="206" stroke="#184f95" marker-end="url(#ar4)"/>
+
+    <g font-size="8.7" fill="#52514e">
+      <rect x="18" y="92" width="292" height="100" rx="6" fill="#fff8e9" stroke="#fab219"/>
+      <text x="300" y="110" text-anchor="start" font-weight="600" fill="#8a5a00">چهار تخریب مستقل برای پایان تماس</text>
+      <text x="300" y="126" text-anchor="start">‏۱. onCallRemoved  ۲. onStateChanged وقتی چیزی زنده نمانده</text>
+      <text x="300" y="140" text-anchor="start">‏۳. republishCurrent()  ۴. در Dart: CALLS_CHANGED با شمارش صفر</text>
+      <text x="300" y="158" text-anchor="start">به‌علاوهٔ یک SyncCallState در هر بازگشت به برنامه که</text>
+      <text x="300" y="172" text-anchor="start">مستقیم از Telecom می‌پرسد «آیا اصلاً تماسی هست؟»</text>
+      <text x="300" y="186" text-anchor="start" font-weight="600" fill="#8f2020">صفحهٔ تماسِ گیرکرده بدون کشتن برنامه قابل‌بازیابی نیست</text>
+    </g>
+  </g>
+</svg>
+<figcaption>نمودار ۶ — مسیر تماس ورودی و شبکهٔ ایمنی پایان تماس</figcaption>
+</figure>
+
+<h2>۱۲٫۲ مسائل واقعی دستگاه که شبیه باگ برنامه بودند</h2>
+<table>
+  <thead><tr><th style="width:30%">پدیده</th><th>ریشه و پاسخ</th></tr></thead>
+  <tbody>
+    <tr><td>صفحهٔ تماس بعد از قطع‌شدن باقی می‌ماند</td>
+        <td>سامسونگ تماس‌هایی در وضعیت <span class="mono">STATE_NEW</span> اضافه می‌کند — حتی یکی <em>پس از</em> قطع همه.
+        شمردن آن‌ها به‌عنوان «تماس زنده» باعث می‌شد <span class="mono">onCallRemoved</span> فکر کند تماسی باقی مانده.
+        پاسخ: تعریف صریح مجموعهٔ وضعیت‌های زنده و نادیده‌گرفتن <span class="mono">NEW</span> (که خودش دوباره اعلام می‌شود).</td></tr>
+    <tr><td>تماس ردشده «برقرار» می‌شود</td>
+        <td>رفتار اپراتور ایرانسل: پس از رد، تماس‌گیرنده به پیام اپراتور وصل می‌شود، پس تلفن واقعاً
+        <span class="mono">ALERTING → ACTIVE</span> گزارش می‌کند. با ردیابی Telecom تأیید شد؛ <em>باگ نیست و نباید «درست» شود</em>.</td></tr>
+    <tr><td>«ادغام تماس» روی تماس ادغام‌شده باقی می‌ماند</td>
+        <td>Telecom پیوند والد را <em>پس از</em> تحویل میزبان کنفرانس ست می‌کند؛ پس باید به چهار رویداد جزئیات
+        هم گوش داد، با حذف تکرار — به‌جز وضعیت «قطع» که همیشه باید فرستاده شود.</td></tr>
+    <tr><td>‏USSD کار نمی‌کرد و به‌نظر می‌رسید برنامه <span class="mono">*</span> و <span class="mono">#</span> را پاک می‌کند</td>
+        <td>پاک‌سازی دستیِ کاراکترها با <span class="mono">[^+0-9]</span>. پاسخ: استفاده از قاعدهٔ خود پلتفرم
+        (<span class="mono">PhoneNumberUtils.stripSeparators</span>) و ساخت آدرس با
+        <span class="mono">Uri.fromParts</span> — چون <span class="mono">Uri.parse("tel:…")</span> رشته را سرِ <span class="mono">#</span> می‌بُرد.</td></tr>
+    <tr><td>تماس ورودی نامرئی</td>
+        <td>اگر نوتیفیکیشن برنامه خاموش باشد، هم کارت تماس حذف می‌شود و هم Full-Screen Intent شلیک نمی‌کند —
+        و چون نقش شماره‌گیر دست ماست، هیچ رابط دیگری هم جایگزین نمی‌شود. پاسخ: ساخت کانال‌ها در
+        <span class="mono">onCreate</span> و پرسیدن صریح این وضعیت در صفحهٔ درخواست نقش.</td></tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <span class="t">یک قاعدهٔ ایمنی که در سند معماری ثبت شده است</span>
+  هرگز نباید <span class="mono">ROLE_DIALER</span> درخواست شود مگر آن‌که <span class="mono">CallInCallService</span>
+  اعلام‌شده و سالم باشد — در غیر این‌صورت تماس‌های ورودی <em>هیچ رابطی</em> نخواهند داشت.
+</div>
+</section>
+
+<!-- ══════════════════ 13 ══════════════════ -->
+<section id="s13">
+<h1 class="sec"><span class="num">۱۳.</span> موتور جستجو و پردازش متن فارسی</h1>
+
+<p><strong>به زبان ساده:</strong> جستجوی متن فارسی با <span class="mono">contains</span> ساده کار نمی‌کند.
+«محمدرضا» و «محمد رضا»، «علي» با ی عربی و «علی» با ی فارسی، و «۰۹۱۲» با رقم فارسی
+همه از نظر کاربر یک چیزند و از نظر رشته سه چیز متفاوت. این بخش موتوری است که این تفاوت‌ها را
+از بین می‌برد — و در کل برنامه <em>فقط همین یک موتور</em> استفاده می‌شود.</p>
+
+<h2>۱۳٫۱ نرمال‌سازی نام</h2>
+<table class="tight">
+  <thead><tr><th style="width:34%">قاعده</th><th>مثال</th></tr></thead>
+  <tbody>
+    <tr><td>یکسان‌سازی حروف عربی/فارسی</td><td>ي ← ی · ك ← ک · ة ← ه · ؤ ← و</td></tr>
+    <tr><td>یکسان‌سازی الف</td><td>آ / أ / إ ← ا</td></tr>
+    <tr><td>حذف اعراب، نیم‌فاصله و نشانه‌های جهت</td><td>حرکات، ZWNJ، علائم دوجهته</td></tr>
+    <tr><td>تبدیل ارقام فارسی و عربی به ASCII</td><td>۰۹۱۲ / ٠٩١٢ ← 0912</td></tr>
+    <tr><td>اختیاری‌بودن فاصله</td><td>«محمدرضا» ← «محمد رضا» را پیدا می‌کند</td></tr>
+  </tbody>
+</table>
+
+<h2>۱۳٫۲ تطبیق شمارهٔ تلفن</h2>
+<p>
+یک شماره در دفترچهٔ تلفن ممکن است به چند شکل ذخیره شده باشد. هم شمارهٔ ذخیره‌شده و هم
+عبارت تایپ‌شده به همهٔ شکل‌های هم‌ارز بسط داده می‌شوند:
+<span class="mono">+98…</span> ≡ <span class="mono">0098…</span> ≡ <span class="mono">98…</span> ≡ <span class="mono">09…</span> ≡ <span class="mono">9…</span>
+</p>
+<div class="warn">
+  <span class="t">یک عدم‌تقارن که باید بماند</span>
+  ارقام <em>همان‌طور که تایپ شده‌اند</em> در هر جای شماره تطبیق داده می‌شوند، اما شکلی که با
+  حذف صفر یا کد کشور ساخته شده فقط از <strong>ابتدای</strong> شماره تطبیق می‌خورد.
+  بدون این قید، جستجوی «۰۲۱…» هر موبایلی که «۲۱» در دلش داشت را برمی‌گرداند.
+</div>
+
+<h2>۱۳٫۳ صفحه‌کلید به‌عنوان جستجوی نام (T9)</h2>
+<p>
+همان ارقامی که روی صفحه‌کلید زده می‌شوند دو بار خوانده می‌شوند: یک بار به‌عنوان شماره،
+یک بار به‌عنوان حروفِ چاپ‌شده روی کلیدها. جدول حروف <strong>فارسی</strong> است
+(۲ = ا ب پ ت ث … ۹ = ه ی) و همان جدول روی کلیدها هم چاپ می‌شود — صفحه‌کلیدی که
+«کبری» را زیر ۷۲۴ پیدا می‌کند باید این را نشان بدهد، وگرنه قابلیت نامرئی است.
+تطبیق فقط از <em>ابتدای کلمه</em> و با حداقل طول انجام می‌شود؛ تطبیق میانِ کلمه با سه رقم،
+عملاً کل دفترچهٔ تلفن را برمی‌گرداند.
+</p>
+
+<h2>۱۳٫۴ مرتب‌سازی الفبایی فارسی</h2>
+<div class="note">
+  <span class="t">چرا مرتب‌سازی پیش‌فرض غلط است</span>
+  <span class="mono">String.compareTo</span> ترتیب UTF-16 است و الفبای فارسی در UTF-16 مرتب نیست —
+  پ، چ، ژ، ک و گ همگی بیرون از بازهٔ ب…ی قرار دارند. نتیجه: نام‌هایی که با این حروف
+  شروع می‌شوند در فهرست پخش می‌شوند و نوار حروف الفبا به جای اشتباه می‌پرد.
+  پاسخ: یک <span class="mono">PersianCollator</span> اختصاصی که هر حرف را به رتبهٔ درستش نگاشت می‌کند،
+  و کلید مرتب‌سازی <strong>یک‌بار به‌ازای هر مخاطب</strong> ساخته می‌شود
+  (الگوی decorate–sort–undecorate) — ساختن آن داخل تابع مقایسه یعنی
+  نرمال‌سازی هر نام به تعداد ‎O(log n)‎ بار روی کل دفترچه.
+</div>
+<p>
+سه چیز دیگر هم به مرتب‌سازی خودمان وابسته‌اند و رایگان به‌دست نمی‌آیند: مرتب‌سازی بر اساس
+نام خانوادگی (که اصلاً ترتیبی نیست که بشود از Provider خواست)، قرار گرفتن مخاطبین سیم‌کارت
+سر جای الفبایی خودشان به‌جای انتهای فهرست، و درست پریدن نوار حروف که آفست را از رتبهٔ
+بخش‌ها انباشته می‌کند.
+</p>
+
+<h2>۱۳٫۵ جستجوی پیام — دو مسیر که باید یک جواب بدهند</h2>
+<table>
+  <thead><tr><th style="width:26%">مسیر</th><th>سازوکار و محدودیت</th></tr></thead>
+  <tbody>
+    <tr><td>پیش‌فیلتر SQL + تطبیق نهایی در Dart</td>
+        <td>پیش‌فیلتر عمداً <strong>فقط می‌تواند بازتر از حد لازم</strong> باشد؛ پاسخ نهایی همیشه با تطبیق‌گر Dart داده می‌شود.
+        جدول پیش‌تصویرها <em>در زمان اجرا از خود تابع نرمال‌سازی</em> مشتق می‌شود، نه کپی‌برداری — کپی با گذشت زمان
+        واگرا می‌شد و شروع به تولید «منفی کاذب» می‌کرد.</td></tr>
+    <tr><td>نمایهٔ FTS5 با توکن‌ساز trigram</td>
+        <td>تنها توکن‌سازی که FTS5 را به یک نمایهٔ واقعیِ «زیررشته» تبدیل می‌کند. سه شرط برای استفاده:
+        نمایه وجود داشته باشد، عبارت ≥ ۳ کاراکتر باشد، و نمایه <strong>عقب‌ماندگی نداشته باشد</strong> —
+        چون یک نمایهٔ نیمه‌پر با اطمینان جواب می‌دهد و آنچه هنوز نمایه نشده را بی‌صدا حذف می‌کند.</td></tr>
+  </tbody>
+</table>
+
+<div class="crit">
+  <span class="t">تصمیم ثبت‌شده: نمایهٔ FTS5 ساخته شد اما روی اندروید غیرفعال است</span>
+  ‏SQLite سیستم‌عامل اندروید ماژول FTS5 را <strong>اصلاً ندارد</strong>
+  (تأییدشده روی اندروید ۱۶: <span class="mono">no such module: fts5</span>).
+  فعال‌کردنش یعنی همراه‌کردن SQLite اختصاصی با برنامه. اندازه‌گیری روی صندوق ۵۰ هزارتایی:
+  اسکن معمولی یک عبارت نادر را در ۶۸ میلی‌ثانیه و نمایه در ۱ میلی‌ثانیه جواب می‌دهد —
+  اما اسکن یک عبارت <em>پرتکرار</em> را در ۷ میلی‌ثانیه جواب می‌دهد و پرکردن اولیهٔ نمایه
+  حدود ۱۰ ثانیه روی گوشی طول می‌کشد. در مقابل، کد Kotlin همین فایل را در حالتی باز می‌کند
+  که پروسهٔ برنامه مرده است (پیامک شروع سرد، کارگر زمان‌بندی، پاسخ از نوتیفیکیشن) —
+  دو موتور SQLite باید سر WAL و قفل‌گذاری توافق کنند و یک خطای
+  <span class="mono">database is locked</span> آنجا یعنی <em>پیامک از دست‌رفته</em>.
+  <strong>نتیجه: رد شد.</strong> بازگشایی این تصمیم فقط با اندازه‌گیری روی صندوق بزرگ واقعی و
+  با پیش‌شرط داشتن تست همزمانی Dart/Kotlin روی یک فایل.
+</div>
+</section>
+
+<!-- ══════════════════ 14 ══════════════════ -->
+<section id="s14">
+<h1 class="sec"><span class="num">۱۴.</span> پیام زمان‌بندی‌شده و قالب‌های آماده</h1>
+
+<h2>۱۴٫۱ دو تحویل‌دهنده، یک صف</h2>
+<p><strong>به زبان ساده:</strong> پیام زمان‌بندی‌شده باید سر وقت برود، حتی اگر کاربر برنامه را بسته باشد.
+پس دو مسیر تحویل وجود دارد: یکی در Dart وقتی برنامه باز است، یکی در Kotlin وقتی نیست.
+خطر بدیهی این است که هر دو یک پیام را بفرستند.</p>
+
+<table>
+  <thead><tr><th style="width:26%">تحویل‌دهنده</th><th>زمان اجرا</th></tr></thead>
+  <tbody>
+    <tr><td>Dart — <span class="mono">ScheduledMessageBloc</span></td><td>تیک هر ۳۰ ثانیه در حالی که برنامه زنده است</td></tr>
+    <tr><td>Kotlin — <span class="mono">ScheduledSmsWorker</span></td><td>از یک هشدار AlarmManager وقتی پروسه مرده است</td></tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <span class="t">هماهنگی: «ادعا» پیش از ارسال</span>
+  یک <span class="mono">UPDATE … SET status='sending', claim_token=?</span> اتمی، ردیف‌های سررسیده را
+  مهر می‌زند و هر تحویل‌دهنده فقط ردیف‌هایی را پردازش می‌کند که نشانهٔ خودش را دارند.
+  <strong>هیچ پیام زمان‌بندی‌شده‌ای بدون ادعای قبلی ارسال نمی‌شود.</strong>
+  ردیفی که بیش از حد در وضعیت «در حال ارسال» بماند، دوباره آزاد می‌شود.
+</div>
+
+<p>
+یک ظرافت دیگر: وقتی هشدار شلیک می‌شود <em>و</em> موتور Flutter زنده است، تحویل عمداً به Dart
+برگردانده می‌شود. دلیل: کارگر بومی مستقیم روی SQLite می‌نویسد، پس یک ارسال بومی در حالی که
+برنامه باز است، وضعیت بلاک‌ها را کهنه می‌گذارد — گفتگو «حباب شبح» خود را نگه می‌داشت و
+پیام ارسال‌شده را هرگز نشان نمی‌داد.
+</p>
+
+<h3>پراکندگی زمان ارسال (Jitter)</h3>
+<p>
+انحراف زمانی یک ویژگی تزئینی نیست: از سه‌گانهٔ (شناسه، زمان زمان‌بندی، شمارهٔ تکرار)
+<strong>به‌صورت قطعی</strong> مشتق می‌شود. اگر در هر تیک دوباره قرعه‌کشی می‌شد، یک ردیف می‌توانست
+زودتر از موعد شلیک کند. چون این پنجره در SQL قابل‌بیان نیست، ردیف‌های سررسیده خوانده، در
+حافظه فیلتر و فقط بازماندگان ادعا می‌شوند؛ نسخهٔ Kotlin هم دقیقاً همین دروازه را اعمال می‌کند.
+</p>
+
+<h2>۱۴٫۲ قالب آماده و پروتکل فشردهٔ روی سیم</h2>
+<p><strong>به زبان ساده:</strong> یک پیام قالبی («جلسه در تاریخ … ساعت … در محل … برگزار می‌شود»)
+عمدتاً متن ثابتی است که گیرنده هم دارد. پیامک فارسی در هر بخش فقط ۷۰ کاراکتر جا می‌دهد.
+پس برای قالب‌های <em>از پیش تعریف‌شده</em>، به‌جای فرستادن متن کامل، فقط یک سربرگ کوتاه و
+پاسخ‌های کاربر فرستاده می‌شود و طرف مقابل متن را بازسازی می‌کند.</p>
+
+<pre>[#T1:mtg:1]علی|جلسه هفتگی|۱۴۰۵/۰۵/۲۰|۱۰:۳۰|اتاق ۳        →  49 کاراکتر
+علی عزیز⏎جلسه جلسه هفتگی در مورخه ۱۴۰۵/۰۵/۲۰ ساعت ۱۰:۳۰
+در محل اتاق ۳ برقرار می‌باشد.                              →  85 کاراکتر</pre>
+
+<table>
+  <thead><tr><th style="width:26%">قاعده</th><th>دلیل</th></tr></thead>
+  <tbody>
+    <tr><td>سربرگ به <strong>ثابت‌های کامپایل‌شده</strong> اشاره می‌کند، نه به ردیف پایگاه‌داده</td>
+        <td>دو گوشی ردیف‌های یکسانی ندارند. اگر شناسهٔ ردیف حمل می‌شد، ویرایش یک قالب در یک گوشی
+        پیام‌های ورودی گوشی دیگر را بی‌صدا بازنویسی می‌کرد.</td></tr>
+    <tr><td>قالب‌های ساختهٔ کاربر عمداً خارج از این پروتکل‌اند</td>
+        <td>بک‌اندی وجود ندارد، پس طرف مقابل نمی‌تواند متنی را که کاربر اختراع کرده بداند.</td></tr>
+    <tr><td>پایگاه‌داده <strong>همان چیزی که روی سیم رفته</strong> را ذخیره می‌کند</td>
+        <td>‏Provider سیستم هم همین را دارد و همگام‌سازی آینه‌ای با همین تطبیق می‌دهد؛ رمزگشایی فقط در لحظهٔ نمایش انجام می‌شود.</td></tr>
+    <tr><td>‏Kotlin نیمهٔ «دریافت» را آینه می‌کند</td>
+        <td>همهٔ نوتیفیکیشن‌های پیامک بومی‌اند؛ بدون این آینه، نوار اعلان متن رمزی را نشان می‌داد و گفتگو متن واقعی را.</td></tr>
+    <tr><td>اگر فشرده‌سازی واقعاً کوتاه‌تر نشود، متن ساده می‌رود</td>
+        <td>گیرنده‌ای که این برنامه را ندارد نباید یک رشتهٔ نامفهوم دریافت کند مگر آن‌که واقعاً صرفه‌جویی‌ای در کار باشد.</td></tr>
+  </tbody>
+</table>
+<p style="margin-top:3mm">
+این فهرست فیلدهای بدون‌متنِ ثابت، همان درزی است که فاز بعدی پروژه —
+<strong>پیامک رمزنگاری‌شده</strong> — در آن می‌نشیند.
+</p>
+</section>
+
+<!-- ══════════════════ 15 ══════════════════ -->
+<section id="s15">
+<h1 class="sec"><span class="num">۱۵.</span> پشتیبانی دو سیم‌کارت</h1>
+
+<p><strong>به زبان ساده:</strong> روی گوشی دو سیم‌کارته باید معلوم باشد پیام با کدام سیم رفته،
+تماس با کدام برقرار شده، و پیام بعدی با کدام برود. روی گوشی تک‌سیم، هیچ‌کدام از این‌ها
+نباید دیده شود.</p>
+
+<table>
+  <thead><tr><th style="width:32%">اصل طراحی</th><th>توضیح</th></tr></thead>
+  <tbody>
+    <tr><td>یک سیم‌کارت ⇐ هیچ تغییری</td>
+        <td>هر عنصر رابط کاربری مربوط به سیم، به یک پرچم «چندسیمی» وابسته است؛ گوشی تک‌سیم باید
+        دقیقاً مثل قبل از وجود این قابلیت به‌نظر برسد.</td></tr>
+    <tr><td>هویتی که سفر می‌کند <span class="mono">subscriptionId</span> است، شمارهٔ شیار فقط نمایش داده می‌شود</td>
+        <td>شناسهٔ اشتراک یک شمارندهٔ مبهم و مخصوص همان دستگاه است که با درآوردن و گذاشتن کارت عوض می‌شود؛
+        پس تنظیمات ذخیره‌شده «اشتراک» را نام می‌برد و رابط کاربری «سیم ۱» را.</td></tr>
+    <tr><td>‏NULL یعنی «نامشخص»، نه «سیم ۱»</td>
+        <td>ردیف‌های قدیمی، ردیف‌هایی که سازندهٔ گوشی مهر نزده و تماس‌های VoIP همه NULL‌اند.
+        نشان دادن سیم <em>اشتباه</em> بدتر از نشان‌ندادن آن است.</td></tr>
+    <tr><td>پیامک، سیم را <strong>به‌ازای هر گفتگو</strong> به‌خاطر می‌سپارد</td>
+        <td>و در لحظهٔ <em>ارسال</em> ثبت می‌شود نه در لحظهٔ انتخاب — چون آنچه اهمیت دارد این است که واقعاً چه رفت.
+        یک «سیم انتخاب‌شدهٔ سراسری» برای همهٔ گفتگوها جز آخری غلط می‌بود.</td></tr>
+    <tr><td>انتخابگر فقط وقتی ظاهر می‌شود که انتخاب واقعی باشد</td>
+        <td>دو سیم <em>و</em> نبود پیش‌فرض سیستمی. دوباره حدس‌زدن تنظیم اندرویدِ کاربر خودش باگ است.</td></tr>
+    <tr><td>…اما همیشه یک راه بازگذاری صریح هست</td>
+        <td>وگرنه یک پیش‌فرض پین‌شده، کارت دیگر را از داخل برنامه غیرقابل‌دسترس می‌کرد — که دقیقاً
+        اشتباه نسخهٔ اول بود. سه مسیر: تراشهٔ سیم کنار دکمهٔ تماس، نگه‌داشتن هر دکمهٔ تماس، و ردیف صریح «تماس با سیم …».</td></tr>
+    <tr><td>پیش‌بررسی ارسال باید <strong>به‌ازای همان سیم</strong> باشد</td>
+        <td>خواندن وضعیت شبکهٔ اشتراک <em>پیش‌فرض</em> باعث می‌شد دو کارت دربارهٔ هم دروغ بگویند:
+        ارسال روی سیم ۲ رد می‌شد چون سیم ۱ آنتن نداشت، و ارسال روی کارتی که واقعاً آنتن نداشت از بررسی رد می‌شد.</td></tr>
+  </tbody>
+</table>
+
+<div class="warn">
+  <span class="t">‏Telecom یک «حساب تلفن» را نام می‌برد، نه یک اشتراک — و هیچ API عمومی این دو را به هم وصل نمی‌کند</span>
+  نگاشت با یک زنجیرهٔ پشتیبان انجام می‌شود: برابری شناسهٔ دستگیره با شناسهٔ اشتراک (اندروید مدرن) ←
+  شناسهٔ ICC ← برچسب حساب ← ترتیب شیار. همین نگاشت هم برای تماس خروجی و هم برای تاریخچهٔ تماس به‌کار می‌رود.
+  چون نتیجهٔ این نگاشت <em>ذخیره</em> می‌شود، اجرای آن پیش از آماده‌شدن فهرست سیم‌ها،
+  برای همیشه روی همهٔ تماس‌ها مهر «بدون سیم» می‌زد — پس همگام‌سازی تاریخچه صریحاً منتظر آن می‌ماند.
+</div>
+
+<h3>مخاطبین سیم‌کارت — یک کشف غیرمنتظره</h3>
+<p>
+مخاطبین سیم‌کارت <strong>در <span class="mono">ContactsContract</span> نیستند</strong>. سیستم آن‌ها را
+فقط زمانی وارد می‌کند که برنامهٔ مخاطبین <em>پیش‌فرض</em> دستگاه یک حساب سیم ثبت کرده باشد —
+که روی گوشی‌ای که این برنامه سطح مخاطبین آن است، اتفاق نمی‌افتد. نتیجه: کتابخانهٔ مخاطبین
+با سیم دوم دقیقاً همان فهرستی را برمی‌گرداند که بدون آن. پاسخ: خواندن مستقیم
+<span class="mono">content://icc/adn/subId/&lt;subId&gt;</span> به‌ازای هر اشتراک فعال — و نه آدرس خالی
+<span class="mono">content://icc/adn</span>، که همیشه به اشتراک پیش‌فرض اشاره می‌کند و
+مخاطبین سیم ۱ را دو بار نشان می‌داد.
+</p>
+</section>
+
+<!-- ══════════════════ 16 ══════════════════ -->
+<section id="s16">
+<h1 class="sec"><span class="num">۱۶.</span> امنیت و حریم خصوصی</h1>
+
+<p>
+این برنامه پیامک‌های کاربر، دفترچهٔ تلفن و تاریخچهٔ تماس او را در اختیار دارد.
+سیاست پروژه ساده است: <strong>هیچ دادهٔ کاربر از دستگاه خارج نمی‌شود.</strong>
+</p>
+
+<h2>۱۶٫۱ قفل برنامه</h2>
+<table>
+  <thead><tr><th style="width:30%">موضوع</th><th>پیاده‌سازی</th></tr></thead>
+  <tbody>
+    <tr><td>ذخیرهٔ اعتبارنامه</td>
+        <td>نه به‌صورت متن ساده: قالب <span class="mono">v2:&lt;salt&gt;:&lt;hash&gt;</span> با ۶۰٬۰۰۰ دور SHA-256.
+        ردیف‌های نسخه‌های قدیمی متن ساده‌اند و در <em>اولین اعتبارسنجی موفق</em> ارتقا می‌یابند — هرگز در یک حدس اشتباه.</td></tr>
+    <tr><td>نوع قفل</td><td>در <span class="mono">flutter_secure_storage</span> (پشتوانهٔ Keystore اندروید)</td></tr>
+    <tr><td>فراموشی رمز</td>
+        <td>هنگام تعیین PIN یک کد بازیابی یکبارمصرف ساخته و <em>فقط یک بار</em> نمایش داده می‌شود
+        (الفبای بدون ابهام، بدون O/0 و I/1؛ فقط هش ذخیره می‌شود). این کد هرگز مستقیماً قفل را باز نمی‌کند،
+        بلکه به مسیر «تعیین رمز جدید» می‌رود — کدی که روی کاغذ نوشته می‌شود نباید به رمز دوم تبدیل شود.</td></tr>
+    <tr><td>قفل مجدد</td><td>وابسته به چرخهٔ عمر برنامه؛ صفحهٔ تماس عمداً بالاتر از قفل قرار دارد و بقیهٔ برنامه قفل می‌ماند</td></tr>
+  </tbody>
+</table>
+
+<h2>۱۶٫۲ گزارش خطا — پیش‌فرض خاموش</h2>
+<p>
+گزارش خطا تنها وقتی فعال می‌شود که <strong>هم</strong> یک DSN در زمان ساخت تزریق شده باشد
+<strong>و هم</strong> کاربر صراحتاً آن را روشن کرده باشد (پیش‌فرض: خاموش). حتی در آن حالت:
+</p>
+<ul>
+  <li><span class="mono">sendDefaultPii</span> خاموش؛ بدون اسکرین‌شات و بدون سلسله‌مراتب ویجت.</li>
+  <li>رد‌پاهای <span class="mono">console</span>، <span class="mono">http</span> و <span class="mono">query</span> کاملاً حذف می‌شوند —
+      چون <span class="mono">debugPrint</span> در این برنامه به‌طور مشروع متن پیام‌ها را چاپ می‌کند.</li>
+  <li>هر رشتهٔ باقی‌مانده از یک پالایشگر عبور می‌کند که <strong>هر دنبالهٔ ۴ رقم یا بیشتر را جایگزین می‌کند</strong>.</li>
+</ul>
+<div class="crit">
+  <span class="t">هیچ‌کدام از این قیدها نباید شل شود</span>
+  این برنامهٔ پیامک پیش‌فرض دستگاه است. یک ردپای لاگ حاوی متن پیام، برابر است با نشت
+  محتوای خصوصی کاربر به یک سرویس بیرونی.
+</div>
+
+<h2>۱۶٫۳ سایر تصمیم‌های سخت‌سازی</h2>
+<table class="tight">
+  <thead><tr><th style="width:30%">تصمیم</th><th>دلیل</th></tr></thead>
+  <tbody>
+    <tr><td>پشتیبان‌گیری خودکار خاموش</td><td>پایگاه‌دادهٔ پیامک متن ساده است؛ ‏<span class="mono">allowBackup=false</span> به‌علاوهٔ قواعد استخراج داده</td></tr>
+    <tr><td>مسدودسازی در <em>هر دو</em> مسیر دریافت اجرا می‌شود</td><td>مسیر Dart برای وقتی برنامه زنده است، مسیر Kotlin برای وقتی نیست</td></tr>
+    <tr><td>مختصات مکانی ذخیره یا ردیابی نمی‌شود</td><td>فقط داخل همان پیامکی که کاربر انتخاب می‌کند از دستگاه خارج می‌شود</td></tr>
+    <tr><td>‏R8/کوچک‌سازی در خروجی Release</td><td>کاهش حجم و مبهم‌سازی پایه</td></tr>
+    <tr><td>هیچ سرور، هیچ حساب کاربری، هیچ تله‌متری</td><td>پروژه لایهٔ شبکه ندارد — این را می‌شود با یک نگاه به وابستگی‌ها تأیید کرد</td></tr>
+  </tbody>
+</table>
+</section>
+
+<!-- ══════════════════ 17 ══════════════════ -->
+<section id="s17">
+<h1 class="sec"><span class="num">۱۷.</span> کارایی و بهینه‌سازی</h1>
+
+<p>
+همهٔ موارد این بخش، مشکلات <em>مشاهده‌شده روی دستگاه واقعی</em> بودند، نه بهینه‌سازی حدسی.
+هرکدام یک نشانهٔ قابل‌توصیف داشت.
+</p>
+
+<table>
+  <thead><tr><th style="width:28%">نشانه</th><th style="width:36%">ریشه</th><th>راه‌حل</th></tr></thead>
+  <tbody>
+    <tr><td>حدود ۵ ثانیه چرخ‌دنده در باز کردن اولیهٔ تب پیام‌ها</td>
+        <td>‏<span class="mono">await</span> کردن همگام‌سازی داخل کنترل‌کنندهٔ رویداد</td>
+        <td>رسم از آینهٔ محلی + اجرای همگام‌سازی به‌صورت Future جدا</td></tr>
+    <tr><td>مکث چندثانیه‌ای هنگام اسکرول سریع صندوق</td>
+        <td>هر اعلان اسکرول یک رویداد «صفحهٔ بعد» می‌ساخت؛ نگهبان <span class="mono">hasMore</span> فقط بعد از بازگشت صفحهٔ قبلی برمی‌گشت</td>
+        <td>پرچم «در حال اجرا» جدا از <span class="mono">hasMore</span></td></tr>
+    <tr><td>قفل‌شدن رابط وسط اسکرول روی گوشیِ پر</td>
+        <td>کشیدن همهٔ ردیف‌های محلی از کانال پلتفرم برای تفریق در Dart</td>
+        <td>تفریق داخل SQLite با جدول موقت شناسه‌ها</td></tr>
+    <tr><td>ارقام هنگام تایپ سریع روی صفحه‌کلید گم می‌شدند</td>
+        <td>صفحه‌کلید داخل یک شیت کشویی است؛ تشخیص‌دهندهٔ ضربه باید در «میدان اشاره‌گر» با کشیدن شیت رقابت می‌کرد و می‌باخت</td>
+        <td>استفاده از <span class="mono">Listener</span> خام و شلیک روی <em>لمس</em>، نه روی ضربه — یک <span class="mono">Listener</span> عضو میدان رقابت نیست</td></tr>
+    <tr><td>تأخیر در واکنش کلیدها هنگام شماره‌گیری</td>
+        <td>یک <span class="mono">BlocBuilder</span> در بالای صفحهٔ شماره‌گیر، هر فشار کلید ۱۲ کلید متحرک و فهرست پیشنهادها را بازسازی می‌کرد</td>
+        <td>حذف کامل آن؛ فقط سه ناحیهٔ باریک و مشروط بازسازی می‌شوند</td></tr>
+    <tr><td>کل صفحه برای مدت انیمیشن سفید می‌شد</td>
+        <td>‏<span class="mono">clamp(220, 130)</span> — کران پایین بزرگ‌تر از کران بالا — که در هر بیلد نویسندهٔ پیام محاسبه می‌شد</td>
+        <td>حذف <span class="mono">clamp</span> و ثبت ارتفاع صفحه‌کلید فقط در حالت «رو به بالا»</td></tr>
+    <tr><td>کندی و مصرف حافظه با دفترچهٔ تلفن بزرگ</td>
+        <td>بارگذاری عکس مخاطبین به‌صورت انبوه داخل حافظهٔ نهان</td>
+        <td>بارگذاری تنبل عکس به‌ازای شناسه، هرگز داخل حافظهٔ نهان انبوه</td></tr>
+    <tr><td>مرتب‌سازی کند دفترچهٔ تلفن</td>
+        <td>نرمال‌سازی نام داخل تابع مقایسه</td>
+        <td>الگوی decorate–sort–undecorate — یک کلید به‌ازای هر مخاطب</td></tr>
+  </tbody>
+</table>
+
+<h2>قواعد پایدار کارایی</h2>
+<ul>
+  <li>هر فهرست داده‌محور مجازی‌سازی می‌شود؛ خواندن کل جدول ممنوع است.</li>
+  <li>هیچ عبارت جستجویی به‌ازای هر مخاطب کامپایل نمی‌شود — یک بار به‌ازای هر فهرست.</li>
+  <li>حافظهٔ نهان فهرست سیم‌کارت‌ها لازم است: چند رفت‌وبرگشت Binder دارد و روی مسیر
+      نوتیفیکیشن پیامک (دو بار) و روی هر تغییر وضعیت تماس قرار می‌گیرد.</li>
+  <li>در هر بازگشت به برنامه، فقط همگام‌سازی‌های افزایشی مجازند و هر همگام‌سازی
+      یک مالک چرخهٔ‌عمر دارد — نه بیشتر.</li>
+</ul>
+</section>
+
+<!-- ══════════════════ 18 ══════════════════ -->
+<section id="s18">
+<h1 class="sec"><span class="num">۱۸.</span> تست و تضمین کیفیت</h1>
+
+<p>
+راهبرد تست پروژه روی <strong>منطق</strong> متمرکز است، نه روی پیکسل‌ها: بلاک‌ها، مدل‌های خالص
+و مخازن داده. برای مخازن، پایگاه‌دادهٔ واقعی SQLite در حافظه بالا می‌آید
+(<span class="mono">sqflite_common_ffi</span>)، پس تست‌ها روی همان SQL واقعی اجرا می‌شوند نه روی ماک.
+</p>
+
+<table class="tight">
+  <thead><tr><th style="width:30%">دستهٔ تست</th><th style="width:14%" class="c">فایل</th><th>نمونه‌ها</th></tr></thead>
+  <tbody>
+    <tr><td>بلاک‌ها</td><td class="c">۹</td><td>پیام، تماس، مخاطب، شماره‌گیر، احراز هویت، پیش‌نویس، علاقه‌مندی، تنظیمات، مسدودی</td></tr>
+    <tr><td>منطق خالص</td><td class="c">۹</td><td>نرمال‌ساز شماره، متن جستجو، الفبای فارسی، تاریخ جلالی، کد یکبارمصرف، قالب پیام، پروتکل فشرده، زمان‌بندی</td></tr>
+    <tr><td>مخازن و همگام‌سازی</td><td class="c">۴</td><td>مخازن روی SQLite واقعی، حذف تکراری پیامک، نمایهٔ جستجو، سرویس‌های بومی</td></tr>
+    <tr><td>ویجت</td><td class="c">۹</td><td>صفحهٔ گفتگو، رشد نویسندهٔ پیام، شیت زمان‌بندی، صفحه‌های قالب</td></tr>
+    <tr><td>ابزار (Instrumentation)</td><td class="c">۰</td><td><span class="badge b-no">وجود ندارد</span> — تأیید مسیرهای بومی هنوز دستی و روی دستگاه است</td></tr>
+  </tbody>
+</table>
+
+<h2>سه ناحیه‌ای که بیشترین ارزش تست را دارند</h2>
+<ol>
+  <li><strong>تست آینه‌ای Dart ↔ Kotlin</strong> — نرمال‌سازی شماره، منطق زمان‌بندی و پروتکل قالب.
+  ناهماهنگی در این سه، با خطا اعلام نمی‌شود و فقط نتیجهٔ متفاوت می‌دهد.</li>
+  <li><strong>منطق حذف تکراری همگام‌سازی</strong> — چون تنها چیزی است که بین انبار سیستم و انبار برنامه قضاوت می‌کند.</li>
+  <li><strong>موتور جستجوی فارسی</strong> — پرمصرف‌ترین مسیر و پر از حالت‌های مرزی زبانی.</li>
+</ol>
+
+<h2>ابزارهای کیفیت</h2>
+<table class="tight">
+  <thead><tr><th style="width:34%">دستور</th><th>کاربرد</th></tr></thead>
+  <tbody>
+    <tr><td><span class="mono">flutter analyze</span></td><td>‏Lint با مجموعهٔ <span class="mono">flutter_lints</span></td></tr>
+    <tr><td><span class="mono">flutter test</span></td><td>اجرای کامل مجموعهٔ تست</td></tr>
+    <tr><td><span class="mono">flutter build apk --release</span></td><td>خروجی امضا‌شده با R8</td></tr>
+  </tbody>
+</table>
+</section>
+
+<!-- ══════════════════ 19 ══════════════════ -->
+<section id="s19">
+<h1 class="sec"><span class="num">۱۹.</span> دفترچهٔ تصمیم‌های مهندسی</h1>
+
+<p>
+این جدول برای بازبینی معماری نوشته شده است: هر ردیف یک تصمیم، گزینهٔ ردشده و هزینهٔ پذیرفته‌شدهٔ آن.
+</p>
+
+<table>
+  <thead><tr><th style="width:22%">تصمیم</th><th style="width:24%">گزینهٔ ردشده</th><th>دلیل و هزینهٔ پذیرفته‌شده</th></tr></thead>
+  <tbody>
+    <tr><td>بلاک‌ها سراسری، بدون Provider داخل صفحه</td>
+        <td>هر صفحه بلاک خودش</td>
+        <td>وضعیت گفتگوی باز و اسکرول صندوق نباید با ناوبری نابود شود. هزینه: طول عمر همهٔ بلاک‌ها برابر عمر برنامه است.</td></tr>
+    <tr><td>شمارهٔ نرمال‌شده به‌عنوان کلید اتصال سراسری</td>
+        <td>شناسهٔ مخاطب</td>
+        <td>پیامک و تماس فقط شماره دارند و مخاطب ممکن است اصلاً ذخیره نشده باشد. هزینه: نرمال‌سازی باید در هر دو زبان یکسان بماند.</td></tr>
+    <tr><td>مخاطبین بدون کپی محلی</td>
+        <td>آینه‌کردن دفترچهٔ تلفن در SQLite</td>
+        <td>آینهٔ دفترچهٔ تلفن یعنی یک مسئلهٔ ناهمگامی دائمی. هزینه: هر خواندن باید تنبل و نهان‌شده باشد.</td></tr>
+    <tr><td>گرفتن نقش کامل پیامک</td>
+        <td>خواندن‌فقط از Provider</td>
+        <td>بدون نقش، همگام‌سازی دوطرفه ممکن نیست و حذف‌ها اثری ندارند. هزینه: مسئولیت ذخیرهٔ پیامک ورودی و اجبار به پشتیبانی MMS در سطح Manifest.</td></tr>
+    <tr><td>حذف MMS از دامنه</td>
+        <td>پیاده‌سازی کامل MMS</td>
+        <td>‏MMS یک پشتهٔ کامل جدا (‏APN، ‏PDU، رسانه) است و در بازار هدف عملاً بلااستفاده. هزینه: گیرندهٔ MMS یک اجزای بی‌عمل دارد.</td></tr>
+    <tr><td>نمایهٔ FTS5 ساخته اما غیرفعال</td>
+        <td>همراه‌کردن SQLite اختصاصی</td>
+        <td>اندازه‌گیری‌شده و رد شده — دو موتور روی یک فایل، ریسک «پیامک از دست‌رفته» دارد (بخش ۱۳).</td></tr>
+    <tr><td>تحویل زمان‌بندی با ادعای اتمی</td>
+        <td>یک تحویل‌دهندهٔ واحد</td>
+        <td>هیچ تحویل‌دهندهٔ واحدی نمی‌تواند هم وقتی برنامه باز است و هم وقتی مرده است کار کند. هزینه: منطق تکراری در دو زبان.</td></tr>
+    <tr><td>حذف همیشه سراسری + حذف نرم محلی</td>
+        <td>حذف محلی</td>
+        <td>حذف محلیِ تنها، در همگام‌سازی بعدی برمی‌گشت. هزینه: سنگ‌قبرها در جدول می‌مانند.</td></tr>
+    <tr><td>یک موتور جستجو برای همه‌جا</td>
+        <td>تطبیق ساده در هر صفحه</td>
+        <td>سه صفحه با سه پاسخ متفاوت به یک عبارت، از نبود جستجو بدتر است.</td></tr>
+    <tr><td>نوتیفیکیشن پیامک تماماً بومی</td>
+        <td>مسیر Dart</td>
+        <td>مسیر Dart با پروسهٔ مرده کار نمی‌کند و داشتن هر دو یعنی نوتیفیکیشن تکراری.</td></tr>
+    <tr><td>حذف کلیدهای تنظیماتی که چیزی نمی‌خواندند</td>
+        <td>نگه‌داشتن آن‌ها</td>
+        <td>کلیدی که هیچ‌جا خوانده نمی‌شود، به کاربر دروغ می‌گوید. کلیدهای بازنشسته در اولین بارگذاری پاک می‌شوند.</td></tr>
+    <tr><td>بازسازی رابط کاربری بر پایهٔ سامانهٔ طراحی مشترک</td>
+        <td>استایل به‌ازای هر صفحه</td>
+        <td>نقش سطوح و اجزای فهرست مشترک، تنها راه یکدست‌ماندن ۸ ماژول است.</td></tr>
+  </tbody>
+</table>
+</section>
+
+<!-- ══════════════════ 20 ══════════════════ -->
+<section id="s20">
+<h1 class="sec"><span class="num">۲۰.</span> محدودیت‌های شناخته‌شده و نقشه راه</h1>
+
+<h2>۲۰٫۱ محدودیت‌های فعلی — با ذکر صریح دلیل</h2>
+<table>
+  <thead><tr><th style="width:26%">مورد</th><th style="width:14%" class="c">وضعیت</th><th>توضیح</th></tr></thead>
+  <tbody>
+    <tr><td>‏MMS</td><td class="c"><span class="badge b-no">خارج از دامنه</span></td>
+        <td>گیرندهٔ اجباری نقش وجود دارد ولی پیام را رها می‌کند. افزودن آن یعنی یک پشتهٔ کامل جدید.</td></tr>
+    <tr><td>لایهٔ محلی‌سازی</td><td class="c"><span class="badge b-wip">بدهی</span></td>
+        <td>رشته‌های فارسی درون کد نوشته شده‌اند. برای زبان دوم باید به فایل منابع منتقل شوند.</td></tr>
+    <tr><td>نرمال‌سازی شماره‌های غیرایرانی</td><td class="c"><span class="badge b-wip">ضعیف</span></td>
+        <td>قواعد حول پیش‌شمارهٔ ‎+98‎ ساخته شده‌اند؛ شمارهٔ خارجی ممکن است به دو گفتگو تقسیم شود.</td></tr>
+    <tr><td>کرش‌های سمت Kotlin گزارش نمی‌شوند</td><td class="c"><span class="badge b-wip">بدهی</span></td>
+        <td>پیامد استفاده از <span class="mono">sentry</span> خالص Dart به‌جای <span class="mono">sentry_flutter</span> (بخش ۴).</td></tr>
+    <tr><td>مسیر VoIP خفته</td><td class="c"><span class="badge b-wip">کد مرده</span></td>
+        <td>‏<span class="mono">CallConnectionService</span> به‌عنوان مسیر پشتیبان باقی مانده و در عمل فعال نیست.</td></tr>
+    <tr><td>تست ابزار (Instrumentation)</td><td class="c"><span class="badge b-no">ندارد</span></td>
+        <td>مسیرهای بومی دستی روی دستگاه تأیید می‌شوند.</td></tr>
+    <tr><td>‏iOS</td><td class="c"><span class="badge b-no">غیرممکن</span></td>
+        <td>‏iOS جایگزینی برنامهٔ پیامک/تماس را در اختیار توسعه‌دهنده نمی‌گذارد.</td></tr>
+  </tbody>
+</table>
+
+<h2>۲۰٫۲ نقشه راه پیشنهادی</h2>
+<table>
+  <thead><tr><th style="width:12%" class="c">اولویت</th><th style="width:28%">کار</th><th>ارزش</th></tr></thead>
+  <tbody>
+    <tr><td class="c">۱</td><td>پیامک رمزنگاری‌شده بین دو کاربر برنامه</td>
+        <td>درزش از قبل ساخته شده است: پروتکل فشردهٔ قالب، ساختار «سربرگ + فیلدها» را دارد و
+        همان‌جا می‌شود بار رمزنگاری‌شده را نشاند.</td></tr>
+    <tr><td class="c">۲</td><td>استخراج رشته‌ها به لایهٔ محلی‌سازی</td>
+        <td>پیش‌نیاز هر زبان دوم و شرط ورود به بازارهای دیگر.</td></tr>
+    <tr><td class="c">۳</td><td>تست ابزار برای مسیرهای نقش‌دار</td>
+        <td>تنها ناحیه‌ای که باگ در آن یعنی «پیامک گم‌شده» یا «تماس بی‌پاسخ‌ماندنی».</td></tr>
+    <tr><td class="c">۴</td><td>نرمال‌سازی شماره بر پایهٔ استاندارد E.164</td>
+        <td>حل ریشه‌ای مسئلهٔ شماره‌های بین‌المللی.</td></tr>
+    <tr><td class="c">۵</td><td>بازبینی تصمیم SQLite اختصاصی</td>
+        <td>فقط با اندازه‌گیری روی صندوق بزرگ واقعی و تست همزمانی Dart/Kotlin — نه پیش از آن.</td></tr>
+    <tr><td class="c">۶</td><td>پشتیبان‌گیری رمزنگاری‌شدهٔ اختیاری</td>
+        <td>‏Auto-backup عمداً خاموش است؛ جایگزین امن باید توسط خود برنامه ساخته شود.</td></tr>
+  </tbody>
+</table>
+
+<div class="note" style="margin-top:6mm">
+  <span class="t">جمع‌بندی مهندسی</span>
+  آنچه این پروژه را از یک اپلیکیشن معمولی جدا می‌کند، اندازهٔ رابط کاربری آن نیست؛
+  بلکه این است که در چند نقطه، <em>قرارداد آن با سیستم‌عامل</em> — و نه با یک سرور —
+  منبع حقیقت است. بیشتر تصمیم‌های ثبت‌شده در بخش ۱۹ از همین‌جا می‌آیند:
+  جایی که خطا صدا نمی‌دهد و فقط دادهٔ کاربر را بی‌سروصدا خراب می‌کند،
+  ارزان‌ترین کار این است که قاعده را بنویسی و آینه‌ها را با تست به هم قفل کنی.
+</div>
+</section>
+
+<!-- ══════════════════ 21 ══════════════════ -->
+<section id="s21">
+<h1 class="sec"><span class="num">۲۱.</span> پیوست — مجوزها و ساخت خروجی</h1>
+
+<h2>۲۱٫۱ مجوزهای اندروید و دلیل هرکدام</h2>
+<table class="tight">
+  <thead><tr><th style="width:18%">گروه</th><th style="width:36%">مجوز</th><th>کاربرد</th></tr></thead>
+  <tbody>
+    <tr><td rowspan="3">پیامک</td><td><span class="mono">SEND_SMS</span></td><td>ارسال از نویسنده پیام و کارگر زمان‌بندی</td></tr>
+    <tr><td><span class="mono">RECEIVE_SMS</span> · <span class="mono">READ_SMS</span></td><td>دریافت زنده و همگام‌سازی آینه‌ای</td></tr>
+    <tr><td><span class="mono">RECEIVE_MMS</span> · <span class="mono">RECEIVE_WAP_PUSH</span></td><td>اجباری برای نقش پیامک — پیام رها می‌شود</td></tr>
+
+    <tr><td rowspan="4">تماس</td><td><span class="mono">CALL_PHONE</span> · <span class="mono">MANAGE_OWN_CALLS</span></td><td>برقراری تماس و نقش شماره‌گیر</td></tr>
+    <tr><td><span class="mono">READ_CALL_LOG</span> · <span class="mono">WRITE_CALL_LOG</span></td><td>همگام‌سازی و حذف سراسری تاریخچه</td></tr>
+    <tr><td><span class="mono">READ_PHONE_STATE</span> · <span class="mono">READ_PHONE_NUMBERS</span></td><td>فهرست سیم‌کارت‌ها و وضعیت شبکه به‌ازای هر سیم</td></tr>
+    <tr><td><span class="mono">RECORD_AUDIO</span></td><td>مسیر VoIP (فعلاً خفته)</td></tr>
+
+    <tr><td>مخاطبین</td><td><span class="mono">READ_CONTACTS</span> · <span class="mono">WRITE_CONTACTS</span></td><td>دفترچهٔ تلفن، برچسب‌ها، ادغام تکراری‌ها</td></tr>
+
+    <tr><td rowspan="3">سیستم</td><td><span class="mono">POST_NOTIFICATIONS</span> · <span class="mono">USE_FULL_SCREEN_INTENT</span></td><td>نوتیفیکیشن پیامک و کارت تماس ورودی</td></tr>
+    <tr><td><span class="mono">SCHEDULE_EXACT_ALARM</span> · <span class="mono">USE_EXACT_ALARM</span> · <span class="mono">RECEIVE_BOOT_COMPLETED</span></td><td>تحویل دقیق پیام زمان‌بندی‌شده و بازچینش پس از راه‌اندازی</td></tr>
+    <tr><td><span class="mono">WAKE_LOCK</span> · <span class="mono">VIBRATE</span></td><td>قفل حسگر نزدیکی و بازخورد لمسی</td></tr>
+
+    <tr><td>موقعیت</td><td><span class="mono">ACCESS_FINE_LOCATION</span> · <span class="mono">ACCESS_COARSE_LOCATION</span></td><td>فقط برای درج مختصات در متن پیام؛ ذخیره یا ردیابی نمی‌شود</td></tr>
+  </tbody>
+</table>
+
+<h2>۲۱٫۲ اجزای اعلام‌شده برای نقش‌ها</h2>
+<table class="tight">
+  <thead><tr><th style="width:32%">جزء</th><th>چرا اجباری است</th></tr></thead>
+  <tbody>
+    <tr><td><span class="mono">SmsDeliverReceiver</span> (SMS_DELIVER)</td><td>بدون آن نقش پیامک اصلاً اعطا نمی‌شود</td></tr>
+    <tr><td><span class="mono">MmsReceiver</span> (WAP_PUSH_DELIVER)</td><td>اجباری؛ عمداً بدون پیاده‌سازی</td></tr>
+    <tr><td>فیلتر <span class="mono">SENDTO</span>/<span class="mono">SEND</span> روی MainActivity</td><td>اشتراک‌گذاری متن از برنامه‌های دیگر</td></tr>
+    <tr><td><span class="mono">HeadlessSmsSendService</span> (RESPOND_VIA_MESSAGE)</td><td>پاسخ با پیام از صفحهٔ تماس ورودی سیستم</td></tr>
+    <tr><td><span class="mono">CallInCallService</span></td><td>تنها رابط تماس دستگاه پس از گرفتن نقش شماره‌گیر</td></tr>
+    <tr><td>ورودی‌های <span class="mono">&lt;queries&gt;</span></td><td>از اندروید ۱۱ به بعد، بدون آن‌ها بخش «برنامه‌های متصل» کاملاً خالی رندر می‌شود</td></tr>
+  </tbody>
+</table>
+
+<h2>۲۱٫۳ ساخت خروجی Release</h2>
+<table class="tight">
+  <thead><tr><th style="width:32%">مورد</th><th>مقدار / نکته</th></tr></thead>
+  <tbody>
+    <tr><td>شناسهٔ بسته</td><td><span class="mono">ir.hamrasan.app</span></td></tr>
+    <tr><td>امضا</td><td>کلید Release اختصاصی؛ تأییدشده در Play Protect</td></tr>
+    <tr><td>کوچک‌سازی</td><td>‏R8 فعال</td></tr>
+    <tr><td>معماری هدف</td><td>فقط <span class="mono">arm64</span> — ساخت با <span class="mono">--target-platform android-arm64</span>
+        و حذف استاب‌های ۳۲ بیتی از راه قواعد بسته‌بندی، نه <span class="mono">abiFilters</span></td></tr>
+    <tr><td>پشتیبان‌گیری</td><td>‏<span class="mono">allowBackup=false</span> + قواعد استخراج داده (عمدی، بخش ۱۶)</td></tr>
+  </tbody>
+</table>
+
+<div style="margin-top:14mm; border-top:2px solid var(--brand); padding-top:5mm; text-align:center; color:var(--ink-2); font-size:9.5pt;">
+  <div style="font-weight:600; color:var(--ink); font-size:11pt;">هم‌رسان — مستند فنی، نسخهٔ ۱٫۰</div>
+  <div style="margin-top:2mm;">تهیه و تدوین: <strong>علی رودی</strong> · مرداد ۱۴۰۵</div>
+  <div style="margin-top:1mm; color:var(--muted);">تمام اعداد و ارجاعات این سند مستقیماً از مخزن پروژه استخراج شده‌اند.</div>
+</div>
+</section>
+
+</body>
+</html>
