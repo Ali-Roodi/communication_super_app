@@ -13,8 +13,10 @@ import com.example.communication_super_app.call.CallHandler
 import com.example.communication_super_app.call.CallInCallService
 import com.example.communication_super_app.calllog.CallLogSyncHandler
 import com.example.communication_super_app.contacts.ContactExtrasHandler
+import com.example.communication_super_app.contacts.SimContactsHandler
 import com.example.communication_super_app.scheduled.ScheduledSmsChannel
 import com.example.communication_super_app.scheduled.ScheduledSmsScheduler
+import com.example.communication_super_app.sim.SimHandler
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -26,6 +28,8 @@ class MainActivity : FlutterActivity() {
     private var callHandler: CallHandler? = null
     private var callLogSyncHandler: CallLogSyncHandler? = null
     private var contactExtrasHandler: ContactExtrasHandler? = null
+    private var simHandler: SimHandler? = null
+    private var simContactsHandler: SimContactsHandler? = null
 
     /// Deep-link channel: SMS-notification taps carry a `threadId` extra.
     private var intentsChannel: MethodChannel? = null
@@ -100,6 +104,25 @@ class MainActivity : FlutterActivity() {
                 flutterEngine.dartExecutor.binaryMessenger,
                 ContactExtrasHandler.CHANNEL,
             )
+        )
+
+        // ── SIM roster (دو سیم‌کارته) ───────────────────────────────────
+        // Method channel for the one-shot reads, event channel for the live
+        // roster — a SIM inserted while the app runs must change the composer
+        // chip, the dial button and the SIM address book without a restart.
+        simHandler = SimHandler(applicationContext)
+        simHandler?.setupMethodChannel(
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SimHandler.METHOD_CHANNEL)
+        )
+        simHandler?.setupEventChannel(
+            EventChannel(flutterEngine.dartExecutor.binaryMessenger, SimHandler.EVENT_CHANNEL)
+        )
+
+        // ── SIM address book (content://icc/adn) ────────────────────────
+        // NOT in ContactsContract — see SimContactsHandler.
+        simContactsHandler = SimContactsHandler(applicationContext)
+        simContactsHandler?.setup(
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SimContactsHandler.CHANNEL)
         )
 
         // ── Media picker (انتخاب عکس مخاطب) ─────────────────────────────
@@ -351,6 +374,9 @@ class MainActivity : FlutterActivity() {
         callLogSyncHandler?.dispose()
         callLogSyncHandler = null
         contactExtrasHandler = null
+        simHandler?.dispose()
+        simHandler = null
+        simContactsHandler = null
         // The engine is going away: the alarm receiver must go back to delivering
         // scheduled messages natively.
         ScheduledSmsChannel.channel = null

@@ -41,7 +41,25 @@ class DialerFilterContacts extends DialerEvent {
 // ── Call events (جدید — Step 3) ───────────────────────────────────────────
 
 class MakeCall extends DialerEvent {
-  const MakeCall();
+  /// SIM to dial from, already resolved by the UI (the picker cannot live in a
+  /// BLoC — it needs a BuildContext). Null = let telecom honour the system's
+  /// default voice SIM, which is the whole behaviour on a single-SIM phone.
+  final int? subscriptionId;
+
+  const MakeCall({this.subscriptionId});
+
+  @override
+  List<Object?> get props => [subscriptionId];
+}
+
+/// The keypad's SIM chip was used to pick a card for the next dial.
+class SelectDialSim extends DialerEvent {
+  final int? subscriptionId;
+
+  const SelectDialSim(this.subscriptionId);
+
+  @override
+  List<Object?> get props => [subscriptionId];
 }
 
 class EndCall extends DialerEvent {

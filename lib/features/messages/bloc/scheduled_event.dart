@@ -28,6 +28,10 @@ class SaveScheduled extends ScheduledEvent {
   final DateTime? endDate;
   final int? maxOccurrences;
 
+  /// SIM the conversation sends on, carried into the scheduled row so the
+  /// background worker sends on the same card the composer would have.
+  final int? subscriptionId;
+
   const SaveScheduled({
     this.id,
     required this.phoneNumber,
@@ -41,6 +45,7 @@ class SaveScheduled extends ScheduledEvent {
     this.endType = ScheduleEnd.never,
     this.endDate,
     this.maxOccurrences,
+    this.subscriptionId,
   });
 
   @override
@@ -57,6 +62,7 @@ class SaveScheduled extends ScheduledEvent {
     endType,
     endDate,
     maxOccurrences,
+    subscriptionId,
   ];
 }
 

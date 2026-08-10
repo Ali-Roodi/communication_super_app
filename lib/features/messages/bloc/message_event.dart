@@ -83,10 +83,18 @@ class SendMessage extends MessageEvent {
   final String phoneNumber;
   final String body;
 
-  const SendMessage({required this.phoneNumber, required this.body});
+  /// SIM to send on. Null = the platform's default, which is the only correct
+  /// answer on a single-SIM phone and on a dual-SIM one with a pinned default.
+  final int? subscriptionId;
+
+  const SendMessage({
+    required this.phoneNumber,
+    required this.body,
+    this.subscriptionId,
+  });
 
   @override
-  List<Object?> get props => [phoneNumber, body];
+  List<Object?> get props => [phoneNumber, body, subscriptionId];
 }
 
 class ReceiveMessage extends MessageEvent {

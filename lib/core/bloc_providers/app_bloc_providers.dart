@@ -24,6 +24,7 @@ import 'package:communication_super_app/features/settings/bloc/settings_event.da
 import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
 import 'package:communication_super_app/features/settings/repositories/blocked_numbers_repository.dart';
 import 'package:communication_super_app/core/theme/theme_bloc.dart';
+import 'package:communication_super_app/core/sim/sim_bloc.dart';
 
 class AppBlocProviders extends StatelessWidget {
   final Widget child;
@@ -39,6 +40,11 @@ class AppBlocProviders extends StatelessWidget {
           create: (context) =>
               AuthBloc(AuthRepository())..add(const CheckAuthStatus()),
         ),
+        // Roster first: the contacts read merges the SIM address book, and the
+        // composer/dialer decide whether to show a SIM affordance at all from
+        // this. It is cheap (one channel call) and answers nothing until the
+        // permission gate runs, which re-dispatches LoadSims.
+        BlocProvider(create: (context) => SimBloc()..add(const LoadSims())),
         BlocProvider(create: (context) => ContactBloc(ContactRepository())),
         BlocProvider(create: (context) => MessageBloc()),
         BlocProvider(create: (context) => DraftBloc(DraftRepository())),

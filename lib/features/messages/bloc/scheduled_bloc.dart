@@ -120,6 +120,7 @@ class ScheduledMessageBloc extends Bloc<ScheduledEvent, ScheduledState> {
           endType: event.endType,
           endDate: event.endDate,
           maxOccurrences: event.maxOccurrences,
+          subscriptionId: event.subscriptionId,
           status: ScheduleStatus.pending,
           createdAt: DateTime.now(),
         ),

@@ -8,6 +8,8 @@ import 'package:communication_super_app/features/authentication/bloc/auth_event.
 import 'package:communication_super_app/features/authentication/models/auth_type.dart';
 import 'package:communication_super_app/features/authentication/repositories/auth_repository.dart';
 import 'package:communication_super_app/features/authentication/screens/pin_setup_screen.dart';
+import 'package:communication_super_app/features/authentication/screens/recovery_code_screen.dart';
+import 'package:communication_super_app/core/services/crash_reporting.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/features/messages/services/native_sms_service.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
@@ -88,6 +90,14 @@ class SettingsScreen extends StatelessWidget {
             // ── Security ───────────────────────────────────
             const SectionLabel('امنیت'),
             const _SecurityGroup(),
+
+            // ── Diagnostics ────────────────────────────────
+            // Only when a DSN was compiled into this build; a switch that
+            // cannot do anything is worse than no switch.
+            if (CrashReporting.isAvailable) ...[
+              const SectionLabel('تشخیص خطا'),
+              const _CrashReportingGroup(),
+            ],
 
             // ── About ──────────────────────────────────────
             const SectionLabel('درباره برنامه'),
@@ -239,6 +249,17 @@ class _SecurityGroupState extends State<_SecurityGroup> {
     }
   }
 
+  /// Mints a fresh recovery code and shows it once.
+  ///
+  /// Only reachable from inside an unlocked app, which is the whole security
+  /// argument: the code is a way back in for someone who already had the PIN,
+  /// not a second credential handed out to whoever is holding the phone.
+  Future<void> _regenerateRecoveryCode(BuildContext context) async {
+    final code = await _repository.regenerateRecoveryCode();
+    if (!context.mounted) return;
+    await showRecoveryCode(context, code);
+  }
+
   void _confirmRemovePin(BuildContext context) {
     showDialog<bool>(
       context: context,
@@ -292,6 +313,13 @@ class _SecurityGroupState extends State<_SecurityGroup> {
           summary: hasPin ? 'قفل برنامه فعال است' : 'برنامه بدون قفل باز می‌شود',
           onTap: () => _openPinSetup(context),
         ),
+        if (hasPin)
+          SettingsRow(
+            icon: Icons.key_outlined,
+            title: 'کد بازیابی جدید',
+            summary: 'کد قبلی باطل می‌شود و کد تازه یک بار نمایش داده می‌شود',
+            onTap: () => _regenerateRecoveryCode(context),
+          ),
         if (hasPin)
           SettingsRow(
             icon: Icons.no_encryption_outlined,
@@ -453,4 +481,57 @@ extension SettingsContext on BuildContext {
   SettingsBloc get settingsBloc => read<SettingsBloc>();
   SettingsState get settings => watch<SettingsBloc>().state;
   ThemeBloc get themeBloc => read<ThemeBloc>();
+}
+
+
+/// «ارسال گزارش خطا» — opt-in, off by default.
+///
+/// The copy is explicit about what does *not* travel, because in an SMS app
+/// that is the only question worth answering. The switch takes effect on the
+/// next launch: the reporter is installed around `runApp`, so flipping it
+/// mid-session cannot start or stop it honestly.
+class _CrashReportingGroup extends StatefulWidget {
+  const _CrashReportingGroup();
+
+  @override
+  State<_CrashReportingGroup> createState() => _CrashReportingGroupState();
+}
+
+class _CrashReportingGroupState extends State<_CrashReportingGroup> {
+  bool? _enabled;
+
+  @override
+  void initState() {
+    super.initState();
+    CrashReporting.readPreference().then((value) {
+      if (mounted) setState(() => _enabled = value);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = _enabled;
+    return GroupedList(
+      children: [
+        SettingsSwitch(
+          title: 'ارسال گزارش خطا',
+          summary: 'فقط محل بروز خطا ارسال می‌شود؛ متن پیام‌ها، شماره‌ها و '
+              'نام مخاطبین هرگز از گوشی خارج نمی‌شوند',
+          value: enabled ?? false,
+          onChanged: enabled == null
+              ? null
+              : (value) async {
+                  setState(() => _enabled = value);
+                  await CrashReporting.setPreference(value);
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('از اجرای بعدی برنامه اعمال می‌شود'),
+                    ),
+                  );
+                },
+        ),
+      ],
+    );
+  }
 }

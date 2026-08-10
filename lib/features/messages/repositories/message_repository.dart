@@ -579,6 +579,15 @@ class MessageRepository {
   ///    the provider stores the device receive time — the two differ by
   ///    seconds, which defeats the exact unique index.
   /// 4. No match → insert as a new message.
+  /// What a matched local row learns from its provider twin: the provider row
+  /// id always, and the SIM **only when the provider actually recorded one** —
+  /// writing null over a subscription the local row already knew (a message we
+  /// sent ourselves) would erase good data on every sync.
+  Map<String, Object?> _linkValues(int deviceId, int? subscriptionId) => {
+    'device_sms_id': deviceId,
+    if (subscriptionId != null) 'subscription_id': subscriptionId,
+  };
+
   Future<void> reconcileDeviceRows(
     List<MessageModel> deviceRows, {
     Duration fuzzyWindow = const Duration(minutes: 2),
@@ -624,7 +633,7 @@ class MessageRepository {
         if (exact.isNotEmpty) {
           await txn.update(
             AppConstants.messagesTable,
-            {'device_sms_id': deviceId},
+            _linkValues(deviceId, row.subscriptionId),
             where: 'id = ?',
             whereArgs: [exact.first['id']],
           );
@@ -645,7 +654,7 @@ class MessageRepository {
         if (fuzzy.isNotEmpty) {
           await txn.update(
             AppConstants.messagesTable,
-            {'device_sms_id': deviceId},
+            _linkValues(deviceId, row.subscriptionId),
             where: 'id = ?',
             whereArgs: [fuzzy.first['id']],
           );

@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/dialer_bloc.dart';
 import '../bloc/dialer_event.dart';
@@ -31,6 +32,20 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
   void initState() {
     super.initState();
     _resolveContact();
+  }
+
+  /// «تماس ورودی», plus which card is ringing when there is more than one.
+  ///
+  /// Read straight off the bloc rather than through a builder: this screen is
+  /// pushed for one call and the SIM cannot change under it, so a rebuild
+  /// subscription would buy nothing.
+  String _incomingLine(BuildContext context) {
+    if (!SimService.isMultiSim) return 'تماس ورودی';
+    final sim = SimService.byId(
+      context.read<DialerBloc>().state.activeSubscriptionId,
+    );
+    if (sim == null) return 'تماس ورودی';
+    return 'تماس ورودی · ${sim.slotLabel} · ${sim.name}';
   }
 
   Future<void> _resolveContact() async {
@@ -84,9 +99,11 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
                         ),
                 ),
                 const SizedBox(height: 24),
-                const Text(
-                  'تماس ورودی',
-                  style: TextStyle(color: Colors.white38, fontSize: 14),
+                Text(
+                  // «تماس ورودی · سیم ۲ · ایرانسل» — on a dual-SIM phone the
+                  // card that is ringing is the first thing worth knowing.
+                  _incomingLine(context),
+                  style: const TextStyle(color: Colors.white38, fontSize: 14),
                 ),
                 const SizedBox(height: 12),
                 Text(

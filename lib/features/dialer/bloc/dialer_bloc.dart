@@ -27,6 +27,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
 
     // ── Call handlers (Step 3) ───────────────────────────────
     on<MakeCall>(_onMakeCall);
+    on<SelectDialSim>(_onSelectDialSim);
     on<EndCall>(_onEndCall);
     on<AnswerCall>(_onAnswer);
     on<RejectCall>(_onReject);
@@ -167,7 +168,10 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     try {
       // Option A: native system dialer opens and manages the full call lifecycle.
       // Clear the keypad so the dialer is ready when the user returns.
-      await _callService.makeCall(state.dialedNumber);
+      await _callService.makeCall(
+        state.dialedNumber,
+        subscriptionId: event.subscriptionId,
+      );
       emit(
         state.copyWith(
           dialedNumber: '',
@@ -181,6 +185,10 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     }
   }
 
+  void _onSelectDialSim(SelectDialSim event, Emitter<DialerState> emit) {
+    emit(state.copyWith(dialSubscriptionId: event.subscriptionId));
+  }
+
   void _onCallEvent(CallEventReceived event, Emitter<DialerState> emit) {
     final info = event.callInfo;
     switch (info.event) {
@@ -190,6 +198,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
             callStatus: CallStatus.incoming,
             activePhone: info.phone,
             activeName: info.name,
+            activeSubscriptionId: info.subscriptionId,
           ),
         );
       case NativeCallEvent.ringing:
@@ -200,6 +209,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
             callStatus: CallStatus.ringing,
             activePhone: info.phone.isNotEmpty ? info.phone : null,
             activeName: info.name,
+            activeSubscriptionId: info.subscriptionId,
           ),
         );
       case NativeCallEvent.active:
@@ -209,6 +219,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
             activePhone: info.phone.isNotEmpty ? info.phone : null,
             activeName: info.name,
             isConference: info.isConference ?? state.isConference,
+            activeSubscriptionId: info.subscriptionId,
           ),
         );
       case NativeCallEvent.onHold:

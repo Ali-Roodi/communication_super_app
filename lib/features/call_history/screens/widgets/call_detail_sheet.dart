@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:communication_super_app/core/sim/sim_call.dart';
+import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
@@ -15,7 +17,6 @@ import 'package:communication_super_app/features/call_history/bloc/call_log_stat
 import 'package:communication_super_app/features/call_history/models/call_log_model.dart';
 import 'package:communication_super_app/features/call_history/screens/widgets/call_log_tile.dart';
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
-import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_bloc.dart';
 import 'package:communication_super_app/features/messages/models/message_model.dart';
 import 'package:communication_super_app/features/messages/repositories/message_repository.dart';
@@ -150,6 +151,14 @@ class _CallDetailSheet extends StatelessWidget {
                     );
                   },
                 ),
+                // «تماس با سیم ۱» / «تماس با سیم ۲» — Google Phone lists
+                // these here, and they are what reaches the non-default card
+                // without touching an Android setting. Absent on one SIM.
+                ...simCallRows(
+                  pageContext,
+                  log.phoneNumber,
+                  onBeforeCall: () => Navigator.of(context).pop(),
+                ),
                 ListTile(
                   leading: const Icon(Icons.copy_outlined),
                   title: const Text('کپی شماره'),
@@ -229,8 +238,14 @@ class _ActionChips extends StatelessWidget {
               label: 'تماس',
               onTap: () {
                 Navigator.of(context).pop();
-                NativeCallService.instance.makeCall(log.phoneNumber);
+                placeCall(context, log.phoneNumber);
               },
+              onLongPress: SimService.isMultiSim
+                  ? () {
+                      Navigator.of(context).pop();
+                      placeCallPickingSim(context, log.phoneNumber);
+                    }
+                  : null,
             ),
           ),
           const SizedBox(width: AppDimensions.paddingSm),
@@ -303,10 +318,14 @@ class _ActionChip extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
 
+  /// Long-press shortcut — «تماس» uses it to pick the SIM for one call.
+  final VoidCallback? onLongPress;
+
   const _ActionChip({
     required this.icon,
     required this.label,
     required this.onTap,
+    this.onLongPress,
   });
 
   @override
@@ -320,6 +339,7 @@ class _ActionChip extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
+        onLongPress: onLongPress,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 12),
           child: Column(

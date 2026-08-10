@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'core/navigation/app_route_observer.dart';
+import 'core/services/crash_reporting.dart';
 import 'core/navigation/call_ui_coordinator.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_bloc.dart';
@@ -16,21 +17,26 @@ import 'features/settings/bloc/settings_state.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize notification service (with error handling)
-  try {
-    await NotificationService().initialize();
-  } catch (e) {
-    // Log error but don't crash - notifications can be initialized later
-    debugPrint('Failed to initialize notifications: $e');
-  }
+  // Crash reporting wraps everything below so a crash during startup is
+  // caught too. It is a no-op unless a DSN was compiled in AND the user opted
+  // in, and it never transmits message content — see [CrashReporting].
+  await CrashReporting.runApp(() async {
+    // Initialize notification service (with error handling)
+    try {
+      await NotificationService().initialize();
+    } catch (e) {
+      // Log error but don't crash - notifications can be initialized later
+      debugPrint('Failed to initialize notifications: $e');
+    }
 
-  // Set preferred orientations
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
+    // Set preferred orientations
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
 
-  runApp(const MyApp());
+    runApp(const MyApp());
+  });
 }
 
 class MyApp extends StatelessWidget {

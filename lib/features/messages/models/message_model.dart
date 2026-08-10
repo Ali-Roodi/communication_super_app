@@ -24,6 +24,14 @@ class MessageModel extends Equatable {
   /// `ConflictAlgorithm.ignore`, so re-importing a message never clears it.
   final bool isStarred;
 
+  /// Subscription id of the SIM this message travelled on.
+  ///
+  /// **Null means unknown, never "SIM 1".** Every row that predates dual-SIM
+  /// support is null, and so is any provider row the carrier or the OEM left
+  /// unstamped — the UI omits the badge rather than guessing, because a wrong
+  /// SIM on a message is worse than no SIM.
+  final int? subscriptionId;
+
   const MessageModel({
     required this.id,
     required this.threadId,
@@ -36,6 +44,7 @@ class MessageModel extends Equatable {
     this.isRead = false,
     this.deviceSmsId,
     this.isStarred = false,
+    this.subscriptionId,
   });
 
   Map<String, dynamic> toMap() {
@@ -51,6 +60,7 @@ class MessageModel extends Equatable {
       'is_read': isRead ? 1 : 0,
       'device_sms_id': deviceSmsId,
       'is_starred': isStarred ? 1 : 0,
+      'subscription_id': subscriptionId,
     };
   }
 
@@ -73,23 +83,35 @@ class MessageModel extends Equatable {
       isRead: (map['is_read'] as int?) == 1,
       deviceSmsId: (map['device_sms_id'] as num?)?.toInt(),
       isStarred: (map['is_starred'] as int?) == 1,
+      subscriptionId: (map['subscription_id'] as num?)?.toInt(),
     );
   }
 
-  MessageModel copyWith({bool? isStarred, MessageStatus? status}) =>
-      MessageModel(
-        id: id,
-        threadId: threadId,
-        contactId: contactId,
-        phoneNumber: phoneNumber,
-        body: body,
-        type: type,
-        status: status ?? this.status,
-        timestamp: timestamp,
-        isRead: isRead,
-        deviceSmsId: deviceSmsId,
-        isStarred: isStarred ?? this.isStarred,
-      );
+  /// Carries **every** field forward.
+  ///
+  /// Callers must use this rather than rebuilding a `MessageModel` by hand:
+  /// two places did (the delivery-report swap and the sent/received merge in
+  /// `MessageBloc`) and both silently dropped whatever field was added last —
+  /// most recently `subscriptionId`, so a bubble lost its SIM badge the moment
+  /// its ✓✓ arrived and only got it back on the next read from the DB.
+  MessageModel copyWith({
+    bool? isStarred,
+    MessageStatus? status,
+    bool? isRead,
+  }) => MessageModel(
+    id: id,
+    threadId: threadId,
+    contactId: contactId,
+    phoneNumber: phoneNumber,
+    body: body,
+    type: type,
+    status: status ?? this.status,
+    timestamp: timestamp,
+    isRead: isRead ?? this.isRead,
+    deviceSmsId: deviceSmsId,
+    isStarred: isStarred ?? this.isStarred,
+    subscriptionId: subscriptionId,
+  );
 
   @override
   List<Object?> get props => [
@@ -104,6 +126,7 @@ class MessageModel extends Equatable {
     isRead,
     deviceSmsId,
     isStarred,
+    subscriptionId,
   ];
 }
 

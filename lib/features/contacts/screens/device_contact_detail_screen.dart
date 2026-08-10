@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:communication_super_app/core/sim/sim_call.dart';
+import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
@@ -16,8 +18,8 @@ import 'package:communication_super_app/features/contacts/models/contact_model.d
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
 import 'package:communication_super_app/features/contacts/services/contact_extras_service.dart';
+import 'package:communication_super_app/features/contacts/services/sim_contacts_service.dart';
 import 'package:communication_super_app/features/contacts/widgets/phone_number_picker.dart';
-import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_bloc.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_event.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_state.dart';
@@ -56,6 +58,9 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
   }
 
   Future<void> _loadExtras() async {
+    // A SIM contact has no ContactsContract row, so there is nothing to read a
+    // ringtone, a voicemail setting or a connected app from.
+    if (widget.contact.isSimContact) return;
     final service = ContactExtrasService.instance;
     final extras = await service.getSettings(widget.contact.id);
     final apps = await service.getConnectedApps(widget.contact.id);
@@ -67,6 +72,11 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
   }
 
   Future<void> _load() async {
+    if (widget.contact.isSimContact) {
+      // Not a ContactsContract id — the header renders from the model.
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
     try {
       _full = await FlutterContacts.getContact(
         widget.contact.id,
@@ -120,7 +130,24 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
     );
   }
 
+  /// A contact read from `content://icc/adn`. There is no editing it in place:
+  /// an ADN record is one name and one number with no durable id, so the
+  /// pencil becomes «کپی در تلفن» — which is what Google Contacts offers on a
+  /// SIM contact too.
+  bool get _isSimContact => widget.contact.isSimContact;
+
   Future<void> _openEditor() async {
+    if (_isSimContact) {
+      await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => AddEditContactScreen(
+            initialPhone: widget.contact.primaryPhone,
+            initialName: widget.contact.name,
+          ),
+        ),
+      );
+      return;
+    }
     final changed = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => AddEditContactScreen(contactId: widget.contact.id),
@@ -143,7 +170,11 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
         textDirection: TextDirection.rtl,
         child: AlertDialog(
           title: const Text('حذف مخاطب'),
-          content: Text('«$_name» برای همیشه از مخاطبین گوشی حذف شود؟'),
+          content: Text(
+            _isSimContact
+                ? '«$_name» برای همیشه از سیم‌کارت حذف شود؟'
+                : '«$_name» برای همیشه از مخاطبین گوشی حذف شود؟',
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(false),
@@ -161,10 +192,17 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
     if (confirmed != true || !mounted) return;
 
     try {
-      final target =
-          _full ?? await FlutterContacts.getContact(widget.contact.id);
-      if (target == null) throw Exception('مخاطب یافت نشد');
-      await target.delete();
+      if (_isSimContact) {
+        // The ICC provider deletes by matching the record's contents — an ADN
+        // row has no id to address it by.
+        final ok = await SimContactsService.delete(widget.contact);
+        if (!ok) throw Exception('سیم‌کارت حذف را نپذیرفت');
+      } else {
+        final target =
+            _full ?? await FlutterContacts.getContact(widget.contact.id);
+        if (target == null) throw Exception('مخاطب یافت نشد');
+        await target.delete();
+      }
       ContactRepository().invalidateCache();
       LazyContactAvatar.invalidateCache();
       if (!mounted) return;
@@ -193,8 +231,10 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
       actions: [
         // Google Contacts keeps «ویرایش» as a pencil in the bar (no FAB).
         IconButton(
-          icon: const Icon(Icons.edit_outlined),
-          tooltip: 'ویرایش',
+          icon: Icon(
+            _isSimContact ? Icons.copy_all_outlined : Icons.edit_outlined,
+          ),
+          tooltip: _isSimContact ? 'کپی در تلفن' : 'ویرایش',
           onPressed: _openEditor,
         ),
         BlocBuilder<FavoritesBloc, FavoritesState>(
@@ -287,8 +327,8 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
       numbers: _allPhones,
       title: 'تماس با $_name',
     );
-    if (number == null) return;
-    await NativeCallService.instance.makeCall(number);
+    if (number == null || !mounted) return;
+    await placeCall(context, number);
   }
 
   Future<void> _messageFromHeader() async {
@@ -299,6 +339,17 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
     );
     if (number == null || !mounted) return;
     _openSms(number);
+  }
+
+  /// Same as [_callFromHeader], but always asks which SIM.
+  Future<void> _callFromHeaderPickingSim() async {
+    final number = await pickContactNumber(
+      context,
+      numbers: _allPhones,
+      title: 'تماس با $_name',
+    );
+    if (number == null || !mounted) return;
+    await placeCallPickingSim(context, number);
   }
 
   /// The wide tonal capsules under the header — Google Contacts' action row.
@@ -319,6 +370,11 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
               icon: Icons.call,
               label: 'تماس',
               onTap: hasPhone ? _callFromHeader : null,
+              // Long-press = «با کدام سیم‌کارت؟». Without it a pinned default
+              // voice SIM makes the other card unreachable from this page.
+              onLongPress: hasPhone && SimService.isMultiSim
+                  ? _callFromHeaderPickingSim
+                  : null,
             ),
           ),
           const SizedBox(width: 8),
@@ -701,7 +757,10 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
         ),
       ),
       subtitle: Text(label),
-      onTap: () => NativeCallService.instance.makeCall(number),
+      onTap: () => placeCall(context, number),
+      onLongPress: SimService.isMultiSim
+          ? () => placeCallPickingSim(context, number)
+          : null,
       trailing: IconButton(
         icon: const Icon(Icons.chat_bubble_outline),
         tooltip: 'پیام',
@@ -871,10 +930,14 @@ class _ActionButton extends StatelessWidget {
   final String label;
   final VoidCallback? onTap;
 
+  /// Long-press shortcut — «تماس» uses it to choose the SIM for one call.
+  final VoidCallback? onLongPress;
+
   const _ActionButton({
     required this.icon,
     required this.label,
     required this.onTap,
+    this.onLongPress,
   });
 
   @override
@@ -900,6 +963,7 @@ class _ActionButton extends StatelessWidget {
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: onTap,
+            onLongPress: onLongPress,
             child: SizedBox(
               height: 52,
               child: Icon(icon, color: fg, size: 24),

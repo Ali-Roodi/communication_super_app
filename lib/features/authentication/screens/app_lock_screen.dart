@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/services/app_lock_service.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_bloc.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_event.dart';
+import 'recovery_code_screen.dart';
 import 'widgets/pin_pad.dart';
 
 class AppLockScreen extends StatefulWidget {
@@ -139,6 +140,8 @@ class _AppLockScreenState extends State<AppLockScreen> {
                 onDelete: _onDelete,
                 enabled: !_isAuthenticating,
               ),
+              const SizedBox(height: 8),
+              const ForgotPinButton(),
               if (_isBiometricAvailable && !_isAuthenticating) ...[
                 const SizedBox(height: 24),
                 IconButton(

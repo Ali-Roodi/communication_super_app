@@ -1,5 +1,8 @@
 import 'package:equatable/equatable.dart';
 
+import 'package:communication_super_app/core/sim/sim_card.dart';
+import 'package:communication_super_app/core/sim/sim_service.dart';
+
 enum CallType { incoming, outgoing, missed, rejected, blocked }
 
 class CallLogModel extends Equatable {
@@ -10,7 +13,19 @@ class CallLogModel extends Equatable {
   final CallType callType;
   final int? duration;
   final DateTime timestamp;
-  final int? simSlot;
+
+  /// Subscription id of the SIM this call used.
+  ///
+  /// This replaced a stored *slot* that was faked — `sim_slot` was written as
+  /// `simDisplayName != null ? 1 : null`, i.e. every call on either card came
+  /// back as «سیم ۱». The device call log records a `PHONE_ACCOUNT_ID`, which
+  /// `SimService.subscriptionForAccountId` resolves to the real subscription;
+  /// the slot is then *derived*, never stored, because a subscription id
+  /// changes when a card is re-inserted while the slot does not.
+  ///
+  /// Null means unknown: a row from before this existed, a call placed over a
+  /// VoIP account, or a card that has since been removed.
+  final int? subscriptionId;
 
   const CallLogModel({
     required this.id,
@@ -20,8 +35,11 @@ class CallLogModel extends Equatable {
     required this.callType,
     this.duration,
     required this.timestamp,
-    this.simSlot,
+    this.subscriptionId,
   });
+
+  /// The SIM this call used, or null when it cannot be named right now.
+  SimCard? get sim => SimService.byId(subscriptionId);
 
   CallLogModel copyWith({String? contactId, String? contactName}) {
     return CallLogModel(
@@ -32,7 +50,7 @@ class CallLogModel extends Equatable {
       callType: callType,
       duration: duration,
       timestamp: timestamp,
-      simSlot: simSlot,
+      subscriptionId: subscriptionId,
     );
   }
 
@@ -44,7 +62,7 @@ class CallLogModel extends Equatable {
       'call_type': callType.name,
       'duration': duration,
       'timestamp': timestamp.millisecondsSinceEpoch,
-      'sim_slot': simSlot,
+      'subscription_id': subscriptionId,
     };
   }
 
@@ -59,7 +77,7 @@ class CallLogModel extends Equatable {
       ),
       duration: map['duration'] as int?,
       timestamp: DateTime.fromMillisecondsSinceEpoch(map['timestamp'] as int),
-      simSlot: map['sim_slot'] as int?,
+      subscriptionId: (map['subscription_id'] as num?)?.toInt(),
     );
   }
 
@@ -72,6 +90,6 @@ class CallLogModel extends Equatable {
     callType,
     duration,
     timestamp,
-    simSlot,
+    subscriptionId,
   ];
 }

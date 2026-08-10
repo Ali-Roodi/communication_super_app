@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:communication_super_app/core/sim/sim_call.dart';
+import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:flutter/services.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
@@ -7,7 +9,6 @@ import 'package:communication_super_app/features/contacts/models/contact_model.d
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
-import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import '../conversation_screen.dart';
 
 /// What to do with a phone number tapped inside a message: call it, text it,
@@ -63,6 +64,10 @@ class _PhoneActionSheetState extends State<_PhoneActionSheet> {
   }
 
   /// Closes the sheet, then runs [action] against the page underneath.
+  /// Closes the sheet without running anything — the SIM rows call this
+  /// before dialing, because they already hold the page context they need.
+  void _popNow() => Navigator.of(context).pop();
+
   void _pop(void Function(BuildContext pageContext) action) {
     final pageContext = Navigator.of(context).context;
     Navigator.of(context).pop();
@@ -107,9 +112,15 @@ class _PhoneActionSheetState extends State<_PhoneActionSheet> {
               leading: const Icon(Icons.call_outlined),
               title: const Text('تماس'),
               onTap: () => _pop(
-                (_) => NativeCallService.instance.makeCall(widget.number),
+                (_) => placeCall(context, widget.number),
               ),
+              onLongPress: SimService.isMultiSim
+                  ? () => _pop((_) => placeCallPickingSim(context, widget.number))
+                  : null,
             ),
+            // Explicit per-SIM rows: a long-press is a shortcut, not a
+            // discoverable affordance, so the choice is also spelled out.
+            ...simCallRows(context, widget.number, onBeforeCall: _popNow),
             ListTile(
               leading: const Icon(Icons.message_outlined),
               title: const Text('ارسال پیامک'),

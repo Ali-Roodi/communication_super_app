@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import '../models/message_model.dart';
 import '../repositories/message_repository.dart';
+import '../repositories/thread_sim_repository.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/settings/repositories/blocked_numbers_repository.dart';
 import 'package:communication_super_app/core/services/device_sync_queue.dart';
@@ -60,6 +61,7 @@ class SmsService {
   final NativeSmsService _nativeSmsService = NativeSmsService();
   final BlockedNumbersRepository _blockedRepository =
       BlockedNumbersRepository();
+  final ThreadSimRepository _threadSimRepository = ThreadSimRepository();
   Function(MessageModel)? onMessageReceived;
   // _imported flag moved to SharedPreferences (sms_imported_v1) — B6 fix
   StreamSubscription<SmsReceivedEvent>? _nativeSmsSubscription;
@@ -105,7 +107,18 @@ class SmsService {
   /// Off → no delivery PendingIntent, so a bubble stops at ✓ instead of ✓✓.
   static bool deliveryReports = true;
 
-  Future<SmsServiceResult> sendSms(String phoneNumber, String message) async {
+  /// Sends [message] to [phoneNumber].
+  ///
+  /// [subscriptionId] names the SIM. Null means "let the platform decide",
+  /// which is correct on a single-SIM phone and on a dual-SIM phone where the
+  /// user pinned a system default — the native side resolves it and reports
+  /// back which card was really used, so the stored row is never "unknown"
+  /// when it could be named.
+  Future<SmsServiceResult> sendSms(
+    String phoneNumber,
+    String message, {
+    int? subscriptionId,
+  }) async {
     try {
       final hasPermission = await requestPermissions();
       if (!hasPermission) {
@@ -124,6 +137,7 @@ class SmsService {
       final result = await _nativeSmsService.sendSms(
         phoneNumber: phoneNumber,
         message: message,
+        subscriptionId: subscriptionId,
         trackingId: messageId,
         deliveryReport: deliveryReports,
       );
@@ -149,9 +163,19 @@ class SmsService {
         // Provider row id from the native write-through (default-SMS-app only)
         // so a later delete can remove the exact provider row.
         deviceSmsId: result.deviceId > 0 ? result.deviceId : null,
+        // The SIM the send REALLY used: the native side resolves a null/-1
+        // request to the system default before it writes the provider row, and
+        // hands that back. Storing what was asked for instead would leave every
+        // message sent without an explicit pick unlabelled.
+        subscriptionId: result.subscriptionId >= 0
+            ? result.subscriptionId
+            : null,
       );
 
       await _messageRepository.createMessage(messageModel);
+      // Remember the card for this conversation — written on the send, not on
+      // the pick, so it always reflects what actually went out.
+      await _threadSimRepository.remember(threadId, messageModel.subscriptionId);
       // Tell every listening BLoC the thread changed. Without this a message
       // sent by the scheduler (or from another screen) sits in the DB until the
       // next manual reload.
@@ -223,6 +247,11 @@ class SmsService {
                     event.timestamp,
                   ),
                   isRead: false, // New received messages are unread
+                  // Which SIM took it. -1 is the platform's "unset" and must
+                  // stay null: a wrong SIM badge is worse than none.
+                  subscriptionId: event.subscriptionId >= 0
+                      ? event.subscriptionId
+                      : null,
                 );
 
                 await _messageRepository.createMessage(messageModel);
@@ -415,6 +444,10 @@ class SmsService {
       isRead: true,
       // Provider row id — the key the mirror-sync diffs on.
       deviceSmsId: row.id,
+      // The provider is authoritative about which SIM carried a message; null
+      // when it never stamped the row, which stays "unknown" rather than
+      // becoming a guessed SIM 1.
+      subscriptionId: row.subscriptionId,
     );
   }
 

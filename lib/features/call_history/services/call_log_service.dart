@@ -10,6 +10,7 @@ import 'native_call_log_service.dart';
 import 'package:communication_super_app/core/services/device_sync_queue.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
+import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:uuid/uuid.dart';
 
@@ -241,6 +242,11 @@ class CallLogService {
     DateTime? since,
     DateTime? until,
   }) async {
+    // The SIM roster must exist BEFORE the rows are mapped: each row's
+    // subscription is resolved from its PhoneAccount id and then persisted, so
+    // running first would stamp "no SIM" on every call for good.
+    await SimService.instance.ensureLoaded();
+
     // Queued: this read competes with the contacts and SMS imports on a cold
     // start, and each holds a large channel payload while it works.
     final Iterable<call_log.CallLogEntry> entries = await DeviceSyncQueue.run(
@@ -260,7 +266,7 @@ class CallLogService {
         'callType': e.callType?.name ?? call_log.CallType.unknown.name,
         'duration': e.duration,
         'timestamp': e.timestamp,
-        'simDisplayName': e.simDisplayName,
+        'phoneAccountId': e.phoneAccountId,
       };
     }).toList();
 
@@ -290,7 +296,7 @@ class CallLogService {
           'timestamp':
               (data['timestamp'] as int?) ??
               DateTime.now().millisecondsSinceEpoch,
-          'simDisplayName': data['simDisplayName'],
+          'phoneAccountId': data['phoneAccountId'],
         };
       }).toList()..sort(
         (a, b) => (b['timestamp'] as int).compareTo(a['timestamp'] as int),
@@ -306,7 +312,13 @@ class CallLogService {
         callType: CallType.values[data['callType'] as int],
         duration: data['duration'] as int?,
         timestamp: DateTime.fromMillisecondsSinceEpoch(data['timestamp'] as int),
-        simSlot: data['simDisplayName'] != null ? 1 : null,
+        // The call log records the PhoneAccount id of the SIM that took the
+        // call; SimService maps it back to a subscription. This replaced
+        // `simDisplayName != null ? 1 : null`, which reported «سیم ۱» for
+        // every call on either card — a fake, not a fallback.
+        subscriptionId: SimService.subscriptionForAccountId(
+          data['phoneAccountId'] as String?,
+        ),
       );
     }).toList();
   }

@@ -1,5 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:communication_super_app/core/sim/sim_call.dart';
+import 'package:communication_super_app/core/sim/sim_card.dart';
+import 'package:communication_super_app/core/sim/sim_service.dart';
+import 'package:communication_super_app/core/sim/widgets/sim_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
@@ -14,7 +18,6 @@ import 'package:communication_super_app/features/contacts/screens/device_contact
 import 'package:communication_super_app/features/dialer/bloc/dialer_bloc.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_event.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_state.dart';
-import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 
 // ── Number display + caret + backspace ───────────────────────────────────────
 
@@ -337,27 +340,88 @@ class _DialKeyState extends State<DialKey> with SingleTickerProviderStateMixin {
 
 // ── Green pill call button ───────────────────────────────────────────────────
 
-/// The wide green «تماس» pill under the keypad.
+/// The wide green «تماس» pill under the keypad, with the SIM selector beside
+/// it on a dual-SIM phone.
+///
+/// The chip is what makes the second card reachable at all when the user has
+/// pinned a default voice SIM in Android settings: without it the app would
+/// silently always dial the default, which is exactly the gap this closes.
+/// Long-pressing the pill itself does the same thing — Google Phone accepts
+/// both gestures.
 class DialerCallPill extends StatelessWidget {
   final bool enabled;
-  const DialerCallPill({super.key, required this.enabled});
+
+  /// SIM chosen for this dial, or null to follow the system default.
+  final SimCard? sim;
+
+  const DialerCallPill({super.key, required this.enabled, this.sim});
+
+  /// Hands the dial to the BLoC, asking for a SIM only when there is a real
+  /// choice to make and the user has not already made one on the chip.
+  ///
+  /// The picker cannot live inside `DialerBloc`: it needs a BuildContext, and
+  /// a BLoC that pops UI is a BLoC that cannot be tested. The number itself
+  /// stays in the BLoC, which is why the event carries only the SIM.
+  Future<void> _dial(BuildContext context, {bool forcePick = false}) async {
+    final bloc = context.read<DialerBloc>();
+    final navigator = Navigator.of(context);
+    final number = bloc.state.dialedNumber;
+    if (number.isEmpty) return;
+
+    SimCard? chosen = sim;
+    if (forcePick && SimService.isMultiSim) {
+      await HapticFeedback.mediumImpact();
+      if (!context.mounted) return;
+      chosen = await showSimPicker(
+        context,
+        title: 'تماس با کدام سیم‌کارت؟',
+        subtitle: number,
+        selected: sim ?? SimService.defaultFor(SimUse.voice),
+      );
+      if (chosen == null) return; // dismissed = cancelled
+    } else if (chosen == null) {
+      if (!context.mounted) return;
+      chosen = await resolveVoiceSim(context, number);
+      // Dismissed picker = cancelled call. Only distinguishable on a phone
+      // that would have asked in the first place.
+      if (chosen == null &&
+          SimService.isMultiSim &&
+          SimService.defaults.voice == SimCard.invalidSubscriptionId) {
+        return;
+      }
+    }
+    bloc.add(MakeCall(subscriptionId: chosen?.subscriptionId));
+    // The dialer lives in a modal bottom sheet (launched from the FAB);
+    // dismiss it so the system call UI is unobstructed.
+    navigator.maybePop();
+  }
+
+  /// Opens the picker and *keeps* the choice for the next dial, instead of
+  /// calling immediately — the chip is a setting, the pill is the action.
+  Future<void> _pickSim(BuildContext context) async {
+    final bloc = context.read<DialerBloc>();
+    final chosen = await showSimPicker(
+      context,
+      title: 'تماس با کدام سیم‌کارت؟',
+      selected: sim ?? SimService.defaultFor(SimUse.voice),
+    );
+    if (chosen == null) return;
+    bloc.add(SelectDialSim(chosen.subscriptionId));
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Opacity(
+    final pill = Opacity(
       opacity: enabled ? 1.0 : 0.45,
       child: Material(
         color: AppColors.callAnswerGreen,
         borderRadius: BorderRadius.circular(28),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: enabled
-              ? () {
-                  context.read<DialerBloc>().add(const MakeCall());
-                  // The dialer lives in a modal bottom sheet (launched from the
-                  // FAB); dismiss it so the system call UI is unobstructed.
-                  Navigator.of(context).maybePop();
-                }
+          onTap: enabled ? () => _dial(context) : null,
+          // Long-press = "this one call, on the other card".
+          onLongPress: enabled && SimService.isMultiSim
+              ? () => _dial(context, forcePick: true)
               : null,
           child: const SizedBox(
             width: 168,
@@ -380,6 +444,29 @@ class DialerCallPill extends StatelessWidget {
           ),
         ),
       ),
+    );
+
+    if (!SimService.isMultiSim) return pill;
+
+    // The chip is drawn OUTSIDE the pill and sized so the pill keeps its
+    // position: the keypad's centre of gravity is the call button, and moving
+    // it sideways on a dual-SIM phone would put it under a different thumb.
+    const double kSide = 72;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const SizedBox(width: kSide),
+        pill,
+        SizedBox(
+          width: kSide,
+          child: Center(
+            child: SimChip(
+              sim: sim ?? SimService.defaultFor(SimUse.voice),
+              onTap: () => _pickSim(context),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -465,16 +552,29 @@ class DialerContactRow extends StatelessWidget {
             ),
             // Direct-dial the matched contact — tapping the icon must NOT
             // open the contact page (that's the row tap).
-            IconButton(
-              icon: const Icon(Icons.call_outlined, size: 24),
-              color: scheme.onSurfaceVariant,
-              tooltip: 'تماس',
-              onPressed: () {
-                NativeCallService.instance.makeCall(phone);
-                // Dialer lives in a modal sheet — dismiss it so the in-call
-                // UI is unobstructed.
-                Navigator.of(context).maybePop();
-              },
+            GestureDetector(
+              onLongPress: SimService.isMultiSim
+                  ? () async {
+                      final navigator = Navigator.of(context);
+                      final called = await placeCallPickingSim(context, phone);
+                      // Only leave the keypad if a call was actually placed —
+                      // a dismissed picker should hand the sheet back.
+                      if (called) navigator.maybePop();
+                    }
+                  : null,
+              child: IconButton(
+                icon: const Icon(Icons.call_outlined, size: 24),
+                color: scheme.onSurfaceVariant,
+                tooltip: SimService.isMultiSim
+                    ? 'تماس · نگه‌داشتن برای انتخاب سیم‌کارت'
+                    : 'تماس',
+                onPressed: () {
+                  placeCall(context, phone);
+                  // Dialer lives in a modal sheet — dismiss it so the in-call
+                  // UI is unobstructed.
+                  Navigator.of(context).maybePop();
+                },
+              ),
             ),
           ],
         ),

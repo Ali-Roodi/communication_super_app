@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../services/permission_service.dart';
+import '../sim/sim_bloc.dart';
 
 /// Guards [child] behind a runtime-permission check.
 ///
@@ -71,6 +73,10 @@ class _PermissionGateState extends State<PermissionGate> {
       // the cold start. They now belong to DefaultAppGate, which sits directly
       // below this gate and only opens a system sheet when the user taps.
       if (!mounted) return;
+      // SubscriptionManager answers nothing until READ_PHONE_STATE is granted,
+      // so the roster read fired at startup came back empty on a first launch.
+      // Re-read now: the SIM address book and every SIM affordance hang off it.
+      context.read<SimBloc>().add(const LoadSims());
       setState(() {
         _results = results;
         _phase = _GatePhase.done;

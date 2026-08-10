@@ -15,6 +15,7 @@ import android.telecom.DisconnectCause
 import android.telecom.InCallService
 import android.telecom.VideoProfile
 import android.util.Log
+import com.example.communication_super_app.sim.SimRegistry
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
 import com.example.communication_super_app.BlockedNumbers
@@ -289,7 +290,13 @@ class CallInCallService : InCallService() {
         // Default-dialer duty: the system dialer used to post the missed-call
         // notification — now that's on us.
         if (call.details?.disconnectCause?.code == DisconnectCause.MISSED) {
-            postMissedCallNotification(phoneOf(call))
+            postMissedCallNotification(
+                phoneOf(call),
+                SimRegistry.subscriptionIdForAccountId(
+                    this,
+                    call.details?.accountHandle?.id,
+                ) ?: -1,
+            )
         }
 
         val remaining = topLevelCalls()
@@ -355,6 +362,16 @@ class CallInCallService : InCallService() {
             // title instead of the first participant's name.
             "isConference" to
                 (call.details?.hasProperty(Call.Details.PROPERTY_CONFERENCE) == true),
+            // Which SIM the call is on. Telecom names the account, not the
+            // subscription, so it is mapped back here — the same mapping the
+            // call log uses. -1 for a VoIP account or an unreadable roster,
+            // which the UI renders as no badge rather than a guessed SIM.
+            "subscriptionId" to (
+                SimRegistry.subscriptionIdForAccountId(
+                    this,
+                    call.details?.accountHandle?.id,
+                ) ?: -1
+            ),
         )
         val event = when (state) {
             Call.STATE_RINGING -> CallEvent.INCOMING
@@ -517,7 +534,7 @@ class CallInCallService : InCallService() {
     }
 
     /** «تماس بی‌پاسخ» — tap opens the app on the recents tab. */
-    private fun postMissedCallNotification(phone: String) {
+    private fun postMissedCallNotification(phone: String, subscriptionId: Int) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             nm.createNotificationChannel(
@@ -543,6 +560,14 @@ class CallInCallService : InCallService() {
                 .setSmallIcon(applicationInfo.icon)
                 .setContentTitle("تماس بی‌پاسخ")
                 .setContentText(name)
+                // Which card was rung — the same subtext the SMS shade shows,
+                // and absent on a single-SIM phone.
+                .apply {
+                    if (SimRegistry.isMultiSim(this@CallInCallService)) {
+                        SimRegistry.labelOf(this@CallInCallService, subscriptionId)
+                            ?.let { setSubText(it) }
+                    }
+                }
                 .setCategory(NotificationCompat.CATEGORY_MISSED_CALL)
                 .setAutoCancel(true)
                 .setContentIntent(contentIntent)

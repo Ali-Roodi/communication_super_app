@@ -40,6 +40,11 @@ class CallInfo {
   /// True when the call is a merged conference host (تماس گروهی).
   final bool? isConference;
 
+  /// SIM the call is on, resolved natively from telecom's PhoneAccount. Null
+  /// for a VoIP call, an unreadable roster, or a single-SIM phone — all of
+  /// which mean "say nothing", never "SIM 1".
+  final int? subscriptionId;
+
   const CallInfo({
     required this.event,
     this.phone = '',
@@ -50,6 +55,7 @@ class CallInfo {
     this.callCount,
     this.canMerge,
     this.isConference,
+    this.subscriptionId,
   });
 }
 
@@ -95,13 +101,26 @@ class NativeCallService {
         callCount: map['count'] as int?,
         canMerge: map['canMerge'] as bool?,
         isConference: map['isConference'] as bool?,
+        subscriptionId: switch (map['subscriptionId']) {
+          final int id when id >= 0 => id,
+          _ => null,
+        },
       );
     });
     return _stream!;
   }
 
-  Future<void> makeCall(String phone) =>
-      _method.invokeMethod('makeCall', {'phone': phone});
+  /// Places a call.
+  ///
+  /// [subscriptionId] names the SIM; null (or an id whose card is gone) means
+  /// "let telecom choose", which is what honours the user's system-wide default
+  /// voice SIM. Prefer `placeCall` (`core/sim/sim_call.dart`) over calling this
+  /// directly — it asks the user when there is a choice to make.
+  Future<void> makeCall(String phone, {int? subscriptionId}) =>
+      _method.invokeMethod('makeCall', {
+        'phone': phone,
+        'subscriptionId': subscriptionId ?? -1,
+      });
 
   Future<void> endCall() => _method.invokeMethod('endCall');
 

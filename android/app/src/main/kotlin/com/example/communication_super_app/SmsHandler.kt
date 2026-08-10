@@ -14,7 +14,7 @@ import android.provider.Telephony
 import android.telephony.ServiceState
 import android.telephony.SmsManager
 import android.telephony.SmsMessage
-import android.telephony.SubscriptionInfo
+
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import android.util.Log
@@ -127,6 +127,7 @@ class SmsHandler(
                 SmsNotifier.notifySms(
                     context, address, body, timestamp,
                     BlockedNumbers.normalizeToThreadId(address),
+                    getSubscriptionId(bundle),
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "Error receiving SMS: ${e.message}", e)
@@ -282,7 +283,13 @@ class SmsHandler(
             if (!hasActiveSim()) {
                 return@withContext Result.failure(Exception("NO_SIM_CARD"))
             }
-            if (!isInService()) {
+            // Checked against the SIM this message will actually go out on, not
+            // the system default. Reading the default's ServiceState made the
+            // two cards lie about each other: sending on SIM 2 was refused with
+            // NO_SERVICE whenever SIM 1 had no signal, and a send on a SIM that
+            // really had none sailed past the check and sat in the radio queue
+            // — which is what "it sent, but very late" looks like.
+            if (!isInService(subscriptionId)) {
                 return@withContext Result.failure(Exception("NO_SERVICE"))
             }
 
@@ -357,14 +364,24 @@ class SmsHandler(
             // Write-through: while this app is the default SMS app the system
             // does NOT store outgoing messages — without this insert the sent
             // SMS would be invisible to every other SMS app on the phone.
-            val deviceId = writeSentToProvider(phoneNumber, message, timestamp)
+            // The row records the SIM that was actually asked for. When the
+            // caller passed -1 the platform picks the default, so resolve it
+            // now rather than storing "unknown" for a message we could name.
+            val usedSubscriptionId = if (subscriptionId != -1) {
+                subscriptionId
+            } else {
+                com.example.communication_super_app.sim.SimRegistry
+                    .defaultSmsSubscriptionId()
+            }
+            val deviceId =
+                writeSentToProvider(phoneNumber, message, timestamp, usedSubscriptionId)
 
             val result = mapOf(
                 "success" to true,
                 "phoneNumber" to phoneNumber,
                 "messageLength" to message.length,
                 "parts" to parts.size,
-                "subscriptionId" to subscriptionId,
+                "subscriptionId" to usedSubscriptionId,
                 "timestamp" to timestamp,
                 "deviceId" to deviceId
             )
@@ -402,14 +419,24 @@ class SmsHandler(
      * somehow missing, the check falls through to true (send proceeds naturally
      * and will fail via the sent PendingIntent).
      */
-    private fun isInService(): Boolean {
+    private fun isInService(subscriptionId: Int = -1): Boolean {
         // Airplane mode check requires no runtime permission.
         val isAirplaneMode = Settings.Global.getInt(
             context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) == 1
         if (isAirplaneMode) return false
 
         return try {
-            val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+            val base = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+            // Per-SIM manager when a card was named; a bad id would throw, so
+            // fall back to the default rather than blocking the send.
+            val tm = if (
+                subscriptionId != -1 &&
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
+            ) {
+                runCatching { base?.createForSubscriptionId(subscriptionId) }.getOrNull() ?: base
+            } else {
+                base
+            }
             val state = tm?.serviceState?.state
             // null means we couldn't read the state – assume in service
             state == null || state == ServiceState.STATE_IN_SERVICE
@@ -453,12 +480,24 @@ class SmsHandler(
         val out = ArrayList<Map<String, Any?>>()
         context.contentResolver.query(
             uri,
-            arrayOf(
-                Telephony.Sms._ID,
-                Telephony.Sms.ADDRESS,
-                Telephony.Sms.BODY,
-                Telephony.Sms.DATE,
-            ),
+            // SUBSCRIPTION_ID only exists from API 22; asking for it below that
+            // makes the whole query throw.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                arrayOf(
+                    Telephony.Sms._ID,
+                    Telephony.Sms.ADDRESS,
+                    Telephony.Sms.BODY,
+                    Telephony.Sms.DATE,
+                    Telephony.Sms.SUBSCRIPTION_ID,
+                )
+            } else {
+                arrayOf(
+                    Telephony.Sms._ID,
+                    Telephony.Sms.ADDRESS,
+                    Telephony.Sms.BODY,
+                    Telephony.Sms.DATE,
+                )
+            },
             null, null,
             "${Telephony.Sms.DATE} DESC",
         )?.use { c ->
@@ -466,14 +505,22 @@ class SmsHandler(
             val addrIdx = c.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)
             val bodyIdx = c.getColumnIndexOrThrow(Telephony.Sms.BODY)
             val dateIdx = c.getColumnIndexOrThrow(Telephony.Sms.DATE)
+            // getColumnIndex, not OrThrow: OEM providers have been seen to drop
+            // the column even on supported API levels.
+            val subIdx = c.getColumnIndex(Telephony.Sms.SUBSCRIPTION_ID)
             while (c.moveToNext()) {
                 if (limit > 0 && out.size >= limit) break
+                val subscriptionId =
+                    if (subIdx >= 0 && !c.isNull(subIdx)) c.getInt(subIdx) else null
                 out.add(
                     mapOf(
                         "id" to c.getLong(idIdx),
                         "address" to (c.getString(addrIdx) ?: ""),
                         "body" to (c.getString(bodyIdx) ?: ""),
                         "date" to c.getLong(dateIdx),
+                        // -1 is the provider's own "unset"; hand it back as
+                        // null so Dart never stores it as a real SIM.
+                        "subscriptionId" to subscriptionId?.takeIf { it >= 0 },
                     )
                 )
             }
@@ -564,7 +611,12 @@ class SmsHandler(
      * insert is skipped (Android would silently drop or reject it anyway).
      * Returns the provider row id, or -1.
      */
-    fun writeSentToProvider(address: String, body: String, timestamp: Long): Long {
+    fun writeSentToProvider(
+        address: String,
+        body: String,
+        timestamp: Long,
+        subscriptionId: Int = -1,
+    ): Long {
         if (!isDefaultSmsApp()) return -1
         return try {
             val values = ContentValues().apply {
@@ -572,6 +624,14 @@ class SmsHandler(
                 put(Telephony.Sms.BODY, body)
                 put(Telephony.Sms.DATE, timestamp)
                 put(Telephony.Sms.READ, 1)
+                // Which SIM it went out on. Every other SMS app on the phone
+                // reads this column to draw its own SIM badge, so omitting it
+                // makes our sent messages look SIM-less in theirs.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1 &&
+                    subscriptionId != -1
+                ) {
+                    put(Telephony.Sms.SUBSCRIPTION_ID, subscriptionId)
+                }
             }
             val uri = context.contentResolver.insert(Telephony.Sms.Sent.CONTENT_URI, values)
             uri?.lastPathSegment?.toLongOrNull() ?: -1
@@ -692,37 +752,6 @@ class SmsHandler(
     }
 
     /**
-     * Get all available SIM cards (for dual-SIM support)
-     */
-    fun getAvailableSubscriptions(): List<Map<String, Any>> {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP_MR1) {
-            return emptyList()
-        }
-
-        return try {
-            val subscriptionManager = context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) 
-                as? SubscriptionManager
-            
-            val subscriptions = subscriptionManager?.activeSubscriptionInfoList ?: emptyList()
-            
-            subscriptions.map { info: SubscriptionInfo ->
-                mapOf(
-                    "subscriptionId" to info.subscriptionId,
-                    "displayName" to (info.displayName?.toString() ?: ""),
-                    "carrierName" to (info.carrierName?.toString() ?: ""),
-                    "slotIndex" to info.simSlotIndex
-                )
-            }
-        } catch (e: SecurityException) {
-            Log.e(TAG, "Permission denied to access subscription info: ${e.message}")
-            emptyList()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error getting subscriptions: ${e.message}", e)
-            emptyList()
-        }
-    }
-
-    /**
      * Set up MethodChannel for SMS operations
      */
     fun setupMethodChannel(channel: MethodChannel) {
@@ -769,15 +798,6 @@ class SmsHandler(
                         } catch (e: Exception) {
                             result.error("SMS_SEND_FAILED", e.message, null)
                         }
-                    }
-                }
-                
-                "getAvailableSubscriptions" -> {
-                    try {
-                        val subscriptions = getAvailableSubscriptions()
-                        result.success(subscriptions)
-                    } catch (e: Exception) {
-                        result.error("SUBSCRIPTION_ERROR", e.message, e.stackTraceToString())
                     }
                 }
                 

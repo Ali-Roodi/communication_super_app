@@ -16,6 +16,7 @@ class ConversationAppBar extends StatelessWidget
     required this.hasName,
     required this.onOpenContact,
     required this.onCall,
+    this.onCallPickingSim,
     required this.onMenuSelected,
   });
 
@@ -24,6 +25,11 @@ class ConversationAppBar extends StatelessWidget
   final bool hasName;
   final VoidCallback onOpenContact;
   final VoidCallback onCall;
+
+  /// Long-press on the call button — choose the SIM for this one call. Null on
+  /// a single-SIM phone, where the gesture would do nothing.
+  final VoidCallback? onCallPickingSim;
+
   final ValueChanged<String> onMenuSelected;
 
   @override
@@ -76,10 +82,15 @@ class ConversationAppBar extends StatelessWidget
         ),
       ),
       actions: [
-        IconButton(
-          icon: const Icon(Icons.call_outlined),
-          tooltip: 'تماس',
-          onPressed: onCall,
+        GestureDetector(
+          onLongPress: onCallPickingSim,
+          child: IconButton(
+            icon: const Icon(Icons.call_outlined),
+            tooltip: onCallPickingSim == null
+                ? 'تماس'
+                : 'تماس · نگه‌داشتن برای انتخاب سیم‌کارت',
+            onPressed: onCall,
+          ),
         ),
         PopupMenuButton<String>(
           onSelected: onMenuSelected,

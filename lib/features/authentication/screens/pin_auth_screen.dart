@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/auth_bloc.dart';
 import '../bloc/auth_event.dart';
 import '../bloc/auth_state.dart';
+import 'recovery_code_screen.dart';
 import 'widgets/pin_pad.dart';
 
 class PinAuthScreen extends StatefulWidget {
@@ -66,6 +67,10 @@ class _PinAuthScreenState extends State<PinAuthScreen> {
                 PinDots(filled: _pin.length),
                 const SizedBox(height: 60),
                 PinKeypad(onKey: _onNumberPressed, onDelete: _onDelete),
+                const SizedBox(height: 8),
+                // A forgotten PIN used to be a permanent lockout — this is the
+                // way back in, via the code issued when the PIN was set.
+                const ForgotPinButton(),
               ],
             ),
           ),

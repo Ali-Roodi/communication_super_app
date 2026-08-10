@@ -30,6 +30,18 @@ class DialerState extends Equatable {
 
   /// تماس جاری یک کنفرانس ادغام‌شده است (تماس گروهی).
   final bool isConference;
+
+  /// SIM the live call is on, published with the call event by telecom. Null =
+  /// nothing to show (single-SIM phone, VoIP call, unreadable roster).
+  final int? activeSubscriptionId;
+
+  /// SIM the keypad will dial with. Null = follow the system default.
+  ///
+  /// Held here rather than in the widget because the keypad lives in a modal
+  /// sheet that is torn down and rebuilt, and losing the choice between
+  /// typing the number and pressing call is exactly the bug this fixes.
+  final int? dialSubscriptionId;
+
   final String? error;
 
   const DialerState({
@@ -45,6 +57,8 @@ class DialerState extends Equatable {
     this.callCount = 0,
     this.canMerge = false,
     this.isConference = false,
+    this.activeSubscriptionId,
+    this.dialSubscriptionId,
     this.error,
   });
 
@@ -67,6 +81,8 @@ class DialerState extends Equatable {
     int? callCount,
     bool? canMerge,
     bool? isConference,
+    int? activeSubscriptionId,
+    int? dialSubscriptionId,
     String? error,
     bool clearError = false,
   }) {
@@ -83,6 +99,8 @@ class DialerState extends Equatable {
       callCount: callCount ?? this.callCount,
       canMerge: canMerge ?? this.canMerge,
       isConference: isConference ?? this.isConference,
+      activeSubscriptionId: activeSubscriptionId ?? this.activeSubscriptionId,
+      dialSubscriptionId: dialSubscriptionId ?? this.dialSubscriptionId,
       error: clearError ? null : (error ?? this.error),
     );
   }
@@ -101,6 +119,8 @@ class DialerState extends Equatable {
     callCount,
     canMerge,
     isConference,
+    activeSubscriptionId,
+    dialSubscriptionId,
     error,
   ];
 }

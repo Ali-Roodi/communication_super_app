@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:communication_super_app/core/sim/sim_call.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
@@ -12,7 +13,6 @@ import 'package:communication_super_app/features/contacts/models/contact_model.d
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
 import 'package:communication_super_app/features/contacts/widgets/phone_number_picker.dart';
-import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import '../bloc/favorites_bloc.dart';
 import '../bloc/favorites_event.dart';
 import '../bloc/favorites_state.dart';
@@ -146,7 +146,7 @@ class _FavoriteCard extends StatelessWidget {
       messenger.showSnackBar(
         const SnackBar(content: Text('مخاطب ذخیره‌شده‌ای یافت نشد')),
       );
-      NativeCallService.instance.makeCall(favorite.phoneNumber);
+      if (context.mounted) placeCall(context, favorite.phoneNumber);
     }
   }
 
@@ -168,8 +168,13 @@ class _FavoriteCard extends StatelessWidget {
                 title: const Text('تماس'),
                 onTap: () {
                   Navigator.of(sheetContext).pop();
-                  NativeCallService.instance.makeCall(favorite.phoneNumber);
+                  placeCall(context, favorite.phoneNumber);
                 },
+              ),
+              ...simCallRows(
+                context,
+                favorite.phoneNumber,
+                onBeforeCall: () => Navigator.of(sheetContext).pop(),
               ),
               ListTile(
                 leading: const Icon(Icons.message_outlined),

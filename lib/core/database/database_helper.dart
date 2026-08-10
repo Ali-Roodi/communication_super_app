@@ -283,6 +283,69 @@ class DatabaseHelper {
     if (oldVersion < 19) {
       await _renormalizeFavorites(db);
     }
+
+    if (oldVersion < 20) {
+      // Dual SIM. Guarded with _columnsOf for the same reason every other
+      // ALTER here is: an unconditional ADD COLUMN on a table an earlier step
+      // of this same upgrade may have just created at its newest shape aborts
+      // the whole migration.
+      await _addColumnIfMissing(
+        db,
+        AppConstants.messagesTable,
+        'subscription_id',
+        'INTEGER',
+      );
+      await _addColumnIfMissing(
+        db,
+        AppConstants.scheduledMessagesTable,
+        'subscription_id',
+        'INTEGER',
+      );
+      // `call_logs.sim_slot` is left in place but is no longer read or
+      // written: it held a *faked* slot (1 whenever the device reported any
+      // SIM name at all), so every call on either card claimed «سیم ۱».
+      // Dropping the column would mean rebuilding the table for a value
+      // nothing believes; the real answer now lives in `subscription_id`,
+      // resolved from the call log's PHONE_ACCOUNT_ID.
+      await _addColumnIfMissing(
+        db,
+        AppConstants.callLogsTable,
+        'subscription_id',
+        'INTEGER',
+      );
+      await _createThreadSimTable(db);
+    }
+  }
+
+  /// ALTERs [table] only when [column] is not already there.
+  Future<void> _addColumnIfMissing(
+    Database db,
+    String table,
+    String column,
+    String type,
+  ) async {
+    final columns = await _columnsOf(db, table);
+    if (columns.contains(column)) return;
+    await db.execute('ALTER TABLE $table ADD COLUMN $column $type');
+  }
+
+  /// Which SIM each conversation last sent on (v20).
+  ///
+  /// Google Messages remembers the SIM **per conversation**, not globally: a
+  /// work number is answered from the work SIM even when the other card is the
+  /// system default. The row is written on send, so it always reflects what
+  /// actually went out rather than what was once picked.
+  ///
+  /// Keyed by `thread_id` — the same canonical `09xxxxxxxxx` as
+  /// `messages.thread_id`.
+  Future<void> _createThreadSimTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.threadSimTable} (
+        thread_id TEXT PRIMARY KEY,
+        subscription_id INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
   }
 
   /// Rewrites `favorites.normalized` into `PhoneNormalizer.toNational` form
@@ -657,7 +720,11 @@ class DatabaseHelper {
         next_attempt_at INTEGER,
         last_error TEXT,
         claim_token TEXT,
-        claimed_at INTEGER
+        claimed_at INTEGER,
+        -- SIM to send on (v20). NULL = whichever the system default is at
+        -- delivery time, which is also what a row scheduled before dual-SIM
+        -- support means.
+        subscription_id INTEGER
       )
     ''');
     // The delivery worker filters on (status, scheduled_at); index it.
@@ -698,6 +765,12 @@ class DatabaseHelper {
           is_deleted INTEGER NOT NULL DEFAULT 0,
           device_sms_id INTEGER,
           is_starred INTEGER DEFAULT 0,
+          -- Subscription id of the SIM this message went out on / came in on
+          -- (v20). NULL = unknown: every row that predates dual-SIM support,
+          -- and anything imported from a provider row the carrier left
+          -- unstamped. Never treat NULL as "SIM 1" — a wrong SIM badge is
+          -- worse than none.
+          subscription_id INTEGER,
           -- 0 until this row's folded body is in `message_search` (v18). Rows
           -- inserted natively (the scheduled worker, the notification reply)
           -- never set it, which is exactly how the indexer finds them.
@@ -759,7 +832,12 @@ class DatabaseHelper {
           call_type TEXT NOT NULL,
           duration INTEGER,
           timestamp INTEGER NOT NULL,
+          -- Legacy (<= v19) and unused: it stored a faked slot. Kept only so a
+          -- fresh install and an upgraded database have the same shape.
           sim_slot INTEGER,
+          -- Subscription id of the SIM the call used, resolved from the device
+          -- call log's PHONE_ACCOUNT_ID (v20). NULL = unknown / not a SIM call.
+          subscription_id INTEGER,
           FOREIGN KEY (contact_id) REFERENCES ${AppConstants.contactsTable}(id) ON DELETE SET NULL
         )
       ''');
@@ -789,6 +867,9 @@ class DatabaseHelper {
 
       // Scheduled outgoing messages
       await _createScheduledMessagesTable(db);
+
+      // Per-conversation SIM memory (v20)
+      await _createThreadSimTable(db);
     } catch (e) {
       throw Exception('Failed to create database tables: $e');
     }

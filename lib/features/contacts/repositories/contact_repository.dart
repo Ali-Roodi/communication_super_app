@@ -6,6 +6,7 @@ import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:communication_super_app/core/utils/search_text.dart';
 import '../models/contact_model.dart';
 import '../models/phone_match.dart';
+import '../services/sim_contacts_service.dart';
 
 class ContactRepository {
   static List<ContactModel>? _cache;
@@ -106,10 +107,13 @@ class ContactRepository {
           ),
         );
       }
+      // The SIM address book is a SEPARATE provider — see [_mergeSimContacts].
+      final merged = await _mergeSimContacts(list);
+
       // Stale snapshot (the address book changed while this read was running):
       // hand the caller the fresh data instead of caching what it just missed.
-      if (_generation != generation) return list;
-      _cache = list;
+      if (_generation != generation) return merged;
+      _cache = merged;
       return _cache!;
     } finally {
       _loading = null;
@@ -117,11 +121,55 @@ class ContactRepository {
     }
   }
 
+  /// Appends the SIM cards' own address books to the phone's.
+  ///
+  /// `flutter_contacts` reads `ContactsContract`, and **SIM contacts are not
+  /// in it**: the provider only carries them once the device's *default*
+  /// contacts app has registered a SIM account and imported the card, which
+  /// does not happen on a phone where this app is the contacts surface. That
+  /// is the whole of "I put my second SIM in and its contacts never appeared"
+  /// — the read was correct, it was reading the wrong provider. Google
+  /// Contacts queries `content://icc/adn` directly for the same reason.
+  ///
+  /// A SIM row whose number the phone book already has is dropped: importing a
+  /// card is the first thing most people do, and showing both copies would
+  /// double every one of those contacts. The phone copy wins because it is the
+  /// editable one and it carries the photo, the second number and the email.
+  Future<List<ContactModel>> _mergeSimContacts(
+    List<ContactModel> phoneContacts,
+  ) async {
+    final simContacts = await SimContactsService.read();
+    if (simContacts.isEmpty) return phoneContacts;
+
+    final known = <String>{};
+    for (final c in phoneContacts) {
+      for (final p in [...c.phoneNumbers, c.phoneNumber]) {
+        final key = PhoneNormalizer.toThreadId(p);
+        if (key.isNotEmpty) known.add(key);
+      }
+    }
+
+    final merged = List<ContactModel>.of(phoneContacts);
+    for (final sim in simContacts) {
+      final key = PhoneNormalizer.toThreadId(sim.primaryPhone);
+      // A number-less ADN record was already dropped by the service; a
+      // number that normalizes to nothing (a stored service code) is kept,
+      // since it cannot collide with anything.
+      if (key.isNotEmpty && !known.add(key)) continue;
+      merged.add(sim);
+    }
+    return merged;
+  }
+
   /// Lazily fetches the thumbnail bytes for a single device contact by id.
   /// Returns null when the id is empty, the contact has no photo, or the read
   /// fails. Callers cache the result (see LazyContactAvatar).
   Future<Uint8List?> getContactThumbnail(String contactId) async {
     if (contactId.isEmpty) return null;
+    // A SIM contact has no photo — an ADN record is a name and a number — and
+    // its id is not a ContactsContract id, so asking would be a wasted
+    // platform round-trip per visible row.
+    if (contactId.startsWith('sim:')) return null;
     try {
       final c = await device_contacts.FlutterContacts.getContact(
         contactId,
