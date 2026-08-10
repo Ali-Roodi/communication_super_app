@@ -274,6 +274,9 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         instance = this
+        // Before the first call, so «تماس ورودی» exists in the system settings
+        // and the app can tell "switched off by the user" from "never created".
+        CallInCallService.ensureChannels(applicationContext)
         smsHandler?.registerReceiver()
         // The full-screen intent of an incoming call cold-starts this activity;
         // without the flags below it lands *behind* the keyguard and the user

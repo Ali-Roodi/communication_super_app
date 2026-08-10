@@ -66,9 +66,36 @@ class CallInCallService : InCallService() {
         @JvmStatic
         val trackedCalls = java.util.concurrent.CopyOnWriteArrayList<Call>()
 
-        /** Calls that are not children of a conference — what the UI counts. */
+        /**
+         * States in which a call is something the UI must keep showing.
+         *
+         * NEW and DISCONNECTED are deliberately out. Telecom adds calls in
+         * STATE_NEW (Samsung adds several while a conference settles) and
+         * leaves disconnected ones bound for a moment, and counting either as
+         * live is what left the call screen up with the timer still running
+         * after the call had ended: `onCallRemoved` found a "remaining" call
+         * that was really a corpse and never published DISCONNECTED. A NEW
+         * call announces itself again through `onStateChanged` the instant it
+         * becomes real, so nothing is lost by ignoring it here.
+         */
+        private val LIVE_STATES = setOf(
+            Call.STATE_SELECT_PHONE_ACCOUNT,
+            Call.STATE_CONNECTING,
+            Call.STATE_DIALING,
+            Call.STATE_RINGING,
+            Call.STATE_ACTIVE,
+            Call.STATE_HOLDING,
+            Call.STATE_PULLING_CALL,
+            Call.STATE_SIMULATED_RINGING,
+        )
+
         @JvmStatic
-        fun topLevelCalls(): List<Call> = trackedCalls.filter { it.parent == null }
+        fun isLive(call: Call): Boolean = call.state in LIVE_STATES
+
+        /** Live calls that are not children of a conference — what the UI counts. */
+        @JvmStatic
+        fun topLevelCalls(): List<Call> =
+            trackedCalls.filter { it.parent == null && isLive(it) }
 
         /** True while any call is still up (ringing, dialling or connected).
          *  Drives MainActivity's show-over-the-lock-screen window flags. */
@@ -96,6 +123,77 @@ class CallInCallService : InCallService() {
 
         private fun phoneOf(call: Call): String =
             call.details?.handle?.schemeSpecificPart ?: ""
+
+        /**
+         * Creates the three call channels.
+         *
+         * Called from `MainActivity.onCreate` as well as from the post paths,
+         * so the channels exist *before* the first call — otherwise
+         * [areCallNotificationsEnabled] cannot tell "the user switched this
+         * off" from "never created", and the app cannot warn about the one
+         * setting that makes every incoming call invisible.
+         */
+        @JvmStatic
+        fun ensureChannels(context: Context) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE)
+                as NotificationManager
+            nm.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_ID, "تماس ورودی", NotificationManager.IMPORTANCE_HIGH,
+                ).apply {
+                    description = "اعلان تماس‌های ورودی"
+                    setSound(null, null) // telecom already plays the ringtone
+                    enableVibration(false)
+                },
+            )
+            nm.createNotificationChannel(
+                NotificationChannel(
+                    SILENT_CHANNEL_ID, "تماس ورودی (بی‌صدا)",
+                    NotificationManager.IMPORTANCE_LOW,
+                ).apply {
+                    description = "اعلان بی‌صدای تماس ورودی وقتی صفحه تماس باز است"
+                    setSound(null, null)
+                    enableVibration(false)
+                },
+            )
+            nm.createNotificationChannel(
+                NotificationChannel(
+                    MISSED_CHANNEL_ID, "تماس بی‌پاسخ",
+                    NotificationManager.IMPORTANCE_DEFAULT,
+                ).apply { description = "اعلان تماس‌های بی‌پاسخ" },
+            )
+        }
+
+        /**
+         * Whether an incoming call can produce anything the user can see.
+         *
+         * This is the gate that fails silently: with notifications off (or the
+         * «تماس ورودی» channel muted) the CallStyle card is dropped AND its
+         * full-screen intent never fires, so a locked phone rings with no way
+         * to answer — which is exactly the "only the ringtone, no picture"
+         * report. Nothing in the call path can detect that from the inside;
+         * the app has to ask and tell the user.
+         */
+        @JvmStatic
+        fun areCallNotificationsEnabled(context: Context): Boolean = try {
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE)
+                as NotificationManager
+            when {
+                !nm.areNotificationsEnabled() -> false
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.O -> true
+                else -> {
+                    val channel = nm.getNotificationChannel(CHANNEL_ID)
+                    // A channel that does not exist yet is not "blocked" — it
+                    // will be created at its requested importance.
+                    channel == null ||
+                        channel.importance != NotificationManager.IMPORTANCE_NONE
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "notification check failed: ${e.message}")
+            true
+        }
 
         /**
          * True for a dialed string telephony handles as an **MMI/USSD code**
@@ -133,6 +231,12 @@ class CallInCallService : InCallService() {
     @Volatile
     private var callUiShown = false
 
+    /** Last CALLS_CHANGED / call-state payloads, so the burst of callbacks a
+     *  merge produces collapses into the one event that actually changed
+     *  something. */
+    private var lastCallsPayload: Map<String, Any?>? = null
+    private var lastStatePayload: Map<String, Any?>? = null
+
     private val callCallback = object : Call.Callback() {
         override fun onStateChanged(call: Call, state: Int) {
             // Answered / rejected: the «تماس ورودی» card has nothing left to
@@ -147,6 +251,50 @@ class CallInCallService : InCallService() {
             // repaint the UI as "on hold".
             if (call == currentCall) publishState(call, state)
             // Mergeability depends on the active/held mix — keep Flutter posted.
+            publishCallsChanged()
+            // Nothing live is left, but the call this state belongs to is not
+            // the one the UI is following (it hung up while a stale STATE_NEW
+            // placeholder was `currentCall`): tear the screen down here rather
+            // than waiting for an onCallRemoved that may never single out the
+            // right call.
+            if (topLevelCalls().isEmpty()) republishCurrent()
+        }
+
+        /**
+         * The call became (or stopped being) a child of a conference.
+         *
+         * This is THE signal that a merge finished. Telecom sets the parent
+         * link *after* [onCallAdded] delivered the conference host, so a UI
+         * that only counts calls when a call is added or changes state kept
+         * counting the two legs as top-level and left «ادغام تماس» on screen
+         * over an already-merged call.
+         */
+        override fun onParentChanged(call: Call, parent: Call?) {
+            publishCallsChanged()
+            republishCurrent()
+        }
+
+        /** The conference gained/lost a participant — same reasoning. */
+        override fun onChildrenChanged(call: Call, children: MutableList<Call>) {
+            publishCallsChanged()
+            if (call == currentCall) republishCurrent()
+        }
+
+        /**
+         * Capabilities and PROPERTY_CONFERENCE live in the details, and both
+         * change without a state change: `canMerge` (CAPABILITY_MERGE_CONFERENCE)
+         * and the «تماس گروهی» title are only correct if this is watched.
+         */
+        override fun onDetailsChanged(call: Call, details: Call.Details) {
+            publishCallsChanged()
+            if (call == currentCall) republishCurrent()
+        }
+
+        /** Telecom re-evaluated which calls may be conferenced together. */
+        override fun onConferenceableCallsChanged(
+            call: Call,
+            conferenceableCalls: MutableList<Call>,
+        ) {
             publishCallsChanged()
         }
     }
@@ -190,6 +338,7 @@ class CallInCallService : InCallService() {
         trackedCalls.add(call)
         currentCall = call
         callUiShown = false
+        lastStatePayload = null
         call.registerCallback(callCallback)
         publishState(call, call.state)
         publishCallsChanged()
@@ -198,6 +347,18 @@ class CallInCallService : InCallService() {
         // lock screen (black screen, phone still ringing).
         com.example.communication_super_app.MainActivity.instance
             ?.showOverLockScreen(true)
+
+        // A conference host is not a new call the user placed — telecom adds it
+        // when two existing calls merge, with the call UI already on screen.
+        // Running the outgoing-call branch below for it launched MainActivity
+        // twice (immediately and again 2 s later) on top of a live call: the
+        // window animation, the Flutter route rebuild and the OEM re-assert all
+        // ran for nothing, which is the stutter «تماس گروهی» had.
+        if (call.details?.hasProperty(Call.Details.PROPERTY_CONFERENCE) == true) {
+            Log.d(TAG, "Conference host added — UI is already up")
+            return
+        }
+
         if (call.state == Call.STATE_RINGING) {
             // App on screen → the Flutter IncomingCallScreen is already being
             // pushed by the INCOMING event; post only a silent shade entry (no
@@ -278,6 +439,7 @@ class CallInCallService : InCallService() {
 
     override fun onCallRemoved(call: Call) {
         super.onCallRemoved(call)
+        Log.d(TAG, "onCallRemoved state=${call.state} tracked=${trackedCalls.size}")
         // Never added by onCallAdded (an MMI dial, or a blocked caller rejected
         // on arrival): there is no UI state to tear down, and running the rest
         // would publish a DISCONNECTED for a call the app never announced —
@@ -299,6 +461,11 @@ class CallInCallService : InCallService() {
             )
         }
 
+        // Only LIVE top-level calls keep the UI up — see LIVE_STATES. Telecom
+        // keeps freshly-added STATE_NEW placeholders and just-disconnected legs
+        // bound for a while, and treating one of those as "another call is
+        // still up" is what left the call screen on screen, counting seconds,
+        // after everyone had hung up.
         val remaining = topLevelCalls()
         if (remaining.isEmpty()) {
             // Last call gone — tear the in-call UI down and stop showing the
@@ -307,6 +474,7 @@ class CallInCallService : InCallService() {
                 ?.showOverLockScreen(false)
             currentCall = null
             stickyState = null
+            lastStatePayload = null
             CallEventStreamHandler.sendEvent(
                 CallEvent.DISCONNECTED,
                 mapOf("phone" to phoneOf(call), "direction" to directionOf(call)),
@@ -324,15 +492,48 @@ class CallInCallService : InCallService() {
         publishCallsChanged()
     }
 
-    /** Pushes the number of top-level calls + mergeability to Flutter. */
-    private fun publishCallsChanged() {
-        CallEventStreamHandler.sendRaw(
-            mapOf(
-                "event" to "CALLS_CHANGED",
-                "count" to topLevelCalls().size,
-                "canMerge" to canMerge(),
-            ),
+    /**
+     * Re-sends the foreground call's state after a detail/parent/children
+     * change.
+     *
+     * It must NOT publish for a call that is no longer live: those callbacks
+     * keep firing on conference legs after everyone hung up, and re-announcing
+     * a corpse as ACTIVE would put the call screen back over an idle phone —
+     * the mirror image of the bug this whole section is about. With nothing
+     * live left it publishes the DISCONNECTED that `onCallRemoved` may not have
+     * had a chance to send yet.
+     */
+    private fun republishCurrent() {
+        val call = currentCall ?: return
+        if (isLive(call)) {
+            publishState(call, call.state)
+            return
+        }
+        if (topLevelCalls().isNotEmpty()) return
+        currentCall = null
+        stickyState = null
+        lastStatePayload = null
+        CallEventStreamHandler.sendEvent(
+            CallEvent.DISCONNECTED,
+            mapOf("phone" to phoneOf(call), "direction" to directionOf(call)),
         )
+    }
+
+    /** Pushes the number of top-level calls + mergeability to Flutter.
+     *
+     *  De-duplicated: the details/parent/children callbacks fire in bursts
+     *  while a merge settles, and re-posting an identical payload a dozen
+     *  times is main-thread work on both sides of the channel for nothing —
+     *  which is what the conference felt sluggish for. */
+    private fun publishCallsChanged() {
+        val payload = mapOf(
+            "event" to "CALLS_CHANGED",
+            "count" to topLevelCalls().size,
+            "canMerge" to canMerge(),
+        )
+        if (payload == lastCallsPayload) return
+        lastCallsPayload = payload
+        CallEventStreamHandler.sendRaw(payload)
     }
 
     override fun onCallAudioStateChanged(audioState: CallAudioState) {
@@ -387,11 +588,20 @@ class CallInCallService : InCallService() {
             }
             else -> return
         }
-        stickyState = if (event == CallEvent.DISCONNECTED) {
-            null
-        } else {
-            data + mapOf("event" to event.name)
+        val payload = data + mapOf("event" to event.name)
+        if (event == CallEvent.DISCONNECTED) {
+            // Never swallowed, and it clears the memo so the *next* call from
+            // the same person is not mistaken for a repeat of this one.
+            stickyState = null
+            lastStatePayload = null
+            CallEventStreamHandler.sendEvent(event, data)
+            return
         }
+        stickyState = payload
+        // Same de-duplication as publishCallsChanged: onDetailsChanged fires
+        // repeatedly during a merge with nothing the UI can see changed.
+        if (payload == lastStatePayload) return
+        lastStatePayload = payload
         CallEventStreamHandler.sendEvent(event, data)
     }
 
@@ -445,26 +655,12 @@ class CallInCallService : InCallService() {
     private fun postIncomingCallNotification(phone: String, headsUp: Boolean = true) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channelId = if (headsUp) CHANNEL_ID else SILENT_CHANNEL_ID
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = if (headsUp) {
-                NotificationChannel(
-                    CHANNEL_ID, "تماس ورودی", NotificationManager.IMPORTANCE_HIGH,
-                ).apply {
-                    description = "اعلان تماس‌های ورودی"
-                    setSound(null, null) // telecom already plays the ringtone
-                    enableVibration(false)
-                }
-            } else {
-                NotificationChannel(
-                    SILENT_CHANNEL_ID, "تماس ورودی (بی‌صدا)",
-                    NotificationManager.IMPORTANCE_LOW,
-                ).apply {
-                    description = "اعلان بی‌صدای تماس ورودی وقتی صفحه تماس باز است"
-                    setSound(null, null)
-                    enableVibration(false)
-                }
-            }
-            nm.createNotificationChannel(channel)
+        ensureChannels(applicationContext)
+        if (!areCallNotificationsEnabled(applicationContext)) {
+            // Loud in the log because it is silent everywhere else: the card is
+            // dropped and the full-screen intent with it. DefaultAppGate asks
+            // the user to turn this back on.
+            Log.e(TAG, "Call notifications are DISABLED — incoming call has no UI")
         }
 
         val piFlags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -536,14 +732,7 @@ class CallInCallService : InCallService() {
     /** «تماس بی‌پاسخ» — tap opens the app on the recents tab. */
     private fun postMissedCallNotification(phone: String, subscriptionId: Int) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            nm.createNotificationChannel(
-                NotificationChannel(
-                    MISSED_CHANNEL_ID, "تماس بی‌پاسخ",
-                    NotificationManager.IMPORTANCE_DEFAULT,
-                ).apply { description = "اعلان تماس‌های بی‌پاسخ" },
-            )
-        }
+        ensureChannels(applicationContext)
         val piFlags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         val launch = packageManager.getLaunchIntentForPackage(packageName)?.apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP

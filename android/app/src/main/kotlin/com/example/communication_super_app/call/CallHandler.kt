@@ -82,6 +82,10 @@ class CallHandler(
                         sendDtmf(call.argument<String>("digit") ?: "")
                         result.success(null)
                     }
+                    "playKeypadTone"  -> {
+                        playLocalTone(call.argument<String>("digit") ?: "")
+                        result.success(null)
+                    }
                     "mergeCalls"      -> {
                         CallInCallService.instance?.mergeCalls()
                         result.success(null)
@@ -97,6 +101,9 @@ class CallHandler(
                     "isDefaultDialer" -> result.success(isDefaultDialer())
                     "requestDefaultDialerRole" -> requestDefaultDialerRole(result)
                     "canUseFullScreenIntent" -> result.success(canUseFullScreenIntent())
+                    "areCallNotificationsEnabled" -> result.success(
+                        CallInCallService.areCallNotificationsEnabled(context),
+                    )
                     "openFullScreenIntentSettings" -> {
                         openFullScreenIntentSettings()
                         result.success(true)
@@ -376,6 +383,20 @@ class CallHandler(
             call.stopDtmfTone()
         }
         // …and always play local audible feedback.
+        playLocalTone(digit)
+    }
+
+    /**
+     * Audible keypress feedback with nothing sent down the line — the dialer
+     * keypad's tone.
+     *
+     * It is a separate entry point on purpose: [sendDtmf] transmits whenever a
+     * call exists, and the keypad opened from «افزودن تماس» sits on top of a
+     * live one, so sharing the method played the number being dialled into the
+     * ear of the person already on the call.
+     */
+    private fun playLocalTone(digit: String) {
+        if (digit.isEmpty()) return
         val toneType = when (digit[0]) {
             '0'  -> ToneGenerator.TONE_DTMF_0
             '1'  -> ToneGenerator.TONE_DTMF_1

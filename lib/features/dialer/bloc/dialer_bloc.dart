@@ -38,6 +38,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     on<MergeCalls>(_onMergeCalls);
     on<SwapCalls>(_onSwapCalls);
     on<CallEventReceived>(_onCallEvent);
+    on<SyncCallState>(_onSyncCallState);
 
     add(const DialerLoadContacts());
     _listenCallEvents();
@@ -231,18 +232,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
         );
       case NativeCallEvent.disconnected:
         // reset call state — keypad و dialedNumber را حفظ کن
-        emit(
-          state.copyWith(
-            callStatus: CallStatus.idle,
-            activePhone: '',
-            isMuted: false,
-            isSpeakerOn: false,
-            callCount: 0,
-            canMerge: false,
-            isConference: false,
-            clearError: true,
-          ),
-        );
+        emit(_idleState());
       case NativeCallEvent.callFailed:
         emit(
           state.copyWith(callStatus: CallStatus.idle, error: 'تماس برقرار نشد'),
@@ -256,6 +246,14 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
           ),
         );
       case NativeCallEvent.callsChanged:
+        // Zero live calls is the same news as DISCONNECTED, and it is the one
+        // the native side can always deliver: onCallRemoved has to pick the
+        // right call to report, this event only has to count. Without it a
+        // missed DISCONNECTED left the call screen up with its timer running.
+        if ((info.callCount ?? -1) == 0) {
+          emit(_idleState());
+          return;
+        }
         emit(
           state.copyWith(
             callCount: info.callCount ?? state.callCount,
@@ -371,6 +369,41 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
   }
 
   // ── Helpers ───────────────────────────────────────────────
+
+  /// The call half of the state, wound back to "no call" — the keypad and the
+  /// dialled number are deliberately kept.
+  DialerState _idleState() => state.copyWith(
+    callStatus: CallStatus.idle,
+    activePhone: '',
+    isMuted: false,
+    isSpeakerOn: false,
+    callCount: 0,
+    canMerge: false,
+    isConference: false,
+    clearError: true,
+  );
+
+  /// Asks telecom whether a call actually exists and drops the call UI if it
+  /// does not.
+  ///
+  /// The last line of defence, run whenever the app comes back to the
+  /// foreground: every other path is an *event*, and a missed one strands the
+  /// user on a call screen for a call that ended. Telecom's own answer cannot
+  /// be missed.
+  Future<void> _onSyncCallState(
+    SyncCallState event,
+    Emitter<DialerState> emit,
+  ) async {
+    if (state.callStatus == CallStatus.idle) return;
+    bool inCall;
+    try {
+      inCall = await _callService.isInCall();
+    } catch (e) {
+      debugPrint('DialerBloc: isInCall failed: $e');
+      return; // Never tear a live call's UI down on a channel error.
+    }
+    if (!inCall) emit(_idleState());
+  }
 
   static String _digitsOnly(String s) => s.replaceAll(RegExp(r'[^\d]'), '');
 

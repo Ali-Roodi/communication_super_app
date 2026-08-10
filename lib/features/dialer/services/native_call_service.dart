@@ -137,8 +137,20 @@ class NativeCallService {
   Future<void> setSpeakerphone({required bool on}) =>
       _method.invokeMethod('setSpeakerphone', {'on': on});
 
+  /// Plays the DTMF tone **and transmits it to the remote party** — the in-call
+  /// keypad (IVR menus).
   Future<void> sendDtmf(String digit) =>
       _method.invokeMethod('sendDtmf', {'digit': digit});
+
+  /// Audible keypress feedback ONLY — never transmitted.
+  ///
+  /// The dialer keypad must use this. It shares the app with a live call
+  /// («افزودن تماس» opens the same keypad over one), and [sendDtmf] pushes the
+  /// tone into `Call.playDtmfTone` whenever a call exists: typing the number of
+  /// the person to add played every digit down the line to the person already
+  /// on it.
+  Future<void> playKeypadTone(String digit) =>
+      _method.invokeMethod('playKeypadTone', {'digit': digit});
 
   /// Merges the active and held calls into a conference (تماس گروهی).
   Future<void> mergeCalls() => _method.invokeMethod('mergeCalls');
@@ -193,6 +205,21 @@ class NativeCallService {
   /// phone shows the OEM dialer instead.
   Future<bool> canUseFullScreenIntent() async =>
       await _method.invokeMethod<bool>('canUseFullScreenIntent') ?? true;
+
+  /// Whether an incoming call can show anything at all.
+  ///
+  /// False when notifications are off for the app, or the «تماس ورودی» channel
+  /// was muted: the CallStyle card is dropped *and* its full-screen intent
+  /// never fires, so a locked phone just rings with no way to answer. Nothing
+  /// in the call path can notice this by itself — hence the explicit check.
+  Future<bool> areCallNotificationsEnabled() async {
+    try {
+      return await _method.invokeMethod<bool>('areCallNotificationsEnabled') ??
+          true;
+    } catch (_) {
+      return true;
+    }
+  }
 
   /// Opens the per-app settings screen where that is granted.
   Future<void> openFullScreenIntentSettings() async {

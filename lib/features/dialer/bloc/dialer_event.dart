@@ -108,6 +108,14 @@ class SwapCalls extends DialerEvent {
   const SwapCalls();
 }
 
+/// Re-reads the live call state from telecom and drops the call UI when there
+/// is no call. Fired on every app resume — the safety net under the event
+/// stream, because a missed DISCONNECTED strands the user on a dead call
+/// screen and only telecom knows the truth.
+class SyncCallState extends DialerEvent {
+  const SyncCallState();
+}
+
 /// رویداد دریافتی از NativeCallService stream
 class CallEventReceived extends DialerEvent {
   final CallInfo callInfo;
