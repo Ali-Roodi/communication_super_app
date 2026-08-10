@@ -248,6 +248,9 @@ The stale-row diff (`removeRowsMissingFromDevice`) runs **inside SQLite** agains
 - **A group write replaces the whole membership**, so `AddEditContactScreen` keeps the internal groups it loaded (`_systemGroups`) and writes them back with the picked ones — dropping «My Contacts» would quietly remove the contact from the default view of every other contacts app.
 - `withGroups: true` is opt-in on **both** the read and `update()`; miss it on the read and the editor writes an empty label list over the real one, miss it on the write and the edit is silently dropped. `insertContact` has no such flag, so a new contact's labels are a second write.
 - `groupFor` prefers an id the contact already carries, so saving does not move the tag to another account.
+- The «برچسب‌ها» row sits in the editor's main form, **not** behind «فیلدهای بیشتر» — buried there nobody found it, which is most of why labels went unused.
+
+**The phone field in the editor is LTR** (`Directionality.ltr` around the `TextFormField`, alone on this form). A phone number is left-to-right content: in the page's RTL direction the digits laid out right-aligned with the caret on the wrong side, so typing read as if the number were going in backwards and a leading `+` landed at the far end. The *detail* page's `_phoneTile` is deliberately left as it is — it renders LTR text right-aligned inside the RTL row and that is correct there.
 
 **Contacts:** all writes go straight to the device address book via `flutter_contacts` (`AddEditContactScreen`); there are deliberately NO create/update/delete bloc events. `ContactRepository.getContactByPhoneNumber` resolves against the device-contact cache (normalized-number match) — the local `contacts` table is legacy and nothing writes to it.
 
