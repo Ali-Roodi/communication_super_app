@@ -57,12 +57,5 @@ class Draft extends Equatable {
   );
 
   @override
-  List<Object?> get props => [
-    id,
-    title,
-    body,
-    categoryId,
-    updatedAt,
-    isPinned,
-  ];
+  List<Object?> get props => [id, title, body, categoryId, updatedAt, isPinned];
 }

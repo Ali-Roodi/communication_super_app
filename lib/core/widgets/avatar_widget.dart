@@ -53,7 +53,9 @@ class AvatarWidget extends StatelessWidget {
   /// which is what makes the avatars read as one family instead of stickers.
   static Color onFillFor(String name, Brightness brightness) {
     if (name.isEmpty) {
-      return brightness == Brightness.light ? const Color(0xFF444746) : Colors.white;
+      return brightness == Brightness.light
+          ? const Color(0xFF444746)
+          : Colors.white;
     }
     return brightness == Brightness.light
         ? HSLColor.fromAHSL(1, _hueFor(name), 0.80, 0.24).toColor()
@@ -79,9 +81,7 @@ class AvatarWidget extends StatelessWidget {
     final cleaned = name.replaceAll(_bidiControls, '').trimLeft();
     if (cleaned.isEmpty) return '';
     final first = cleaned[0];
-    return _letter.hasMatch(first)
-        ? PersianUtils.getInitials(cleaned)
-        : '';
+    return _letter.hasMatch(first) ? PersianUtils.getInitials(cleaned) : '';
   }
 
   @override

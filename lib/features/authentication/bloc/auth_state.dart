@@ -42,7 +42,6 @@ class AuthUnauthenticated extends AuthState {
   List<Object?> get props => [error];
 }
 
-
 /// A recovery code was just minted and must be shown to the user — this is
 /// the only moment it exists in readable form.
 class AuthRecoveryCodeIssued extends AuthState {

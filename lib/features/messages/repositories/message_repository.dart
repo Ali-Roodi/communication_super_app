@@ -19,7 +19,6 @@ class MessageRepository {
     return message.id;
   }
 
-
   Future<List<MessageModel>> getMessagesByThread(
     String threadId, {
     int? limit,
@@ -606,7 +605,8 @@ class MessageRepository {
     ]);
     final pending = [
       for (final row in deviceRows)
-        if (row.deviceSmsId != null && !knownDeviceIds.contains(row.deviceSmsId))
+        if (row.deviceSmsId != null &&
+            !knownDeviceIds.contains(row.deviceSmsId))
           row,
     ];
     if (pending.isEmpty) return;
@@ -648,7 +648,13 @@ class MessageRepository {
           where:
               'thread_id = ? AND body = ? AND type = ? '
               'AND device_sms_id IS NULL AND timestamp BETWEEN ? AND ?',
-          whereArgs: [row.threadId, row.body, row.type.name, ts - windowMs, ts + windowMs],
+          whereArgs: [
+            row.threadId,
+            row.body,
+            row.type.name,
+            ts - windowMs,
+            ts + windowMs,
+          ],
           limit: 1,
         );
         if (fuzzy.isNotEmpty) {
@@ -670,6 +676,17 @@ class MessageRepository {
       }
     });
   }
+
+  /// Which of [deviceIds] the local store already carries.
+  ///
+  /// Public because the mirror-sync asks it *before* reading any content: the
+  /// import is a diff of the provider's id list against this, so a steady-state
+  /// sync fetches nothing at all and a first run fetches exactly the mailbox.
+  /// Deliberately ignores `is_deleted` — a tombstone still owns its
+  /// `device_sms_id`, and re-importing a message the user deleted is the bug
+  /// that flag exists to prevent.
+  Future<Set<int>> knownDeviceSmsIds(List<int> deviceIds) =>
+      _knownDeviceSmsIds(deviceIds);
 
   /// Which of [deviceIds] the local store already carries, read in chunks that
   /// stay under SQLite's bound-variable limit.
@@ -713,11 +730,9 @@ class MessageRepository {
       await txn.execute('DELETE FROM _device_sms_ids');
       final batch = txn.batch();
       for (final id in deviceIds) {
-        batch.insert(
-          '_device_sms_ids',
-          {'id': id},
-          conflictAlgorithm: ConflictAlgorithm.ignore,
-        );
+        batch.insert('_device_sms_ids', {
+          'id': id,
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
       }
       await batch.commit(noResult: true);
       final deleted = await txn.rawDelete('''
@@ -742,8 +757,6 @@ class MessageRepository {
       whereArgs: [messageId],
     );
   }
-
-
 
   /// Soft-deletes a whole conversation: the rows stay as tombstones (hidden by
   /// the `is_deleted = 0` filter on every query) so `reconcileDeviceRows` keeps
@@ -803,7 +816,6 @@ class MessageRepository {
     );
   }
 
-
   Future<void> softDeleteMessages(List<String> messageIds) async {
     if (messageIds.isEmpty) return;
     final db = await _dbHelper.database;
@@ -836,7 +848,6 @@ class MessageRepository {
     );
   }
 
-
   // ── Pin ────────────────────────────────────────────────────────────────
   Future<void> pinThread(String threadId) async {
     final db = await _dbHelper.database;
@@ -858,5 +869,4 @@ class MessageRepository {
       whereArgs: [threadId],
     );
   }
-
 }

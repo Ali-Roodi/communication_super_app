@@ -13,6 +13,7 @@ import android.telecom.Call
 import android.telecom.CallAudioState
 import android.telecom.DisconnectCause
 import android.telecom.InCallService
+import android.telecom.TelecomManager
 import android.telecom.VideoProfile
 import android.util.Log
 import com.example.communication_super_app.sim.SimRegistry
@@ -48,6 +49,93 @@ class CallInCallService : InCallService() {
         private const val SILENT_CHANNEL_ID = "incoming_call_silent_channel"
         private const val MISSED_CHANNEL_ID = "missed_call_channel"
         private const val NOTIF_ID = 7001
+
+        /** Missed-call ids live in their own range, one slot per caller. */
+        private const val MISSED_ID_BASE = 7100
+
+        /** Missed calls per caller since the shade was last cleared, so the
+         *  card can say «۳ تماس بی‌پاسخ» instead of appearing three times. */
+        private val missedCounts = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+        /** Where [markMissedCall] keeps its marks — survives process death,
+         *  because the carrier's SMS often arrives after the app is gone. */
+        private const val MISSED_MARKS = "missed_call_marks"
+
+        /** How long a mark makes the carrier's SMS redundant. The operator
+         *  sends it within a minute or two; beyond this it is news again. */
+        private const val MISSED_MARK_TTL_MS = 30L * 60_000
+
+        /**
+         * Records that this app has just told the user about a missed call
+         * from [phone].
+         *
+         * Iranian operators also send a **text message** about the same missed
+         * call («تعداد ۱ تماس از 0912… داشته‌اید»), from an alphanumeric sender
+         * the app cannot call back. As the default dialer *and* the default SMS
+         * app, this app posted both — which is the reported "one missed call,
+         * two notifications, and the one labelled «تماس» goes nowhere". The
+         * message is still delivered and still lands in the inbox; only the
+         * duplicate *notification* is dropped. See
+         * [SmsNotifier.isRedundantMissedCallSms].
+         */
+        @JvmStatic
+        fun markMissedCall(context: Context, phone: String) {
+            val key = BlockedNumbers.normalizeToThreadId(phone)
+            if (key.isEmpty()) return
+            try {
+                val prefs = context.getSharedPreferences(MISSED_MARKS, Context.MODE_PRIVATE)
+                val now = System.currentTimeMillis()
+                val editor = prefs.edit().putLong(key, now)
+                // Marks are tiny but they must not accumulate for ever.
+                for ((k, v) in prefs.all) {
+                    val at = v as? Long ?: continue
+                    if (now - at > MISSED_MARK_TTL_MS) editor.remove(k)
+                }
+                editor.apply()
+            } catch (e: Exception) {
+                Log.d(TAG, "markMissedCall: ${e.message}")
+            }
+        }
+
+        /** Whether a missed call from [phone] was announced within the TTL. */
+        @JvmStatic
+        fun wasMissedRecently(context: Context, phone: String): Boolean {
+            val key = BlockedNumbers.normalizeToThreadId(phone)
+            if (key.isEmpty()) return false
+            return try {
+                val at = context
+                    .getSharedPreferences(MISSED_MARKS, Context.MODE_PRIVATE)
+                    .getLong(key, 0L)
+                at > 0 && System.currentTimeMillis() - at <= MISSED_MARK_TTL_MS
+            } catch (e: Exception) {
+                false
+            }
+        }
+
+        /**
+         * Dismisses every missed-call notification this app posted.
+         *
+         * Called when «اخیر» comes on screen: the user is looking at the list
+         * the notification points at, so the notification has nothing left to
+         * say. It also clears telecom's (and with it the OEM dialer's).
+         */
+        @JvmStatic
+        fun clearMissedCallNotifications(context: Context) {
+            try {
+                val nm = context.getSystemService(Context.NOTIFICATION_SERVICE)
+                    as NotificationManager
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    nm.activeNotifications
+                        .filter { it.id >= MISSED_ID_BASE && it.id < MISSED_ID_BASE + 0x10000 }
+                        .forEach { nm.cancel(it.tag, it.id) }
+                }
+                missedCounts.clear()
+                val tm = context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
+                tm.cancelMissedCallsNotification()
+            } catch (e: Exception) {
+                Log.d(TAG, "clearMissedCallNotifications: ${e.message}")
+            }
+        }
 
         /** The bound service instance — audio routing entry point. */
         @JvmStatic
@@ -816,39 +904,114 @@ class CallInCallService : InCallService() {
             .cancel(NOTIF_ID)
     }
 
-    /** «تماس بی‌پاسخ» — tap opens the app on the recents tab. */
+    /**
+     * «تماس بی‌پاسخ» — with «تماس» and «پیامک» actions, like Google Phone.
+     *
+     * Three things here were wrong and each was visible:
+     *
+     * - **One notification per caller**, not one per event. The id was the
+     *   timestamp, so three missed calls from the same person left three
+     *   identical cards in the shade with no way to tell them apart.
+     * - **Actions.** Tapping only opened the app, which is not what anyone
+     *   wants from a missed call — «تماس» dials straight back and «پیامک»
+     *   opens the conversation.
+     * - **[cancelSystemMissedCallNotification].** The OEM dialer posts its own
+     *   missed-call notification (verified on the SM A336E: a second card from
+     *   `com.samsung.android.dialer`, channel `missedCall`, in English), and
+     *   the documented way for the default dialer to take that duty over is to
+     *   tell telecom it has done so. That is the second card the tester saw.
+     */
     private fun postMissedCallNotification(phone: String, subscriptionId: Int) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         ensureChannels(applicationContext)
         val piFlags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+
+        // Stable per caller, so a repeat call updates the card instead of
+        // adding another. An unknown number ("") still gets its own slot.
+        val notifId = MISSED_ID_BASE + (phone.hashCode() and 0xFFFF)
+        val count = missedCounts.merge(phone, 1, Int::plus) ?: 1
+
         val launch = packageManager.getLaunchIntentForPackage(packageName)?.apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
         } ?: Intent()
-        val contentIntent = PendingIntent.getActivity(this, 3, launch, piFlags)
+        val contentIntent = PendingIntent.getActivity(this, notifId, launch, piFlags)
+
+        val callBack = PendingIntent.getBroadcast(
+            this, notifId + 1,
+            Intent(CallActionReceiver.ACTION_CALL_BACK)
+                .setPackage(packageName)
+                .putExtra(CallActionReceiver.EXTRA_PHONE, phone)
+                .putExtra(CallActionReceiver.EXTRA_NOTIF_ID, notifId)
+                .putExtra(CallActionReceiver.EXTRA_SUBSCRIPTION_ID, subscriptionId),
+            piFlags,
+        )
+        // «پیامک» goes through the launcher intent with a threadId extra — the
+        // same deep link an SMS notification uses, so it lands in the same
+        // conversation the app would open for that number.
+        val smsIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra("threadId", BlockedNumbers.normalizeToThreadId(phone))
+        } ?: Intent()
+        val message = PendingIntent.getActivity(
+            this, notifId + 2, smsIntent, piFlags,
+        )
 
         val name = lookupContactName(phone) ?: phone
-        // Unique id per event so several missed calls stack instead of
-        // overwriting each other.
-        val notifId = (System.currentTimeMillis() and 0x7FFFFFFF).toInt()
-        nm.notify(
-            notifId,
-            NotificationCompat.Builder(this, MISSED_CHANNEL_ID)
-                .setSmallIcon(applicationInfo.icon)
-                .setContentTitle("تماس بی‌پاسخ")
-                .setContentText(name)
-                // Which card was rung — the same subtext the SMS shade shows,
-                // and absent on a single-SIM phone.
-                .apply {
-                    if (SimRegistry.isMultiSim(this@CallInCallService)) {
-                        SimRegistry.labelOf(this@CallInCallService, subscriptionId)
-                            ?.let { setSubText(it) }
-                    }
+        val title = if (count > 1) {
+            "$count تماس بی‌پاسخ"
+        } else {
+            "تماس بی‌پاسخ"
+        }
+        val builder = NotificationCompat.Builder(this, MISSED_CHANNEL_ID)
+            .setSmallIcon(applicationInfo.icon)
+            .setContentTitle(title)
+            .setContentText(name)
+            // Which card was rung — the same subtext the SMS shade shows,
+            // and absent on a single-SIM phone.
+            .apply {
+                if (SimRegistry.isMultiSim(this@CallInCallService)) {
+                    SimRegistry.labelOf(this@CallInCallService, subscriptionId)
+                        ?.let { setSubText(it) }
                 }
-                .setCategory(NotificationCompat.CATEGORY_MISSED_CALL)
-                .setAutoCancel(true)
-                .setContentIntent(contentIntent)
-                .build(),
-        )
+            }
+            .setCategory(NotificationCompat.CATEGORY_MISSED_CALL)
+            .setAutoCancel(true)
+            .setContentIntent(contentIntent)
+        if (phone.isNotEmpty()) {
+            builder.addAction(0, "تماس", callBack)
+            builder.addAction(0, "پیامک", message)
+        }
+        nm.notify(notifId, builder.build())
+
+        markMissedCall(applicationContext, phone)
+        cancelSystemMissedCallNotification()
+    }
+
+    /**
+     * Tells telecom the default dialer has taken the missed call over.
+     *
+     * See also [markMissedCall], which is what keeps the *carrier's* own
+     * missed-call SMS from becoming a second notification for the same event.
+     *
+     * `cancelMissedCallsNotification` cancels the platform's own card **and**
+     * marks the missed calls read in the call log, which is what makes the OEM
+     * dialer drop its duplicate. Google Phone does exactly this when it posts
+     * its own; without it the phone shows two missed-call notifications, and
+     * the OEM's one belongs to an app that is no longer the dialer.
+     *
+     * Only the default dialer may call it, and it throws otherwise — which is
+     * precisely the moment the platform's own notification is the right one to
+     * leave alone.
+     */
+    private fun cancelSystemMissedCallNotification() {
+        try {
+            val tm = getSystemService(Context.TELECOM_SERVICE) as TelecomManager
+            tm.cancelMissedCallsNotification()
+        } catch (e: SecurityException) {
+            Log.d(TAG, "not the default dialer; leaving the system notification")
+        } catch (e: Exception) {
+            Log.w(TAG, "cancelMissedCallsNotification failed: ${e.message}")
+        }
     }
 
     private fun lookupContactName(phone: String): String? {
@@ -866,14 +1029,24 @@ class CallInCallService : InCallService() {
     }
 }
 
-/** Answers/declines the ringing call from the notification actions. */
+/** Answers/declines the ringing call, and calls back a missed one. */
 class CallActionReceiver : android.content.BroadcastReceiver() {
     companion object {
         const val ACTION_ANSWER = "com.example.communication_super_app.ANSWER_CALL"
         const val ACTION_DECLINE = "com.example.communication_super_app.DECLINE_CALL"
+
+        /** «تماس» on a missed-call notification. */
+        const val ACTION_CALL_BACK = "com.example.communication_super_app.CALL_BACK"
+        const val EXTRA_PHONE = "phone"
+        const val EXTRA_NOTIF_ID = "notifId"
+        const val EXTRA_SUBSCRIPTION_ID = "subscriptionId"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == ACTION_CALL_BACK) {
+            callBack(context, intent)
+            return
+        }
         val call = CallInCallService.currentCall
         Log.d("CallActionReceiver", "action=${intent.action} call=${call != null} state=${call?.state}")
         if (call == null) return
@@ -892,6 +1065,47 @@ class CallActionReceiver : android.content.BroadcastReceiver() {
                 } else {
                     call.disconnect()
                 }
+        }
+    }
+
+    /**
+     * Dials the number of a missed call straight from the shade.
+     *
+     * `TelecomManager.placeCall` rather than an `ACTION_CALL` intent, for the
+     * same reason `CallHandler.makeCall` uses it: this app is the dialer, so an
+     * intent would resolve back into its own process. The activity is brought
+     * forward so the in-call screen is what the user lands on.
+     */
+    private fun callBack(context: Context, intent: Intent) {
+        val phone = intent.getStringExtra(EXTRA_PHONE).orEmpty()
+        val notifId = intent.getIntExtra(EXTRA_NOTIF_ID, -1)
+        if (notifId >= 0) {
+            (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+                .cancel(notifId)
+        }
+        if (phone.isEmpty()) return
+        try {
+            val uri = Uri.fromParts("tel", phone, null)
+            val subscriptionId = intent.getIntExtra(EXTRA_SUBSCRIPTION_ID, -1)
+            // Call back on the card that took the call, when we know which.
+            val account = SimRegistry.phoneAccountFor(context, subscriptionId)
+            val extras = android.os.Bundle().apply {
+                if (account != null) {
+                    putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, account)
+                }
+            }
+            val tm = context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
+            tm.placeCall(uri, extras)
+            context.packageManager.getLaunchIntentForPackage(context.packageName)
+                ?.apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP
+                }
+                ?.let { context.startActivity(it) }
+        } catch (e: SecurityException) {
+            Log.e("CallActionReceiver", "call back refused: ${e.message}")
+        } catch (e: Exception) {
+            Log.e("CallActionReceiver", "call back failed: ${e.message}")
         }
     }
 }

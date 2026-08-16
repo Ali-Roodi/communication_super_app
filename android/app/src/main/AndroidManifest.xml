@@ -164,6 +164,8 @@
             <intent-filter>
                 <action android:name="com.example.communication_super_app.ANSWER_CALL"/>
                 <action android:name="com.example.communication_super_app.DECLINE_CALL"/>
+                <!-- «تماس» on a missed-call notification -->
+                <action android:name="com.example.communication_super_app.CALL_BACK"/>
             </intent-filter>
         </receiver>
 

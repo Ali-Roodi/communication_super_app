@@ -178,15 +178,11 @@ class _SpamAndBlockedScreenState extends State<SpamAndBlockedScreen> {
                 ),
                 if (spam.isNotEmpty) ...[
                   const SectionLabel('هرزنامه'),
-                  GroupedList(
-                    children: [for (final n in spam) _row(n)],
-                  ),
+                  GroupedList(children: [for (final n in spam) _row(n)]),
                 ],
                 if (blocked.isNotEmpty) ...[
                   const SectionLabel('مسدودشده'),
-                  GroupedList(
-                    children: [for (final n in blocked) _row(n)],
-                  ),
+                  GroupedList(children: [for (final n in blocked) _row(n)]),
                 ],
               ],
             );
@@ -301,9 +297,7 @@ class _BlockedRow extends StatelessWidget {
           const PopupMenuItem(value: 'unblock', child: Text('رفع مسدودی')),
           PopupMenuItem(
             value: 'report',
-            child: Text(
-              number.isSpam ? 'این هرزنامه نیست' : 'گزارش هرزنامه',
-            ),
+            child: Text(number.isSpam ? 'این هرزنامه نیست' : 'گزارش هرزنامه'),
           ),
         ],
       ),

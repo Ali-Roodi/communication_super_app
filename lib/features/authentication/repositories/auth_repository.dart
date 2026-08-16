@@ -40,8 +40,7 @@ class AuthRepository {
     await setAuthType(AuthType.pattern);
   }
 
-  Future<bool> validatePin(String pin) =>
-      _verify(AppConstants.pinKey, pin);
+  Future<bool> validatePin(String pin) => _verify(AppConstants.pinKey, pin);
 
   Future<bool> validatePattern(List<int> pattern) =>
       _verify(AppConstants.patternKey, pattern.join(','));

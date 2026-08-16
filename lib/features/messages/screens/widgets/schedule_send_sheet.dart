@@ -180,7 +180,9 @@ Future<ScheduleChoice?> showScheduleSendSheet(
                     subtitle: Text(repeatSummary(choice)),
                     onTap: () async {
                       final updated = await _showRepeatSheet(sheetCtx, choice);
-                      if (updated != null) setSheetState(() => choice = updated);
+                      if (updated != null) {
+                        setSheetState(() => choice = updated);
+                      }
                     },
                   ),
                   // Jitter is NOT nested under «تکرار»: spreading a *one-shot*

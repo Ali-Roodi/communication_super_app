@@ -48,11 +48,7 @@ class ConversationAppBar extends StatelessWidget
             // same avatar the address book draws. Resolution is O(1) on the
             // warm number index and only this 36 dp box rebuilds if it lands
             // late, so the header never waits on the address book.
-            PhoneContactAvatar(
-              phoneNumber: phoneNumber,
-              name: title,
-              size: 36,
-            ),
+            PhoneContactAvatar(phoneNumber: phoneNumber, name: title, size: 36),
             const SizedBox(width: 12),
             Expanded(
               child: Column(

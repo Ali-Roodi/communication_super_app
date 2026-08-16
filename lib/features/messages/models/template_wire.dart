@@ -42,7 +42,9 @@ abstract class TemplateWire {
   /// inbox row.
   static const String sigil = '[#T';
 
-  static final RegExp _header = RegExp(r'^\[#T(\d{1,2}):([a-z0-9]{2,6}):(\d{1,3})\]');
+  static final RegExp _header = RegExp(
+    r'^\[#T(\d{1,2}):([a-z0-9]{2,6}):(\d{1,3})\]',
+  );
 
   static const int _flagGreeting = 1;
 

@@ -190,10 +190,7 @@ class _MessageActionLayer extends StatelessWidget {
                 builder: (context, _) {
                   final t = Curves.easeOut.transform(animation.value);
                   return BackdropFilter(
-                    filter: ui.ImageFilter.blur(
-                      sigmaX: 14 * t,
-                      sigmaY: 14 * t,
-                    ),
+                    filter: ui.ImageFilter.blur(sigmaX: 14 * t, sigmaY: 14 * t),
                     child: Container(
                       color: Colors.black.withValues(alpha: 0.42 * t),
                     ),
@@ -208,7 +205,7 @@ class _MessageActionLayer extends StatelessWidget {
             anchor: anchor,
             isLastInGroup: isLastInGroup,
             showLinkPreview: showLinkPreview,
-                  isSent: isSent,
+            isSent: isSent,
             top: top,
             height: bubbleHeight,
             scrollable: overflows,

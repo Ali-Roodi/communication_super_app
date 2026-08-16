@@ -19,6 +19,7 @@ import 'package:communication_super_app/features/messages/bloc/message_state.dar
 import 'package:communication_super_app/features/call_history/screens/call_history_screen.dart';
 import 'package:communication_super_app/features/call_history/bloc/call_log_bloc.dart';
 import 'package:communication_super_app/features/call_history/bloc/call_log_event.dart';
+import 'package:communication_super_app/features/messages/screens/contact_selector_screen.dart';
 import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
 import 'package:communication_super_app/core/services/deep_link_service.dart';
@@ -63,16 +64,20 @@ class _MainNavigationState extends State<MainNavigation>
     // in the phone's Contacts app) so names update without an app restart.
     FlutterContacts.addListener(_refreshDeviceContacts);
 
-    // Notification deep links: warm-start handler + the cold-start extra.
-    // Registered here (post-auth) so a tap never bypasses the app lock.
+    // Deep links — a notification tap, or a `tel:`/`sms:` intent from another
+    // app. Warm-start handler + the cold-start intent. Registered here
+    // (post-auth) so nothing external can bypass the app lock.
     DeepLinkService.instance
-      ..onOpenThread = _openThreadFromNotification
+      ..onAction = _handleLaunchAction
       ..registerHandler();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final threadId = await DeepLinkService.instance.consumeInitialThreadId();
-      if (threadId != null) {
-        _openThreadFromNotification(threadId);
+      final action = await DeepLinkService.instance.consumeInitialAction();
+      if (action != null) {
+        _handleLaunchAction(action);
         return;
+      }
+      if (_currentIndex == _recentsTab) {
+        DeepLinkService.instance.clearMissedCallNotifications();
       }
       await _openDialpadIfRequested();
     });
@@ -93,17 +98,57 @@ class _MainNavigationState extends State<MainNavigation>
     await showDialerBottomSheet(context);
   }
 
-  /// Opens the conversation a notification points at. The threadId IS the
-  /// normalized phone number, so `forPhone` resolves it directly.
-  void _openThreadFromNotification(String threadId) {
+  /// Opens whatever an incoming intent pointed at.
+  ///
+  /// Any of these is an explicit destination and beats the landing-tab
+  /// heuristic below; without marking it resolved the grace timer could still
+  /// swing the tab under an already-open conversation.
+  void _handleLaunchAction(LaunchAction action) {
     if (!mounted) return;
-    // An explicit destination beats the heuristic below; without this the grace
-    // timer could still swing the tab under an already-open conversation.
     _autoTabResolved = true;
     _autoTabGrace?.cancel();
+
+    switch (action.type) {
+      case LaunchActionType.thread:
+        _openThread(action.threadId);
+      case LaunchActionType.sms:
+        if (action.number.isEmpty) {
+          // A shared text with no recipient — ask who it goes to.
+          setState(() => _currentIndex = _messagesTab);
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => ContactSelectorScreen(initialText: action.body),
+            ),
+          );
+        } else {
+          _openThread(action.number, initialText: action.body);
+        }
+      case LaunchActionType.dial:
+        // The keypad is a modal sheet, so this is the whole of "open the
+        // dialer with the number in it".
+        showDialerBottomSheet(context, initialNumber: action.number);
+    }
+  }
+
+  /// Switches tab, and clears the missed-call notifications when «اخیر» comes
+  /// on screen — the user is now looking at the list they point at, which is
+  /// where Google Phone drops them too.
+  void _selectTab(int index) {
+    setState(() => _currentIndex = index);
+    if (index == _recentsTab) {
+      DeepLinkService.instance.clearMissedCallNotifications();
+    }
+  }
+
+  /// Opens a conversation. The threadId IS the normalized phone number, so
+  /// `forPhone` resolves it directly.
+  void _openThread(String phoneNumber, {String? initialText}) {
     setState(() => _currentIndex = _messagesTab);
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => ConversationScreen.forPhone(threadId)),
+      MaterialPageRoute(
+        builder: (_) =>
+            ConversationScreen.forPhone(phoneNumber, initialText: initialText),
+      ),
     );
   }
 
@@ -137,6 +182,9 @@ class _MainNavigationState extends State<MainNavigation>
       context.read<CallLogBloc>().add(const SyncCallLogs());
       // And for SMS: mirror-sync the provider (new/deleted rows) silently.
       context.read<MessageBloc>().add(const SyncDeviceMessages());
+      if (_currentIndex == _recentsTab) {
+        DeepLinkService.instance.clearMissedCallNotifications();
+      }
     }
   }
 
@@ -206,7 +254,10 @@ class _MainNavigationState extends State<MainNavigation>
     _threadSub = messageBloc.stream.listen(_consumeMessageState);
     _callSub = callBloc.stream.listen(_consumeCallState);
 
-    _autoTabGrace = Timer(_autoTabGraceWindow, () => _resolveAutoTab(force: true));
+    _autoTabGrace = Timer(
+      _autoTabGraceWindow,
+      () => _resolveAutoTab(force: true),
+    );
     _resolveAutoTab();
   }
 
@@ -262,7 +313,7 @@ class _MainNavigationState extends State<MainNavigation>
         ? _messagesTab
         : _recentsTab;
     if (mounted && _currentIndex != target) {
-      setState(() => _currentIndex = target);
+      _selectTab(target);
     }
   }
 
@@ -318,71 +369,69 @@ class _MainNavigationState extends State<MainNavigation>
     // Call-screen navigation lives in CallUiCoordinator (above the auth flow,
     // see main.dart) so incoming calls surface even on the PIN screen.
     return Scaffold(
-        // No shared app bar: like Google Phone / Google Messages, every tab
-        // owns its header (a search pill, or the Messages collapsing header).
-        appBar: null,
-        drawer: null,
-        floatingActionButton: _showDialerFab
-            ? FloatingActionButton(
-                onPressed: () => showDialerBottomSheet(context),
-                tooltip: 'شماره‌گیری',
-                child: const Icon(Icons.dialpad),
-              )
-            : null,
-        // Fade between tabs (spec: 150ms) while keeping every tab mounted so
-        // scroll position and loaded state survive switching.
-        body: _FadeIndexedStack(
-          index: _currentIndex,
-          duration: const Duration(milliseconds: 150),
-          children: _screens,
-        ),
-        bottomNavigationBar: Directionality(
-          textDirection: TextDirection.rtl,
-          child: BlocBuilder<MessageBloc, MessageState>(
-            // Only rebuild when the unread total changes or state type changes
-            buildWhen: (prev, curr) {
-              if (prev.runtimeType != curr.runtimeType) return true;
-              if (curr is ThreadsLoaded && prev is ThreadsLoaded) {
-                return _totalUnread(curr) != _totalUnread(prev);
-              }
-              return false;
-            },
-            builder: (context, msgState) {
-              final unread = msgState is ThreadsLoaded
-                  ? _totalUnread(msgState)
-                  : 0;
+      // No shared app bar: like Google Phone / Google Messages, every tab
+      // owns its header (a search pill, or the Messages collapsing header).
+      appBar: null,
+      drawer: null,
+      floatingActionButton: _showDialerFab
+          ? FloatingActionButton(
+              onPressed: () => showDialerBottomSheet(context),
+              tooltip: 'شماره‌گیری',
+              child: const Icon(Icons.dialpad),
+            )
+          : null,
+      // Fade between tabs (spec: 150ms) while keeping every tab mounted so
+      // scroll position and loaded state survive switching.
+      body: _FadeIndexedStack(
+        index: _currentIndex,
+        duration: const Duration(milliseconds: 150),
+        children: _screens,
+      ),
+      bottomNavigationBar: Directionality(
+        textDirection: TextDirection.rtl,
+        child: BlocBuilder<MessageBloc, MessageState>(
+          // Only rebuild when the unread total changes or state type changes
+          buildWhen: (prev, curr) {
+            if (prev.runtimeType != curr.runtimeType) return true;
+            if (curr is ThreadsLoaded && prev is ThreadsLoaded) {
+              return _totalUnread(curr) != _totalUnread(prev);
+            }
+            return false;
+          },
+          builder: (context, msgState) {
+            final unread = msgState is ThreadsLoaded
+                ? _totalUnread(msgState)
+                : 0;
 
-              return NavigationBar(
-                selectedIndex: _currentIndex,
-                onDestinationSelected: (i) {
-                  setState(() => _currentIndex = i);
-                },
-                destinations: [
-                  const NavigationDestination(
-                    icon: Icon(Icons.access_time),
-                    selectedIcon: Icon(Icons.access_time_filled),
-                    label: 'اخیر',
-                  ),
-                  const NavigationDestination(
-                    icon: Icon(Icons.star_outline),
-                    selectedIcon: Icon(Icons.star),
-                    label: 'موردعلاقه‌ها',
-                  ),
-                  const NavigationDestination(
-                    icon: Icon(Icons.person_outline),
-                    selectedIcon: Icon(Icons.person),
-                    label: 'مخاطبین',
-                  ),
-                  NavigationDestination(
-                    icon: MessageNavIcon(unread: unread, filled: false),
-                    selectedIcon: MessageNavIcon(unread: unread, filled: true),
-                    label: 'پیام‌ها',
-                  ),
-                ],
-              );
-            },
-          ),
+            return NavigationBar(
+              selectedIndex: _currentIndex,
+              onDestinationSelected: _selectTab,
+              destinations: [
+                const NavigationDestination(
+                  icon: Icon(Icons.access_time),
+                  selectedIcon: Icon(Icons.access_time_filled),
+                  label: 'اخیر',
+                ),
+                const NavigationDestination(
+                  icon: Icon(Icons.star_outline),
+                  selectedIcon: Icon(Icons.star),
+                  label: 'موردعلاقه‌ها',
+                ),
+                const NavigationDestination(
+                  icon: Icon(Icons.person_outline),
+                  selectedIcon: Icon(Icons.person),
+                  label: 'مخاطبین',
+                ),
+                NavigationDestination(
+                  icon: MessageNavIcon(unread: unread, filled: false),
+                  selectedIcon: MessageNavIcon(unread: unread, filled: true),
+                  label: 'پیام‌ها',
+                ),
+              ],
+            );
+          },
         ),
+      ),
     );
   }
 

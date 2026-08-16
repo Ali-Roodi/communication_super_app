@@ -32,7 +32,10 @@ class _SimsChanged extends SimEvent {
 /// State
 
 class SimState extends Equatable {
-  const SimState({this.sims = const [], this.defaults = const SimDefaults.unknown()});
+  const SimState({
+    this.sims = const [],
+    this.defaults = const SimDefaults.unknown(),
+  });
 
   final List<SimCard> sims;
   final SimDefaults defaults;

@@ -13,15 +13,60 @@ class MessagesEmptyState extends StatelessWidget {
   );
 }
 
+/// The inbox is empty *because the first device import has not finished yet*.
+///
+/// A first install has nothing local and the mirror-sync walks the whole
+/// provider, which on a full phone is tens of seconds. Showing
+/// [MessagesEmptyState] there tells the user their messages are gone; this says
+/// what is actually happening, and the list replaces it page by page as the
+/// import lands.
+class MessagesImportingState extends StatelessWidget {
+  const MessagesImportingState({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(strokeWidth: 3),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'در حال خواندن پیام‌های دستگاه',
+              style: theme.textTheme.titleMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'بار اول کمی طول می‌کشد؛ گفتگوها به‌تدریج نمایش داده می‌شوند.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.textTheme.bodyMedium?.color?.withValues(
+                  alpha: 0.7,
+                ),
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// Centered "no search results" message.
 class MessagesNoResults extends StatelessWidget {
   const MessagesNoResults({super.key});
 
   @override
-  Widget build(BuildContext context) => const EmptyState(
-    icon: Icons.search_off,
-    title: 'نتیجه‌ای یافت نشد',
-  );
+  Widget build(BuildContext context) =>
+      const EmptyState(icon: Icons.search_off, title: 'نتیجه‌ای یافت نشد');
 }
 
 /// Full-screen error state with a retry button.

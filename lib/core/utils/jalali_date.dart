@@ -39,7 +39,8 @@ class JalaliDate {
     final gm2 = gm - 1;
     final gd2 = gd - 1;
 
-    var gDayNo = 365 * gy2 +
+    var gDayNo =
+        365 * gy2 +
         ((gy2 + 3) ~/ 4) -
         ((gy2 + 99) ~/ 100) +
         ((gy2 + 399) ~/ 400);
@@ -81,7 +82,8 @@ class JalaliDate {
     int minute = 0,
   }) {
     var y = jy + 1595;
-    var days = -355668 +
+    var days =
+        -355668 +
         (365 * y) +
         ((y ~/ 33) * 8) +
         (((y % 33) + 3) ~/ 4) +
@@ -102,7 +104,21 @@ class JalaliDate {
     }
     var gd = days + 1;
     final leap = (gy % 4 == 0 && gy % 100 != 0) || (gy % 400 == 0);
-    final monthLengths = [0, 31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    final monthLengths = [
+      0,
+      31,
+      leap ? 29 : 28,
+      31,
+      30,
+      31,
+      30,
+      31,
+      31,
+      30,
+      31,
+      30,
+      31,
+    ];
     var gm = 1;
     for (; gm <= 12; gm++) {
       if (gd <= monthLengths[gm]) break;

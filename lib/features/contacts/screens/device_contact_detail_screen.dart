@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
+import 'package:communication_super_app/core/utils/contact_name_style.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/avatar_widget.dart';
@@ -104,7 +105,24 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
     if (mounted) setState(() => _loading = false);
   }
 
-  String get _name => widget.contact.name;
+  /// The displayed name.
+  ///
+  /// Taken from the **reloaded** contact once it lands, not from the model this
+  /// page was pushed with: that model is a snapshot the caller happened to hold,
+  /// so after an edit the header went on showing the old name (and the old
+  /// photo) until the contacts list was left and re-entered. Formatted through
+  /// [ContactNameStyle] so it reads exactly as the row that opened it.
+  String get _name {
+    final full = _full;
+    if (full == null) return widget.contact.name;
+    final display = full.displayName.trim();
+    if (display.isEmpty) return widget.contact.name;
+    return ContactNameStyle.format(
+      displayName: display,
+      first: full.name.first,
+      last: full.name.last,
+    );
+  }
 
   String get _primaryPhone {
     if (_full != null && _full!.phones.isNotEmpty) {

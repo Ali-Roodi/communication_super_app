@@ -181,7 +181,10 @@ class OneTimeCodeChip extends StatelessWidget {
     Clipboard.setData(ClipboardData(text: code));
     HapticFeedback.lightImpact();
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('کد کپی شد'), duration: Duration(seconds: 2)),
+      const SnackBar(
+        content: Text('کد کپی شد'),
+        duration: Duration(seconds: 2),
+      ),
     );
   }
 }
@@ -217,10 +220,7 @@ class SelectableBubbleText extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!enabled) return child;
-    return SelectionArea(
-      contextMenuBuilder: _selectionToolbar,
-      child: child,
-    );
+    return SelectionArea(contextMenuBuilder: _selectionToolbar, child: child);
   }
 
   /// Persian selection toolbar. The app ships no `MaterialLocalizations` for
@@ -267,6 +267,15 @@ class MessageBubble extends StatefulWidget {
   final MessageModel message;
   final bool isLastInGroup;
   final bool showTimestamp;
+
+  /// The user tapped this bubble to ask «رسید یا نه؟».
+  ///
+  /// The grouped layout only prints the time + ticks under the *last* bubble of
+  /// a group, so a message in the middle of a burst had no way of telling the
+  /// user whether it had arrived. A tap opens exactly that one message's row —
+  /// with the state spelled out in words next to the tick — and a second tap
+  /// closes it again, which is what Google Messages does.
+  final bool expanded;
   final bool selected;
   final bool selectionMode;
   final VoidCallback onTap;
@@ -286,6 +295,7 @@ class MessageBubble extends StatefulWidget {
     required this.message,
     required this.isLastInGroup,
     required this.showTimestamp,
+    this.expanded = false,
     required this.selected,
     required this.selectionMode,
     required this.onTap,
@@ -370,7 +380,9 @@ class _MessageBubbleState extends State<MessageBubble> {
                 ),
               ],
             ),
-            if (widget.showTimestamp || message.status == MessageStatus.failed)
+            if (widget.showTimestamp ||
+                widget.expanded ||
+                message.status == MessageStatus.failed)
               Padding(
                 padding: const EdgeInsets.only(top: 2, left: 4, right: 4),
                 child: Row(
@@ -392,10 +404,26 @@ class _MessageBubbleState extends State<MessageBubble> {
                       // Google labels the transport under the sent bubble.
                       Text(
                         'پیامک',
-                        style: theme.textTheme.bodySmall?.copyWith(fontSize: 12),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontSize: 12,
+                        ),
                       ),
                       const SizedBox(width: 5),
                       _statusIcon(context),
+                      // A tick is a symbol; the tap asked a question, so the
+                      // opened row answers it in words.
+                      if (widget.expanded) ...[
+                        const SizedBox(width: 5),
+                        Text(
+                          _statusLabel,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontSize: 12,
+                            color: message.status == MessageStatus.failed
+                                ? AppColors.danger
+                                : null,
+                          ),
+                        ),
+                      ],
                     ],
                   ],
                 ),
@@ -404,6 +432,25 @@ class _MessageBubbleState extends State<MessageBubble> {
         ),
       ),
     );
+  }
+
+  /// The delivery state in words, for the row a tap opens.
+  ///
+  /// «تحویل داده شد» is only ever shown for a message the carrier actually
+  /// reported back on (the delivery PendingIntent) — an unconfirmed send says
+  /// «ارسال شد» and nothing more, because claiming delivery the network never
+  /// confirmed is worse than saying less.
+  String get _statusLabel {
+    switch (message.status) {
+      case MessageStatus.pending:
+        return 'در حال ارسال';
+      case MessageStatus.sent:
+        return 'ارسال شد';
+      case MessageStatus.delivered:
+        return 'تحویل داده شد';
+      case MessageStatus.failed:
+        return 'ارسال نشد';
+    }
   }
 
   Widget _statusIcon(BuildContext context) {
@@ -466,9 +513,7 @@ class MessageSendButton extends StatelessWidget {
     // Tonal circle, matching the composer's «ارسال» affordance in Google
     // Messages (it is never a saturated fill).
     return Material(
-      color: enabled
-          ? cs.primaryContainer
-          : cs.surfaceContainerHighest,
+      color: enabled ? cs.primaryContainer : cs.surfaceContainerHighest,
       shape: const CircleBorder(),
       child: InkWell(
         customBorder: const CircleBorder(),

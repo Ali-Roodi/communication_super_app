@@ -14,7 +14,11 @@ import android.provider.ContactsContract
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
+import androidx.core.content.LocusIdCompat
+import androidx.core.content.pm.ShortcutInfoCompat
+import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
+import com.example.communication_super_app.call.CallInCallService
 import com.example.communication_super_app.sim.SimRegistry
 
 /**
@@ -32,6 +36,10 @@ import com.example.communication_super_app.sim.SimRegistry
 object SmsNotifier {
     private const val TAG = "SmsNotifier"
     private const val CHANNEL_ID = "sms_channel"
+    private const val DB_NAME = "communication_app.db"
+
+    /** How much of the conversation the expanded notification carries. */
+    private const val HISTORY_LINES = 5
 
     fun notifySms(
         context: Context,
@@ -50,13 +58,27 @@ object SmsNotifier {
                 return
             }
 
+            // The operator's own "you had a missed call" text, for a call this
+            // app already put a «تماس بی‌پاسخ» card in the shade for. The
+            // message is delivered and stays in the inbox — only the second
+            // notification for one event is dropped.
+            if (isRedundantMissedCallSms(context, address, body)) {
+                Log.d(TAG, "Suppressed carrier missed-call SMS notification")
+                return
+            }
+
             val nm =
                 context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             ensureChannel(nm)
 
-            // Unique id per message: reusing one id per thread makes Samsung
-            // treat rapid re-posts as silent in-place updates (no heads-up).
-            val notifId = (timestamp and 0x7FFFFFFF).toInt()
+            // ONE notification per conversation, the way Google Messages does
+            // it. It used to be one per *message* (id = timestamp), and that is
+            // what made the shade's expand chevron useless: each card held a
+            // single line with nothing to expand to, while three messages from
+            // the same person stacked as three identical cards. The card now
+            // carries the last few messages of the thread, so expanding it
+            // shows the conversation and the actions.
+            val notifId = threadId.hashCode()
             val title = lookupContactName(context, address) ?: address
 
             // A built-in template arrives as a compact payload; the shade must
@@ -125,10 +147,28 @@ object SmsNotifier {
             val avatar = lookupContactPhoto(context, address)
             val sender = Person.Builder()
                 .setName(title)
+                .setKey(threadId)
                 .apply { if (avatar != null) setIcon(IconCompat.createWithBitmap(avatar)) }
                 .build()
-            val style = NotificationCompat.MessagingStyle(sender)
-                .addMessage(text, timestamp, sender)
+            // MessagingStyle needs a "me" even when nothing of the user's is
+            // rendered — it is the identity the style is built around.
+            val self = Person.Builder().setName("من").setKey("self").build()
+            val style = NotificationCompat.MessagingStyle(self)
+            // The still-unread messages first, then the one that triggered
+            // this. The live receive path posts *before* Dart has persisted the
+            // row, so the new message is added by hand and the query drops it
+            // if it did land first (see [recentMessages]).
+            for (entry in recentMessages(context, threadId, timestamp)) {
+                style.addMessage(entry.text, entry.timestamp, sender)
+            }
+            style.addMessage(text, timestamp, sender)
+
+            // Conversation notification (Android 11+): a long-lived shortcut is
+            // what moves the card into the shade's conversation section and
+            // gives it the priority/expand treatment a messenger gets. Without
+            // a shortcut id the platform ranks it as a plain notification.
+            val shortcutId = "thread_$threadId"
+            pushConversationShortcut(context, shortcutId, title, sender, threadId)
 
             val notification = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(context.applicationInfo.icon)
@@ -141,6 +181,14 @@ object SmsNotifier {
                 .setCategory(Notification.CATEGORY_MESSAGE)
                 .setAutoCancel(true)
                 .setContentIntent(contentIntent)
+                .setShortcutId(shortcutId)
+                .setLocusId(LocusIdCompat(shortcutId))
+                // Explicit: one notification per conversation must still alert
+                // on every new message. The default is already false, but this
+                // is the exact behaviour the per-message ids used to buy.
+                .setOnlyAlertOnce(false)
+                .setWhen(timestamp)
+                .setShowWhen(true)
                 // «سیم ۲ · ایرانسل» under the sender on a dual-SIM phone —
                 // which card took the message is part of reading it. Null on a
                 // single-SIM phone (SimRegistry answers null for an unknown or
@@ -189,6 +237,139 @@ object SmsNotifier {
                     enableLights(true)
                 },
             )
+        }
+    }
+
+    /** One unread message, as the shade renders it. */
+    private data class Line(val text: String, val timestamp: Long)
+
+    /**
+     * Whether this message is the carrier telling the user about a missed call
+     * this app has **already** announced itself.
+     *
+     * Three conditions, all required, because the cost of a false positive is a
+     * silently swallowed notification:
+     *
+     *  1. the sender is not a phone number (`MissedCalls`, `Irancell`, …) — a
+     *     person's text is never suppressed, whatever it says;
+     *  2. the body names a number this app posted «تماس بی‌پاسخ» for in the
+     *     last half hour ([CallInCallService.wasMissedRecently]); and
+     *  3. it reads like a missed-call report («تماس» plus a count, or the
+     *     English wording some operators use).
+     *
+     * Without (2) this would be a guess about somebody else's SMS format; with
+     * it, the app is only declining to say twice what it just said.
+     */
+    private fun isRedundantMissedCallSms(
+        context: Context,
+        address: String,
+        body: String,
+    ): Boolean {
+        // (1) A real caller's address is dialable; a service sender is not.
+        if (address.any { it.isDigit() } && address.none { it.isLetter() }) return false
+        // (3) Cheapest test first — most service messages are not about calls.
+        val says = body.contains("تماس") || body.contains("missed", ignoreCase = true)
+        if (!says) return false
+        // (2) Any number in the body that we just reported as missed.
+        return NUMBER_IN_BODY.findAll(body).any { m ->
+            CallInCallService.wasMissedRecently(context, m.value)
+        }
+    }
+
+    /** Runs of digits long enough to be a phone number, in any body. */
+    private val NUMBER_IN_BODY = Regex("[0-9\\u06F0-\\u06F9]{7,15}")
+
+    /**
+     * The **unread received** messages of [threadId], oldest first, so the
+     * expanded notification stacks the messages still waiting for an answer.
+     *
+     * Only unread, and only incoming: a notification is a list of what the user
+     * has not seen yet, not a transcript. The first version replayed the last
+     * five rows of any type, so opening the shade showed the user their own
+     * replies and messages they had already read — Google Messages stacks the
+     * pending ones and nothing else.
+     *
+     * Read straight from the app's SQLite file — the same access the quick
+     * reply already uses — because this runs with the Flutter engine dead as
+     * often as not. A missing or locked database simply yields no history: the
+     * notification is still posted with the message that just arrived.
+     *
+     * [excludeTimestamp] drops the row for the message being notified about, so
+     * it is not rendered twice when Dart happened to persist it first.
+     */
+    private fun recentMessages(
+        context: Context,
+        threadId: String,
+        excludeTimestamp: Long,
+    ): List<Line> {
+        val dbFile = context.getDatabasePath(DB_NAME)
+        if (!dbFile.exists()) return emptyList()
+        return try {
+            android.database.sqlite.SQLiteDatabase.openDatabase(
+                dbFile.path,
+                null,
+                android.database.sqlite.SQLiteDatabase.OPEN_READONLY,
+            ).use { db ->
+                val out = ArrayList<Line>()
+                db.rawQuery(
+                    "SELECT body, timestamp FROM messages " +
+                        "WHERE thread_id = ? AND is_deleted = 0 AND timestamp <> ? " +
+                        "AND type = 'received' AND is_read = 0 " +
+                        "ORDER BY timestamp DESC LIMIT ?",
+                    arrayOf(threadId, excludeTimestamp.toString(), "$HISTORY_LINES"),
+                ).use { c ->
+                    while (c.moveToNext()) {
+                        out.add(
+                            Line(
+                                // A compact template payload has to be rebuilt
+                                // here too — the shade must read like the chat.
+                                text = TemplateWire.displayText(c.getString(0) ?: ""),
+                                timestamp = c.getLong(1),
+                            ),
+                        )
+                    }
+                }
+                out.reversed()
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "history read skipped: ${e.message}")
+            emptyList()
+        }
+    }
+
+    /**
+     * Publishes the long-lived shortcut a conversation notification needs.
+     *
+     * Best-effort: a device that refuses (shortcut limit reached, an OEM
+     * launcher that rejects the push) still gets the notification, only ranked
+     * as an ordinary one.
+     */
+    private fun pushConversationShortcut(
+        context: Context,
+        shortcutId: String,
+        title: String,
+        person: Person,
+        threadId: String,
+    ) {
+        try {
+            val open = context.packageManager
+                .getLaunchIntentForPackage(context.packageName)
+                ?.apply {
+                    action = Intent.ACTION_VIEW
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    putExtra("threadId", threadId)
+                } ?: return
+            val shortcut = ShortcutInfoCompat.Builder(context, shortcutId)
+                .setShortLabel(title)
+                .setLongLived(true)
+                .setPerson(person)
+                .setIntent(open)
+                .setIcon(IconCompat.createWithResource(context, context.applicationInfo.icon))
+                .build()
+            ShortcutManagerCompat.pushDynamicShortcut(context, shortcut)
+        } catch (e: Exception) {
+            Log.d(TAG, "shortcut push skipped: ${e.message}")
         }
     }
 

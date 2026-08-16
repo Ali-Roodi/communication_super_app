@@ -94,7 +94,12 @@ class _PermissionGateState extends State<PermissionGate> {
   Widget build(BuildContext context) {
     switch (_phase) {
       case _GatePhase.checking:
-        return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        // Deliberately **blank**, not a spinner. This phase is one batched
+        // platform round trip long — a spinner that appears and vanishes
+        // inside a few frames reads as "the app loads every time I open it",
+        // which is exactly what it was reported as. An empty surface is
+        // indistinguishable from the launch splash it replaces.
+        return const Scaffold(body: SizedBox.shrink());
 
       case _GatePhase.done:
         return widget.child;

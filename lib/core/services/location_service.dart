@@ -109,6 +109,7 @@ class LocationService {
       'دسترسی موقعیت مکانی رد شده است — از تنظیمات برنامه آن را روشن کنید',
     LocationFailure.disabled =>
       'موقعیت مکانی گوشی خاموش است — آن را روشن کنید و دوباره تلاش کنید',
-    LocationFailure.unavailable => 'موقعیت مکانی پیدا نشد — کمی بعد امتحان کنید',
+    LocationFailure.unavailable =>
+      'موقعیت مکانی پیدا نشد — کمی بعد امتحان کنید',
   };
 }

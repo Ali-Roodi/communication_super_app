@@ -75,38 +75,41 @@ class CrashReporting {
     }
     try {
       _enabled = true;
-      await Sentry.init((options) {
-        options.dsn = _dsn;
-        options.environment = kReleaseMode ? 'release' : 'debug';
-        // Crashes only. Performance tracing samples real user journeys, which
-        // here means route names and timings tied to a conversation.
-        options.tracesSampleRate = 0;
-        options.sendDefaultPii = false;
-        options.maxBreadcrumbs = 20;
-        options.beforeBreadcrumb = _beforeBreadcrumb;
-        options.beforeSend = _beforeSend;
-      }, appRunner: () async {
-        // `sentry` (unlike `sentry_flutter`) installs no Flutter integrations,
-        // so the framework's two error channels are hooked by hand. Both keep
-        // their previous behaviour: a report is an addition, never a
-        // replacement for the crash the developer would otherwise see.
-        final previousOnError = FlutterError.onError;
-        FlutterError.onError = (details) {
-          previousOnError?.call(details);
-          unawaited(
-            Sentry.captureException(
-              details.exception,
-              stackTrace: details.stack,
-            ),
-          );
-        };
-        PlatformDispatcher.instance.onError = (error, stack) {
-          unawaited(Sentry.captureException(error, stackTrace: stack));
-          // False = "not handled": the platform still prints it.
-          return false;
-        };
-        await appRunner();
-      });
+      await Sentry.init(
+        (options) {
+          options.dsn = _dsn;
+          options.environment = kReleaseMode ? 'release' : 'debug';
+          // Crashes only. Performance tracing samples real user journeys, which
+          // here means route names and timings tied to a conversation.
+          options.tracesSampleRate = 0;
+          options.sendDefaultPii = false;
+          options.maxBreadcrumbs = 20;
+          options.beforeBreadcrumb = _beforeBreadcrumb;
+          options.beforeSend = _beforeSend;
+        },
+        appRunner: () async {
+          // `sentry` (unlike `sentry_flutter`) installs no Flutter integrations,
+          // so the framework's two error channels are hooked by hand. Both keep
+          // their previous behaviour: a report is an addition, never a
+          // replacement for the crash the developer would otherwise see.
+          final previousOnError = FlutterError.onError;
+          FlutterError.onError = (details) {
+            previousOnError?.call(details);
+            unawaited(
+              Sentry.captureException(
+                details.exception,
+                stackTrace: details.stack,
+              ),
+            );
+          };
+          PlatformDispatcher.instance.onError = (error, stack) {
+            unawaited(Sentry.captureException(error, stackTrace: stack));
+            // False = "not handled": the platform still prints it.
+            return false;
+          };
+          await appRunner();
+        },
+      );
     } catch (e) {
       _enabled = false;
       debugPrint('Sentry init failed: $e');
@@ -116,10 +119,7 @@ class CrashReporting {
 
   /// Drops the breadcrumb categories that can carry user content, and scrubs
   /// what is left.
-  static Breadcrumb? _beforeBreadcrumb(
-    Breadcrumb? crumb,
-    Hint hint,
-  ) {
+  static Breadcrumb? _beforeBreadcrumb(Breadcrumb? crumb, Hint hint) {
     if (crumb == null) return null;
     final category = crumb.category ?? '';
     if (category == 'console' || category == 'http' || category == 'query') {

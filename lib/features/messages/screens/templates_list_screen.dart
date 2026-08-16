@@ -217,7 +217,9 @@ class _TemplatesListScreenState extends State<TemplatesListScreen> {
       IconButton(
         icon: const Icon(Icons.delete_outline),
         tooltip: 'حذف',
-        onPressed: chosen.isEmpty ? null : () => _confirmDelete(context, chosen),
+        onPressed: chosen.isEmpty
+            ? null
+            : () => _confirmDelete(context, chosen),
       ),
       IconButton(
         icon: const Icon(Icons.checklist),

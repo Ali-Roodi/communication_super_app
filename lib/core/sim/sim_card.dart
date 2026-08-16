@@ -101,7 +101,11 @@ class SimCard extends Equatable {
 /// only appears while the default is «هر بار بپرس»
 /// ([SimCard.invalidSubscriptionId]).
 class SimDefaults extends Equatable {
-  const SimDefaults({required this.sms, required this.voice, required this.data});
+  const SimDefaults({
+    required this.sms,
+    required this.voice,
+    required this.data,
+  });
 
   const SimDefaults.unknown()
     : sms = SimCard.invalidSubscriptionId,

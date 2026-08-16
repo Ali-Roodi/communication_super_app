@@ -108,7 +108,11 @@ class ScheduledBubble extends StatelessWidget {
     );
   }
 
-  Widget _header(ThemeData theme, {required bool sending, required bool retrying}) {
+  Widget _header(
+    ThemeData theme, {
+    required bool sending,
+    required bool retrying,
+  }) {
     final cs = theme.colorScheme;
     final Color color;
     final IconData icon;

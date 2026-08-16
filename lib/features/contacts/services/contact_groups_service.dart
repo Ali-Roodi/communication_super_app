@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 
 /// One label as the user thinks of it: a name.
@@ -113,7 +114,20 @@ class ContactGroupsService {
     return Group(label.ids.first, label.name);
   }
 
+  /// Native side — see `ContactGroupsHandler`. Everything that *writes* a
+  /// membership, and label creation itself, goes through it: a group belongs to
+  /// an account and `flutter_contacts` writes it without one, which is why a
+  /// label made in this app used to come back empty however many contacts were
+  /// put in it.
+  static const MethodChannel _channel = MethodChannel(
+    'com.example.communication_super_app/contact_groups',
+  );
+
   /// Creates a label and returns it, or null when the platform refused.
+  ///
+  /// Created **in a real account** (the one most of the phone's contacts live
+  /// in). A group with no account is one no raw contact can legally join, so
+  /// the label would exist and stay permanently empty.
   ///
   /// A name that already exists is not blocked here: the provider allows it, and
   /// second-guessing that would mean disagreeing with Google Contacts about the
@@ -123,11 +137,88 @@ class ContactGroupsService {
     final trimmed = name.trim();
     if (trimmed.isEmpty) return null;
     try {
-      final group = await FlutterContacts.insertGroup(Group('', trimmed));
+      final id = await _channel.invokeMethod<String>('createLabel', {
+        'name': trimmed,
+      });
       invalidate();
-      return ContactLabel(group.name, [group.id]);
+      if (id == null) return null;
+      return ContactLabel(trimmed, [id]);
     } catch (e) {
-      debugPrint('ContactGroupsService: insertGroup failed: $e');
+      debugPrint('ContactGroupsService: createLabel failed: $e');
+      return null;
+    }
+  }
+
+  /// Makes [contactId] carry exactly [names] (the platform's own groups are
+  /// left alone).
+  ///
+  /// Used by the editor instead of `Contact.update(withGroups: true)`, which
+  /// deletes every membership row of the whole aggregate and re-adds them
+  /// against the first raw contact only — so editing a linked contact dropped
+  /// the labels its other accounts carried.
+  Future<bool> applyLabels(String contactId, List<String> names) async {
+    if (contactId.isEmpty) return false;
+    try {
+      final ok = await _channel.invokeMethod<bool>('applyLabels', {
+        'contactId': contactId,
+        'names': names,
+      });
+      invalidate();
+      return ok ?? false;
+    } catch (e) {
+      debugPrint('ContactGroupsService: applyLabels failed: $e');
+      return false;
+    }
+  }
+
+  /// Adds contacts to a label, creating it in each contact's own account when
+  /// that account does not have it yet. Returns how many were added.
+  Future<int> addToLabel(String name, List<String> contactIds) async {
+    if (name.trim().isEmpty || contactIds.isEmpty) return 0;
+    try {
+      final added = await _channel.invokeMethod<int>('addToLabel', {
+        'name': name.trim(),
+        'contactIds': contactIds,
+      });
+      invalidate();
+      return added ?? 0;
+    } catch (e) {
+      debugPrint('ContactGroupsService: addToLabel failed: $e');
+      return 0;
+    }
+  }
+
+  /// Takes contacts out of a label. The contacts themselves are untouched.
+  Future<int> removeFromLabel(String name, List<String> contactIds) async {
+    if (name.trim().isEmpty || contactIds.isEmpty) return 0;
+    try {
+      final removed = await _channel.invokeMethod<int>('removeFromLabel', {
+        'name': name.trim(),
+        'contactIds': contactIds,
+      });
+      invalidate();
+      return removed ?? 0;
+    } catch (e) {
+      debugPrint('ContactGroupsService: removeFromLabel failed: $e');
+      return 0;
+    }
+  }
+
+  /// The device-contact ids carrying [label], read straight from the Data
+  /// table.
+  ///
+  /// Returns null when the native side is unavailable, so the caller can fall
+  /// back to the (much slower) full address-book read rather than showing an
+  /// empty label.
+  Future<List<String>?> memberIds(ContactLabel label) async {
+    try {
+      final ids = await _channel.invokeMethod<List<Object?>>('memberIds', {
+        'name': label.name,
+      });
+      if (ids == null) return null;
+      return [for (final id in ids) id as String];
+    } catch (e) {
+      debugPrint('ContactGroupsService: memberIds failed: $e');
       return null;
     }
   }

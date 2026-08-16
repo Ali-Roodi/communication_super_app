@@ -82,15 +82,19 @@ class _InCallScreenState extends State<InCallScreen> {
     super.dispose();
   }
 
-  /// The carrier line under the top of the call screen.
+  /// The carrier line under the top of the call screen — or **nothing**.
   ///
-  /// Falls back to the generic word whenever there is nothing to disambiguate:
-  /// a single-SIM phone, a VoIP call, or a card the roster cannot name.
-  String _simLine(DialerState state) {
-    if (!SimService.isMultiSim) return 'سیم‌کارت';
+  /// It exists to say *which card* a call is on, so it is drawn only when that
+  /// is a real question and there is a real answer: two SIMs, and a roster that
+  /// can name the one in use. On a single-SIM phone, a VoIP call, or a card the
+  /// roster cannot name it used to print the bare word «سیم‌کارت», which
+  /// answers nothing and reads like a label whose value failed to load.
+  String? _simLine(DialerState state) {
+    if (!SimService.isMultiSim) return null;
     final sim = SimService.byId(state.activeSubscriptionId);
-    if (sim == null) return 'سیم‌کارت';
-    return '${sim.slotLabel} · ${sim.name}';
+    if (sim == null) return null;
+    final name = sim.name.trim();
+    return name.isEmpty ? sim.slotLabel : '${sim.slotLabel} · $name';
   }
 
   String get _formattedTime {
@@ -144,14 +148,18 @@ class _InCallScreenState extends State<InCallScreen> {
                 children: [
                   const Spacer(flex: 2),
                   // The SIM this call is on — Google Phone's carrier line.
-                  // On a single-SIM phone it stays the generic word (there is
-                  // nothing to disambiguate); on a dual-SIM one it names the
-                  // slot and the carrier, which is the whole point of the line.
-                  Text(
-                    _simLine(state),
-                    style: const TextStyle(color: Colors.white38, fontSize: 13),
-                  ),
-                  const SizedBox(height: 24),
+                  // Absent unless it has something to say (see [_simLine]).
+                  if (_simLine(state) case final line?) ...[
+                    Text(
+                      line,
+                      style: const TextStyle(
+                        color: Colors.white38,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                  ] else
+                    const SizedBox(height: 8),
                   _buildAvatar(conference: conference),
                   const SizedBox(height: 20),
                   Text(
@@ -459,11 +467,7 @@ class _InCallScreenState extends State<InCallScreen> {
   List<({CallAudioRoute route, IconData icon, String label})> _audioRows(
     DialerState state,
   ) => [
-    (
-      route: CallAudioRoute.earpiece,
-      icon: Icons.phone_in_talk,
-      label: 'گوشی',
-    ),
+    (route: CallAudioRoute.earpiece, icon: Icons.phone_in_talk, label: 'گوشی'),
     (route: CallAudioRoute.speaker, icon: Icons.volume_up, label: 'بلندگو'),
     if (state.hasWiredHeadset)
       (
@@ -584,7 +588,11 @@ class _ControlButton extends StatelessWidget {
                   color: active ? _kActiveTint : Colors.white12,
                   shape: BoxShape.circle,
                 ),
-                child: Icon(icon, color: active ? _kBg : Colors.white, size: 26),
+                child: Icon(
+                  icon,
+                  color: active ? _kBg : Colors.white,
+                  size: 26,
+                ),
               ),
               const SizedBox(height: 8),
               Text(

@@ -21,6 +21,7 @@ import 'package:communication_super_app/features/contacts/screens/contact_labels
 import 'package:communication_super_app/features/contacts/screens/duplicate_contacts_screen.dart';
 import 'package:communication_super_app/features/contacts/services/contact_extras_service.dart';
 import 'package:communication_super_app/features/contacts/services/contact_link_service.dart';
+import 'package:communication_super_app/features/contacts/widgets/merge_contacts_dialog.dart';
 import 'package:communication_super_app/features/contacts/services/sim_contacts_service.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_bloc.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_event.dart';
@@ -323,36 +324,19 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
   /// the confirmation says «ادغام» rather than warning about data loss, and the
   /// undo is «جدا کردن» on the contact page.
   Future<void> _confirmMergeSelected() async {
-    final count = _selected.length;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          title: const Text('ادغام مخاطبین'),
-          content: Text(
-            '${PersianUtils.toPersianNumber('$count')} مخاطب به یک مخاطب تبدیل می‌شوند. '
-            'هیچ شماره یا اطلاعاتی حذف نمی‌شود و بعداً می‌توانید از صفحهٔ مخاطب آن‌ها را جدا کنید.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('انصراف'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('ادغام'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (confirmed != true || !mounted) return;
+    final targets = _selectedContacts;
+    // The dialog also asks which contact's name and photo survive — the one
+    // thing a link actually decides.
+    final choice = await showMergeContactsDialog(context, contacts: targets);
+    if (choice == null || !mounted) return;
 
-    final ids = [for (final c in _selectedContacts) c.id];
+    final ids = [for (final c in targets) c.id];
     final messenger = ScaffoldMessenger.of(context);
     final contactBloc = context.read<ContactBloc>();
-    final merged = await ContactLinkService.instance.link(ids);
+    final merged = await ContactLinkService.instance.link(
+      ids,
+      primaryContactId: choice.primaryContactId,
+    );
     ContactRepository().invalidateCache();
     LazyContactAvatar.invalidateCache();
     if (!mounted) return;

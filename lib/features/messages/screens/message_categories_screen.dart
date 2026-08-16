@@ -189,7 +189,9 @@ class _MessageCategoriesScreenState extends State<MessageCategoriesScreen> {
       IconButton(
         icon: const Icon(Icons.delete_outline),
         tooltip: 'حذف',
-        onPressed: chosen.isEmpty ? null : () => _confirmDelete(context, chosen),
+        onPressed: chosen.isEmpty
+            ? null
+            : () => _confirmDelete(context, chosen),
       ),
       IconButton(
         icon: const Icon(Icons.checklist),
@@ -220,10 +222,7 @@ class _MessageCategoriesScreenState extends State<MessageCategoriesScreen> {
 
   Future<void> _addCategory(BuildContext context) async {
     final bloc = context.read<DraftBloc>();
-    final name = await showCategoryNameDialog(
-      context,
-      title: 'دسته‌بندی جدید',
-    );
+    final name = await showCategoryNameDialog(context, title: 'دسته‌بندی جدید');
     if (name != null) bloc.add(AddCategory(name));
   }
 

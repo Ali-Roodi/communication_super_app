@@ -103,7 +103,9 @@ class ThreadTile extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: unread ? FontWeight.w700 : FontWeight.w400,
-                        color: unread ? scheme.onSurface : scheme.onSurfaceVariant,
+                        color: unread
+                            ? scheme.onSurface
+                            : scheme.onSurfaceVariant,
                       ),
                     ),
                     if (unread) ...[
@@ -118,9 +120,7 @@ class ThreadTile extends StatelessWidget {
                           borderRadius: BorderRadius.circular(11),
                         ),
                         child: Text(
-                          PersianUtils.toPersianNumber(
-                            '${thread.unreadCount}',
-                          ),
+                          PersianUtils.toPersianNumber('${thread.unreadCount}'),
                           style: TextStyle(
                             color: scheme.onPrimary,
                             fontSize: 12,

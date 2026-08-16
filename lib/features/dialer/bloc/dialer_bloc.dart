@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter/foundation.dart';
+import '../../../core/utils/persian_utils.dart';
 import '../../contacts/repositories/contact_repository.dart';
 import '../../contacts/models/contact_model.dart';
 import '../services/native_call_service.dart';
@@ -22,6 +23,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     // ── Keypad handlers ─────────────────────────────────────
     on<DialerLoadContacts>(_onLoadContacts);
     on<DialerNumberPressed>(_onNumberPressed);
+    on<DialerNumberSet>(_onNumberSet);
     on<DialerNumberCleared>(_onNumberCleared);
     on<DialerNumberDeleted>(_onNumberDeleted);
     on<DialerFilterContacts>(_onFilterContacts);
@@ -86,6 +88,35 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     _debounceTimer = Timer(const Duration(milliseconds: 300), () {
       add(DialerFilterContacts(newNumber));
     });
+  }
+
+  /// Everything a phone can dial, and nothing else.
+  ///
+  /// Same rule the native side applies (`PhoneNumberUtils.stripSeparators`):
+  /// `*` and `#` are USSD/MMI, `,` and `;` are the post-dial pause/wait stored
+  /// in contact numbers, and a pasted number arrives full of spaces, dashes and
+  /// parentheses. Anything else — a name in front of the number, a «تماس:»
+  /// label — is dropped rather than refused, because a clipboard almost never
+  /// holds a bare number.
+  static final RegExp _nonDialable = RegExp(r'[^0-9+*#,;]');
+
+  static String sanitizeDialable(String raw) =>
+      PersianUtils.toEnglishNumber(raw).replaceAll(_nonDialable, '');
+
+  void _onNumberSet(DialerNumberSet event, Emitter<DialerState> emit) {
+    final cleaned = sanitizeDialable(event.number);
+    if (cleaned.isEmpty) return;
+    final next = event.append ? state.dialedNumber + cleaned : cleaned;
+    _debounceTimer?.cancel();
+    emit(
+      state.copyWith(
+        dialedNumber: next,
+        isLoadingContacts: true,
+        clearError: true,
+      ),
+    );
+    // No debounce: this is one deliberate action, not a burst of keystrokes.
+    add(DialerFilterContacts(next));
   }
 
   void _onNumberCleared(DialerNumberCleared event, Emitter<DialerState> emit) {

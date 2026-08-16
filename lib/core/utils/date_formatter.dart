@@ -73,7 +73,6 @@ class DateFormatter {
     return PersianUtils.toPersianNumber('$y/$ms/$ds');
   }
 
-
   static const List<String> _weekdaysFa = [
     'دوشنبه', // Mon (DateTime.monday == 1)
     'سه‌شنبه', // Tue
