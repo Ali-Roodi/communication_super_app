@@ -271,7 +271,10 @@ abstract class AppTheme {
           borderRadius: BorderRadius.circular(28),
           borderSide: BorderSide.none,
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 20,
+          vertical: 14,
+        ),
       ),
 
       // ── Buttons ───────────────────────────────────────────
@@ -356,13 +359,21 @@ abstract class AppTheme {
         fontWeight: FontWeight.w400,
         color: on,
       ),
-      titleLarge: TextStyle(fontSize: 20, fontWeight: FontWeight.w500, color: on),
+      titleLarge: TextStyle(
+        fontSize: 20,
+        fontWeight: FontWeight.w500,
+        color: on,
+      ),
       titleMedium: TextStyle(
         fontSize: 16,
         fontWeight: FontWeight.w500,
         color: on,
       ),
-      titleSmall: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: on),
+      titleSmall: TextStyle(
+        fontSize: 14,
+        fontWeight: FontWeight.w600,
+        color: on,
+      ),
       bodyLarge: TextStyle(fontSize: 16, height: 1.45, color: on),
       bodyMedium: TextStyle(fontSize: 14, height: 1.45, color: dim),
       bodySmall: TextStyle(fontSize: 12, height: 1.4, color: dim),

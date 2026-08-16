@@ -18,6 +18,26 @@ class DialerNumberPressed extends DialerEvent {
   List<Object?> get props => [number];
 }
 
+/// Puts a whole number in the field at once.
+///
+/// Two callers, and both are things the keypad could not do before: pasting a
+/// number copied from another app, and a `tel:` intent handed to us as the
+/// phone's dialer («Call» on a number in a browser or a messenger). Typing a
+/// number digit by digit because it was already on the clipboard is exactly the
+/// friction this removes.
+class DialerNumberSet extends DialerEvent {
+  final String number;
+
+  /// Append to what is already typed instead of replacing it — what «چسباندن»
+  /// does mid-number.
+  final bool append;
+
+  const DialerNumberSet(this.number, {this.append = false});
+
+  @override
+  List<Object?> get props => [number, append];
+}
+
 class DialerNumberCleared extends DialerEvent {
   const DialerNumberCleared();
 }

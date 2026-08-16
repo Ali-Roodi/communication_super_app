@@ -355,43 +355,43 @@ class _MessagesListScreenState extends State<MessagesListScreen>
           if (mounted) context.read<MessageBloc>().add(const LoadThreads());
         },
         child: Scaffold(
-        // Google Messages has no app bar: the header is a collapsing sliver and
-        // the conversations sit on a rounded sheet that scrolls up under it.
-        body: CustomScrollView(
-          controller: _scrollController,
-          slivers: [
-            _buildAppBar(context),
-            if (_showDefaultSmsBanner && !_selectionMode && !_searching)
-              SliverToBoxAdapter(
-                child: DefaultSmsBanner(
-                  onRequest: _requestDefaultSmsRole,
-                  onDismiss: () => setState(() {
-                    _bannerDismissed = true;
-                    _showDefaultSmsBanner = false;
-                  }),
+          // Google Messages has no app bar: the header is a collapsing sliver and
+          // the conversations sit on a rounded sheet that scrolls up under it.
+          body: CustomScrollView(
+            controller: _scrollController,
+            slivers: [
+              _buildAppBar(context),
+              if (_showDefaultSmsBanner && !_selectionMode && !_searching)
+                SliverToBoxAdapter(
+                  child: DefaultSmsBanner(
+                    onRequest: _requestDefaultSmsRole,
+                    onDismiss: () => setState(() {
+                      _bannerDismissed = true;
+                      _showDefaultSmsBanner = false;
+                    }),
+                  ),
                 ),
-              ),
-            ..._buildBodySlivers(context),
-          ],
-        ),
-        floatingActionButton: _selectionMode || _searching
-            ? null
-            : FloatingActionButton.extended(
-                heroTag: 'messages_fab',
-                onPressed: () async {
-                  final messageBloc = context.read<MessageBloc>();
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const ContactSelectorScreen(),
-                    ),
-                  );
-                  messageBloc.add(const LoadThreads());
-                  _loadDrafts();
-                },
-                icon: const Icon(Icons.edit_outlined),
-                label: const Text('پیام جدید'),
-              ),
+              ..._buildBodySlivers(context),
+            ],
+          ),
+          floatingActionButton: _selectionMode || _searching
+              ? null
+              : FloatingActionButton.extended(
+                  heroTag: 'messages_fab',
+                  onPressed: () async {
+                    final messageBloc = context.read<MessageBloc>();
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const ContactSelectorScreen(),
+                      ),
+                    );
+                    messageBloc.add(const LoadThreads());
+                    _loadDrafts();
+                  },
+                  icon: const Icon(Icons.edit_outlined),
+                  label: const Text('پیام جدید'),
+                ),
         ),
       ),
     );
@@ -415,10 +415,8 @@ class _MessagesListScreenState extends State<MessagesListScreen>
           }
         },
         builder: (context, state) {
-          Widget filler(Widget child) => SliverFillRemaining(
-            hasScrollBody: false,
-            child: child,
-          );
+          Widget filler(Widget child) =>
+              SliverFillRemaining(hasScrollBody: false, child: child);
 
           // The MessageBloc is global, so opening a conversation (or the
           // archived inbox) replaces its state with one this screen can't
@@ -466,6 +464,8 @@ class _MessagesListScreenState extends State<MessagesListScreen>
             return filler(
               searching
                   ? const MessagesNoResults()
+                  : inbox.syncing
+                  ? const MessagesImportingState()
                   : const MessagesEmptyState(),
             );
           }

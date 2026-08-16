@@ -139,15 +139,34 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   late final MessageBloc _messageBloc;
 
-  bool get _hasName => widget.contactName != null;
+  /// The contact's name, resolved from the address book when the caller did not
+  /// know it.
+  ///
+  /// A notification deep link only carries the thread id — the number — so
+  /// without this the chat opened from the shade titled itself with the number
+  /// and offered «این شماره در مخاطبین شما نیست. هرزنامه است؟» about someone in
+  /// the address book. It corrected itself on the next visit, because the inbox
+  /// row *had* resolved the name by then, which is exactly what made it look
+  /// random.
+  String? _contactName;
+
+  /// False until the address-book lookup has answered. Everything that reads
+  /// "this number has no contact" waits for it, or it flashes the wrong answer
+  /// for the first frames.
+  bool _contactResolved = false;
+
+  bool get _hasName => _contactName != null;
   String get _title =>
-      widget.contactName ??
+      _contactName ??
       PersianUtils.displayPhone(PhoneNormalizer.toNational(widget.phoneNumber));
 
   @override
   void initState() {
     super.initState();
     _messageBloc = context.read<MessageBloc>();
+    _contactName = widget.contactName;
+    _contactResolved = _contactName != null;
+    _resolveContactName();
     _messageBloc.add(LoadMessages(widget.threadId));
     // Re-read the schedules table on entry: a message delivered while this
     // screen was gone (native worker, cold start) would otherwise still show as
@@ -165,6 +184,36 @@ class _ConversationScreenState extends State<ConversationScreen> {
     DeepLinkService.instance
       ..setVisibleThread(widget.threadId)
       ..clearThreadNotifications(widget.threadId);
+  }
+
+  /// Resolves the title from the address book when the caller did not carry a
+  /// name — a notification deep link, a tapped number, a search hit on a raw
+  /// number.
+  ///
+  /// Seeded synchronously from the number index when it is already built (the
+  /// normal case: the inbox has been listed), so the chat opens with the name
+  /// already on it instead of showing the number for a frame.
+  Future<void> _resolveContactName() async {
+    if (_contactName != null) return;
+    final cached = ContactRepository.cachedByPhoneNumber(widget.phoneNumber);
+    if (cached != null) {
+      _contactName = cached.name;
+      _contactResolved = true;
+      return;
+    }
+    if (ContactRepository.hasNumberIndex) {
+      // The index is built and this number is not in it — authoritative.
+      setState(() => _contactResolved = true);
+      return;
+    }
+    final match = await ContactRepository().getContactByPhoneNumber(
+      widget.phoneNumber,
+    );
+    if (!mounted) return;
+    setState(() {
+      _contactName = match?.name;
+      _contactResolved = true;
+    });
   }
 
   /// Seeds the composer's SIM: what this conversation last sent on, else the
@@ -208,7 +257,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       threadId: widget.threadId,
       text: _messageController.text,
       phoneNumber: widget.phoneNumber,
-      contactName: widget.contactName,
+      contactName: _contactName,
     );
     setState(() {});
   }
@@ -235,7 +284,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       threadId: widget.threadId,
       text: _messageController.text,
       phoneNumber: widget.phoneNumber,
-      contactName: widget.contactName,
+      contactName: _contactName,
     );
   }
 
@@ -313,7 +362,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     context.read<ScheduledMessageBloc>().add(
       SaveScheduled(
         phoneNumber: widget.phoneNumber,
-        contactName: widget.contactName,
+        contactName: _contactName,
         body: body,
         scheduledAt: schedule.at,
         repeat: schedule.repeat,
@@ -454,14 +503,20 @@ class _ConversationScreenState extends State<ConversationScreen> {
   bool _spamPromptDismissed = false;
 
   Widget _buildSpamPrompt(BuildContext context) {
-    if (_hasName || _spamPromptDismissed || _selectionMode) {
+    // `_contactResolved` is the load-bearing half: opened from a notification
+    // this screen starts with nothing but the number, and asking «هرزنامه
+    // است؟» about a saved contact for the first frames is exactly the bug this
+    // guard exists for.
+    if (!_contactResolved ||
+        _hasName ||
+        _spamPromptDismissed ||
+        _selectionMode) {
       return const SizedBox.shrink();
     }
     // Already blocked: the thread is in «هرزنامه و مسدودشده», nothing to ask.
-    final blocked = context
-        .watch<BlockedNumbersBloc>()
-        .state
-        .isBlocked(BlockedNumberModel.normalize(widget.phoneNumber));
+    final blocked = context.watch<BlockedNumbersBloc>().state.isBlocked(
+      BlockedNumberModel.normalize(widget.phoneNumber),
+    );
     if (blocked) return const SizedBox.shrink();
 
     final state = context.read<MessageBloc>().state;
@@ -507,10 +562,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 if (blocked && mounted) navigator.pop();
               });
             },
-            child: Text(
-              'گزارش هرزنامه',
-              style: TextStyle(color: scheme.error),
-            ),
+            child: Text('گزارش هرزنامه', style: TextStyle(color: scheme.error)),
           ),
         ],
       ),
@@ -547,12 +599,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       case 'view':
         _openContact();
       case 'add':
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) =>
-                AddEditContactScreen(initialPhone: widget.phoneNumber),
-          ),
-        );
+        _addContact();
       case 'block':
         // Asks once, folds the spam report into the same question, and leaves
         // the conversation: blocking moves it out of the inbox into «هرزنامه و
@@ -561,7 +608,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
         blockNumberWithConfirm(
           context,
           phoneNumber: widget.phoneNumber,
-          contactName: _hasName ? widget.contactName : null,
+          contactName: _contactName,
         ).then((blocked) {
           if (blocked && mounted) navigator.pop();
         });
@@ -570,14 +617,25 @@ class _ConversationScreenState extends State<ConversationScreen> {
     }
   }
 
+  /// «افزودن مخاطب»: saving one here has to re-title this screen — it is the
+  /// same number, and the header would otherwise keep showing it as unsaved
+  /// (spam prompt included) until the chat was left and re-entered.
+  Future<void> _addContact() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => AddEditContactScreen(initialPhone: widget.phoneNumber),
+      ),
+    );
+    if (!mounted) return;
+    _contactName = null;
+    _contactResolved = false;
+    await _resolveContactName();
+    if (mounted) setState(() {});
+  }
+
   Future<void> _openContact() async {
     if (!_hasName) {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) =>
-              AddEditContactScreen(initialPhone: widget.phoneNumber),
-        ),
-      );
+      await _addContact();
       return;
     }
     // Known contact: resolve the saved ContactModel by normalized number and
@@ -781,11 +839,16 @@ class _ConversationScreenState extends State<ConversationScreen> {
           message: msg,
           isLastInGroup: isLastInGroup,
           showTimestamp: showTimestamp,
+          expanded: _expandedMessageId == msg.id,
           selected: selected,
           selectionMode: _selectionMode,
           showLinkPreview: showLinkPreview,
           onTap: () {
-            if (_selectionMode) _toggleSelect(msg.id);
+            if (_selectionMode) {
+              _toggleSelect(msg.id);
+            } else {
+              _toggleExpanded(msg.id);
+            }
           },
           onLongPress: (anchor) {
             if (_selectionMode) {
@@ -832,6 +895,16 @@ class _ConversationScreenState extends State<ConversationScreen> {
         ),
       ),
     );
+  }
+
+  /// Which message is showing its own time + delivery state, or null.
+  ///
+  /// One at a time, like Google Messages: opening a second closes the first, so
+  /// the chat never fills up with status rows the user has to close one by one.
+  String? _expandedMessageId;
+
+  void _toggleExpanded(String id) {
+    setState(() => _expandedMessageId = _expandedMessageId == id ? null : id);
   }
 
   void _toggleSelect(String id) {
@@ -1233,10 +1306,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
   }
 
   Future<void> _insertTemplate() async {
-    final result = await showTemplatePicker(
-      context,
-      contactName: widget.contactName,
-    );
+    final result = await showTemplatePicker(context, contactName: _contactName);
     if (result == null || result.text.isEmpty) return;
     _appendToComposer(result.text);
     // Arm the payload against the text it renders to. If the composer already

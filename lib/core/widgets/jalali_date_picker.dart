@@ -98,9 +98,15 @@ class _AppDatePickerDialogState extends State<_AppDatePickerDialog> {
   bool get _inRange {
     final d = DateTime(_selected.year, _selected.month, _selected.day);
     final lo = DateTime(
-        widget.firstDate.year, widget.firstDate.month, widget.firstDate.day);
+      widget.firstDate.year,
+      widget.firstDate.month,
+      widget.firstDate.day,
+    );
     final hi = DateTime(
-        widget.lastDate.year, widget.lastDate.month, widget.lastDate.day);
+      widget.lastDate.year,
+      widget.lastDate.month,
+      widget.lastDate.day,
+    );
     return !d.isBefore(lo) && !d.isAfter(hi);
   }
 

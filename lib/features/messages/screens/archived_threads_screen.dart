@@ -122,9 +122,7 @@ class _ArchivedThreadsScreenState extends State<ArchivedThreadsScreen> {
     showUndoSnack(
       context,
       message: 'از بایگانی خارج شد',
-      onUndo: () => bloc.add(
-        ArchiveThreads([thread.threadId], archive: true),
-      ),
+      onUndo: () => bloc.add(ArchiveThreads([thread.threadId], archive: true)),
     );
   }
 }

@@ -78,12 +78,7 @@ class ScheduledMessageRepository {
       where:
           'status = ? AND scheduled_at <= ? '
           'AND (next_attempt_at IS NULL OR next_attempt_at <= ?)$idFilter',
-      whereArgs: [
-        ScheduleStatus.pending.value,
-        ms,
-        ms,
-        ...?restrictTo,
-      ],
+      whereArgs: [ScheduleStatus.pending.value, ms, ms, ...?restrictTo],
     );
     if (claimed == 0) return const [];
 
@@ -133,7 +128,6 @@ class ScheduledMessageRepository {
     );
     return maps.isEmpty ? null : ScheduledMessage.fromMap(maps.first);
   }
-
 
   /// Insert-or-replace. Always releases any claim the row held (see
   /// [ScheduledMessage.toMap]).

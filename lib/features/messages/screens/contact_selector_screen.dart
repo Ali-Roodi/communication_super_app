@@ -9,6 +9,7 @@ import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
+import 'broadcast_compose_screen.dart';
 import 'conversation_screen.dart';
 
 /// The recipient picker for «پیام جدید».
@@ -26,13 +27,29 @@ class PickedRecipient {
 class ContactSelectorScreen extends StatefulWidget {
   final bool pickOnly;
 
-  const ContactSelectorScreen({super.key, this.pickOnly = false});
+  /// Text to open the conversation with already typed — a share (`ACTION_SEND`)
+  /// or an `sms:?body=…` intent that named no recipient.
+  final String? initialText;
+
+  const ContactSelectorScreen({
+    super.key,
+    this.pickOnly = false,
+    this.initialText,
+  });
 
   @override
   State<ContactSelectorScreen> createState() => _ContactSelectorScreenState();
 }
 
 class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
+  /// Recipients picked so far, keyed by canonical number so the same person
+  /// cannot be added twice from two differently-formatted numbers. Empty means
+  /// the screen is in its ordinary one-tap-one-recipient mode.
+  final Map<String, BroadcastRecipient> _group = {};
+
+  /// «پیام گروهی» was tapped: rows now toggle instead of opening a chat.
+  bool _groupMode = false;
+
   /// Compiled once; the recipient filter runs it per keystroke.
   static final RegExp _nonDialable = RegExp(r'[^\d+]');
 
@@ -121,6 +138,12 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
 
     return Scaffold(
       appBar: const RtlAppBar(title: 'انتخاب مخاطب'),
+      bottomNavigationBar: _groupMode
+          ? Directionality(
+              textDirection: TextDirection.rtl,
+              child: _buildGroupBottomBar(theme),
+            )
+          : null,
       body: Directionality(
         textDirection: TextDirection.rtl,
         child: Column(
@@ -159,52 +182,10 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
               ),
             ),
 
-            // Create group button
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('ارسال گروهی به‌زودی')),
-                ),
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 48,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.primary,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.group_add,
-                          color: theme.colorScheme.onPrimary,
-                          size: 24,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Text(
-                          'ایجاد گروه',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                            color: theme.colorScheme.onPrimaryContainer,
-                          ),
-                          textAlign: TextAlign.right,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+            // «پیام گروهی» — turns the list into a multi-select. Hidden in
+            // pickOnly mode, where the caller (forward) wants exactly one.
+            if (!widget.pickOnly) _buildGroupToggle(theme),
+            if (_groupMode) _buildGroupChips(theme),
 
             // "Send to <number>" — appears when the query looks like a phone
             // number, so an unsaved number can start a conversation directly.
@@ -278,7 +259,9 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
           textAlign: TextAlign.right,
         ),
       ),
-      onTap: () => _choose(phoneNumber: national),
+      onTap: () => _groupMode
+          ? _toggleGroupMember(national)
+          : _choose(phoneNumber: national),
     );
   }
 
@@ -301,9 +284,135 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
           threadId: PhoneNormalizer.toThreadId(phoneNumber),
           phoneNumber: phoneNumber,
           contactName: name,
+          initialText: widget.initialText,
         ),
       ),
     );
+  }
+
+  // ── Group send («پیام گروهی») ────────────────────────────────────────────
+
+  /// The entry into multi-select — a **row**, not a banner.
+  ///
+  /// Everything above the list is a tax on the list: this screen exists to find
+  /// a person, and the first version's 80 dp filled card plus a full-width
+  /// button pushed the first contact off the bottom of a phone once a chip was
+  /// picked. Google Messages spends one 56 dp row on «Start group conversation»
+  /// and so does this.
+  Widget _buildGroupToggle(ThemeData theme) {
+    final scheme = theme.colorScheme;
+    if (_groupMode) {
+      return Padding(
+        // Directional, not LTRB: the start edge is the right one here, and a
+        // physical `left: 16` put the title 8 px from the screen edge.
+        padding: const EdgeInsetsDirectional.fromSTEB(16, 0, 8, 0),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                _group.isEmpty
+                    ? 'گیرندگان پیام گروهی را انتخاب کنید'
+                    : 'گیرندگان (${PersianUtils.toPersianNumber('${_group.length}')})',
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: scheme.primary,
+                ),
+                textAlign: TextAlign.right,
+              ),
+            ),
+            TextButton(
+              onPressed: () => setState(() {
+                _groupMode = false;
+                _group.clear();
+              }),
+              child: const Text('انصراف'),
+            ),
+          ],
+        ),
+      );
+    }
+    return ListTile(
+      onTap: () => setState(() => _groupMode = true),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+      leading: CircleAvatar(
+        backgroundColor: scheme.primaryContainer,
+        foregroundColor: scheme.onPrimaryContainer,
+        child: const Icon(Icons.group_add_outlined),
+      ),
+      title: const Text(
+        'پیام گروهی',
+        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+      ),
+    );
+  }
+
+  /// The picked recipients. Empty renders nothing at all — the header row above
+  /// already says the mode is on, and an empty box that reserves height makes
+  /// the list jump the moment the first chip lands.
+  Widget _buildGroupChips(ThemeData theme) {
+    if (_group.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+      // Full width, or the parent Column centres the shrink-wrapped Wrap and
+      // the chips float in the middle instead of starting at the right edge.
+      child: SizedBox(
+        width: double.infinity,
+        child: Wrap(
+          spacing: 6,
+          runSpacing: 4,
+          children: [
+            for (final entry in _group.entries)
+              InputChip(
+                label: Text(entry.value.label),
+                visualDensity: VisualDensity.compact,
+                onDeleted: () => setState(() => _group.remove(entry.key)),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// «نوشتن پیام (N)» — a bottom bar, so picking people never scrolls the
+  /// button away and the list keeps its full height.
+  Widget _buildGroupBottomBar(ThemeData theme) {
+    return SafeArea(
+      minimum: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      child: SizedBox(
+        width: double.infinity,
+        child: FilledButton.icon(
+          onPressed: _group.isEmpty ? null : _composeGroup,
+          icon: const Icon(Icons.edit_outlined),
+          label: Text(
+            _group.isEmpty
+                ? 'نوشتن پیام'
+                : 'نوشتن پیام (${PersianUtils.toPersianNumber('${_group.length}')})',
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _composeGroup() async {
+    final sent = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => BroadcastComposeScreen(
+          recipients: _group.values.toList(),
+          initialText: widget.initialText,
+        ),
+      ),
+    );
+    // The messages went out into their own conversations, so there is nothing
+    // to come back to here.
+    if (sent == true && mounted) Navigator.of(context).pop();
+  }
+
+  void _toggleGroupMember(String phoneNumber, {String? name}) {
+    final recipient = BroadcastRecipient(phoneNumber: phoneNumber, name: name);
+    setState(() {
+      if (_group.remove(recipient.key) == null) {
+        _group[recipient.key] = recipient;
+      }
+    });
   }
 
   Widget _buildContactItem(
@@ -318,21 +427,48 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen> {
         ? [contact.phoneNumber]
         : contact.phoneNumbers;
 
+    final selectedKey = numbers
+        .map(PhoneNormalizer.toThreadId)
+        .firstWhere(_group.containsKey, orElse: () => '');
+
     return InkWell(
-      // A message goes to one number, so a contact with several asks which.
+      // A message goes to one number, so a contact with several asks which —
+      // in group mode too, since that is still one number per person.
       onTap: () async {
-        final picked = await pickContactNumber(
-          context,
-          numbers: numbers,
-          title: 'پیام به ${contact.name}',
-        );
+        if (_groupMode && selectedKey.isNotEmpty) {
+          setState(() => _group.remove(selectedKey));
+          return;
+        }
+        final picked = numbers.length == 1
+            ? numbers.first
+            : await pickContactNumber(
+                context,
+                numbers: numbers,
+                title: 'پیام به ${contact.name}',
+              );
         if (picked == null || !context.mounted) return;
-        _choose(phoneNumber: picked, name: contact.name);
+        if (_groupMode) {
+          _toggleGroupMember(picked, name: contact.name);
+        } else {
+          _choose(phoneNumber: picked, name: contact.name);
+        }
       },
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
+            if (_groupMode) ...[
+              Icon(
+                selectedKey.isNotEmpty
+                    ? Icons.check_circle
+                    : Icons.circle_outlined,
+                size: 20,
+                color: selectedKey.isNotEmpty
+                    ? theme.colorScheme.primary
+                    : theme.dividerColor,
+              ),
+              const SizedBox(width: 12),
+            ],
             // Avatar on the right (RTL)
             _buildAvatar(contact),
             const SizedBox(width: 16),

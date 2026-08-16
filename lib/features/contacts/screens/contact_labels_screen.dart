@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_contacts/flutter_contacts.dart' as device_contacts;
 
+import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/contact_numbers_line.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
 import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
+import 'package:communication_super_app/features/messages/screens/broadcast_compose_screen.dart';
 
 import '../models/contact_model.dart';
+import '../repositories/contact_repository.dart';
 import '../services/contact_groups_service.dart';
+import '../widgets/contact_picker_sheet.dart';
 import '../widgets/group_picker_sheet.dart';
 import 'device_contact_detail_screen.dart';
 
@@ -122,6 +125,31 @@ class _ContactLabelsScreenState extends State<ContactLabelsScreen> {
       );
       if (name != null) await _service.rename(label, name);
     } else {
+      // Asked, because it cannot be undone: the label's membership rows go with
+      // it, and re-creating the name does not bring anybody back.
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: Text('حذف «${label.name}»؟'),
+            content: const Text(
+              'برچسب حذف می‌شود و از روی مخاطبین برداشته می‌شود. خود مخاطبین حذف نمی‌شوند.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('انصراف'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('حذف'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (confirmed != true) return;
       await _service.delete(label);
     }
     await _load(force: true);
@@ -135,7 +163,8 @@ class _ContactLabelsScreenState extends State<ContactLabelsScreen> {
   }
 }
 
-/// The contacts carrying one label.
+/// The contacts carrying one label — and the two things anyone opens a label
+/// for: adding someone to it, and writing to everyone in it.
 class _LabelMembersScreen extends StatefulWidget {
   final ContactLabel label;
   const _LabelMembersScreen({required this.label});
@@ -145,71 +174,181 @@ class _LabelMembersScreen extends StatefulWidget {
 }
 
 class _LabelMembersScreenState extends State<_LabelMembersScreen> {
-  late final Future<List<device_contacts.Contact>> _members =
-      ContactGroupsService.instance.membersOf(widget.label);
+  List<ContactModel> _members = const [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  /// Members are read as **ids from the Data table** and resolved against the
+  /// contact cache the rest of the app already holds.
+  ///
+  /// The old version pulled the entire address book with `withGroups: true`
+  /// just to filter it in Dart — a second full read of every contact on the
+  /// phone, for a screen that shows a handful of them.
+  Future<void> _load() async {
+    final ids = await ContactGroupsService.instance.memberIds(widget.label);
+    // Null means the native side did not answer — fall back to the full read
+    // rather than claiming the label is empty, which is the one wrong answer
+    // this screen can give.
+    final wanted =
+        ids?.toSet() ??
+        (await ContactGroupsService.instance.membersOf(
+          widget.label,
+        )).map((c) => c.id).toSet();
+    final contacts = await ContactRepository().getAllContacts();
+    if (!mounted) return;
+    setState(() {
+      _members = [
+        for (final c in contacts)
+          if (wanted.contains(c.id)) c,
+      ];
+      _loading = false;
+    });
+  }
+
+  Future<void> _addContacts() async {
+    // The picker returns one contact at a time; adding several is a matter of
+    // opening it again, which is also how Google Contacts does it.
+    final picked = await showContactPickerSheet(
+      context,
+      title: 'افزودن به «${widget.label.name}»',
+    );
+    if (picked == null || !mounted) return;
+    final added = await ContactGroupsService.instance.addToLabel(
+      widget.label.name,
+      [picked.contact.id],
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          added > 0
+              ? '${picked.contact.name} به «${widget.label.name}» افزوده شد'
+              : 'افزودن ممکن نشد',
+        ),
+      ),
+    );
+    await _load();
+  }
+
+  Future<void> _remove(ContactModel contact) async {
+    await ContactGroupsService.instance.removeFromLabel(widget.label.name, [
+      contact.id,
+    ]);
+    if (!mounted) return;
+    await _load();
+  }
+
+  /// «پیامک گروهی» — one message to everyone carrying the label.
+  ///
+  /// Recipients are the members' first numbers; anyone without a number is
+  /// simply not a recipient (and is reported, so the count on the next screen
+  /// is not a surprise).
+  Future<void> _messageAll() async {
+    final recipients = <BroadcastRecipient>[];
+    var skipped = 0;
+    for (final contact in _members) {
+      final number = contact.phoneNumbers.isNotEmpty
+          ? contact.phoneNumbers.first
+          : contact.phoneNumber;
+      if (number.isEmpty) {
+        skipped++;
+        continue;
+      }
+      recipients.add(
+        BroadcastRecipient(phoneNumber: number, name: contact.name),
+      );
+    }
+    if (recipients.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('هیچ‌کدام شماره‌ای ندارند')));
+      return;
+    }
+    if (skipped > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${PersianUtils.toPersianNumber('$skipped')} مخاطب بدون شماره کنار گذاشته شد',
+          ),
+        ),
+      );
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => BroadcastComposeScreen(
+          recipients: recipients,
+          title: 'پیام به «${widget.label.name}»',
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: RtlAppBar(title: widget.label.name),
-        body: FutureBuilder<List<device_contacts.Contact>>(
-          future: _members,
-          builder: (context, snapshot) {
-            if (!snapshot.hasData) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            final members = snapshot.data!;
-            if (members.isEmpty) {
-              return const EmptyState(
+        appBar: RtlAppBar(
+          title: widget.label.name,
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.sms_outlined),
+              tooltip: 'پیامک گروهی',
+              onPressed: _members.isEmpty ? null : _messageAll,
+            ),
+            IconButton(
+              icon: const Icon(Icons.person_add_alt),
+              tooltip: 'افزودن مخاطب',
+              onPressed: _addContacts,
+            ),
+          ],
+        ),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _members.isEmpty
+            ? const EmptyState(
                 icon: Icons.label_outline,
                 title: 'کسی با این برچسب نیست',
                 subtitle:
-                    'از صفحهٔ ویرایش هر مخاطب می‌توانید این برچسب را به او بدهید',
-              );
-            }
-            return ListView.builder(
-              itemCount: members.length,
-              itemBuilder: (context, i) => _row(context, members[i]),
-            );
-          },
-        ),
+                    'با «افزودن مخاطب» در بالای صفحه، یا از صفحهٔ ویرایش هر مخاطب',
+              )
+            : ListView.builder(
+                itemCount: _members.length,
+                itemBuilder: (context, i) => _row(context, _members[i]),
+              ),
       ),
     );
   }
 
-  Widget _row(BuildContext context, device_contacts.Contact contact) {
-    final numbers = [for (final p in contact.phones) p.number];
-    final name = contact.displayName;
+  Widget _row(BuildContext context, ContactModel contact) {
     return ListTile(
-      leading: LazyContactAvatar(contactId: contact.id, name: name, size: 40),
-      title: Text(name),
-      subtitle: numbers.isEmpty
+      leading: LazyContactAvatar(
+        contactId: contact.id,
+        name: contact.name,
+        size: 40,
+      ),
+      title: Text(contact.name),
+      subtitle: contact.phoneNumbers.isEmpty
           ? null
           : Padding(
               padding: const EdgeInsets.only(top: 3),
-              child: ContactNumbersLine(numbers: numbers),
+              child: ContactNumbersLine(numbers: contact.phoneNumbers),
             ),
-      onTap: () {
-        final now = DateTime.now();
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => DeviceContactDetailScreen(
-              // The detail page re-reads the contact by id; this carries only
-              // what it needs to render its header before that lands.
-              contact: ContactModel(
-                id: contact.id,
-                name: name,
-                phoneNumber: numbers.isEmpty ? '' : numbers.first,
-                phoneNumbers: numbers,
-                createdAt: now,
-                updatedAt: now,
-              ),
-            ),
-          ),
-        );
-      },
+      trailing: IconButton(
+        icon: const Icon(Icons.remove_circle_outline),
+        tooltip: 'حذف از برچسب',
+        onPressed: () => _remove(contact),
+      ),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => DeviceContactDetailScreen(contact: contact),
+        ),
+      ),
     );
   }
 }

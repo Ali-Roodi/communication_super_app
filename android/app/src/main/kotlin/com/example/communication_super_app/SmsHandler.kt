@@ -528,17 +528,84 @@ class SmsHandler(
         return out
     }
 
-    /** ALL row ids of a box — tiny payload, used for the deletion diff. */
+    /**
+     * ALL row ids of a box, **newest first** — a tiny payload that drives both
+     * the deletion diff and the import diff.
+     *
+     * The order matters for the import: the sync fetches the rows it is missing
+     * in this order, so the newest messages land first and the inbox fills from
+     * the top while an old, long mailbox is still being read.
+     */
     fun querySmsIds(box: String): List<Long> {
         val uri = if (box == "sent") Telephony.Sms.Sent.CONTENT_URI
                   else Telephony.Sms.Inbox.CONTENT_URI
         val out = ArrayList<Long>()
         context.contentResolver.query(
-            uri, arrayOf(Telephony.Sms._ID), null, null, null,
+            uri, arrayOf(Telephony.Sms._ID), null, null,
+            "${Telephony.Sms.DATE} DESC",
         )?.use { c ->
             while (c.moveToNext()) out.add(c.getLong(0))
         }
         return out
+    }
+
+    /**
+     * The rows named by [ids], in the order given.
+     *
+     * This is what makes the import **complete** instead of "the most recent N
+     * per box". Capping the content query at 500 rows per box meant the inbox
+     * — which on a real phone holds far more traffic than the sent box — was
+     * only mirrored a few weeks back, while the (much sparser) sent box reached
+     * months: exactly the "it only shows MY messages in old conversations"
+     * report. The sync now asks which ids it does not have and fetches only
+     * those, so the first run walks the whole mailbox and every later one costs
+     * a single id query.
+     */
+    fun querySmsByIds(box: String, ids: List<Long>): List<Map<String, Any?>> {
+        if (ids.isEmpty()) return emptyList()
+        val uri = if (box == "sent") Telephony.Sms.Sent.CONTENT_URI
+                  else Telephony.Sms.Inbox.CONTENT_URI
+        val projection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+            arrayOf(
+                Telephony.Sms._ID,
+                Telephony.Sms.ADDRESS,
+                Telephony.Sms.BODY,
+                Telephony.Sms.DATE,
+                Telephony.Sms.SUBSCRIPTION_ID,
+            )
+        } else {
+            arrayOf(
+                Telephony.Sms._ID,
+                Telephony.Sms.ADDRESS,
+                Telephony.Sms.BODY,
+                Telephony.Sms.DATE,
+            )
+        }
+        val byId = HashMap<Long, Map<String, Any?>>(ids.size)
+        val selection = "${Telephony.Sms._ID} IN (${ids.joinToString(",")})"
+        context.contentResolver.query(uri, projection, selection, null, null)
+            ?.use { c ->
+                val idIdx = c.getColumnIndexOrThrow(Telephony.Sms._ID)
+                val addrIdx = c.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)
+                val bodyIdx = c.getColumnIndexOrThrow(Telephony.Sms.BODY)
+                val dateIdx = c.getColumnIndexOrThrow(Telephony.Sms.DATE)
+                val subIdx = c.getColumnIndex(Telephony.Sms.SUBSCRIPTION_ID)
+                while (c.moveToNext()) {
+                    val id = c.getLong(idIdx)
+                    val subscriptionId =
+                        if (subIdx >= 0 && !c.isNull(subIdx)) c.getInt(subIdx) else null
+                    byId[id] = mapOf(
+                        "id" to id,
+                        "address" to (c.getString(addrIdx) ?: ""),
+                        "body" to (c.getString(bodyIdx) ?: ""),
+                        "date" to c.getLong(dateIdx),
+                        "subscriptionId" to subscriptionId?.takeIf { it >= 0 },
+                    )
+                }
+            }
+        // Hand them back in the caller's order — a row deleted between the id
+        // query and this one simply drops out.
+        return ids.mapNotNull(byId::get)
     }
 
     // ── Default SMS app role ─────────────────────────────────────────────────
@@ -832,6 +899,22 @@ class SmsHandler(
                         try {
                             val ids = querySmsIds(box)
                             withContext(Dispatchers.Main) { result.success(ids) }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                result.error("QUERY_FAILED", e.message, null)
+                            }
+                        }
+                    }
+                }
+
+                "querySmsByIds" -> {
+                    val box = call.argument<String>("box") ?: "inbox"
+                    val ids = call.argument<List<Number>>("ids").orEmpty()
+                        .map { it.toLong() }
+                    coroutineScope.launch(Dispatchers.IO) {
+                        try {
+                            val rows = querySmsByIds(box, ids)
+                            withContext(Dispatchers.Main) { result.success(rows) }
                         } catch (e: Exception) {
                             withContext(Dispatchers.Main) {
                                 result.error("QUERY_FAILED", e.message, null)

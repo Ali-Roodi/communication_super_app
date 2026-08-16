@@ -74,6 +74,4 @@ class PersianUtils {
     if (name.isEmpty) return '';
     return name[0].toUpperCase();
   }
-
-
 }

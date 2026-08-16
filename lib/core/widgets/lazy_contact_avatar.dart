@@ -39,11 +39,20 @@ class LazyContactAvatar extends StatefulWidget {
 
   static final ContactRepository _repo = ContactRepository();
 
+  /// Bumped by [invalidateCache]. Every mounted avatar listens and re-reads.
+  ///
+  /// Clearing the caches alone was not enough and that is the whole of "the
+  /// photo only changes after leaving the contacts screen": an avatar that has
+  /// already loaded keeps its bytes in its own State, so the widget on screen
+  /// went on rendering the *old* photo until something rebuilt it from scratch.
+  static final ValueNotifier<int> generation = ValueNotifier<int>(0);
+
   /// Clears both caches (call after the address book changes, e.g. a contact
   /// edit) so stale/removed photos don't linger.
   static void invalidateCache() {
     _cache.clear();
     _inFlight.clear();
+    generation.value++;
   }
 
   static Future<Uint8List?> _fetch(String id) {
@@ -73,6 +82,19 @@ class _LazyContactAvatarState extends State<LazyContactAvatar> {
   @override
   void initState() {
     super.initState();
+    LazyContactAvatar.generation.addListener(_onInvalidated);
+    _load();
+  }
+
+  @override
+  void dispose() {
+    LazyContactAvatar.generation.removeListener(_onInvalidated);
+    super.dispose();
+  }
+
+  void _onInvalidated() {
+    if (!mounted) return;
+    setState(() => _bytes = null);
     _load();
   }
 

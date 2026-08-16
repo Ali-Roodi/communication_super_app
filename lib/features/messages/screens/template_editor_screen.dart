@@ -33,7 +33,9 @@ class _TemplateEditorScreenState extends State<TemplateEditorScreen> {
   @override
   void initState() {
     super.initState();
-    _titleController = TextEditingController(text: widget.template?.title ?? '');
+    _titleController = TextEditingController(
+      text: widget.template?.title ?? '',
+    );
     _bodyController = TextEditingController(text: widget.template?.body ?? '');
     _useContactName = widget.template?.useContactName ?? false;
     // The footer mirrors the body's placeholders as they are typed.
@@ -66,7 +68,9 @@ class _TemplateEditorScreenState extends State<TemplateEditorScreen> {
     final text = value.text.replaceRange(selection.start, selection.end, token);
     _bodyController.value = TextEditingValue(
       text: text,
-      selection: TextSelection.collapsed(offset: selection.start + token.length),
+      selection: TextSelection.collapsed(
+        offset: selection.start + token.length,
+      ),
     );
   }
 

@@ -28,6 +28,7 @@ ScaffoldFeatureController<SnackBar, SnackBarClosedReason> showUndoSnack(
   VoidCallback? onUndo,
   String undoLabel = 'واگرد',
   Duration duration = kUndoSnackDuration,
+
   /// The shrinking ring is right for an *undo* — a window that closes on
   /// something already done. Turn it off for an action that merely offers a
   /// shortcut («تنظیمات»), where a ticking clock implies a deadline that isn't
@@ -37,7 +38,8 @@ ScaffoldFeatureController<SnackBar, SnackBarClosedReason> showUndoSnack(
   final messenger = ScaffoldMessenger.of(context);
   messenger.clearSnackBars();
 
-  late final ScaffoldFeatureController<SnackBar, SnackBarClosedReason> controller;
+  late final ScaffoldFeatureController<SnackBar, SnackBarClosedReason>
+  controller;
   var closed = false;
 
   controller = messenger.showSnackBar(

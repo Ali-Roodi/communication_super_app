@@ -1,5 +1,5 @@
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/dialer_bloc.dart';
@@ -160,15 +160,19 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      _CallActionButton(
+                      _CallCircleButton(
                         icon: Icons.call_end,
                         color: AppColors.callRejectRed,
                         label: 'رد کردن',
-                        onTap: () =>
+                        onPressed: () =>
                             context.read<DialerBloc>().add(const RejectCall()),
                       ),
-                      _AnswerButton(
-                        onAnswer: () =>
+                      _CallCircleButton(
+                        icon: Icons.call,
+                        color: AppColors.callAnswerGreen,
+                        label: 'پاسخ',
+                        swipeUp: true,
+                        onPressed: () =>
                             context.read<DialerBloc>().add(const AnswerCall()),
                       ),
                     ],
@@ -300,107 +304,165 @@ class _TextOption extends StatelessWidget {
   }
 }
 
-// ── Reject button ─────────────────────────────────────────────────────────────
+// ── Answer / reject buttons ───────────────────────────────────────────────────
 
-class _CallActionButton extends StatelessWidget {
+/// One of the two big circles on the incoming-call screen.
+///
+/// It listens on the **raw pointer stream**, not through a `GestureDetector`,
+/// for the same reason [DialKey] does: a tap recognizer has to win a gesture
+/// arena, and the answer button used to declare a vertical drag as well (swipe
+/// up to answer). A real thumb press carries a few pixels of movement, the drag
+/// recognizer claimed the pointer, its velocity was nowhere near the swipe
+/// threshold — and the call simply was not answered. Answering a ringing phone
+/// is the one interaction in the app that must never need a second attempt.
+///
+/// A `Listener` is not an arena member, so its callbacks always arrive: the
+/// press is confirmed on pointer-up inside the circle, and an upward swipe is
+/// recognized from the pointer's own displacement.
+class _CallCircleButton extends StatefulWidget {
   final IconData icon;
   final Color color;
   final String label;
-  final VoidCallback onTap;
+  final VoidCallback onPressed;
 
-  const _CallActionButton({
+  /// Answer-side only: an upward swipe triggers it too, and the chevron hint
+  /// above the circle pulses.
+  final bool swipeUp;
+
+  const _CallCircleButton({
     required this.icon,
     required this.color,
     required this.label,
-    required this.onTap,
+    required this.onPressed,
+    this.swipeUp = false,
   });
 
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        GestureDetector(
-          onTap: onTap,
-          child: Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-            child: Icon(icon, color: Colors.white, size: 32),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Text(
-          label,
-          style: const TextStyle(color: Colors.white70, fontSize: 13),
-        ),
-      ],
-    );
-  }
+  State<_CallCircleButton> createState() => _CallCircleButtonState();
 }
 
-// ── Answer button (tap or swipe up to answer) ─────────────────────────────────
-
-class _AnswerButton extends StatefulWidget {
-  final VoidCallback onAnswer;
-  const _AnswerButton({required this.onAnswer});
-
-  @override
-  State<_AnswerButton> createState() => _AnswerButtonState();
-}
-
-class _AnswerButtonState extends State<_AnswerButton>
+class _CallCircleButtonState extends State<_CallCircleButton>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
+  static const double _kDiameter = 72;
+
+  /// How far up the finger has to travel for the swipe to count.
+  static const double _kSwipeDistance = 48;
+
+  /// Movement still counted as "the thumb stayed put" — deliberately wider than
+  /// [kTouchSlop], because a 72 dp circle pressed with a thumb wobbles.
+  static const double _kTapSlop = 36;
+
+  AnimationController? _hint;
+  Offset? _downAt;
+  bool _pressed = false;
+
+  /// Answer is a one-shot: telecom will not thank us for two `answer()` calls,
+  /// and a swipe that also ends in a tap-up would send exactly that.
+  bool _fired = false;
 
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1100),
-    )..repeat(reverse: true);
+    if (widget.swipeUp) {
+      _hint =
+          AnimationController(
+            vsync: this,
+            duration: const Duration(milliseconds: 1100),
+          )..repeat(reverse: true);
+    }
   }
 
   @override
   void dispose() {
-    _ctrl.dispose();
+    _hint?.dispose();
     super.dispose();
+  }
+
+  void _fire() {
+    if (_fired) return;
+    _fired = true;
+    setState(() => _pressed = false);
+    HapticFeedback.mediumImpact();
+    widget.onPressed();
   }
 
   @override
   Widget build(BuildContext context) {
+    final hint = _hint;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Upward chevron hint that gently pulses (swipe-up to answer).
-        FadeTransition(
-          opacity: Tween<double>(begin: 0.3, end: 1.0).animate(_ctrl),
-          child: const Icon(
-            Icons.keyboard_arrow_up,
-            color: Colors.white54,
-            size: 22,
-          ),
-        ),
-        GestureDetector(
-          onTap: widget.onAnswer,
-          onVerticalDragEnd: (d) {
-            if ((d.primaryVelocity ?? 0) < -200) widget.onAnswer();
-          },
-          child: Container(
-            width: 72,
-            height: 72,
-            decoration: const BoxDecoration(
-              color: AppColors.callAnswerGreen,
-              shape: BoxShape.circle,
+        if (hint != null)
+          FadeTransition(
+            opacity: Tween<double>(begin: 0.3, end: 1.0).animate(hint),
+            child: const Icon(
+              Icons.keyboard_arrow_up,
+              color: Colors.white54,
+              size: 22,
             ),
-            child: const Icon(Icons.call, color: Colors.white, size: 32),
+          )
+        else
+          const SizedBox(height: 22),
+        Listener(
+          onPointerDown: (event) {
+            _downAt = event.position;
+            _fired = false;
+            setState(() => _pressed = true);
+          },
+          onPointerMove: (event) {
+            final start = _downAt;
+            if (start == null || _fired) return;
+            if (widget.swipeUp && start.dy - event.position.dy >= _kSwipeDistance) {
+              _fire();
+              return;
+            }
+            // Slid off the button — treat it as a cancel, so the circle stops
+            // looking pressed and the lift-off does nothing.
+            if ((event.position - start).distance > _kDiameter) {
+              setState(() => _pressed = false);
+            }
+          },
+          onPointerUp: (event) {
+            final start = _downAt;
+            _downAt = null;
+            if (start == null || _fired) return;
+            if ((event.position - start).distance <= _kTapSlop) {
+              _fire();
+            } else {
+              setState(() => _pressed = false);
+            }
+          },
+          onPointerCancel: (_) {
+            _downAt = null;
+            setState(() => _pressed = false);
+          },
+          child: AnimatedScale(
+            scale: _pressed ? 0.92 : 1,
+            duration: const Duration(milliseconds: 90),
+            child: Container(
+              width: _kDiameter,
+              height: _kDiameter,
+              decoration: BoxDecoration(
+                color: widget.color,
+                shape: BoxShape.circle,
+                boxShadow: _pressed
+                    ? null
+                    : [
+                        BoxShadow(
+                          color: widget.color.withValues(alpha: 0.45),
+                          blurRadius: 18,
+                          spreadRadius: 1,
+                        ),
+                      ],
+              ),
+              child: Icon(widget.icon, color: Colors.white, size: 32),
+            ),
           ),
         ),
         const SizedBox(height: 12),
-        const Text(
-          'پاسخ',
-          style: TextStyle(color: Colors.white70, fontSize: 13),
+        Text(
+          widget.label,
+          style: const TextStyle(color: Colors.white70, fontSize: 13),
         ),
       ],
     );

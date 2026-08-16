@@ -134,7 +134,9 @@ class SimService {
   /// alongside [load].
   Future<void> loadPhoneAccounts() async {
     try {
-      final rows = await _method.invokeMethod<List<dynamic>>('getPhoneAccounts');
+      final rows = await _method.invokeMethod<List<dynamic>>(
+        'getPhoneAccounts',
+      );
       if (rows == null) return;
       final map = <String, int>{};
       for (final row in rows) {

@@ -68,7 +68,8 @@ class LinkPreviewService {
       final uri = Uri.parse(url);
       if (!uri.hasScheme || uri.host.isEmpty) return null;
 
-      client = HttpClient()..connectionTimeout = _timeout
+      client = HttpClient()
+        ..connectionTimeout = _timeout
         // A real browser UA. Link shorteners (zbl.io and friends) bounce a
         // bot-looking agent around until the redirect limit trips, which is
         // why those messages never got a card.
@@ -115,8 +116,7 @@ class LinkPreviewService {
         // Resolve protocol-relative and path-relative image URLs.
         image = uri.resolve(image).toString();
       }
-      var icon =
-          _linkHref(html, 'apple-touch-icon') ?? _linkHref(html, 'icon');
+      var icon = _linkHref(html, 'apple-touch-icon') ?? _linkHref(html, 'icon');
       if (icon != null && !icon.startsWith('http')) {
         icon = uri.resolve(icon).toString();
       }
@@ -219,7 +219,10 @@ class LinkPreviewService {
       out = out.replaceAll(entry.key, entry.value);
     }
     return out.replaceAllMapped(_numericEntity, (m) {
-      final code = int.tryParse(m.group(2)!, radix: m.group(1)!.isEmpty ? 10 : 16);
+      final code = int.tryParse(
+        m.group(2)!,
+        radix: m.group(1)!.isEmpty ? 10 : 16,
+      );
       // Out-of-range code points would throw — leave those untouched.
       if (code == null || code < 0 || code > 0x10FFFF) return m.group(0)!;
       return String.fromCharCode(code);

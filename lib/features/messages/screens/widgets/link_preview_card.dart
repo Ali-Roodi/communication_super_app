@@ -98,8 +98,7 @@ class _LinkPreviewCardState extends State<LinkPreviewCard> {
                             width: 36,
                             height: 36,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, _, _) =>
-                                const SizedBox.shrink(),
+                            errorBuilder: (_, _, _) => const SizedBox.shrink(),
                           ),
                         ),
                         const SizedBox(width: 10),

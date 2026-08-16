@@ -124,7 +124,9 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
                   style: Theme.of(context).textTheme.headlineMedium,
                 ),
                 const SizedBox(height: 40),
-                PinDots(filled: _isConfirming ? _confirmPin.length : _pin.length),
+                PinDots(
+                  filled: _isConfirming ? _confirmPin.length : _pin.length,
+                ),
                 const Spacer(),
                 PinKeypad(onKey: _onNumberPressed, onDelete: _onDelete),
                 const SizedBox(height: 40),

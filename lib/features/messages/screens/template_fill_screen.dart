@@ -225,49 +225,49 @@ class _TemplateFillScreenState extends State<TemplateFillScreen> {
             ),
             const SizedBox(height: 12),
             ValueListenableBuilder<int>(
-                valueListenable: _revision,
-                builder: (context, _, _) {
-                  // «تأیید» appears once there is something to insert (Figma:
-                  // the empty form shows only انصراف).
-                  final ready = _fields.isEmpty || _anyAnswer;
-                  return Row(
-                    children: [
-                      TextButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        child: const Text(
-                          'انصراف',
-                          style: TextStyle(color: AppColors.danger),
-                        ),
+              valueListenable: _revision,
+              builder: (context, _, _) {
+                // «تأیید» appears once there is something to insert (Figma:
+                // the empty form shows only انصراف).
+                final ready = _fields.isEmpty || _anyAnswer;
+                return Row(
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text(
+                        'انصراف',
+                        style: TextStyle(color: AppColors.danger),
                       ),
-                      if (ready)
-                        TextButton(
-                          onPressed: () {
-                            final text = _result;
-                            if (text.isEmpty) return;
-                            // The payload rides along with the text it renders
-                            // to; the composer sends it only while the two still
-                            // match. Null for anything the receiver could not
-                            // rebuild — see [TemplateWire.encode].
-                            Navigator.of(context).pop(
-                              TemplateFillResult(
-                                text: text,
-                                wire: TemplateWire.encode(
-                                  template: widget.template,
-                                  values: _values,
-                                  greetingName: _useContactName
-                                      ? _contactName
-                                      : null,
-                                  renderedText: text,
-                                ),
+                    ),
+                    if (ready)
+                      TextButton(
+                        onPressed: () {
+                          final text = _result;
+                          if (text.isEmpty) return;
+                          // The payload rides along with the text it renders
+                          // to; the composer sends it only while the two still
+                          // match. Null for anything the receiver could not
+                          // rebuild — see [TemplateWire.encode].
+                          Navigator.of(context).pop(
+                            TemplateFillResult(
+                              text: text,
+                              wire: TemplateWire.encode(
+                                template: widget.template,
+                                values: _values,
+                                greetingName: _useContactName
+                                    ? _contactName
+                                    : null,
+                                renderedText: text,
                               ),
-                            );
-                          },
-                          child: const Text('تأیید'),
-                        ),
-                    ],
-                  );
-                },
-              ),
+                            ),
+                          );
+                        },
+                        child: const Text('تأیید'),
+                      ),
+                  ],
+                );
+              },
+            ),
           ],
         ),
       ),

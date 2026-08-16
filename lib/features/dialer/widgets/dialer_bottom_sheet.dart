@@ -10,10 +10,20 @@ import 'package:communication_super_app/features/dialer/screens/dialer_screen.da
 ///
 /// The globally-provided [DialerBloc] is forwarded via [BlocProvider.value] so
 /// the sheet shares the same call/keypad state as the rest of the app.
-Future<void> showDialerBottomSheet(BuildContext context) {
+/// [initialNumber] seeds the keypad — a `tel:` intent handed to us as the
+/// phone's dialer («Call» on a number in a browser or another app), which is
+/// supposed to land on a keypad that already holds the number so the user only
+/// presses the green button.
+Future<void> showDialerBottomSheet(
+  BuildContext context, {
+  String? initialNumber,
+}) {
   final dialerBloc = context.read<DialerBloc>();
   // Start every session from a clean keypad.
   dialerBloc.add(const DialerNumberCleared());
+  if (initialNumber != null && initialNumber.isNotEmpty) {
+    dialerBloc.add(DialerNumberSet(initialNumber));
+  }
 
   return showModalBottomSheet<void>(
     context: context,

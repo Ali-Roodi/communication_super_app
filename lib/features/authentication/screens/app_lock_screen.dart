@@ -117,47 +117,47 @@ class _AppLockScreenState extends State<AppLockScreen> {
       child: Directionality(
         textDirection: TextDirection.rtl,
         child: Scaffold(
-        body: SafeArea(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.lock, size: 64, color: Colors.grey),
-              const SizedBox(height: 24),
-              Text(
-                'برنامه قفل شده است',
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'برای ادامه، احراز هویت کنید',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 40),
-              PinDots(filled: _pin.length),
-              const SizedBox(height: 60),
-              PinKeypad(
-                onKey: _onNumberPressed,
-                onDelete: _onDelete,
-                enabled: !_isAuthenticating,
-              ),
-              const SizedBox(height: 8),
-              const ForgotPinButton(),
-              if (_isBiometricAvailable && !_isAuthenticating) ...[
+          body: SafeArea(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.lock, size: 64, color: Colors.grey),
                 const SizedBox(height: 24),
-                IconButton(
-                  icon: const Icon(Icons.fingerprint, size: 48),
-                  onPressed: _tryBiometricAuth,
-                  color: Theme.of(context).colorScheme.primary,
+                Text(
+                  'برنامه قفل شده است',
+                  style: Theme.of(context).textTheme.headlineMedium,
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'احراز هویت بیومتریک',
-                  style: Theme.of(context).textTheme.bodySmall,
+                  'برای ادامه، احراز هویت کنید',
+                  style: Theme.of(context).textTheme.bodyMedium,
                 ),
+                const SizedBox(height: 40),
+                PinDots(filled: _pin.length),
+                const SizedBox(height: 60),
+                PinKeypad(
+                  onKey: _onNumberPressed,
+                  onDelete: _onDelete,
+                  enabled: !_isAuthenticating,
+                ),
+                const SizedBox(height: 8),
+                const ForgotPinButton(),
+                if (_isBiometricAvailable && !_isAuthenticating) ...[
+                  const SizedBox(height: 24),
+                  IconButton(
+                    icon: const Icon(Icons.fingerprint, size: 48),
+                    onPressed: _tryBiometricAuth,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'احراز هویت بیومتریک',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
-        ),
         ),
       ),
     );

@@ -39,7 +39,8 @@ class ContactLinkHandler(private val context: Context) {
                 when (call.method) {
                     "link" -> {
                         val ids = call.argument<List<String>>("contactIds").orEmpty()
-                        result.success(link(ids))
+                        val primary = call.argument<String>("primaryContactId")
+                        result.success(link(ids, primary))
                     }
                     "unlink" -> {
                         val id = call.argument<String>("contactId").orEmpty()
@@ -68,12 +69,64 @@ class ContactLinkHandler(private val context: Context) {
      * necessarily any of the inputs, since the provider re-aggregates and may
      * pick a different one. The caller has to re-read rather than assume.
      */
-    private fun link(contactIds: List<String>): String? {
+    private fun link(contactIds: List<String>, primaryContactId: String?): String? {
         val rawIds = contactIds.flatMap(::rawContactIdsOf).distinct()
         if (rawIds.size < 2) return null
+        // Read the winner's raw contacts BEFORE aggregating: afterwards every
+        // input contact id resolves to the same aggregate and the choice can no
+        // longer be told apart.
+        val primaryRawIds = primaryContactId
+            ?.takeIf { it.isNotBlank() }
+            ?.let(::rawContactIdsOf)
+            .orEmpty()
         applyExceptions(rawIds, ContactsContract.AggregationExceptions.TYPE_KEEP_TOGETHER)
+        if (primaryRawIds.isNotEmpty()) setPrimaryIdentity(primaryRawIds.first())
         // The aggregate's id is whatever the first raw contact now belongs to.
         return contactIdOfRaw(rawIds.first())
+    }
+
+    /**
+     * Makes [rawId]'s name and photo the ones the merged contact shows.
+     *
+     * Linking does not *pick* a name — the provider aggregates and then decides
+     * the display name by its own priority rules, which is why merging two
+     * contacts could leave the wrong one on screen with no way to say
+     * otherwise. `IS_SUPER_PRIMARY` on a data row is the documented way to
+     * override that: the provider takes the aggregate's display name from the
+     * super-primary StructuredName row, and its photo from the super-primary
+     * Photo row.
+     *
+     * Nothing is deleted or copied, so «جدا کردن» still takes the contact apart
+     * exactly as before; the flag simply stops mattering once the rows are no
+     * longer one aggregate.
+     */
+    private fun setPrimaryIdentity(rawId: Long) {
+        val mimeTypes = listOf(
+            ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE,
+            ContactsContract.CommonDataKinds.Photo.CONTENT_ITEM_TYPE,
+        )
+        val ops = ArrayList<ContentProviderOperation>()
+        for (mimeType in mimeTypes) {
+            ops.add(
+                ContentProviderOperation.newUpdate(ContactsContract.Data.CONTENT_URI)
+                    .withSelection(
+                        "${ContactsContract.Data.RAW_CONTACT_ID} = ? AND " +
+                            "${ContactsContract.Data.MIMETYPE} = ?",
+                        arrayOf(rawId.toString(), mimeType),
+                    )
+                    .withValue(ContactsContract.Data.IS_SUPER_PRIMARY, 1)
+                    .withValue(ContactsContract.Data.IS_PRIMARY, 1)
+                    .build(),
+            )
+        }
+        try {
+            context.contentResolver.applyBatch(ContactsContract.AUTHORITY, ops)
+        } catch (e: Exception) {
+            // A contact with no name row (a number-only entry), or a provider
+            // that refuses the flag: the merge itself already succeeded, and
+            // the aggregate keeps the provider's own choice of name.
+            Log.w(TAG, "primary identity not applied: ${e.message}")
+        }
     }
 
     /**

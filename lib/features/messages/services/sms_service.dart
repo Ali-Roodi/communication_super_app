@@ -175,7 +175,10 @@ class SmsService {
       await _messageRepository.createMessage(messageModel);
       // Remember the card for this conversation — written on the send, not on
       // the pick, so it always reflects what actually went out.
-      await _threadSimRepository.remember(threadId, messageModel.subscriptionId);
+      await _threadSimRepository.remember(
+        threadId,
+        messageModel.subscriptionId,
+      );
       // Tell every listening BLoC the thread changed. Without this a message
       // sent by the scheduler (or from another screen) sits in the DB until the
       // next manual reload.
@@ -301,30 +304,44 @@ class SmsService {
     }
   }
 
-  /// Maximum number of inbox/sent messages whose **content** is reconciled per
-  /// sync pass.
+  /// How many provider rows are pulled over the MethodChannel at a time.
   ///
-  /// The full rows travel through the MethodChannel as one payload; on a
-  /// device with tens of thousands of SMS an uncapped read could exceed the
-  /// Binder transaction limit (~1 MB). Capping the content pass keeps every
-  /// sync safe while still covering all recent conversations. (The deletion
-  /// diff below is NOT capped — it only moves row ids, which are tiny.)
-  static const int _importLimit = 500;
+  /// The full rows travel as one payload, so an unbounded read could exceed the
+  /// Binder transaction limit (~1 MB) on a large mailbox. This is a *page*
+  /// size, not a cap on what gets imported: the sync pages until nothing is
+  /// missing.
+  ///
+  /// It used to be a hard cap of 500 rows per box, and that is exactly why
+  /// older conversations showed only the user's own half. A real phone receives
+  /// far more than it sends — bank codes, delivery notices, promotions — so 500
+  /// inbox rows reached about six weeks back while 500 sent rows reached a
+  /// year: every conversation older than that kept its sent bubbles and lost
+  /// every received one.
+  static const int _importPageSize = 200;
 
   /// Mirror-syncs the local message store with the device SMS provider:
   ///
-  /// 1. Recent device rows (inbox + sent) are reconciled in — new messages are
-  ///    imported, and rows the app already has get their `device_sms_id`
-  ///    linked (see [MessageRepository.reconcileDeviceRows]).
+  /// 1. The provider's id list (inbox + sent, newest first) is diffed against
+  ///    the ids the local store already knows, and **only the missing rows**
+  ///    are read — paged, so a mailbox of any size is covered without a single
+  ///    oversized payload. New messages are imported and rows the app already
+  ///    has get their `device_sms_id` linked (see
+  ///    [MessageRepository.reconcileDeviceRows]).
   /// 2. Local rows whose provider row disappeared are removed — a message
   ///    deleted on the phone (by another SMS app, or before this app held the
   ///    default role) disappears here too.
   ///
-  /// Runs on every app session start and on resume (cheap after the first
-  /// pass: reconcile skips known rows by `device_sms_id`).
+  /// Runs on every app session start and on resume. The steady state costs two
+  /// id queries and nothing else: with no missing ids there is no content read
+  /// at all, which is cheaper than the old "re-read the newest 500 rows of each
+  /// box every time" and, unlike it, actually finishes the mailbox.
+  ///
+  /// [onProgress] is called after each imported page, so a long first import
+  /// can show the newest conversations while the older ones are still arriving.
   Future<void> syncDeviceMessages({
     bool forceRefresh = false,
     bool throttle = false,
+    void Function()? onProgress,
   }) async {
     // Collapse resume-storm syncs: skip a silent resume sync that lands within
     // the throttle window of the previous one. forceRefresh never throttles.
@@ -361,49 +378,58 @@ class SmsService {
       }
     }
 
-    // Native provider queries (see SmsHandler.querySms) — content capped,
-    // deletion-diff ids uncapped. Queued so this doesn't hold 1 000 SMS rows in
-    // memory at the same moment the contacts and call-log imports hold theirs.
-    final inbox = await DeviceSyncQueue.run(
-      () => _nativeSmsService.querySms(box: 'inbox', limit: _importLimit),
-    );
-    final sent = await DeviceSyncQueue.run(
-      () => _nativeSmsService.querySms(box: 'sent', limit: _importLimit),
-    );
+    // ── 1. Which rows are missing ──────────────────────────────────────────
+    // Ids only: a tiny payload even for a mailbox of tens of thousands, and it
+    // answers both halves of the sync — what to import and what to delete.
+    final inboxIds = await _nativeSmsService.querySmsIds(box: 'inbox');
+    final sentIds = await _nativeSmsService.querySmsIds(box: 'sent');
+    final known = await _messageRepository.knownDeviceSmsIds([
+      ...inboxIds,
+      ...sentIds,
+    ]);
 
-    // ── 1. Reconcile recent content in ─────────────────────────────────────
-    const int batchSize = 100;
-    final batch = <MessageModel>[];
-
-    Future<void> flush() async {
-      if (batch.isEmpty) return;
-      await _messageRepository.reconcileDeviceRows(batch);
-      batch.clear();
-      await Future.delayed(Duration.zero);
+    // ── 2. Read and reconcile only those, newest first ─────────────────────
+    // Queued so this doesn't hold a page of SMS rows in memory at the same
+    // moment the contacts and call-log imports hold theirs.
+    Future<void> importMissing(
+      String box,
+      List<int> ids,
+      MessageType type,
+    ) async {
+      final missing = [
+        for (final id in ids)
+          if (!known.contains(id)) id,
+      ];
+      for (var i = 0; i < missing.length; i += _importPageSize) {
+        final end = i + _importPageSize > missing.length
+            ? missing.length
+            : i + _importPageSize;
+        final page = missing.sublist(i, end);
+        final rows = await DeviceSyncQueue.run(
+          () => _nativeSmsService.querySmsByIds(box: box, ids: page),
+        );
+        if (rows.isEmpty) continue;
+        await _messageRepository.reconcileDeviceRows([
+          for (final row in rows) _createMessageModel(row, type, contactMap),
+        ]);
+        // Let the UI isolate breathe between pages — a first import walks the
+        // whole mailbox and must never hold the frame.
+        await Future.delayed(Duration.zero);
+        onProgress?.call();
+      }
     }
 
-    for (final row in inbox) {
-      batch.add(_createMessageModel(row, MessageType.received, contactMap));
-      if (batch.length >= batchSize) await flush();
-    }
-    await flush();
+    await importMissing('inbox', inboxIds, MessageType.received);
+    await importMissing('sent', sentIds, MessageType.sent);
 
-    for (final row in sent) {
-      batch.add(_createMessageModel(row, MessageType.sent, contactMap));
-      if (batch.length >= batchSize) await flush();
-    }
-    await flush();
-
-    // ── 2. Remove local rows deleted on the device ─────────────────────────
-    // The full (uncapped) id set from both boxes; a local row linked to a
-    // provider id that is in neither box no longer exists on the device.
-    final deviceIds = <int>{
-      ...await _nativeSmsService.querySmsIds(box: 'inbox'),
-      ...await _nativeSmsService.querySmsIds(box: 'sent'),
-    };
-    // Safety: an empty id set with rows present means the query failed —
-    // do NOT wipe the local mirror on a transient read error.
-    if (deviceIds.isEmpty && (inbox.isNotEmpty || sent.isNotEmpty)) return;
+    // ── 3. Remove local rows deleted on the device ─────────────────────────
+    // A local row linked to a provider id that is in neither box no longer
+    // exists on the device.
+    final deviceIds = <int>{...inboxIds, ...sentIds};
+    // Safety: an empty id set means the query failed (or the provider is
+    // genuinely empty, in which case there is nothing to lose by waiting for
+    // the next pass) — do NOT wipe the local mirror on a transient read error.
+    if (deviceIds.isEmpty) return;
     final removed = await _messageRepository.removeRowsMissingFromDevice(
       deviceIds,
     );
@@ -475,10 +501,7 @@ class SmsService {
         if (m.deviceSmsId != null)
           {'deviceId': m.deviceSmsId}
         else
-          {
-            'body': m.body,
-            'timestamp': m.timestamp.millisecondsSinceEpoch,
-          },
+          {'body': m.body, 'timestamp': m.timestamp.millisecondsSinceEpoch},
     ];
     await _nativeSmsService.deleteSmsFromProvider(specs);
     await _messageRepository.softDeleteMessages(messageIds);

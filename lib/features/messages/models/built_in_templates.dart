@@ -43,15 +43,17 @@ class BuiltInTemplate {
   /// both sides, so it ships as ordinary SMS.
   bool get isFillable => tokens.isNotEmpty;
 
-  MessageTemplate toTemplate({required DateTime updatedAt, bool isPinned = false}) =>
-      MessageTemplate(
-        id: id,
-        title: title,
-        body: body,
-        useContactName: useContactName,
-        isPinned: isPinned,
-        updatedAt: updatedAt,
-      );
+  MessageTemplate toTemplate({
+    required DateTime updatedAt,
+    bool isPinned = false,
+  }) => MessageTemplate(
+    id: id,
+    title: title,
+    body: body,
+    useContactName: useContactName,
+    isPinned: isPinned,
+    updatedAt: updatedAt,
+  );
 }
 
 /// The compiled-in template catalogue.
@@ -71,14 +73,16 @@ abstract class BuiltInTemplates {
       id: 'tpl-reminder',
       code: 'rmd',
       title: 'یادآوری قرار',
-      body: 'یادآوری می‌شود [عنوان] در مورخه [تاریخ] ساعت [زمان] برگزار می‌شود.',
+      body:
+          'یادآوری می‌شود [عنوان] در مورخه [تاریخ] ساعت [زمان] برگزار می‌شود.',
       useContactName: true,
     ),
     BuiltInTemplate(
       id: 'tpl-payment',
       code: 'pay',
       title: 'اطلاع واریز',
-      body: 'مبلغ [مبلغ] تومان بابت [بابت] در تاریخ [تاریخ] واریز شد.\n[توضیحات]',
+      body:
+          'مبلغ [مبلغ] تومان بابت [بابت] در تاریخ [تاریخ] واریز شد.\n[توضیحات]',
       useContactName: true,
     ),
     BuiltInTemplate(
@@ -122,7 +126,9 @@ abstract class BuiltInTemplates {
   static final Map<String, BuiltInTemplate> _byCode = {
     for (final t in all) t.code: t,
   };
-  static final Map<String, BuiltInTemplate> _byId = {for (final t in all) t.id: t};
+  static final Map<String, BuiltInTemplate> _byId = {
+    for (final t in all) t.id: t,
+  };
 
   static BuiltInTemplate? byCode(String code) => _byCode[code];
 

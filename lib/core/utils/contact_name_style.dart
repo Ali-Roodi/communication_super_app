@@ -34,7 +34,10 @@ class ContactNameStyle {
   static Stream<void> get onChanged => _changes.stream;
 
   /// Applies a new style and announces it when something actually changed.
-  static void apply({required bool lastNameFirst, required bool sortByLastName}) {
+  static void apply({
+    required bool lastNameFirst,
+    required bool sortByLastName,
+  }) {
     if (ContactNameStyle.lastNameFirst == lastNameFirst &&
         ContactNameStyle.sortByLastName == sortByLastName) {
       return;

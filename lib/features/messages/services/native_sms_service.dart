@@ -170,17 +170,43 @@ class NativeSmsService {
     }
   }
 
-  /// ALL row ids of a provider box — tiny payload for the deletion diff.
-  Future<Set<int>> querySmsIds({required String box}) async {
+  /// ALL row ids of a provider box, **newest first** — a tiny payload that
+  /// drives both the deletion diff and the import diff.
+  ///
+  /// Ordered, not a set: the import fetches the rows it is missing in this
+  /// order, so a long mailbox fills from the newest message down.
+  Future<List<int>> querySmsIds({required String box}) async {
     try {
       final ids = await _methodChannel.invokeMethod<List>('querySmsIds', {
         'box': box,
       });
-      if (ids == null) return const {};
-      return {for (final id in ids) (id as num).toInt()};
+      if (ids == null) return const [];
+      return [for (final id in ids) (id as num).toInt()];
     } catch (e) {
       debugPrint('querySmsIds($box) failed: $e');
-      return const {};
+      return const [];
+    }
+  }
+
+  /// The provider rows named by [ids], in the order given.
+  Future<List<DeviceSmsRow>> querySmsByIds({
+    required String box,
+    required List<int> ids,
+  }) async {
+    if (ids.isEmpty) return const [];
+    try {
+      final rows = await _methodChannel.invokeMethod<List>('querySmsByIds', {
+        'box': box,
+        'ids': ids,
+      });
+      if (rows == null) return const [];
+      return [
+        for (final row in rows)
+          DeviceSmsRow.fromMap(Map<String, dynamic>.from(row as Map)),
+      ];
+    } catch (e) {
+      debugPrint('querySmsByIds($box) failed: $e');
+      return const [];
     }
   }
 
@@ -404,4 +430,3 @@ class SmsSendResult {
     return 'SmsSendResult(success: $success, phoneNumber: $phoneNumber, parts: $parts, subscriptionId: $subscriptionId)';
   }
 }
-

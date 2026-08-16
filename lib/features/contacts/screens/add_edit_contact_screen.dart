@@ -60,15 +60,14 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
   DateTime? _birthday;
 
   /// Labels («برچسب‌ها») this contact carries — the ones a person applied.
-  /// Written back only through `updateContact(withGroups: true)` — see [_save].
+  ///
+  /// Written back through [ContactGroupsService.applyLabels], by name, never
+  /// through `contact.groups`; see [_save]. The platform's own groups («My
+  /// Contacts», «Starred in Android») are deliberately not in this list and are
+  /// never written — the native side adds and removes one membership row at a
+  /// time, so they simply stay where they are instead of having to be carried
+  /// through every save to avoid being wiped.
   List<Group> _groups = const [];
-
-  /// The platform's own groups on this contact («My Contacts», «Starred in
-  /// Android»). They are never shown and never picked, but they **must be
-  /// written back**: a group write replaces the whole membership list, so
-  /// leaving them out would quietly drop the contact out of the default view
-  /// of every other contacts app on the phone.
-  List<Group> _systemGroups = const [];
 
   Contact? _editing; // populated in edit mode
   Uint8List? _photo; // selected/loaded profile photo
@@ -153,10 +152,6 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
     _groups = [
       for (final g in c.groups)
         if (!ContactGroupsService.isInternal(g.name)) g,
-    ];
-    _systemGroups = [
-      for (final g in c.groups)
-        if (ContactGroupsService.isInternal(g.name)) g,
     ];
     _firstName.text = c.name.first;
     _lastName.text = c.name.last;
@@ -245,23 +240,17 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
               ),
             ];
 
-      contact.groups = [..._systemGroups, ..._groups];
-
-      if (_isEdit) {
-        // `withGroups: true` or the label edit is silently dropped — the
-        // default update writes every other field and leaves the group rows
-        // exactly as they were.
-        await contact.update(withGroups: true);
-      } else {
-        final inserted = await contact.insert();
-        // Insert has no `withGroups`, so a new contact's labels are a second
-        // write. Skipped entirely when there are none, which is the common
-        // case — no point paying for a round trip to write an empty list.
-        if (_groups.isNotEmpty) {
-          inserted.groups = [...inserted.groups, ..._groups];
-          await inserted.update(withGroups: true);
-        }
-      }
+      // Labels are written separately, NOT through `contact.groups` — see
+      // [ContactGroupsService.applyLabels]. The plugin's `withGroups: true`
+      // update deletes every membership row of the whole aggregate and re-adds
+      // only against the first raw contact, and it writes groups that may
+      // belong to an account this contact is not in, which is why a label
+      // applied here used to be silently lost.
+      final labelNames = ContactGroupsService.visibleNames(_groups);
+      final savedId = _isEdit
+          ? (await contact.update().then((c) => c.id))
+          : (await contact.insert().then((c) => c.id));
+      await ContactGroupsService.instance.applyLabels(savedId, labelNames);
 
       ContactRepository().invalidateCache();
       LazyContactAvatar.invalidateCache();

@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
@@ -13,6 +14,7 @@ import com.example.communication_super_app.call.CallHandler
 import com.example.communication_super_app.call.CallInCallService
 import com.example.communication_super_app.calllog.CallLogSyncHandler
 import com.example.communication_super_app.contacts.ContactExtrasHandler
+import com.example.communication_super_app.contacts.ContactGroupsHandler
 import com.example.communication_super_app.contacts.ContactLinkHandler
 import com.example.communication_super_app.contacts.SimContactsHandler
 import com.example.communication_super_app.scheduled.ScheduledSmsChannel
@@ -30,6 +32,7 @@ class MainActivity : FlutterActivity() {
     private var callLogSyncHandler: CallLogSyncHandler? = null
     private var contactExtrasHandler: ContactExtrasHandler? = null
     private var contactLinkHandler: ContactLinkHandler? = null
+    private var contactGroupsHandler: ContactGroupsHandler? = null
     private var simHandler: SimHandler? = null
     private var simContactsHandler: SimContactsHandler? = null
     private var locationHandler: LocationHandler? = null
@@ -121,6 +124,18 @@ class MainActivity : FlutterActivity() {
             )
         )
 
+        // ── Contact labels (برچسب‌ها) ───────────────────────────────────
+        // Groups belong to ACCOUNTS, and flutter_contacts writes them without
+        // one — see ContactGroupsHandler for why a label made through the
+        // plugin could never hold anybody.
+        contactGroupsHandler = ContactGroupsHandler(applicationContext)
+        contactGroupsHandler?.setup(
+            MethodChannel(
+                flutterEngine.dartExecutor.binaryMessenger,
+                ContactGroupsHandler.CHANNEL,
+            )
+        )
+
         // ── SIM roster (دو سیم‌کارته) ───────────────────────────────────
         // Method channel for the one-shot reads, event channel for the live
         // roster — a SIM inserted while the app runs must change the composer
@@ -192,15 +207,19 @@ class MainActivity : FlutterActivity() {
         ).also { channel ->
             channel.setMethodCallHandler { call, result ->
                 when (call.method) {
-                    "getInitialThreadId" -> {
-                        val id = intent?.getStringExtra("threadId")
-                        intent?.removeExtra("threadId")
-                        result.success(id)
-                    }
+                    "getInitialAction" -> result.success(consumeLaunchAction(intent))
                     // Which conversation is on screen (null when none) — used
                     // to suppress notifications for the open chat.
                     "setVisibleThread" -> {
                         visibleThreadId = call.arguments as? String
+                        result.success(true)
+                    }
+                    // «اخیر» came on screen — the missed-call notifications
+                    // point at the list the user is now looking at.
+                    "clearMissedCallNotifications" -> {
+                        CallInCallService.clearMissedCallNotifications(
+                            applicationContext,
+                        )
                         result.success(true)
                     }
                     // Dismiss this thread's SMS notifications (user opened it).
@@ -220,10 +239,84 @@ class MainActivity : FlutterActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        consumeLaunchAction(intent)?.let {
+            intentsChannel?.invokeMethod("openAction", it)
+        }
+    }
+
+    /**
+     * What the launching intent is asking the app to open, or null.
+     *
+     * Three kinds, and only the first one existed before:
+     *
+     * - `thread` — an SMS notification tap (`threadId` extra).
+     * - `dial` — `ACTION_DIAL` / `ACTION_VIEW` on a `tel:` URI. This is what
+     *   «Call» on a selected number in a browser or another app produces, and
+     *   holding ROLE_DIALER means it is delivered *here*: the manifest declared
+     *   the filter (the role requires it) while nothing read the intent, so the
+     *   app opened on whatever tab it felt like and the number was lost.
+     * - `sms` — `ACTION_SENDTO`/`ACTION_VIEW` on `sms:`/`smsto:`/`mms:`/
+     *   `mmsto:`, or a plain-text `ACTION_SEND` share. Same story on the SMS
+     *   side of the two roles.
+     *
+     * **Consuming**: whatever was read is stripped from the intent, because the
+     * activity keeps it. Without that, every later resume would re-open the
+     * same conversation or keypad on top of whatever the user had navigated to.
+     */
+    private fun consumeLaunchAction(intent: Intent?): Map<String, Any?>? {
+        if (intent == null) return null
+
         intent.getStringExtra("threadId")?.let { threadId ->
             intent.removeExtra("threadId")
-            intentsChannel?.invokeMethod("openThread", threadId)
+            if (threadId.isNotEmpty()) {
+                return mapOf("type" to "thread", "threadId" to threadId)
+            }
         }
+
+        val data = intent.data
+        val action = intent.action
+        // getSchemeSpecificPart, never the path: `tel:*100%23` decodes back to
+        // the literal «*100#» here, which is the whole point of building the
+        // URI with Uri.fromParts (see CallHandler.makeCall).
+        val target = data?.schemeSpecificPart?.trim().orEmpty()
+
+        when (data?.scheme?.lowercase()) {
+            "tel" -> if (action == Intent.ACTION_DIAL || action == Intent.ACTION_VIEW) {
+                intent.data = null
+                return mapOf("type" to "dial", "number" to target)
+            }
+            "sms", "smsto", "mms", "mmsto" -> {
+                intent.data = null
+                // «//» and a trailing «?body=…» are both legal in these URIs.
+                // The query is pulled out by hand: `sms:0912…?body=…` is an
+                // *opaque* URI and `Uri.getQueryParameter` throws on those.
+                val number = target.substringBefore('?').trimStart('/')
+                val query = target.substringAfter('?', "")
+                val bodyFromUri = query
+                    .split('&')
+                    .firstOrNull { it.startsWith("body=") }
+                    ?.removePrefix("body=")
+                    ?.let { runCatching { Uri.decode(it) }.getOrNull() }
+                val body = intent.getStringExtra("sms_body")
+                    ?: bodyFromUri
+                    ?: intent.getStringExtra(Intent.EXTRA_TEXT)
+                return mapOf(
+                    "type" to "sms",
+                    "number" to number,
+                    "body" to body,
+                )
+            }
+        }
+
+        // Share-to-SMS with no recipient: the app picks who to send it to.
+        if (action == Intent.ACTION_SEND && intent.type == "text/plain") {
+            val body = intent.getStringExtra(Intent.EXTRA_TEXT)
+            intent.removeExtra(Intent.EXTRA_TEXT)
+            if (!body.isNullOrEmpty()) {
+                return mapOf("type" to "sms", "number" to "", "body" to body)
+            }
+        }
+        return null
     }
 
     private fun pickImage(result: MethodChannel.Result) {

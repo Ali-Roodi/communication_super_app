@@ -44,10 +44,15 @@ class SimBadge extends StatelessWidget {
       ),
       child: Text(
         compact ? label : '${sim.slotLabel} · ${sim.name}',
-        style: (compact
-                ? Theme.of(context).textTheme.labelSmall
-                : Theme.of(context).textTheme.labelMedium)
-            ?.copyWith(color: tint, fontWeight: FontWeight.w600, height: 1.2),
+        style:
+            (compact
+                    ? Theme.of(context).textTheme.labelSmall
+                    : Theme.of(context).textTheme.labelMedium)
+                ?.copyWith(
+                  color: tint,
+                  fontWeight: FontWeight.w600,
+                  height: 1.2,
+                ),
       ),
     );
   }
@@ -176,8 +181,9 @@ Future<SimCard?> showSimPicker(
               ),
               child: Text(
                 title,
-                style: Theme.of(sheetContext).textTheme.titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w600),
+                style: Theme.of(
+                  sheetContext,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
             ),
             if (subtitle != null) ...[

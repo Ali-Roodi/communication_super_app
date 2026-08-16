@@ -105,8 +105,7 @@ class MessageComposer extends StatelessWidget {
       final previous = value.text.codeUnitAt(start - 1);
       final isLowSurrogate = unit >= 0xDC00 && unit <= 0xDFFF;
       final isHighSurrogate = previous >= 0xD800 && previous <= 0xDBFF;
-      final joins =
-          unit == 0x200D || previous == 0x200D || unit == 0xFE0F;
+      final joins = unit == 0x200D || previous == 0x200D || unit == 0xFE0F;
       if ((isLowSurrogate && isHighSurrogate) || joins) {
         start--;
         continue;
@@ -181,8 +180,8 @@ class MessageComposer extends StatelessWidget {
     // Surface the counter once the user nears the first-segment limit or the
     // message will split into more than one SMS.
     final showCounter = len > 0 && (segments > 1 || single - len <= 20);
-    final remaining =
-        (segments <= 1 ? single - len : segments * multi - len).clamp(0, single);
+    final remaining = (segments <= 1 ? single - len : segments * multi - len)
+        .clamp(0, single);
 
     return SafeArea(
       top: false,
@@ -404,4 +403,3 @@ class _ScheduleBanner extends StatelessWidget {
     );
   }
 }
-

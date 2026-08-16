@@ -317,7 +317,11 @@ class SearchPill extends StatelessWidget {
               children: [
                 const SizedBox(width: 8),
                 leading ??
-                    Icon(Icons.search, color: scheme.onSurfaceVariant, size: 24),
+                    Icon(
+                      Icons.search,
+                      color: scheme.onSurfaceVariant,
+                      size: 24,
+                    ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(

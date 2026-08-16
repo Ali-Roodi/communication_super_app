@@ -14,6 +14,7 @@ import '../bloc/contact_event.dart';
 import '../models/contact_model.dart';
 import '../repositories/contact_repository.dart';
 import '../services/contact_link_service.dart';
+import '../widgets/merge_contacts_dialog.dart';
 
 /// «مخاطب‌های تکراری» — the same person, saved twice.
 ///
@@ -186,11 +187,14 @@ class _DuplicateContactsScreenState extends State<DuplicateContactsScreen> {
   }
 
   Future<void> _merge(int index, List<ContactModel> group) async {
+    final choice = await showMergeContactsDialog(context, contacts: group);
+    if (choice == null || !mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     final contactBloc = context.read<ContactBloc>();
-    final merged = await ContactLinkService.instance.link([
-      for (final c in group) c.id,
-    ]);
+    final merged = await ContactLinkService.instance.link(
+      [for (final c in group) c.id],
+      primaryContactId: choice.primaryContactId,
+    );
     ContactRepository().invalidateCache();
     LazyContactAvatar.invalidateCache();
     if (!mounted) return;

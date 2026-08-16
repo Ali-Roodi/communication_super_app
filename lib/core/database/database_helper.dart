@@ -527,7 +527,9 @@ class DatabaseHelper {
       _ftsAvailable = true;
     } catch (e) {
       _ftsAvailable = false;
-      debugPrint('FTS5 trigram index unavailable; search falls back to scan: $e');
+      debugPrint(
+        'FTS5 trigram index unavailable; search falls back to scan: $e',
+      );
     }
   }
 
@@ -713,14 +715,18 @@ class DatabaseHelper {
     // older than the one before, so the board opens in the catalogue's order.
     for (var i = 0; i < seeds.length; i++) {
       final template = seeds[i];
-      batch.insert(AppConstants.messageTemplatesTable, {
-        'id': template.id,
-        'title': template.title,
-        'body': template.body,
-        'use_contact_name': template.useContactName ? 1 : 0,
-        'is_pinned': 0,
-        'updated_at': now - i,
-      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      batch.insert(
+        AppConstants.messageTemplatesTable,
+        {
+          'id': template.id,
+          'title': template.title,
+          'body': template.body,
+          'use_contact_name': template.useContactName ? 1 : 0,
+          'is_pinned': 0,
+          'updated_at': now - i,
+        },
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
     }
     await batch.commit(noResult: true);
   }

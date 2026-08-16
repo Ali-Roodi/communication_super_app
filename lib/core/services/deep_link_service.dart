@@ -1,14 +1,72 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-/// Deep links from native notifications into the app.
+/// What an incoming intent asked the app to open.
 ///
-/// An SMS notification (posted natively by `SmsNotifier`) launches
-/// MainActivity with a `threadId` extra:
-/// - **Cold start** — the extra sits on the launch intent; call
-///   [consumeInitialThreadId] once the UI is ready.
-/// - **Warm start** — MainActivity.onNewIntent pushes the id through
-///   `openThread`; register [onOpenThread] to receive it.
+/// Three kinds, and they all arrive through the same channel because they all
+/// mean the same thing: *someone outside the app pointed at a screen inside it*.
+enum LaunchActionType {
+  /// An SMS notification tap — the conversation for a thread id.
+  thread,
+
+  /// A `tel:` intent (`ACTION_DIAL` / `ACTION_VIEW`): open the keypad with the
+  /// number already in it. Delivered here because this app holds ROLE_DIALER.
+  dial,
+
+  /// An `sms:`/`smsto:` intent or a shared text: open the conversation with the
+  /// body typed in. An empty [number] means "ask who to send it to".
+  sms,
+}
+
+class LaunchAction {
+  const LaunchAction({
+    required this.type,
+    this.threadId = '',
+    this.number = '',
+    this.body,
+  });
+
+  final LaunchActionType type;
+  final String threadId;
+  final String number;
+  final String? body;
+
+  static LaunchAction? fromMap(Object? raw) {
+    if (raw is! Map) return null;
+    final map = raw.cast<Object?, Object?>();
+    final type = map['type'] as String?;
+    switch (type) {
+      case 'thread':
+        final id = (map['threadId'] as String?) ?? '';
+        if (id.isEmpty) return null;
+        return LaunchAction(type: LaunchActionType.thread, threadId: id);
+      case 'dial':
+        final number = (map['number'] as String?) ?? '';
+        if (number.isEmpty) return null;
+        return LaunchAction(type: LaunchActionType.dial, number: number);
+      case 'sms':
+        return LaunchAction(
+          type: LaunchActionType.sms,
+          number: (map['number'] as String?) ?? '',
+          body: map['body'] as String?,
+        );
+      default:
+        return null;
+    }
+  }
+}
+
+/// Deep links from native notifications and from other apps' intents.
+///
+/// - **Cold start** — the intent sits on the launch intent; call
+///   [consumeInitialAction] once the UI is ready.
+/// - **Warm start** — MainActivity.onNewIntent pushes it through `openAction`;
+///   register [onAction] to receive it.
+///
+/// The native side *consumes* what it hands over (the extra is removed, the
+/// data URI cleared), so neither path can replay the same action on the next
+/// resume — which would drop a keypad or a conversation on top of whatever the
+/// user had opened since.
 class DeepLinkService {
   DeepLinkService._();
   static final DeepLinkService instance = DeepLinkService._();
@@ -17,8 +75,8 @@ class DeepLinkService {
     'com.example.communication_super_app/intents',
   );
 
-  /// Called when a notification is tapped while the app is alive.
-  void Function(String threadId)? onOpenThread;
+  /// Called when an intent arrives while the app is alive.
+  void Function(LaunchAction action)? onAction;
 
   bool _handlerRegistered = false;
 
@@ -27,23 +85,23 @@ class DeepLinkService {
     if (_handlerRegistered) return;
     _handlerRegistered = true;
     _channel.setMethodCallHandler((call) async {
-      if (call.method == 'openThread') {
-        final threadId = call.arguments as String?;
-        if (threadId != null && threadId.isNotEmpty) {
-          onOpenThread?.call(threadId);
-        }
+      if (call.method == 'openAction') {
+        final action = LaunchAction.fromMap(call.arguments);
+        if (action != null) onAction?.call(action);
       }
     });
   }
 
-  /// The `threadId` the app was launched with (notification tap on a dead
-  /// process), or null. The native side clears it — safe to call repeatedly.
-  Future<String?> consumeInitialThreadId() async {
+  /// The action the app was launched with (a notification tap or a `tel:` /
+  /// `sms:` intent on a dead process), or null.
+  Future<LaunchAction?> consumeInitialAction() async {
     try {
-      final id = await _channel.invokeMethod<String>('getInitialThreadId');
-      return (id != null && id.isNotEmpty) ? id : null;
+      final raw = await _channel.invokeMethod<Map<Object?, Object?>>(
+        'getInitialAction',
+      );
+      return LaunchAction.fromMap(raw);
     } catch (e) {
-      debugPrint('consumeInitialThreadId failed: $e');
+      debugPrint('consumeInitialAction failed: $e');
       return null;
     }
   }
@@ -56,6 +114,17 @@ class DeepLinkService {
       await _channel.invokeMethod('setVisibleThread', threadId);
     } catch (e) {
       debugPrint('setVisibleThread failed: $e');
+    }
+  }
+
+  /// Dismisses the missed-call notifications — and telecom's, which is what
+  /// makes the OEM dialer drop its own duplicate. Called when «اخیر» is on
+  /// screen: the user is looking at the list the notification points at.
+  Future<void> clearMissedCallNotifications() async {
+    try {
+      await _channel.invokeMethod('clearMissedCallNotifications');
+    } catch (e) {
+      debugPrint('clearMissedCallNotifications failed: $e');
     }
   }
 

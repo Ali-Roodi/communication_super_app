@@ -114,7 +114,9 @@ class SearchText {
     if (c >= 0x064B && c <= 0x0652) return true; // harakat
     if (c >= 0x200B && c <= 0x200F) return true; // ZWSP…RLM
     if (c >= 0x202A && c <= 0x202E) return true; // bidi embedding/override
-    return c == 0x0640 || c == 0x0670 || c == 0xFEFF; // tatweel, superscript alef, BOM
+    return c == 0x0640 ||
+        c == 0x0670 ||
+        c == 0xFEFF; // tatweel, superscript alef, BOM
   }
 
   /// Persian (۰–۹) and Arabic-Indic (٠–٩) digit block starts.
@@ -134,11 +136,7 @@ class SearchText {
       if (_isIgnorable(c)) continue;
       buffer.writeCharCode(_canonical(c));
     }
-    return buffer
-        .toString()
-        .toLowerCase()
-        .replaceAll(_whitespace, ' ')
-        .trim();
+    return buffer.toString().toLowerCase().replaceAll(_whitespace, ' ').trim();
   }
 
   /// [fold] with every space removed — «محمدرضا» has to find «محمد رضا».
@@ -349,10 +347,7 @@ class SearchText {
     for (final start in t9.wordStarts) {
       if (start + query.length > t9.digits.length) continue;
       if (!t9.digits.startsWith(query, start)) continue;
-      return (
-        t9.positions[start],
-        t9.positions[start + query.length - 1] + 1,
-      );
+      return (t9.positions[start], t9.positions[start + query.length - 1] + 1);
     }
     return null;
   }

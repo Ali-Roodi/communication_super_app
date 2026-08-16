@@ -212,11 +212,28 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     );
     final hasMore = rawThreads.length >= limit;
     if (offset == 0) _setPagedCount(rawThreads.length, archived: archived);
+    // `_syncing` is set before the first paint of a cold start, so an empty
+    // inbox can say it is still importing instead of saying there is nothing.
+    final syncing = _syncing || !_hasImported;
     if (_cachedPhoneToName == null && rawThreads.isNotEmpty) {
-      emit(ThreadsLoaded(rawThreads, hasMore: hasMore, archived: archived));
+      emit(
+        ThreadsLoaded(
+          rawThreads,
+          hasMore: hasMore,
+          archived: archived,
+          syncing: syncing,
+        ),
+      );
     }
     final threads = await _resolveContactNames(rawThreads);
-    emit(ThreadsLoaded(threads, hasMore: hasMore, archived: archived));
+    emit(
+      ThreadsLoaded(
+        threads,
+        hasMore: hasMore,
+        archived: archived,
+        syncing: syncing,
+      ),
+    );
   }
 
   /// Starts the incoming-SMS listener once. The `SmsService._listening` guard
@@ -239,11 +256,18 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   /// during the first sync waited for the whole provider reconcile. Here the
   /// future runs on its own and only its (cheap) completion comes back as an
   /// event.
-  void _startBackgroundSync({bool forceRefresh = false, bool throttle = false}) {
+  void _startBackgroundSync({
+    bool forceRefresh = false,
+    bool throttle = false,
+  }) {
     if (_syncing) return;
     _syncing = true;
     _smsService
-        .syncDeviceMessages(forceRefresh: forceRefresh, throttle: throttle)
+        .syncDeviceMessages(
+          forceRefresh: forceRefresh,
+          throttle: throttle,
+          onProgress: _onSyncProgress,
+        )
         .then(
           (_) {
             if (!isClosed) add(const DeviceSyncFinished(ok: true));
@@ -260,6 +284,28 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
           // itself is (see this method's doc).
           _drainSearchIndex();
         });
+  }
+
+  /// Last moment a mid-sync refresh was published.
+  DateTime? _lastSyncProgressAt;
+
+  /// A page of the first import landed.
+  ///
+  /// The first run on an existing phone walks the whole mailbox, which takes
+  /// long enough that showing nothing until it finishes reads as a hang. This
+  /// republishes what has arrived so far — throttled, because a refresh is a
+  /// full inbox query and the import is deliberately made of many small pages.
+  /// [LoadThreads] does not emit a loading state when threads are already on
+  /// screen, so the list simply grows.
+  void _onSyncProgress() {
+    if (isClosed) return;
+    final last = _lastSyncProgressAt;
+    final now = DateTime.now();
+    if (last != null && now.difference(last) < const Duration(seconds: 2)) {
+      return;
+    }
+    _lastSyncProgressAt = now;
+    if (state is ThreadsLoaded) add(const LoadThreads());
   }
 
   /// Whether a search-index backfill is already walking.

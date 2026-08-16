@@ -22,11 +22,23 @@ class ContactLinkService {
   /// The returned id is **not** guaranteed to be one of the inputs — the
   /// provider re-aggregates and picks its own — so callers refresh the list
   /// rather than assuming which row survived.
-  Future<String?> link(List<String> contactIds) async {
+  ///
+  /// [primaryContactId] is the contact whose **name and photo** the merged
+  /// contact keeps. Without it the provider picks by its own rules, which is
+  /// why merging «علی» and «علی رودی» could leave either one on screen with no
+  /// say in the matter. Nothing else is affected: every number, email and
+  /// address of every input is still there, and unlinking undoes all of it.
+  Future<String?> link(
+    List<String> contactIds, {
+    String? primaryContactId,
+  }) async {
     final ids = contactIds.where((id) => id.trim().isNotEmpty).toSet().toList();
     if (ids.length < 2) return null;
     try {
-      return await _channel.invokeMethod<String>('link', {'contactIds': ids});
+      return await _channel.invokeMethod<String>('link', {
+        'contactIds': ids,
+        'primaryContactId': primaryContactId,
+      });
     } on PlatformException catch (e) {
       debugPrint('Contact link failed: ${e.code} ${e.message}');
       return null;

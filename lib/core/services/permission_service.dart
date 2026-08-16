@@ -27,12 +27,17 @@ class PermissionService {
 
   /// Returns `true` if every required permission is already granted.
   /// Does NOT show any dialog.
+  ///
+  /// The four reads run **together**. Sequentially they are four platform round
+  /// trips on the critical path of every single launch — nothing is shown
+  /// until they answer, so their sum is dead time before the first real frame.
+  /// Nothing here depends on the previous answer, so there is no reason to
+  /// pay for it.
   Future<bool> hasAllRequiredPermissions() async {
-    for (final p in requiredPermissions) {
-      final status = await p.status;
-      if (!status.isGranted) return false;
-    }
-    return true;
+    final statuses = await Future.wait(
+      requiredPermissions.map((p) => p.status),
+    );
+    return statuses.every((s) => s.isGranted);
   }
 
   /// Requests every required permission in sequence (one dialog at a time).

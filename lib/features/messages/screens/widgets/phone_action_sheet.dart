@@ -96,10 +96,7 @@ class _PhoneActionSheetState extends State<_PhoneActionSheet> {
                 name: name ?? display,
                 size: 44,
               ),
-              title: Text(
-                name ?? display,
-                style: theme.textTheme.titleMedium,
-              ),
+              title: Text(name ?? display, style: theme.textTheme.titleMedium),
               subtitle: name == null
                   ? null
                   : Directionality(
@@ -111,11 +108,10 @@ class _PhoneActionSheetState extends State<_PhoneActionSheet> {
             ListTile(
               leading: const Icon(Icons.call_outlined),
               title: const Text('تماس'),
-              onTap: () => _pop(
-                (_) => placeCall(context, widget.number),
-              ),
+              onTap: () => _pop((_) => placeCall(context, widget.number)),
               onLongPress: SimService.isMultiSim
-                  ? () => _pop((_) => placeCallPickingSim(context, widget.number))
+                  ? () =>
+                        _pop((_) => placeCallPickingSim(context, widget.number))
                   : null,
             ),
             // Explicit per-SIM rows: a long-press is a shortcut, not a

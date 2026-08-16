@@ -140,8 +140,10 @@ class DraftBloc extends Bloc<DraftEvent, DraftState> {
   Future<void> _onPinCategories(
     PinCategories event,
     Emitter<DraftState> emit,
-  ) async =>
-      _mutate(emit, () => _repository.setCategoriesPinned(event.ids, event.pin));
+  ) async => _mutate(
+    emit,
+    () => _repository.setCategoriesPinned(event.ids, event.pin),
+  );
 
   Future<void> _onAddCategory(
     AddCategory event,

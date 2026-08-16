@@ -24,9 +24,84 @@ import 'package:communication_super_app/features/dialer/bloc/dialer_state.dart';
 /// The dialed-number readout that sits at the top of the keypad panel, with the
 /// backspace tucked into the panel's leading corner — Google Phone's layout.
 /// Tap deletes one digit; long-press clears the whole field.
+///
+/// **Long-pressing the readout pastes**, exactly as it does in Google Phone. A
+/// number copied from a browser, a messenger or a note is the ordinary way one
+/// arrives on a phone, and without this the only way in was to retype it digit
+/// by digit — the keypad has no text field, so the platform's own paste gesture
+/// has nothing to attach to.
 class DialerNumberDisplay extends StatelessWidget {
   final DialerState state;
   const DialerNumberDisplay({super.key, required this.state});
+
+  /// The dialable part of whatever is on the clipboard, or empty.
+  static Future<String> _clipboardNumber() async {
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      return DialerBloc.sanitizeDialable(data?.text?.trim() ?? '');
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// Puts [number] into the field.
+  ///
+  /// Appends when something is already typed (that is what paste means in the
+  /// middle of a number) and replaces otherwise.
+  static void _paste(BuildContext context, String number) {
+    final bloc = context.read<DialerBloc>();
+    HapticFeedback.mediumImpact();
+    bloc.add(
+      DialerNumberSet(number, append: bloc.state.dialedNumber.isNotEmpty),
+    );
+  }
+
+  /// The one-item «چسباندن» menu the long-press opens, over the readout.
+  ///
+  /// A menu rather than pasting straight away: a long-press that silently
+  /// rewrites the number under the thumb is not undoable, and Google Phone asks
+  /// in the same place.
+  ///
+  /// The clipboard is read *before* the menu is built, so an empty one shows a
+  /// disabled row that says so. The alternative — a snack bar afterwards — is
+  /// invisible here: the keypad lives in a modal sheet that covers the bottom
+  /// of the screen, which is exactly where the snack bar appears.
+  Future<void> _showPasteMenu(BuildContext context) async {
+    HapticFeedback.mediumImpact();
+    // Resolved before the clipboard read, so nothing looks up an ancestor
+    // across the await.
+    final box = context.findRenderObject() as RenderBox?;
+    final overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox?;
+    final number = await _clipboardNumber();
+    if (!context.mounted) return;
+    if (box == null || overlay == null || !box.hasSize) return;
+    final origin = box.localToGlobal(Offset.zero, ancestor: overlay);
+    final picked = await showMenu<bool>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        origin.dx,
+        origin.dy + box.size.height * 0.5,
+        overlay.size.width - origin.dx - box.size.width,
+        0,
+      ),
+      items: [
+        PopupMenuItem<bool>(
+          value: true,
+          enabled: number.isNotEmpty,
+          child: Row(
+            children: [
+              const Icon(Icons.content_paste, size: 18),
+              const SizedBox(width: 12),
+              Text(number.isEmpty ? 'چیزی برای چسباندن نیست' : 'چسباندن'),
+            ],
+          ),
+        ),
+      ],
+    );
+    if (picked != true || !context.mounted || number.isEmpty) return;
+    _paste(context, number);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -44,34 +119,41 @@ class DialerNumberDisplay extends StatelessWidget {
           children: [
             const SizedBox(width: 48), // balances the backspace button
             Expanded(
-              child: Center(
-                child: hasNumber
-                    ? Directionality(
-                        textDirection: TextDirection.ltr,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Flexible(
-                              child: Text(
-                                PersianUtils.toPersianNumber(
-                                  state.dialedNumber,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: fontSize,
-                                  fontWeight: FontWeight.w400,
-                                  letterSpacing: 1.5,
-                                  color: scheme.onSurface,
+              // The whole readout — including the empty area before anything is
+              // typed, which is where a paste most often starts — is the paste
+              // target.
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onLongPress: () => _showPasteMenu(context),
+                child: Center(
+                  child: hasNumber
+                      ? Directionality(
+                          textDirection: TextDirection.ltr,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  PersianUtils.toPersianNumber(
+                                    state.dialedNumber,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: fontSize,
+                                    fontWeight: FontWeight.w400,
+                                    letterSpacing: 1.5,
+                                    color: scheme.onSurface,
+                                  ),
                                 ),
                               ),
-                            ),
-                            _BlinkingCaret(height: fontSize),
-                          ],
-                        ),
-                      )
-                    : const SizedBox.shrink(),
+                              _BlinkingCaret(height: fontSize),
+                            ],
+                          ),
+                        )
+                      : const SizedBox.shrink(),
+                ),
               ),
             ),
             SizedBox(

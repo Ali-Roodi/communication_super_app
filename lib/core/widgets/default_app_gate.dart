@@ -101,7 +101,8 @@ class _DefaultAppGateState extends State<DefaultAppGate>
   Future<void> _check() async {
     final sms = await NativeSmsService().isDefaultSmsApp();
     final dialer = await NativeCallService.instance.isDefaultDialer();
-    final fullScreen = await NativeCallService.instance.canUseFullScreenIntent();
+    final fullScreen = await NativeCallService.instance
+        .canUseFullScreenIntent();
     final notifications = await NativeCallService.instance
         .areCallNotificationsEnabled();
     if (!mounted) return;

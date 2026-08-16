@@ -16,9 +16,11 @@ class AuthWrapperScreen extends StatelessWidget {
     return BlocBuilder<AuthBloc, AuthState>(
       builder: (context, state) {
         if (state is AuthLoading) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+          // Blank, not a spinner — this is a secure-storage read that resolves
+          // in a few frames on the way from the launch splash to the app, and
+          // a spinner in that gap is the whole of "it shows a loading screen
+          // every time I open it". See [PermissionGate] for the same call.
+          return const Scaffold(body: SizedBox.shrink());
         }
 
         if (state is AuthNotSet) {
@@ -45,7 +47,7 @@ class AuthWrapperScreen extends StatelessWidget {
           );
         }
 
-        return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        return const Scaffold(body: SizedBox.shrink());
       },
     );
   }
