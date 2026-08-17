@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/theme/theme_bloc.dart';
+import 'package:communication_super_app/core/utils/message_text_scale.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_event.dart';
@@ -261,7 +262,79 @@ class MessageSettingsPage extends StatelessWidget {
           onChanged: (v) =>
               bloc.add(SetBoolSetting(BoolSetting.swipeActions, v)),
         ),
+        const MessageTextScaleRow(),
       ],
+    );
+  }
+}
+
+/// «اندازه متن پیام» — the same value the pinch gesture on a conversation
+/// writes, with a live sample so the size is judged by reading it rather than
+/// by a number.
+///
+/// The row exists as well as the gesture because a pinch is not discoverable:
+/// somebody who needs bigger text is exactly the person least likely to find a
+/// hidden two-finger gesture.
+class MessageTextScaleRow extends StatelessWidget {
+  const MessageTextScaleRow({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final scale = context.settings.messageTextScale;
+    final bloc = context.settingsBloc;
+    final scheme = Theme.of(context).colorScheme;
+    final steps = MessageTextScale.steps;
+    final index = steps.indexOf(MessageTextScale.snap(scale));
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'اندازه متن پیام',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              Text(
+                MessageTextScale.label(scale),
+                style: TextStyle(color: scheme.onSurfaceVariant),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'در صفحه گفتگو هم می‌توانید با دو انگشت بزرگ‌نمایی کنید',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+          Slider(
+            value: (index < 0 ? steps.indexOf(MessageTextScale.normal) : index)
+                .toDouble(),
+            min: 0,
+            max: (steps.length - 1).toDouble(),
+            divisions: steps.length - 1,
+            label: MessageTextScale.label(scale),
+            onChanged: (v) => bloc.add(SetMessageTextScale(steps[v.round()])),
+          ),
+          // The sample is drawn at the chosen size — the only honest preview.
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Text(
+              'نمونه متن پیام',
+              textScaler: TextScaler.linear(scale),
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

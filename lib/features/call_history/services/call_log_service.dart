@@ -331,7 +331,9 @@ class CallLogService {
         phoneNumber: data['phoneNumber'] as String,
         callType: CallType.values[data['callType'] as int],
         duration: data['duration'] as int?,
-        timestamp: DateTime.fromMillisecondsSinceEpoch(data['timestamp'] as int),
+        timestamp: DateTime.fromMillisecondsSinceEpoch(
+          data['timestamp'] as int,
+        ),
         // The call log records the PhoneAccount id of the SIM that took the
         // call; SimService maps it back to a subscription. This replaced
         // `simDisplayName != null ? 1 : null`, which reported «سیم ۱» for

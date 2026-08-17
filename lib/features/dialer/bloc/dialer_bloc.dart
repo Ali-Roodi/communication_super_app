@@ -257,6 +257,10 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
             activeName: info.name,
             isConference: info.isConference ?? state.isConference,
             activeSubscriptionId: info.subscriptionId,
+            // Telecom's own connect time. Authoritative, and the reason the
+            // duration survives minimizing the call screen and a cold start
+            // into a call that was already running.
+            callConnectedAt: info.connectedAt,
           ),
         );
       case NativeCallEvent.onHold:
@@ -264,6 +268,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
           state.copyWith(
             callStatus: CallStatus.onHold,
             isConference: info.isConference ?? state.isConference,
+            callConnectedAt: info.connectedAt,
           ),
         );
       case NativeCallEvent.disconnected:
@@ -302,6 +307,13 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
             canMerge: info.canMerge ?? state.canMerge,
           ),
         );
+      case NativeCallEvent.showCallUi:
+      // A request to re-open the call screen, not a state change —
+      // CallUiCoordinator listens to NativeCallService.onShowCallUi.
+      case NativeCallEvent.unknown:
+        // An event name this build does not know. Deliberately nothing: it
+        // used to be parsed as DISCONNECTED and tear a live call's UI down.
+        break;
     }
   }
 
@@ -352,6 +364,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
         canMerge: false,
         isConference: false,
         clearError: true,
+        clearCallConnectedAt: true,
       ),
     );
     unawaited(() async {
@@ -384,6 +397,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
         canMerge: false,
         isConference: false,
         clearError: true,
+        clearCallConnectedAt: true,
       ),
     );
     try {
@@ -409,7 +423,10 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     }
   }
 
-  Future<void> _onMergeCalls(MergeCalls event, Emitter<DialerState> emit) async {
+  Future<void> _onMergeCalls(
+    MergeCalls event,
+    Emitter<DialerState> emit,
+  ) async {
     try {
       await _callService.mergeCalls();
     } catch (e) {
@@ -441,6 +458,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     canMerge: false,
     isConference: false,
     clearError: true,
+    clearCallConnectedAt: true,
   );
 
   /// Asks telecom whether a call actually exists and drops the call UI if it

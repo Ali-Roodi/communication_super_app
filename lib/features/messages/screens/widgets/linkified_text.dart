@@ -2,14 +2,17 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:communication_super_app/core/utils/ussd_code.dart';
 import 'phone_action_sheet.dart';
+import 'ussd_action_sheet.dart';
 
 /// Message body text with tappable links.
 ///
-/// Detects web URLs (`http://`, `https://`, `www.`) and phone-like numbers
-/// (8+ digits) and renders them underlined; tapping opens the browser /
-/// dialer. When [enableTaps] is false (multi-select mode) links render styled
-/// but inert so bubble taps keep toggling selection.
+/// Detects web URLs (`http://`, `https://`, `www.`), USSD/MMI codes
+/// (`*140*11#`) and phone-like numbers (8+ digits) and renders them
+/// underlined; tapping opens the browser, the USSD sheet or the phone sheet.
+/// When [enableTaps] is false (multi-select mode) links render styled but inert
+/// so bubble taps keep toggling selection.
 class LinkifiedText extends StatefulWidget {
   final String text;
   final TextStyle? style;
@@ -24,10 +27,19 @@ class LinkifiedText extends StatefulWidget {
     this.enableTaps = true,
   });
 
-  /// URLs first (so `www.` inside a URL isn't re-matched), then bare numbers
-  /// long enough to be phone numbers (avoids linkifying OTP codes).
+  /// URLs first (so `www.` inside a URL isn't re-matched), then USSD codes
+  /// (before numbers, so `**21*0912…#` is one code and not a code with a phone
+  /// number inside it), then bare numbers long enough to be phone numbers
+  /// (avoids linkifying OTP codes).
+  /// The forward USSD form is listed BEFORE the mirrored one: a run that reads
+  /// as a code as written is that code, and only a run that cannot be read
+  /// forwards at all is re-read backwards (see [UssdCode.correctedOf]).
   static final RegExp _linkPattern = RegExp(
-    r'(https?://[^\s]+|www\.[^\s]+|\+?\d[\d\- ]{7,}\d)',
+    '(https?://[^\\s]+|www\\.[^\\s]+|'
+    '${UssdCode.pattern.pattern}'
+    '|'
+    '${UssdCode.mirroredPattern.pattern}'
+    r'|\+?\d[\d\- ]{7,}\d)',
   );
 
   static final RegExp _webUrlPattern = RegExp(r'(https?://[^\s]+|www\.[^\s]+)');
@@ -68,7 +80,20 @@ class LinkifiedText extends StatefulWidget {
       final link = m.group(0)!;
       spans.add(
         TextSpan(
-          text: link,
+          // Drawn inside an LTR isolate. Every one of these is left-to-right
+          // content sitting in an RTL paragraph, and the bidi algorithm
+          // otherwise resolves their neutral characters (`*` `#` `/` `?` `+`
+          // `-`) to the paragraph's direction and reorders the run around them
+          // — `*140*11#` came out as `#11*140*`, and a trailing `/` on a URL
+          // jumped to the front. The isolate characters are zero-width and are
+          // never stored: nothing but this render path ever sees them.
+          //
+          // A USSD code the sender wrote backwards (see
+          // [UssdCode.correctedOf]) is drawn the right way round — which is the
+          // same thing the reader was already seeing, since the bidi algorithm
+          // was flipping it back, but now it is also what gets copied and
+          // dialled.
+          text: UssdCode.isolate(UssdCode.correctedOf(link) ?? link),
           style: linkStyle,
           recognizer: recognizerFor?.call(link),
         ),
@@ -102,6 +127,15 @@ class _LinkifiedTextState extends State<LinkifiedText> {
   }
 
   Future<void> _open(String raw) async {
+    // A USSD/MMI code: dial it (or copy it) rather than treating the digits
+    // inside as a phone number. Checked before the punctuation trim, whose
+    // trailing-`#`-safe character class deliberately leaves the code intact.
+    // `correctedOf` also puts a code the sender wrote backwards into dialling
+    // order, so the sheet offers what the keypad can actually take.
+    if (UssdCode.correctedOf(raw) case final code?) {
+      if (mounted) await showUssdActionSheet(context, code);
+      return;
+    }
     // Trim trailing punctuation that regularly trails URLs in prose.
     final link = raw.replaceFirst(RegExp(r'[.,;:!?)\]»]+$'), '');
     final Uri uri;

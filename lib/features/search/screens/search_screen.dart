@@ -131,7 +131,8 @@ class _SearchScreenState extends State<SearchScreen> {
                   ),
                   SliverGroupedList(
                     itemCount: state.callLogs.length,
-                    itemBuilder: (_, i) => _CallLogResult(log: state.callLogs[i]),
+                    itemBuilder: (_, i) =>
+                        _CallLogResult(log: state.callLogs[i]),
                   ),
                 ],
                 const SliverToBoxAdapter(child: SizedBox(height: 24)),
@@ -142,7 +143,6 @@ class _SearchScreenState extends State<SearchScreen> {
       ),
     );
   }
-
 }
 
 // ── Empty prompt shown before the user types ──────────────────────────────────
@@ -328,9 +328,9 @@ class _MessageResult extends StatelessWidget {
     // returns indices into the string it was given, so measuring the range on
     // the raw body and painting the collapsed one would highlight the wrong
     // characters (see CLAUDE.md → «Contact search»).
-    final flat = TemplateWire.displayText(hit.message.body)
-        .replaceAll(_whitespaceRun, ' ')
-        .trim();
+    final flat = TemplateWire.displayText(
+      hit.message.body,
+    ).replaceAll(_whitespaceRun, ' ').trim();
     final range = SearchText.matchRange(flat, query);
 
     final spans = <TextSpan>[];

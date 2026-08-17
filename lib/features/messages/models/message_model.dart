@@ -94,10 +94,18 @@ class MessageModel extends Equatable {
   /// `MessageBloc`) and both silently dropped whatever field was added last —
   /// most recently `subscriptionId`, so a bubble lost its SIM badge the moment
   /// its ✓✓ arrived and only got it back on the next read from the DB.
+  /// [deviceSmsId] and [subscriptionId] are "fill in if known": passing null
+  /// keeps whatever the row already had rather than clearing it. That is what
+  /// the send path wants — the native side answers -1/0 for "the platform did
+  /// not say", and forgetting the value the caller asked for would be worse
+  /// than keeping it.
   MessageModel copyWith({
     bool? isStarred,
     MessageStatus? status,
     bool? isRead,
+    DateTime? timestamp,
+    int? deviceSmsId,
+    int? subscriptionId,
   }) => MessageModel(
     id: id,
     threadId: threadId,
@@ -106,11 +114,11 @@ class MessageModel extends Equatable {
     body: body,
     type: type,
     status: status ?? this.status,
-    timestamp: timestamp,
+    timestamp: timestamp ?? this.timestamp,
     isRead: isRead ?? this.isRead,
-    deviceSmsId: deviceSmsId,
+    deviceSmsId: deviceSmsId ?? this.deviceSmsId,
     isStarred: isStarred ?? this.isStarred,
-    subscriptionId: subscriptionId,
+    subscriptionId: subscriptionId ?? this.subscriptionId,
   );
 
   @override

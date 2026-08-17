@@ -267,6 +267,18 @@ The static contact cache carries a **generation counter**: `invalidateCache()` /
 
 **An edit is visible on the page you edited from.** Two halves, and both were missing: `DeviceContactDetailScreen` derives its title from the contact it *re-read* after the editor pops (through `ContactNameStyle.format`, so it obeys «قالب نام»), and `LazyContactAvatar` carries a `static ValueNotifier<int> generation` bumped inside `invalidateCache()` — every mounted avatar listens and reloads its own bytes. Without the second one the name updated and the photo did not, which looks worse than neither. Before this, a rename or a new photo only appeared after leaving the contacts screen and coming back.
 
+### «اخیر» — tap shows actions, long-press shows history
+
+`CallLogTile` expands **in place** on a tap (Google Phone's accordion, so the list never loses its scroll position) and the expansion is now *only* the tonal action rows. It used to list the timestamps of the other calls merged into the row above them, which pushed the buttons the tap was for down the card to make room for something nobody had asked for. The per-call breakdown — with the SMS exchanged with the same number merged into one newest-first timeline — lives in `showCallDetailSheet`, reached by **long-pressing** the row or by «سابقه» inside the expansion.
+
+**Keeping a number and reaching the person behind one are different questions, and both are answered.** `save_number_actions.dart` holds the pair, shared by the recents row, the call-detail sheet, the conversation's overflow and the tapped-number sheet:
+
+- «ایجاد مخاطب جدید» → `AddEditContactScreen(initialPhone:)`.
+- **«افزودن به مخاطب موجود»** → contact picker → the *editor* for that person with the number appended. This was missing everywhere and is the more common case by far (a second number for somebody already in the book); without it the only way to record one was to leave for Contacts and find the person by hand. The editor is opened rather than the number written silently because the label (همراه/خانه/محل کار) is a real question — and because a wrong pick has to be noticeable. `AddEditContactScreen` skips the append when the contact already has the number in any equivalent form (`PhoneNormalizer.toThreadId`), so picking the person it already belongs to does not add a duplicate row.
+- The picker is opened with `pickNumber: false` (pick the *person*, one step, and list people with no number at all — the whole point is that they do not have this one) and `editableOnly: true` (a SIM/ADN record has no ContactsContract row to edit, so offering one leads to an editor that cannot open).
+
+A recents row that **did** resolve to somebody gets «مشاهده مخاطب» + «ویرایش مخاطب». Editing had no entry point from «اخیر» at all: fixing a name for a person you had just spoken to meant leaving for the contacts tab and finding them again.
+
 ### Contact name format & ordering
 
 «قالب نام» and «مرتب‌سازی بر اساس» are applied **where the ContactModel is built** (`ContactRepository.getDeviceContacts`), not where a row is drawn: the name that comes out is what the list, the search, the dialer suggestions, the call-log resolution and the fast-scroll index all see, so they cannot disagree. `ContactNameStyle` (`core/utils/`) is the static mirror of the two settings — same pattern as `DateFormatter.calendar`, for the same reason (a plain repository has no `BuildContext`).
@@ -398,6 +410,36 @@ The app also requests the **default-dialer role** (ROLE_DIALER) — `CallHandler
 - On acquiring both roles it dispatches `SyncDeviceMessages` + `SyncCallLogs` + `RefreshContacts` (not `LoadContacts` — the cache predates the role change).
 - The inbox banner (SMS) and `openDefaultAppsSettings` remain as the alternate entry points.
 
+### Leaving a call without ending it
+
+A call used to own the screen until it was over: back hung up, and the phone that holds the dialer role has no other call UI to fall back on, so looking a number up or reading a message mid-call was impossible. Three pieces, and all three are needed — one of them alone strands the user.
+
+- **Back and «کوچک کردن» minimize.** `InCallScreen` is wrapped in `PopScope(canPop: false)`; both go through `CallUiCoordinator.minimize()`, which removes the call route and sets `CallUiCoordinator.minimized`. `restore()` puts it back (or, when the route is merely buried under a page opened during the call, raises it). The chevron exists as well as the gesture because a back-to-minimize is not discoverable.
+- **`ReturnToCallBar` is mounted from `MaterialApp.builder`, ABOVE the navigator.** The whole reason to leave the call screen is to open something, and everything the user opens is a pushed route — a bar any lower would vanish under the first conversation. It must not be re-parented when it appears: the app's Navigator hangs off it, so the tree **shape** is constant (Stack + MediaQuery always present, only the bar comes and goes) and the app is passed through `ValueListenableBuilder`'s `child`. It pushes the app down by raising `MediaQuery.padding.top` rather than drawing over it.
+- **`CallInCallService.refreshOngoingNotification` posts the shade's «تماس در جریان» card** whenever a connected/dialling call exists and the call screen is not in front. On Android 12+ that `CallStyle.forOngoingCall` is also what produces the status-bar chip. It needs `callScreenShowing()` = `callUiForeground` (MainActivity onStart/onStop) **and** `callRouteUp` — leaving the call screen for another screen of the *same app* produces no lifecycle callback at all, so Dart reports it over `setCallScreenVisible`. Like the incoming card it carries a `fullScreenIntent` it never fires: a CallStyle notification tied to neither a foreground service nor a full-screen intent is rejected with `IllegalArgumentException`, and a crash here hands the call to the OEM dialer.
+- **Tapping the card returns to the call.** Its content intent carries `EXTRA_RETURN_TO_CALL`; `MainActivity.consumeLaunchAction` turns it into a raw `SHOW_CALL_UI` event on the **call** stream (`NativeCallService.onShowCallUi`), not the launch-action map — `CallUiCoordinator` sits above the auth flow and must not wait for `MainNavigation`, which is behind the app lock.
+- **The duration comes from telecom** (`Call.Details.connectTimeMillis` → `DialerState.callConnectedAt`), never counted by the screen. The screen can now be closed and re-opened, and a screen-local counter restarted at zero every time — as it also did on a cold start into a call that had been running for minutes. `formatCallDuration` prints «…», never «۰۰:۰۰», for a call with no connect time yet.
+- `NativeCallEvent.unknown` exists so an event name this build does not recognise is a no-op. It used to fall through to `disconnected`, which reads as «the call ended» and tears a live call's UI down.
+
+### «اندازه متن پیام»
+
+A conversation is the one screen that is nothing but text, read by people of every eyesight, and Android's system font size is a poor answer — turning it up to read an SMS turns the whole phone up. One persisted value (`SettingsState.messageTextScale`), reached three ways: a two-finger pinch on the thread, «اندازه متن» in the conversation's overflow, and «اندازه متن پیام» in Settings → پیامک‌ها. The gesture and the rows write the same setting, so they can never disagree.
+
+- **`MessageTextScaler` composes with the platform's scaling, it does not replace it.** `TextScaler.linear(ours)` would throw away Android 14's non-linear curve *and* whatever the user set system-wide, so a chat would render smaller than the rest of the phone for anyone using large text. It implements `==`/`hashCode` because `MediaQueryData` equality includes the scaler and a fresh unequal instance on every build would rebuild every text widget in the thread once a frame.
+- **Applied to the thread and the composer, NOT the app bar** — a header at 200 % breaks its own layout, and Google Messages does not scale its chrome either.
+- **`_PinchOnlyScaleRecognizer` refuses to win the gesture arena with one finger.** This is the load-bearing part: `ScaleGestureRecognizer` treats a one-finger drag as a pan and claims the arena for it, which would take the conversation list's scroll — the primary interaction on the screen — away in exchange for a gesture nobody made. Acceptance is *swallowed* rather than rejected, so a second finger landing a moment later still starts a real pinch.
+- A pinch settles onto one of `MessageTextScale.steps` on release, so the gesture and the settings rows always name the same size, and it writes the preference **once**, on release.
+
+### USSD codes inside a message
+
+Iranian carriers send them constantly, and in a Persian SMS they were unusable for two independent reasons — both fixed in `UssdCode` + `LinkifiedText`.
+
+- **They rendered backwards.** `*` and `#` are bidi-neutral and digit runs are European Numbers, so inside an RTL paragraph the algorithm resolves the separators to the paragraph direction and reorders the pieces: `*140*11#` came out as `#11*140*`. Every matched link — USSD, URL, phone number — is now drawn inside an **LTR isolate** (U+2066/U+2069). Render-time only: nothing stored ever carries those characters, because the DB row must stay byte-identical to what `content://sms` holds.
+- **They were not tappable.** A tap opens `showUssdActionSheet` (شماره‌گیری / per-SIM rows / کپی کد). Which carrier answers is the whole question for a balance code, so the SIM rows are spelled out rather than hidden behind a long-press. The code goes to telecom through the normal `placeCall` path; `CallInCallService.onCallAdded` already drops MMI dials so no call screen flashes over the network's own dialog.
+- **The shape rule is AOSP's** (`isMmiCode`): starts with `*`/`#`, ends with `#`. The trailing `(?![digits])` is what tells «#31#09121234567» — an MMI *prefix* on a real call — apart from a standalone code.
+- **A mirrored code is put back into dialling order.** Verified on a live Irancell SMS: its Persian half stores «خرید بسته اینترنت: **#5*555***» — the sender typed the code in *visual* order so an RTL renderer would show «*555*5#». It reads correctly and is completely undialable. `UssdCode.correctedOf` reads forward first and only re-reads a run backwards when it is not a code forwards at all, so «#100#» (well-formed in both directions) is never flipped. This is the «اصلاح خودکار» half of the feature; the corrected text is what is drawn, copied and dialled.
+- Persian **and** Arabic-Indic digits are folded to ASCII by `toDialable`; `PersianUtils.toEnglishNumber` only knows the Persian set.
+
 ### SMS notifications (single native pipeline)
 
 ALL incoming-SMS notifications are posted natively by `SmsNotifier` — from the live dynamic receiver (`SmsHandler`) and the cold-start `IncomingSmsReceiver` alike. `NotificationService` has **no SMS path at all** any more (the one it kept "for a telephony fallback" had no callers and was deleted); never add a Dart-side SMS notification back, it would duplicate the native one.
@@ -489,6 +531,22 @@ Two gates keep it off every number in the inbox, and both are load-bearing:
 `SmsService.sendSms` generates the message UUID BEFORE the native send and passes it as `trackingId`; the native sent/delivered PendingIntents carry it back through the SMS EventChannel as typed `{"type":"status"}` events (incoming SMS events carry `"type":"received"`). `SmsService` updates the DB row and broadcasts on the static `onMessageStatusChanged`; `MessageBloc.MessageStatusChanged` swaps the message in the open conversation in place (⏱ pending → ✓ sent → ✓✓ delivered / failed with retry).
 
 **Tapping a bubble expands it** (`ConversationScreen._expandedMessageId` → `MessageBubble.expanded`): the time appears, and on a sent one the tick gets its word («در حال ارسال» / «ارسال شد» / «تحویل داده شد» / «ارسال نشد»). Tapping it again collapses it, and only one bubble is expanded at a time. The tick alone is not readable — «✓ vs ✓✓» is a convention this app never taught anyone — and the alternative was the long-press overflow's «اطلاعات», which is three gestures to answer "did it arrive". Long-press still opens the action overlay; the tap is ignored while a selection is running.
+
+### A refused send keeps the message
+
+**The row is written BEFORE the radio is touched, as `pending`.** `SmsService.sendSms` used to persist only after the native send returned, so a send in airplane mode left *nothing at all* behind: the composer cleared, no bubble ever appeared, and the message the user had typed was gone. It now inserts the row, broadcasts it (`_sentController` → the bubble appears with ⏱), hands it to the radio, and writes the outcome back — `applySendResult` on success (status, the moment the radio accepted it, the provider row id, the SIM it really went out on) or `failed`.
+
+- **`_transmit` is the one place** the first send, «ارسال مجدد» and the scheduled deliverer all go through, so what a success records and what a failure leaves behind cannot drift between them.
+- **A failed row is local-only** (`device_sms_id` null), which the mirror-sync's stale-row diff never touches — so it survives every resume and restart until the user retries or deletes it.
+- **`MessageBubble._failedRow` replaces the timestamp row** with «⊙ ارسال نشد · برای تلاش مجدد ضربه بزنید» in red; the whole row retries. A failed message that also printed «✓ پیامک» read as half-sent. «ارسال مجدد» is also first in the long-press overlay.
+- **Retry re-sends the SAME row** (`RetryMessage` → `SmsService.resendMessage`), keeping its id, its place in the thread and its star. It used to dispatch a fresh `SendMessage`, which left the failed bubble behind and stacked a second copy under it. A row that is not `failed` is refused, so a double tap cannot send twice.
+- **The scheduled deliverer passes `optimistic: false`.** A scheduled row owns its own retry and backoff (`ScheduledMessage.withFailedAttempt`), so an optimistic insert would leave one dead «ارسال نشد» bubble in the conversation *per attempt* for a message that is still going to be sent. On that path a failure leaves nothing and a success inserts the finished row in one go.
+
+**`MessageSent` / `MessageSendFailed` / `MessageError` are one-shot NOTIFICATIONS, not screen states** — and they travel through the same state channel, which is what made the bug above look like data loss. The inbox answers both send outcomes with a `LoadThreads`; finding a state that is neither a loaded inbox nor a loaded conversation, `_onLoadThreads` emitted `MessageLoading` over the open chat and then a `ThreadsLoaded` the chat's `buildWhen` ignores — so the conversation sat on a spinner **for ever**. Two things keep that shut:
+
+- `MessageBloc._lastDurable` (maintained in `onChange`) is the last `ThreadsLoaded`/`MessagesLoaded`. The loading guard asks *it*, never `state`.
+- `_notify` emits the notification and then puts the bloc straight back on `_lastDurable`, so it is never left parked on one.
+- `ConversationScreen` reloads itself on `MessageSendFailed` as well as on `MessageSent`: the bloc is global, so by the time a *second* refused send lands it is sitting on `ThreadsLoaded` and `_mergePersistedMessage`'s fold-into-the-open-conversation path gives up.
 
 ### Long-press & selection
 

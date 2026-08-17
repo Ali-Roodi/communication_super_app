@@ -84,7 +84,14 @@ void main() {
     when(() => repo.markThreadAsRead(any())).thenAnswer((_) async {});
     // LoadThreads (fired on dispose) needs these stubbed so it can't throw.
     when(
-      () => sms.syncDeviceMessages(forceRefresh: any(named: 'forceRefresh')),
+      // Every named argument the bloc actually passes has to be matched, or
+      // mocktail falls through to an unstubbed call and hands the background
+      // sync a null Future.
+      () => sms.syncDeviceMessages(
+        forceRefresh: any(named: 'forceRefresh'),
+        throttle: any(named: 'throttle'),
+        onProgress: any(named: 'onProgress'),
+      ),
     ).thenAnswer((_) async {});
     when(() => sms.isListening).thenReturn(true);
     when(

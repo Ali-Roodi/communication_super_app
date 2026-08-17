@@ -9,6 +9,7 @@ enum CallStatus { idle, connecting, ringing, active, incoming, onHold }
 class DialerState extends Equatable {
   // ── Keypad ────────────────────────────────────────────────
   final String dialedNumber;
+
   /// One entry per contact phone number matching [dialedNumber] — a contact
   /// with two matching numbers appears twice, each row showing its own number.
   final List<PhoneMatch> matchingNumbers;
@@ -46,6 +47,15 @@ class DialerState extends Equatable {
   /// nothing to show (single-SIM phone, VoIP call, unreadable roster).
   final int? activeSubscriptionId;
 
+  /// When telecom says the live call connected. Null while it is still dialing
+  /// or ringing, and after it ends.
+  ///
+  /// The call duration is derived from this, not counted by the call screen:
+  /// that screen can now be minimized and re-opened, and a screen-local
+  /// counter restarted at zero every time — as it also did on a cold start
+  /// into a call that had already been running for minutes.
+  final DateTime? callConnectedAt;
+
   /// SIM the keypad will dial with. Null = follow the system default.
   ///
   /// Held here rather than in the widget because the keypad lives in a modal
@@ -73,6 +83,7 @@ class DialerState extends Equatable {
     this.canMerge = false,
     this.isConference = false,
     this.activeSubscriptionId,
+    this.callConnectedAt,
     this.dialSubscriptionId,
     this.error,
   });
@@ -101,9 +112,15 @@ class DialerState extends Equatable {
     bool? canMerge,
     bool? isConference,
     int? activeSubscriptionId,
+    DateTime? callConnectedAt,
     int? dialSubscriptionId,
     String? error,
     bool clearError = false,
+
+    /// Drops the connect time — the call ended. A plain null cannot say this:
+    /// every other field treats null as "leave it alone", and a stale connect
+    /// time would keep the return-to-call bar counting after the hang-up.
+    bool clearCallConnectedAt = false,
   }) {
     return DialerState(
       dialedNumber: dialedNumber ?? this.dialedNumber,
@@ -123,6 +140,9 @@ class DialerState extends Equatable {
       canMerge: canMerge ?? this.canMerge,
       isConference: isConference ?? this.isConference,
       activeSubscriptionId: activeSubscriptionId ?? this.activeSubscriptionId,
+      callConnectedAt: clearCallConnectedAt
+          ? null
+          : (callConnectedAt ?? this.callConnectedAt),
       dialSubscriptionId: dialSubscriptionId ?? this.dialSubscriptionId,
       error: clearError ? null : (error ?? this.error),
     );
@@ -147,6 +167,7 @@ class DialerState extends Equatable {
     canMerge,
     isConference,
     activeSubscriptionId,
+    callConnectedAt,
     dialSubscriptionId,
     error,
   ];

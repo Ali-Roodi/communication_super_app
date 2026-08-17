@@ -14,7 +14,8 @@ import 'package:communication_super_app/core/widgets/google_list.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/features/contacts/bloc/contact_bloc.dart';
-import 'package:communication_super_app/features/contacts/bloc/contact_event.dart' as contact_events;
+import 'package:communication_super_app/features/contacts/bloc/contact_event.dart'
+    as contact_events;
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
@@ -620,7 +621,10 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
       for (final app in _connectedApps)
         for (final action in app.actions)
           ListTile(
-            contentPadding: const EdgeInsetsDirectional.only(start: 20, end: 20),
+            contentPadding: const EdgeInsetsDirectional.only(
+              start: 20,
+              end: 20,
+            ),
             leading: app.icon != null
                 ? Image.memory(app.icon!, width: 28, height: 28)
                 : const Icon(Icons.apps),
@@ -674,7 +678,11 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
             widget.contact.id,
           );
           if (mounted) {
-            _snack(ok ? 'میان‌بر به صفحه اصلی افزوده شد' : 'لانچر شما میان‌بر را پشتیبانی نمی‌کند');
+            _snack(
+              ok
+                  ? 'میان‌بر به صفحه اصلی افزوده شد'
+                  : 'لانچر شما میان‌بر را پشتیبانی نمی‌کند',
+            );
           }
         },
       ),
@@ -690,9 +698,7 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
                     .setSendToVoicemail(widget.contact.id, v);
                 if (!mounted) return;
                 if (ok) {
-                  setState(
-                    () => _extras = extras.copyWith(sendToVoicemail: v),
-                  );
+                  setState(() => _extras = extras.copyWith(sendToVoicemail: v));
                 } else {
                   _snack('تغییر این تنظیم ممکن نشد');
                 }
@@ -919,7 +925,10 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.block, color: AppColors.callRejectRed),
+                leading: const Icon(
+                  Icons.block,
+                  color: AppColors.callRejectRed,
+                ),
                 title: const Text(
                   'مسدود کردن و گزارش هرزنامه',
                   style: TextStyle(color: AppColors.callRejectRed),
@@ -1060,10 +1069,7 @@ class _ActionButton extends StatelessWidget {
           child: InkWell(
             onTap: onTap,
             onLongPress: onLongPress,
-            child: SizedBox(
-              height: 52,
-              child: Icon(icon, color: fg, size: 24),
-            ),
+            child: SizedBox(height: 52, child: Icon(icon, color: fg, size: 24)),
           ),
         ),
         const SizedBox(height: 8),

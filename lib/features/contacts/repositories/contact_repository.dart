@@ -220,7 +220,6 @@ class ContactRepository {
     return getDeviceContacts(forceRefresh: forceRefresh);
   }
 
-
   /// Finds the device contact owning [phoneNumber], matching on the normalized
   /// national number across **all** of each contact's numbers, so `+98…` and
   /// `09…` both resolve.

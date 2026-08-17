@@ -74,6 +74,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     on<LoadMessages>(_onLoadMessages);
     on<LoadMoreMessages>(_onLoadMoreMessages);
     on<SendMessage>(_onSendMessage);
+    on<RetryMessage>(_onRetryMessage);
     on<ReceiveMessage>(_onReceiveMessage);
     on<MessageSentExternally>(_onMessageSentExternally);
     on<MessageStatusChanged>(_onMessageStatusChanged);
@@ -99,15 +100,53 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
 
     // Delivery reports: advance the tick on the open conversation's bubble.
     _statusSubscription = SmsService.onMessageStatusChanged.listen(
-      (change) => add(MessageStatusChanged(change.messageId, change.status)),
+      (change) => add(
+        MessageStatusChanged(
+          change.messageId,
+          change.status,
+          replacement: change.replacement,
+        ),
+      ),
     );
 
     // NOTE: SMS listening will be initialized only after permissions are granted
     // and when LoadThreads event is first triggered (in _onLoadThreads)
   }
 
+  /// The last state that is something to *look at* — a loaded inbox or a
+  /// loaded conversation.
+  ///
+  /// `MessageSent`, `MessageSendFailed` and `MessageError` are one-shot
+  /// **notifications** that happen to travel through the same state channel:
+  /// they say what just happened, not what is on screen. Anything deciding
+  /// whether there is a list to keep must ask this, not `state`.
+  MessageState? _lastDurable;
+
+  @override
+  void onChange(Change<MessageState> change) {
+    super.onChange(change);
+    final next = change.nextState;
+    if (next is ThreadsLoaded || next is MessagesLoaded) _lastDurable = next;
+  }
+
+  /// Emits [notification] and then puts the bloc straight back on the state the
+  /// screens actually paint.
+  ///
+  /// Leaving it parked on a notification is what broke sending in airplane
+  /// mode: the inbox answers `MessageSendFailed` with a `LoadThreads`, which —
+  /// finding a state that is neither loaded inbox nor loaded conversation —
+  /// emitted `MessageLoading` over the open chat and then a `ThreadsLoaded` the
+  /// chat's `buildWhen` ignores, so the spinner never went away.
+  void _notify(Emitter<MessageState> emit, MessageState notification) {
+    emit(notification);
+    final durable = _lastDurable;
+    if (durable != null) emit(durable);
+  }
+
   StreamSubscription<MessageModel>? _sentSubscription;
-  StreamSubscription<({String messageId, MessageStatus status})>?
+  StreamSubscription<
+    ({String messageId, MessageStatus status, MessageModel? replacement})
+  >?
   _statusSubscription;
 
   @override
@@ -127,10 +166,15 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     if (current is! MessagesLoaded) return;
     final index = current.messages.indexWhere((m) => m.id == event.messageId);
     if (index == -1) return;
-    // copyWith, NOT a hand-built model: rebuilding it field by field drops
-    // whatever was added last (this is exactly how a bubble lost its SIM badge
-    // the instant its delivery report landed).
-    final updated = current.messages[index].copyWith(status: event.status);
+    // The send result rewrites more than the status (provider row id, the SIM
+    // the radio really used, the moment it was accepted), so it hands the whole
+    // row over. A carrier delivery report carries none of that and takes the
+    // copyWith path — which is copyWith, NOT a hand-built model: rebuilding it
+    // field by field drops whatever was added last (this is exactly how a
+    // bubble lost its SIM badge the instant its delivery report landed).
+    final updated =
+        event.replacement ??
+        current.messages[index].copyWith(status: event.status);
     final messages = [...current.messages];
     messages[index] = updated;
     emit(
@@ -146,10 +190,20 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     LoadThreads event,
     Emitter<MessageState> emit,
   ) async {
-    // Only emit loading when we're not already showing threads or conversation.
-    // This prevents the chat screen from going black when an incoming SMS triggers
-    // a background thread refresh (e.g. user on conversation for another thread).
-    if (state is! ThreadsLoaded && state is! MessagesLoaded) {
+    // Only emit loading when there is genuinely nothing on screen to keep.
+    // This prevents the chat screen from going black when an incoming SMS
+    // triggers a background thread refresh (e.g. user on conversation for
+    // another thread).
+    //
+    // `_lastDurable` rather than `state`, and that is load-bearing: `MessageSent`
+    // and `MessageSendFailed` are one-shot *notifications*, not screen states,
+    // and the inbox reacts to both by dispatching a `LoadThreads`. With the
+    // plain check, a send that the radio refused left the open conversation on a
+    // spinner FOR EVER — `MessageSendFailed` is neither of the two listed types,
+    // so loading was emitted, and the `ThreadsLoaded` that followed is a state
+    // the conversation's `buildWhen` ignores. That is the whole of "the message
+    // vanished and the chat went blank" in airplane mode.
+    if (_lastDurable == null) {
       emit(const MessageLoading());
     }
 
@@ -534,10 +588,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         subscriptionId: event.subscriptionId,
       );
       if (result.success) {
-        emit(const MessageSent());
+        _notify(emit, const MessageSent());
         // Let the UI screens decide what to reload based on their context.
       } else {
-        emit(
+        _notify(
+          emit,
           MessageSendFailed(
             errorCode: result.errorCode ?? 'SMS_SEND_FAILED',
             userMessage: _localizedSendError(result.errorCode),
@@ -545,7 +600,48 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         );
       }
     } catch (e) {
-      emit(
+      _notify(
+        emit,
+        MessageSendFailed(
+          errorCode: 'SMS_SEND_FAILED',
+          userMessage: _localizedSendError(null),
+        ),
+      );
+    }
+  }
+
+  /// «ارسال مجدد» on a failed bubble.
+  ///
+  /// The row is already in the DB — `SmsService` broadcasts pending → sent on
+  /// the status stream and the bubble follows it in place — but the same
+  /// notifications a first send produces are emitted anyway, because the
+  /// in-place swap only lands while the bloc happens to be sitting on this
+  /// conversation's state, and the screens reload themselves off those.
+  Future<void> _onRetryMessage(
+    RetryMessage event,
+    Emitter<MessageState> emit,
+  ) async {
+    try {
+      final result = await _smsService.resendMessage(event.messageId);
+      if (result.success) {
+        // Same notification a first-time send produces, and for the same
+        // reason: the screens reload themselves off it. Without it a retry that
+        // worked left the bubble red until the thread was re-opened, because
+        // the in-place status swap only lands while the bloc happens to be
+        // sitting on this conversation's state.
+        _notify(emit, const MessageSent());
+      } else {
+        _notify(
+          emit,
+          MessageSendFailed(
+            errorCode: result.errorCode ?? 'SMS_SEND_FAILED',
+            userMessage: _localizedSendError(result.errorCode),
+          ),
+        );
+      }
+    } catch (_) {
+      _notify(
+        emit,
         MessageSendFailed(
           errorCode: 'SMS_SEND_FAILED',
           userMessage: _localizedSendError(null),

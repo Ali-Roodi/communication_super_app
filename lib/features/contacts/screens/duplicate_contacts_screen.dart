@@ -191,10 +191,9 @@ class _DuplicateContactsScreenState extends State<DuplicateContactsScreen> {
     if (choice == null || !mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     final contactBloc = context.read<ContactBloc>();
-    final merged = await ContactLinkService.instance.link(
-      [for (final c in group) c.id],
-      primaryContactId: choice.primaryContactId,
-    );
+    final merged = await ContactLinkService.instance.link([
+      for (final c in group) c.id,
+    ], primaryContactId: choice.primaryContactId);
     ContactRepository().invalidateCache();
     LazyContactAvatar.invalidateCache();
     if (!mounted) return;
@@ -204,8 +203,6 @@ class _DuplicateContactsScreenState extends State<DuplicateContactsScreen> {
     }
     setState(() => _merged.add(index));
     contactBloc.add(const RefreshContacts());
-    messenger.showSnackBar(
-      const SnackBar(content: Text('مخاطبین ادغام شدند')),
-    );
+    messenger.showSnackBar(const SnackBar(content: Text('مخاطبین ادغام شدند')));
   }
 }

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:communication_super_app/core/navigation/call_ui_coordinator.dart';
+import 'package:communication_super_app/core/navigation/return_to_call_bar.dart';
 import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/dialer_bloc.dart';
@@ -26,8 +28,12 @@ class InCallScreen extends StatefulWidget {
 }
 
 class _InCallScreenState extends State<InCallScreen> {
+  /// Repaints the duration once a second. The elapsed time itself is derived
+  /// from telecom's connect time (`DialerState.callConnectedAt`), never
+  /// accumulated here — this screen can be minimized and re-opened, and a
+  /// counter would restart at zero every time (as it also did on a cold start
+  /// into a call that had already been running for minutes).
   Timer? _timer;
-  int _seconds = 0;
 
   /// Resolved device-contact identity (name + photo) for the phone currently
   /// in the foreground. Re-resolved whenever the active call switches (add a
@@ -67,12 +73,11 @@ class _InCallScreenState extends State<InCallScreen> {
     setState(() => _avatar = avatar);
   }
 
-  /// The duration counts talk time only: it starts on the first ACTIVE state,
-  /// not when the screen mounts (which happens while the call is still
-  /// dialing/ringing).
+  /// Starts the once-a-second repaint. Only the tick lives here; what it
+  /// prints comes from telecom's connect time.
   void _ensureTimerStarted() {
     _timer ??= Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _seconds++);
+      if (mounted) setState(() {});
     });
   }
 
@@ -97,120 +102,136 @@ class _InCallScreenState extends State<InCallScreen> {
     return name.isEmpty ? sim.slotLabel : '${sim.slotLabel} · $name';
   }
 
-  String get _formattedTime {
-    final m = (_seconds ~/ 60).toString().padLeft(2, '0');
-    final s = (_seconds % 60).toString().padLeft(2, '0');
-    return PersianUtils.toPersianNumber('$m:$s');
-  }
-
   @override
   Widget build(BuildContext context) {
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: BlocConsumer<DialerBloc, DialerState>(
-        listenWhen: (prev, curr) =>
-            prev.callStatus != curr.callStatus ||
-            prev.activePhone != curr.activePhone,
-        listener: (context, state) {
-          if (state.callStatus == CallStatus.active) _ensureTimerStarted();
-          // The call ended: stop counting immediately. The route lingers ~600 ms
-          // so the keyguard handover doesn't flash the app's own UI, and a timer
-          // still ticking through it reads as "the call is somehow still up".
-          if (state.callStatus == CallStatus.idle) {
-            _timer?.cancel();
-            _timer = null;
-          }
-          // Foreground call switched (add-call / swap) — refresh the identity.
-          _resolveContact(_currentPhone(state));
+      // Back does NOT end the call — it puts the screen away, exactly like
+      // Google Phone. The call keeps running and comes back through the green
+      // «بازگشت به تماس» bar or the shade's «تماس در جریان» card. Hanging up on
+      // a stray back gesture is the behaviour this replaces.
+      child: PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) CallUiCoordinator.minimize();
         },
-        builder: (context, state) {
-          final onHold = state.callStatus == CallStatus.onHold;
-          final dialing =
-              state.callStatus == CallStatus.ringing ||
-              state.callStatus == CallStatus.connecting;
-          // Screen can mount when the call is already active (cold start into
-          // an ongoing call) — start counting right away in that case.
-          if (state.callStatus == CallStatus.active) _ensureTimerStarted();
-
-          final phone = _currentPhone(state);
-          // Merged conference: show the group title, not a single participant.
-          final conference = state.isConference;
-          // The passed-in contactName only applies to the number the screen
-          // opened with; once the active call switches, use the resolved name.
-          final passedName = phone == widget.phone ? widget.contactName : null;
-          final name = conference
-              ? 'تماس گروهی'
-              : (passedName ?? _resolvedName);
-          return Scaffold(
-            backgroundColor: _kBg,
-            body: SafeArea(
-              child: Column(
-                children: [
-                  const Spacer(flex: 2),
-                  // The SIM this call is on — Google Phone's carrier line.
-                  // Absent unless it has something to say (see [_simLine]).
-                  if (_simLine(state) case final line?) ...[
-                    Text(
-                      line,
-                      style: const TextStyle(
-                        color: Colors.white38,
-                        fontSize: 13,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                  ] else
-                    const SizedBox(height: 8),
-                  _buildAvatar(conference: conference),
-                  const SizedBox(height: 20),
-                  Text(
-                    name ?? PersianUtils.displayPhone(phone),
-                    // LTR keeps the grouped number order (0919 096 1805)
-                    // inside the RTL screen.
-                    textDirection: name == null ? TextDirection.ltr : null,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 30,
-                      fontWeight: FontWeight.w300,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  if (name != null && !conference) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      PersianUtils.displayPhone(phone),
-                      textDirection: TextDirection.ltr,
-                      style: const TextStyle(
-                        color: Colors.white54,
-                        fontSize: 15,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 10),
-                  state.callStatus == CallStatus.idle
-                      ? const Text(
-                          'تماس پایان یافت',
-                          style: TextStyle(color: Colors.white54, fontSize: 16),
-                        )
-                      : onHold
-                      ? const _PulsingText('در انتظار')
-                      : dialing
-                      ? const _PulsingText('در حال برقراری تماس…')
-                      : Text(
-                          _formattedTime,
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 16,
-                          ),
-                        ),
-                  const Spacer(flex: 3),
-                  _buildControlGrid(context, state),
-                  const SizedBox(height: 32),
-                ],
-              ),
-            ),
-          );
-        },
+        child: _buildBody(context),
       ),
+    );
+  }
+
+  Widget _buildBody(BuildContext context) {
+    return BlocConsumer<DialerBloc, DialerState>(
+      listenWhen: (prev, curr) =>
+          prev.callStatus != curr.callStatus ||
+          prev.activePhone != curr.activePhone,
+      listener: (context, state) {
+        if (state.callStatus == CallStatus.active) _ensureTimerStarted();
+        // The call ended: stop counting immediately. The route lingers ~600 ms
+        // so the keyguard handover doesn't flash the app's own UI, and a timer
+        // still ticking through it reads as "the call is somehow still up".
+        if (state.callStatus == CallStatus.idle) {
+          _timer?.cancel();
+          _timer = null;
+        }
+        // Foreground call switched (add-call / swap) — refresh the identity.
+        _resolveContact(_currentPhone(state));
+      },
+      builder: (context, state) {
+        final onHold = state.callStatus == CallStatus.onHold;
+        final dialing =
+            state.callStatus == CallStatus.ringing ||
+            state.callStatus == CallStatus.connecting;
+        // Screen can mount when the call is already active (cold start into
+        // an ongoing call) — start counting right away in that case.
+        if (state.callStatus == CallStatus.active) _ensureTimerStarted();
+
+        final phone = _currentPhone(state);
+        // Merged conference: show the group title, not a single participant.
+        final conference = state.isConference;
+        // The passed-in contactName only applies to the number the screen
+        // opened with; once the active call switches, use the resolved name.
+        final passedName = phone == widget.phone ? widget.contactName : null;
+        final name = conference ? 'تماس گروهی' : (passedName ?? _resolvedName);
+        return Scaffold(
+          backgroundColor: _kBg,
+          body: SafeArea(
+            child: Column(
+              children: [
+                // «کوچک کردن» — the discoverable half of the back gesture.
+                // Google Phone puts the same chevron here, and without it the
+                // only way to reach the app during a call is a gesture with
+                // nothing on screen to suggest it.
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: IconButton(
+                    icon: const Icon(
+                      Icons.keyboard_arrow_down,
+                      color: Colors.white70,
+                      size: 30,
+                    ),
+                    tooltip: 'کوچک کردن',
+                    onPressed: CallUiCoordinator.minimize,
+                  ),
+                ),
+                const Spacer(flex: 2),
+                // The SIM this call is on — Google Phone's carrier line.
+                // Absent unless it has something to say (see [_simLine]).
+                if (_simLine(state) case final line?) ...[
+                  Text(
+                    line,
+                    style: const TextStyle(color: Colors.white38, fontSize: 13),
+                  ),
+                  const SizedBox(height: 24),
+                ] else
+                  const SizedBox(height: 8),
+                _buildAvatar(conference: conference),
+                const SizedBox(height: 20),
+                Text(
+                  name ?? PersianUtils.displayPhone(phone),
+                  // LTR keeps the grouped number order (0919 096 1805)
+                  // inside the RTL screen.
+                  textDirection: name == null ? TextDirection.ltr : null,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 30,
+                    fontWeight: FontWeight.w300,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                if (name != null && !conference) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    PersianUtils.displayPhone(phone),
+                    textDirection: TextDirection.ltr,
+                    style: const TextStyle(color: Colors.white54, fontSize: 15),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                state.callStatus == CallStatus.idle
+                    ? const Text(
+                        'تماس پایان یافت',
+                        style: TextStyle(color: Colors.white54, fontSize: 16),
+                      )
+                    : onHold
+                    ? const _PulsingText('در انتظار')
+                    : dialing
+                    ? const _PulsingText('در حال برقراری تماس…')
+                    : Text(
+                        formatCallDuration(state.callConnectedAt),
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 16,
+                        ),
+                      ),
+                const Spacer(flex: 3),
+                _buildControlGrid(context, state),
+                const SizedBox(height: 32),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 

@@ -72,7 +72,6 @@ class CallLogRepository {
     return rows.isEmpty ? null : rows.first['timestamp'] as int?;
   }
 
-
   /// Ids of stored call logs at or after [sinceMs]. Scopes the mirror-sync
   /// deletion diff to the same time window the device fetch covers, so calls
   /// older than the window aren't wrongly purged.

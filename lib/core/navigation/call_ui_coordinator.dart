@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_bloc.dart';
@@ -5,6 +7,7 @@ import 'package:communication_super_app/features/dialer/bloc/dialer_event.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_state.dart';
 import 'package:communication_super_app/features/dialer/screens/incoming_call_screen.dart';
 import 'package:communication_super_app/features/dialer/screens/in_call_screen.dart';
+import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 
 /// Global navigator key — lets [CallUiCoordinator] push call screens without a
 /// route-local context.
@@ -23,26 +26,112 @@ class CallUiCoordinator extends StatefulWidget {
 
   const CallUiCoordinator({super.key, required this.child});
 
+  /// True while a call is up but its screen has been put away.
+  ///
+  /// Drives the app-wide «بازگشت به تماس» bar. A [ValueNotifier] rather than a
+  /// bloc field: the bar is drawn by `MaterialApp.builder`, above the
+  /// navigator, and it is the *navigation* that changed, not the call.
+  static final ValueNotifier<bool> minimized = ValueNotifier<bool>(false);
+
+  /// Puts the call screen away without ending the call — the back gesture and
+  /// the «کوچک کردن» button. The call keeps running; the shade's «تماس در
+  /// جریان» card and the in-app bar are the ways back.
+  static void minimize() => _CallUiCoordinatorState._instance?._minimize();
+
+  /// Brings the call screen back: the in-app bar, and the notification tap.
+  static void restore() => _CallUiCoordinatorState._instance?._restore();
+
   @override
   State<CallUiCoordinator> createState() => _CallUiCoordinatorState();
 }
 
 class _CallUiCoordinatorState extends State<CallUiCoordinator>
     with WidgetsBindingObserver {
+  /// The live coordinator. One exists (it wraps `home`); the statics on
+  /// [CallUiCoordinator] go through it so the call screen and the return bar
+  /// can reach the navigator without a route-local context.
+  static _CallUiCoordinatorState? _instance;
+
   /// Previous call status — the listener needs the transition (not just the
   /// new value) to decide between push / pushReplacement / no-op.
   CallStatus _lastCallStatus = CallStatus.idle;
 
+  /// The number/name the minimized call was showing, so restoring re-opens the
+  /// same screen without waiting for another telecom event.
+  String _minimizedPhone = '';
+  String? _minimizedName;
+
+  StreamSubscription<void>? _showCallUiSubscription;
+
   @override
   void initState() {
     super.initState();
+    _instance = this;
     WidgetsBinding.instance.addObserver(this);
+    // «تماس در جریان» tapped in the shade.
+    _showCallUiSubscription = NativeCallService.onShowCallUi.listen(
+      (_) => _restore(),
+    );
   }
 
   @override
   void dispose() {
+    if (_instance == this) _instance = null;
+    _showCallUiSubscription?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  /// Tells the native side whether its ongoing-call card is needed.
+  ///
+  /// Never awaited and never allowed to throw: the card is a convenience, and
+  /// a channel that is not up yet must not stop the call screen from opening
+  /// or closing.
+  void _reportCallScreenVisible(bool visible) {
+    unawaited(
+      NativeCallService.instance.setCallScreenVisible(visible: visible),
+    );
+  }
+
+  void _minimize() {
+    if (_callRoute == null || _lastCallStatus == CallStatus.idle) return;
+    final state = context.read<DialerBloc>().state;
+    _minimizedPhone = state.activePhone;
+    _minimizedName = state.activeName;
+    _dismissCallRoute();
+    CallUiCoordinator.minimized.value = true;
+    _reportCallScreenVisible(false);
+  }
+
+  void _restore() {
+    if (!mounted) return;
+    final state = context.read<DialerBloc>().state;
+    // Nothing to go back to: the call ended while the bar or the notification
+    // was still on screen.
+    if (state.callStatus == CallStatus.idle) {
+      CallUiCoordinator.minimized.value = false;
+      return;
+    }
+    if (_callRoute?.isActive == true) {
+      // Already up but buried under a conversation/contact page the user
+      // opened during the call.
+      _bringCallRouteToTop(context);
+    } else {
+      final phone = state.activePhone.isNotEmpty
+          ? state.activePhone
+          : _minimizedPhone;
+      _pushCall(
+        context,
+        state.callStatus == CallStatus.incoming
+            ? IncomingCallScreen(phone: phone, contactName: state.activeName)
+            : InCallScreen(
+                phone: phone,
+                contactName: state.activeName ?? _minimizedName,
+              ),
+      );
+    }
+    CallUiCoordinator.minimized.value = false;
+    _reportCallScreenVisible(true);
   }
 
   /// Coming back to the app is the moment to check the call screen is not a
@@ -81,6 +170,11 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator>
     } else {
       navigator.push(route);
     }
+    // The screen is up, so the shade card is redundant and the return bar must
+    // go. Both are also re-derived on every push, not only on the first: a
+    // second call answered from the shade re-opens the screen too.
+    CallUiCoordinator.minimized.value = false;
+    _reportCallScreenVisible(true);
   }
 
   void _dismissCallRoute() {
@@ -137,8 +231,11 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator>
             } else {
               // Second call placed while one is up (افزودن تماس): the dialer
               // sheet / contact page is stacked above the call screen — clear
-              // it so the user lands back on the in-call UI.
-              _bringCallRouteToTop(context);
+              // it so the user lands back on the in-call UI. `_restore` rather
+              // than `_bringCallRouteToTop` alone, because the first call may
+              // have been minimized, in which case there is no route to raise
+              // and one has to be pushed.
+              _restore();
             }
           case CallStatus.active:
             if (prev == CallStatus.incoming) {
@@ -167,6 +264,13 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator>
           case CallStatus.onHold:
             break; // InCallScreen renders the hold state itself.
           case CallStatus.idle:
+            // The call is over: the return bar and the shade card must go NOW,
+            // not after the 600 ms below — a bar offering to go back to a call
+            // that ended is worse than no bar.
+            CallUiCoordinator.minimized.value = false;
+            _minimizedPhone = '';
+            _minimizedName = null;
+            _reportCallScreenVisible(false);
             // Held for a beat instead of popping straight away. The native side
             // sends the activity behind the keyguard the moment the call ends,
             // and that transition takes a few hundred ms — popping immediately

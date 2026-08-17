@@ -364,11 +364,10 @@ class _CallCircleButtonState extends State<_CallCircleButton>
   void initState() {
     super.initState();
     if (widget.swipeUp) {
-      _hint =
-          AnimationController(
-            vsync: this,
-            duration: const Duration(milliseconds: 1100),
-          )..repeat(reverse: true);
+      _hint = AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 1100),
+      )..repeat(reverse: true);
     }
   }
 
@@ -412,7 +411,8 @@ class _CallCircleButtonState extends State<_CallCircleButton>
           onPointerMove: (event) {
             final start = _downAt;
             if (start == null || _fired) return;
-            if (widget.swipeUp && start.dy - event.position.dy >= _kSwipeDistance) {
+            if (widget.swipeUp &&
+                start.dy - event.position.dy >= _kSwipeDistance) {
               _fire();
               return;
             }

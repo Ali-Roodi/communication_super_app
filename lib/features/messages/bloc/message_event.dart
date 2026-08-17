@@ -125,10 +125,29 @@ class MessageStatusChanged extends MessageEvent {
   final String messageId;
   final MessageStatus status;
 
-  const MessageStatusChanged(this.messageId, this.status);
+  /// The full row, when the change brought more than a status with it — the
+  /// send result also learns the provider row id, the SIM the radio really
+  /// used and the moment it was accepted. Null for a carrier delivery report,
+  /// which knows nothing but the new status.
+  final MessageModel? replacement;
+
+  const MessageStatusChanged(this.messageId, this.status, {this.replacement});
 
   @override
-  List<Object?> get props => [messageId, status];
+  List<Object?> get props => [messageId, status, replacement];
+}
+
+/// «ارسال مجدد» on a bubble that failed (airplane mode, no service …).
+///
+/// Re-sends the row already in the DB — same id, same place in the thread — so
+/// a retry updates that bubble instead of adding another next to it.
+class RetryMessage extends MessageEvent {
+  final String messageId;
+
+  const RetryMessage(this.messageId);
+
+  @override
+  List<Object?> get props => [messageId];
 }
 
 class DeleteMessage extends MessageEvent {

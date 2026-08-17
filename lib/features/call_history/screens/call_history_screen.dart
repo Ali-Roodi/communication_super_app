@@ -82,7 +82,9 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
         items.add(bucket);
         runStart = items.length;
       }
-      items.add(_Row(group: g, isFirst: items.length == runStart, isLast: true));
+      items.add(
+        _Row(group: g, isFirst: items.length == runStart, isLast: true),
+      );
     }
     _closeRun(items, runStart);
     _cachedItems = items;
@@ -196,7 +198,8 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
                   return const EmptyState(
                     icon: Icons.call_outlined,
                     title: 'تماس اخیری وجود ندارد',
-                    subtitle: 'تماس‌های ورودی و خروجی شما اینجا نمایش داده می‌شوند',
+                    subtitle:
+                        'تماس‌های ورودی و خروجی شما اینجا نمایش داده می‌شوند',
                   );
                 }
 
@@ -251,10 +254,14 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
                           ),
                           radius: BorderRadius.vertical(
                             top: Radius.circular(
-                              row.isFirst ? GroupRadius.outer : GroupRadius.inner,
+                              row.isFirst
+                                  ? GroupRadius.outer
+                                  : GroupRadius.inner,
                             ),
                             bottom: Radius.circular(
-                              row.isLast ? GroupRadius.outer : GroupRadius.inner,
+                              row.isLast
+                                  ? GroupRadius.outer
+                                  : GroupRadius.inner,
                             ),
                           ),
                         ),

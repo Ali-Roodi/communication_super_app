@@ -344,9 +344,7 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
     contactBloc.add(const RefreshContacts());
     messenger.showSnackBar(
       SnackBar(
-        content: Text(
-          merged == null ? 'ادغام ممکن نشد' : 'مخاطبین ادغام شدند',
-        ),
+        content: Text(merged == null ? 'ادغام ممکن نشد' : 'مخاطبین ادغام شدند'),
       ),
     );
   }
@@ -735,7 +733,9 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
       // `sortName`, not `name`: under «مرتب‌سازی بر اساس نام خانوادگی» the row
       // belongs to the section of the family name, which is not the letter the
       // displayed name starts with.
-      grouped.putIfAbsent(sectionLetterFor(c.sortName, letters), () => []).add(c);
+      grouped
+          .putIfAbsent(sectionLetterFor(c.sortName, letters), () => [])
+          .add(c);
     }
     final keys = grouped.keys.toList()
       ..sort((a, b) => _indexRank(a).compareTo(_indexRank(b)));
@@ -829,12 +829,7 @@ class _ContactRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsetsDirectional.fromSTEB(
-        12,
-        0,
-        12,
-        GroupRadius.gap,
-      ),
+      padding: const EdgeInsetsDirectional.fromSTEB(12, 0, 12, GroupRadius.gap),
       child: Material(
         // A selected row is tinted, and its avatar becomes a check — the same
         // treatment the inbox gives a selected conversation.

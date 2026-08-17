@@ -758,6 +758,45 @@ class MessageRepository {
     );
   }
 
+  /// One message by id, or null. Used by the retry path, which has an id from
+  /// a bubble and needs the row's body / recipient / SIM back.
+  Future<MessageModel?> getMessageById(String messageId) async {
+    final db = await _dbHelper.database;
+    final maps = await db.query(
+      AppConstants.messagesTable,
+      where: 'id = ?',
+      whereArgs: [messageId],
+      limit: 1,
+    );
+    if (maps.isEmpty) return null;
+    return MessageModel.fromMap(maps.first);
+  }
+
+  /// Writes back everything a completed send learned about a row that was
+  /// already inserted as `pending`: the real status, the moment the radio
+  /// accepted it, the provider row id and the card it actually went out on.
+  ///
+  /// A targeted UPDATE, **not** a second `createMessage`: that inserts with
+  /// `ConflictAlgorithm.replace`, and the send stamps a new timestamp — so a
+  /// collision on the `(phone_number, body, timestamp, type)` unique index
+  /// would silently delete somebody else's row to make room for this one.
+  Future<void> applySendResult(MessageModel message) async {
+    final db = await _dbHelper.database;
+    await db.update(
+      AppConstants.messagesTable,
+      {
+        'status': message.status.name,
+        'timestamp': message.timestamp.millisecondsSinceEpoch,
+        'device_sms_id': message.deviceSmsId,
+        'subscription_id': message.subscriptionId,
+        // The body is re-folded into the search index on the next drain: a row
+        // that was inserted as pending is already flagged, so nothing to do.
+      },
+      where: 'id = ?',
+      whereArgs: [message.id],
+    );
+  }
+
   /// Soft-deletes a whole conversation: the rows stay as tombstones (hidden by
   /// the `is_deleted = 0` filter on every query) so `reconcileDeviceRows` keeps
   /// recognising their `device_sms_id` and never re-imports them.

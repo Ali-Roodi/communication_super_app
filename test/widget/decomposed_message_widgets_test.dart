@@ -212,8 +212,18 @@ void main() {
 
         await tester.tap(find.byIcon(Icons.more_vert));
         await tester.pumpAndSettle();
-        expect(find.text('افزودن به مخاطبین'), findsOneWidget);
-        await tester.tap(find.text('افزودن به مخاطبین'));
+        // An unsaved number gets BOTH ways to keep it, the way Google Phone
+        // and Google Contacts offer them: a new contact, or a number added to
+        // somebody already in the address book.
+        expect(find.text('ایجاد مخاطب جدید'), findsOneWidget);
+        expect(find.text('افزودن به مخاطب موجود'), findsOneWidget);
+        await tester.tap(find.text('افزودن به مخاطب موجود'));
+        await tester.pumpAndSettle();
+        expect(menu, 'addExisting');
+
+        await tester.tap(find.byIcon(Icons.more_vert));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('ایجاد مخاطب جدید'));
         expect(menu, 'add');
       },
     );

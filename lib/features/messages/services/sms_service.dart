@@ -46,13 +46,25 @@ class SmsService {
   static Stream<MessageModel> get onMessageSent => _sentController.stream;
 
   /// Broadcast of delivery-status changes for outgoing messages
-  /// (sent → delivered, or → failed), keyed by message id. `MessageBloc`
-  /// subscribes and advances the bubble tick in the open conversation.
-  static final StreamController<({String messageId, MessageStatus status})>
+  /// (pending → sent → delivered, or → failed), keyed by message id.
+  /// `MessageBloc` subscribes and advances the bubble tick in the open
+  /// conversation.
+  ///
+  /// [replacement] carries the whole row when the change brought more than a
+  /// status with it — the send result also learns the provider row id, the SIM
+  /// the radio really used and the moment it was accepted. Null for a carrier
+  /// delivery report, which knows nothing but the new status.
+  static final StreamController<
+    ({String messageId, MessageStatus status, MessageModel? replacement})
+  >
   _statusController =
-      StreamController<({String messageId, MessageStatus status})>.broadcast();
+      StreamController<
+        ({String messageId, MessageStatus status, MessageModel? replacement})
+      >.broadcast();
 
-  static Stream<({String messageId, MessageStatus status})>
+  static Stream<
+    ({String messageId, MessageStatus status, MessageModel? replacement})
+  >
   get onMessageStatusChanged => _statusController.stream;
 
   final MessageRepository _messageRepository = MessageRepository();
@@ -114,52 +126,153 @@ class SmsService {
   /// user pinned a system default — the native side resolves it and reports
   /// back which card was really used, so the stored row is never "unknown"
   /// when it could be named.
+  ///
+  /// [optimistic] writes the row **before** the radio is touched, as `pending`,
+  /// and marks it `failed` if the send is refused — which is the only way a
+  /// message the network rejected can stay on screen with a retry. Every
+  /// user-initiated send wants that.
+  ///
+  /// The **scheduled** deliverer passes false: a scheduled row owns its own
+  /// retry and backoff (`ScheduledMessage.withFailedAttempt`), so an optimistic
+  /// insert would leave one dead «ارسال نشد» bubble in the conversation per
+  /// attempt for a message that is still going to be sent.
   Future<SmsServiceResult> sendSms(
     String phoneNumber,
     String message, {
     int? subscriptionId,
+    bool optimistic = true,
   }) async {
+    final hasPermission = await requestPermissions();
+    if (!hasPermission) {
+      return const SmsServiceResult.fail('PERMISSION_DENIED');
+    }
+
+    final normalized = _normalizePhoneNumber(phoneNumber);
+    final threadId = normalized.isNotEmpty ? normalized : phoneNumber;
+
+    // Message id is generated BEFORE the send so the native layer can tag
+    // its sent/delivered PendingIntents with it — the status report then
+    // finds this exact row (see onMessageStatusChanged).
+    final messageId = const Uuid().v4();
+
+    String? contactId;
     try {
-      final hasPermission = await requestPermissions();
-      if (!hasPermission) {
-        return const SmsServiceResult.fail('PERMISSION_DENIED');
-      }
+      contactId = (await _contactRepository.getContactByPhoneNumber(
+        phoneNumber,
+      ))?.id;
+    } catch (_) {
+      // No contacts permission, or a cold address book that failed to read.
+      // The message is not worth losing over a name.
+    }
 
-      final normalized = _normalizePhoneNumber(phoneNumber);
-      final threadId = normalized.isNotEmpty ? normalized : phoneNumber;
+    // ── Persist FIRST, as `pending` ───────────────────────────────────────
+    //
+    // The row is written before a single byte reaches the radio, and that is
+    // the whole point: sending in airplane mode used to leave nothing behind
+    // at all — the composer cleared, the bubble never appeared, and the
+    // message the user typed was simply gone. Google Messages keeps it on
+    // screen and marks it «ارسال نشد» with a retry, and it can only do that
+    // if the message exists somewhere first.
+    //
+    // A local-only row (`device_sms_id` null) is never touched by the
+    // mirror-sync's stale-row diff, so a failed message survives every resume.
+    final pending = MessageModel(
+      id: messageId,
+      threadId: threadId,
+      contactId: contactId,
+      phoneNumber: phoneNumber,
+      body: message,
+      type: MessageType.sent,
+      status: MessageStatus.pending,
+      timestamp: DateTime.now(),
+      isRead: true, // Sent messages are always marked as read
+      // What was ASKED for. The send corrects it to what the radio really
+      // used; until then a null stays null («unknown», never SIM 1).
+      subscriptionId: subscriptionId,
+    );
+    if (optimistic) {
+      await _messageRepository.createMessage(pending);
+      // Tell every listening BLoC the thread changed. Without this a message
+      // sent by the scheduler (or from another screen) sits in the DB until
+      // the next manual reload.
+      _sentController.add(pending);
+    }
 
-      // Message id is generated BEFORE the send so the native layer can tag
-      // its sent/delivered PendingIntents with it — the status report then
-      // finds this exact row (see onMessageStatusChanged).
-      final messageId = const Uuid().v4();
+    return _transmit(pending, alreadyStored: optimistic);
+  }
 
-      // Use native SMS service for sending
+  /// «ارسال مجدد» on a bubble that failed.
+  ///
+  /// Re-sends the row that is already in the DB rather than composing a new
+  /// one: the message keeps its id, its place in the conversation and its star,
+  /// and a second failure updates the same bubble instead of stacking another.
+  Future<SmsServiceResult> resendMessage(String messageId) async {
+    final hasPermission = await requestPermissions();
+    if (!hasPermission) {
+      return const SmsServiceResult.fail('PERMISSION_DENIED');
+    }
+    final row = await _messageRepository.getMessageById(messageId);
+    if (row == null || row.type != MessageType.sent) {
+      return const SmsServiceResult.fail('SMS_SEND_FAILED');
+    }
+    // Already on its way (or already gone) — a double tap must not send twice.
+    if (row.status != MessageStatus.failed) {
+      return const SmsServiceResult.ok();
+    }
+    final pending = row.copyWith(status: MessageStatus.pending);
+    await _messageRepository.updateMessageStatus(
+      messageId,
+      MessageStatus.pending,
+    );
+    _statusController.add((
+      messageId: messageId,
+      status: MessageStatus.pending,
+      replacement: pending,
+    ));
+    return _transmit(pending, alreadyStored: true);
+  }
+
+  /// Hands [pending] to the radio and writes the outcome back onto it.
+  ///
+  /// Shared by the first send, by «ارسال مجدد» and by the scheduled deliverer,
+  /// so the three can never drift: one place decides what a successful send
+  /// records and one place decides what a failure leaves behind.
+  ///
+  /// [alreadyStored] says whether the row is in the DB yet. False only on the
+  /// non-optimistic (scheduled) path, where a failure must leave *nothing*
+  /// behind and a success inserts the finished row in one go.
+  Future<SmsServiceResult> _transmit(
+    MessageModel pending, {
+    required bool alreadyStored,
+  }) async {
+    Future<SmsServiceResult> fail(String code) async {
+      if (!alreadyStored) return SmsServiceResult.fail(code);
+      await _messageRepository.updateMessageStatus(
+        pending.id,
+        MessageStatus.failed,
+      );
+      _statusController.add((
+        messageId: pending.id,
+        status: MessageStatus.failed,
+        replacement: pending.copyWith(status: MessageStatus.failed),
+      ));
+      return SmsServiceResult.fail(code);
+    }
+
+    try {
       final result = await _nativeSmsService.sendSms(
-        phoneNumber: phoneNumber,
-        message: message,
-        subscriptionId: subscriptionId,
-        trackingId: messageId,
+        phoneNumber: pending.phoneNumber,
+        message: pending.body,
+        subscriptionId: pending.subscriptionId,
+        trackingId: pending.id,
         deliveryReport: deliveryReports,
       );
 
-      if (!result.success) {
-        return const SmsServiceResult.fail('SMS_SEND_FAILED');
-      }
+      if (!result.success) return fail('SMS_SEND_FAILED');
 
-      final contact = await _contactRepository.getContactByPhoneNumber(
-        phoneNumber,
-      );
-
-      final messageModel = MessageModel(
-        id: messageId,
-        threadId: threadId,
-        contactId: contact?.id,
-        phoneNumber: phoneNumber,
-        body: message,
-        type: MessageType.sent,
+      final sent = pending.copyWith(
         status: MessageStatus.sent,
         timestamp: DateTime.fromMillisecondsSinceEpoch(result.timestamp),
-        isRead: true, // Sent messages are always marked as read
         // Provider row id from the native write-through (default-SMS-app only)
         // so a later delete can remove the exact provider row.
         deviceSmsId: result.deviceId > 0 ? result.deviceId : null,
@@ -171,27 +284,34 @@ class SmsService {
             ? result.subscriptionId
             : null,
       );
-
-      await _messageRepository.createMessage(messageModel);
+      if (alreadyStored) {
+        await _messageRepository.applySendResult(sent);
+      } else {
+        await _messageRepository.createMessage(sent);
+      }
       // Remember the card for this conversation — written on the send, not on
       // the pick, so it always reflects what actually went out.
-      await _threadSimRepository.remember(
-        threadId,
-        messageModel.subscriptionId,
-      );
-      // Tell every listening BLoC the thread changed. Without this a message
-      // sent by the scheduler (or from another screen) sits in the DB until the
-      // next manual reload.
-      _sentController.add(messageModel);
+      await _threadSimRepository.remember(sent.threadId, sent.subscriptionId);
+      if (alreadyStored) {
+        _statusController.add((
+          messageId: sent.id,
+          status: MessageStatus.sent,
+          replacement: sent,
+        ));
+      } else {
+        // Nothing has announced this row yet — the sent stream is what folds a
+        // scheduled delivery into the open conversation.
+        _sentController.add(sent);
+      }
       return const SmsServiceResult.ok();
     } on PlatformException catch (e) {
       // Surface the native error code (NO_SIM_CARD, NO_SERVICE, etc.) directly
       // so the BLoC can show a localized message to the user.
       debugPrint('Platform error sending SMS: ${e.code} - ${e.message}');
-      return SmsServiceResult.fail(e.code);
+      return fail(e.code);
     } catch (e) {
       debugPrint('Error sending SMS: $e');
-      return const SmsServiceResult.fail('SMS_SEND_FAILED');
+      return fail('SMS_SEND_FAILED');
     }
   }
 
@@ -282,8 +402,14 @@ class SmsService {
                 'failed' => MessageStatus.failed,
                 _ => MessageStatus.sent,
               };
+              // A carrier report knows nothing but the new status, so it
+              // carries no replacement row — the bloc copyWiths in place.
               await _messageRepository.updateMessageStatus(event.id, status);
-              _statusController.add((messageId: event.id, status: status));
+              _statusController.add((
+                messageId: event.id,
+                status: status,
+                replacement: null,
+              ));
             });
 
             _listening = true;

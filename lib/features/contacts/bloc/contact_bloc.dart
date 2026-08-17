@@ -87,5 +87,4 @@ class ContactBloc extends Bloc<ContactEvent, ContactState> {
       emit(ContactError(e.toString()));
     }
   }
-
 }
