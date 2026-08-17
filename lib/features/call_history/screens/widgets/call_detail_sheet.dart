@@ -17,6 +17,7 @@ import 'package:communication_super_app/features/call_history/bloc/call_log_stat
 import 'package:communication_super_app/features/call_history/models/call_log_model.dart';
 import 'package:communication_super_app/features/call_history/screens/widgets/call_log_tile.dart';
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
+import 'package:communication_super_app/features/contacts/widgets/save_number_actions.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_bloc.dart';
 import 'package:communication_super_app/features/messages/models/message_model.dart';
 import 'package:communication_super_app/features/messages/repositories/message_repository.dart';
@@ -58,6 +59,41 @@ Future<void> showCallDetailSheet(
       pageContext: context,
     ),
   );
+}
+
+/// «ویرایش مخاطب»: closes the sheet, resolves the person by number and opens
+/// the editor on the page underneath — the sheet's own context is dead the
+/// moment it pops.
+///
+/// A SIM (ADN) record has no ContactsContract row to edit; its detail page
+/// offers «کپی در تلفن» instead, which is where the user is sent.
+Future<void> _editContact(BuildContext sheetContext, String number) async {
+  final pageContext = Navigator.of(sheetContext).context;
+  final callLogBloc = sheetContext.read<CallLogBloc>();
+  Navigator.of(sheetContext).pop();
+  final match = await ContactRepository().getContactByPhoneNumber(number);
+  if (!pageContext.mounted) return;
+  if (match == null) {
+    ScaffoldMessenger.of(pageContext).showSnackBar(
+      const SnackBar(content: Text('مخاطب در دفترچه تلفن پیدا نشد')),
+    );
+    return;
+  }
+  if (match.isSimContact) {
+    await Navigator.of(pageContext).push(
+      MaterialPageRoute(
+        builder: (_) => DeviceContactDetailScreen(contact: match),
+      ),
+    );
+    callLogBloc.add(const RefreshCallLogs());
+    return;
+  }
+  final saved = await Navigator.of(pageContext).push<bool>(
+    MaterialPageRoute(
+      builder: (_) => AddEditContactScreen(contactId: match.id),
+    ),
+  );
+  if (saved == true) callLogBloc.add(const RefreshCallLogs());
 }
 
 class _CallDetailSheet extends StatelessWidget {
@@ -159,6 +195,31 @@ class _CallDetailSheet extends StatelessWidget {
                   log.phoneNumber,
                   onBeforeCall: () => Navigator.of(context).pop(),
                 ),
+                // Keeping the number, and reaching the person behind it: the
+                // same pair Google Phone lists in its «Call details» sheet.
+                // «افزودن به مخاطب موجود» is the one that was missing, and it
+                // is the more common of the two.
+                if (hasName)
+                  ListTile(
+                    leading: const Icon(Icons.edit_outlined),
+                    title: const Text('ویرایش مخاطب'),
+                    onTap: () => _editContact(context, log.phoneNumber),
+                  )
+                else
+                  ListTile(
+                    leading: const Icon(Icons.person_search_outlined),
+                    title: const Text('افزودن به مخاطب موجود'),
+                    onTap: () {
+                      final callLogBloc = context.read<CallLogBloc>();
+                      Navigator.of(context).pop();
+                      addNumberToExistingContact(
+                        pageContext,
+                        log.phoneNumber,
+                      ).then((saved) {
+                        if (saved) callLogBloc.add(const RefreshCallLogs());
+                      });
+                    },
+                  ),
                 ListTile(
                   leading: const Icon(Icons.copy_outlined),
                   title: const Text('کپی شماره'),
@@ -283,7 +344,8 @@ class _ActionChips extends StatelessWidget {
                   if (match != null) {
                     navigator.push(
                       MaterialPageRoute(
-                        builder: (_) => DeviceContactDetailScreen(contact: match),
+                        builder: (_) =>
+                            DeviceContactDetailScreen(contact: match),
                       ),
                     );
                   }

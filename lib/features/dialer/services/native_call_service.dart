@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 /// رویدادهای چرخه‌حیات تماس — دریافتی از CallEventStreamHandler.kt
@@ -17,6 +18,17 @@ enum NativeCallEvent {
   /// Number of concurrent calls changed — carries [CallInfo.callCount] /
   /// [CallInfo.canMerge] (add-call / merge-to-conference UI).
   callsChanged,
+
+  /// The user tapped «تماس در جریان» in the shade and wants the call screen
+  /// back. Carries nothing; it is a request, not a state — see
+  /// [NativeCallService.onShowCallUi], which is what `CallUiCoordinator`
+  /// listens to (the bloc has nothing to change).
+  showCallUi,
+
+  /// An event name this build does not know. Explicitly a no-op: it used to
+  /// fall through to [disconnected], which reads as «the call ended» and tears
+  /// a live call's screen down over a payload nobody understood.
+  unknown,
 }
 
 /// Where the call's audio is coming out.
@@ -73,6 +85,15 @@ class CallInfo {
   /// which mean "say nothing", never "SIM 1".
   final int? subscriptionId;
 
+  /// When telecom says the call connected. Null until it does.
+  ///
+  /// The call duration is derived from this rather than counted by the call
+  /// screen, because the screen is no longer the only place a call lives: it
+  /// can be minimized and re-opened, and a screen-local counter restarted at
+  /// zero every time — as it also did on a cold start into a call that had
+  /// already been running for minutes.
+  final DateTime? connectedAt;
+
   const CallInfo({
     required this.event,
     this.phone = '',
@@ -88,6 +109,7 @@ class CallInfo {
     this.canMerge,
     this.isConference,
     this.subscriptionId,
+    this.connectedAt,
   });
 }
 
@@ -105,6 +127,17 @@ class NativeCallService {
 
   Stream<CallInfo>? _stream;
 
+  /// Fires when the shade's «تماس در جریان» card is tapped: put the call
+  /// screen back.
+  ///
+  /// A stream of its own rather than a bloc state, because nothing about the
+  /// *call* changed — only what should be on screen — and `CallUiCoordinator`
+  /// is the one thing that decides that.
+  static final StreamController<void> _showCallUiController =
+      StreamController<void>.broadcast();
+
+  static Stream<void> get onShowCallUi => _showCallUiController.stream;
+
   /// Stream رویدادهای تماس — یک‌بار ساخته می‌شود و reuse می‌شود
   Stream<CallInfo> get callEvents {
     _stream ??= _events.receiveBroadcastStream().map((raw) {
@@ -120,8 +153,11 @@ class NativeCallService {
         'call_failed' => NativeCallEvent.callFailed,
         'audio_state' => NativeCallEvent.audioState,
         'calls_changed' => NativeCallEvent.callsChanged,
-        _ => NativeCallEvent.disconnected,
+        'show_call_ui' => NativeCallEvent.showCallUi,
+        _ => NativeCallEvent.unknown,
       };
+
+      if (event == NativeCallEvent.showCallUi) _showCallUiController.add(null);
 
       return CallInfo(
         event: event,
@@ -143,9 +179,30 @@ class NativeCallService {
           final int id when id >= 0 => id,
           _ => null,
         },
+        // 0 = telecom has no connect time yet (still dialing/ringing).
+        connectedAt: switch (map['connectTimeMillis']) {
+          final int ms when ms > 0 => DateTime.fromMillisecondsSinceEpoch(ms),
+          _ => null,
+        },
       );
     });
     return _stream!;
+  }
+
+  /// Tells the native side whether the in-call route is on screen.
+  ///
+  /// This is what posts and cancels the shade's «تماس در جریان» card: leaving
+  /// the call screen for another screen of the *same app* produces no Android
+  /// lifecycle callback, so nothing native can notice it.
+  ///
+  /// Fire-and-forget and never allowed to throw: a channel that is not up yet
+  /// (or an OEM that refused the notification) must not break minimizing.
+  Future<void> setCallScreenVisible({required bool visible}) async {
+    try {
+      await _method.invokeMethod('setCallScreenVisible', {'visible': visible});
+    } catch (e) {
+      debugPrint('NativeCallService.setCallScreenVisible failed: $e');
+    }
   }
 
   /// Places a call.

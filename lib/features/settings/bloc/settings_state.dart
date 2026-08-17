@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'package:communication_super_app/core/utils/calendar_type.dart';
+import 'package:communication_super_app/core/utils/message_text_scale.dart';
 
 export 'package:communication_super_app/core/utils/calendar_type.dart';
 
@@ -47,6 +48,12 @@ class SettingsState extends Equatable {
   final bool deliveryReports;
   final CalendarType calendarType;
 
+  /// «اندازه متن پیام» — multiplies the text size inside a conversation, on top
+  /// of the phone's own font-size setting. 1.0 is normal; the pinch gesture on
+  /// a thread writes here too, so the gesture and the settings row are one
+  /// value and cannot disagree.
+  final double messageTextScale;
+
   const SettingsState({
     this.showDialpadOnStart = false,
     this.sortByLastName = false,
@@ -57,6 +64,7 @@ class SettingsState extends Equatable {
     this.swipeActions = true,
     this.deliveryReports = true,
     this.calendarType = CalendarType.jalali,
+    this.messageTextScale = MessageTextScale.normal,
   });
 
   bool boolFor(BoolSetting key) {
@@ -90,6 +98,7 @@ class SettingsState extends Equatable {
     bool? swipeActions,
     bool? deliveryReports,
     CalendarType? calendarType,
+    double? messageTextScale,
   }) {
     return SettingsState(
       showDialpadOnStart: showDialpadOnStart ?? this.showDialpadOnStart,
@@ -101,6 +110,7 @@ class SettingsState extends Equatable {
       swipeActions: swipeActions ?? this.swipeActions,
       deliveryReports: deliveryReports ?? this.deliveryReports,
       calendarType: calendarType ?? this.calendarType,
+      messageTextScale: messageTextScale ?? this.messageTextScale,
     );
   }
 
@@ -136,5 +146,6 @@ class SettingsState extends Equatable {
     swipeActions,
     deliveryReports,
     calendarType,
+    messageTextScale,
   ];
 }

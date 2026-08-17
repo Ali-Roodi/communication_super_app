@@ -68,9 +68,7 @@ class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
       // The DB doesn't store contact_name, so resolve it from the current
       // contacts before display.
       final callLogs = await _service.resolveContactNames(page);
-      emit(
-        CallLogsLoaded(callLogs, hasMore: page.length >= _callLogPageSize),
-      );
+      emit(CallLogsLoaded(callLogs, hasMore: page.length >= _callLogPageSize));
     } catch (e) {
       emit(CallLogError(e.toString()));
     }
@@ -88,9 +86,7 @@ class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
         offset: 0,
       );
       final callLogs = await _service.resolveContactNames(page);
-      emit(
-        CallLogsLoaded(callLogs, hasMore: page.length >= _callLogPageSize),
-      );
+      emit(CallLogsLoaded(callLogs, hasMore: page.length >= _callLogPageSize));
     } catch (e) {
       emit(CallLogError(e.toString()));
     }
@@ -202,9 +198,7 @@ class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
         offset: 0,
       );
       final callLogs = await _service.resolveContactNames(page);
-      emit(
-        CallLogsLoaded(callLogs, hasMore: page.length >= _callLogPageSize),
-      );
+      emit(CallLogsLoaded(callLogs, hasMore: page.length >= _callLogPageSize));
     } catch (e) {
       emit(CallLogError(e.toString()));
     }

@@ -55,8 +55,13 @@ void main() {
       '(no flash-to-loading on background refresh)',
       setUp: () {
         when(
+          // Every named argument the bloc actually passes has to be matched,
+          // or mocktail falls through to an unstubbed call and hands the
+          // background sync a null Future.
           () => sms.syncDeviceMessages(
             forceRefresh: any(named: 'forceRefresh'),
+            throttle: any(named: 'throttle'),
+            onProgress: any(named: 'onProgress'),
           ),
         ).thenAnswer((_) async {});
         when(() => sms.isListening).thenReturn(true);
@@ -75,8 +80,12 @@ void main() {
       // emits nothing, which would mask whether MessageLoading was skipped.
       seed: () => const ThreadsLoaded([], hasMore: true),
       act: (bloc) => bloc.add(const LoadThreads()),
-      // The only emission is the refreshed ThreadsLoaded — never MessageLoading.
-      expect: () => [isA<ThreadsLoaded>()],
+      // The assertion is about what is NEVER emitted: MessageLoading. How many
+      // ThreadsLoaded land is not the point and legitimately varies — a first
+      // load emits once with `syncing` set while the device mirror-sync runs
+      // and again when it finishes, and a cold contact-name cache emits the
+      // rows bare before it emits them named.
+      expect: () => everyElement(isA<ThreadsLoaded>()),
     );
   });
 

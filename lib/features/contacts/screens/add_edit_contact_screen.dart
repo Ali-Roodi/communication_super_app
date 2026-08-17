@@ -11,6 +11,7 @@ import 'package:communication_super_app/core/services/image_picker_service.dart'
 import 'package:communication_super_app/core/sim/sim_card.dart';
 import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:communication_super_app/core/theme/app_dimensions.dart';
+import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import '../bloc/contact_bloc.dart';
 import '../bloc/contact_event.dart';
 import '../models/contact_form_entries.dart';
@@ -24,7 +25,9 @@ import 'widgets/contact_form_fields.dart';
 /// (flutter_contacts) so changes appear everywhere (list, favorites, dialer).
 ///
 /// [contactId] is a device contact id (edit mode); [initialPhone] pre-fills the
-/// first phone when creating.
+/// first phone when creating, and is **appended** in edit mode — that is
+/// «افزودن به مخاطب موجود», where the user picked an existing person for a
+/// number that turned up in the call log or a message.
 class AddEditContactScreen extends StatefulWidget {
   final String? contactId;
   final String? initialPhone;
@@ -162,6 +165,18 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
           ? p.label
           : PhoneLabel.other;
       _phones.add(PhoneEntry(text: p.number, label: label));
+    }
+    // «افزودن به مخاطب موجود»: the number the user came here with, appended
+    // rather than replacing anything. Skipped when the contact already has it
+    // in any equivalent form (+98912… ≡ 0912…), so picking the person the
+    // number already belongs to adds a duplicate row nobody asked for.
+    final incoming = widget.initialPhone?.trim() ?? '';
+    if (incoming.isNotEmpty) {
+      final key = PhoneNormalizer.toThreadId(incoming);
+      final known = _phones.any(
+        (p) => PhoneNormalizer.toThreadId(p.controller.text) == key,
+      );
+      if (!known) _phones.add(PhoneEntry(text: incoming));
     }
     if (_phones.isEmpty) _phones.add(PhoneEntry());
     for (final e in c.emails) {

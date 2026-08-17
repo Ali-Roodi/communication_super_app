@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
+import com.example.communication_super_app.call.CallEventStreamHandler
 import com.example.communication_super_app.call.CallHandler
 import com.example.communication_super_app.call.CallInCallService
 import com.example.communication_super_app.calllog.CallLogSyncHandler
@@ -265,6 +266,17 @@ class MainActivity : FlutterActivity() {
      */
     private fun consumeLaunchAction(intent: Intent?): Map<String, Any?>? {
         if (intent == null) return null
+
+        // «تماس در جریان» tapped: the activity is coming forward, but the call
+        // route may have been minimized — bringing the window up alone would
+        // land the user on whatever they left the call to look at. This is
+        // pushed straight onto the call event stream rather than through the
+        // launch-action map, because CallUiCoordinator sits above the auth flow
+        // and must not wait for MainNavigation (which is behind the app lock).
+        if (intent.getBooleanExtra(CallInCallService.EXTRA_RETURN_TO_CALL, false)) {
+            intent.removeExtra(CallInCallService.EXTRA_RETURN_TO_CALL)
+            CallEventStreamHandler.sendRaw(mapOf("event" to "SHOW_CALL_UI"))
+        }
 
         intent.getStringExtra("threadId")?.let { threadId ->
             intent.removeExtra("threadId")

@@ -48,7 +48,48 @@ class CallInCallService : InCallService() {
         private const val CHANNEL_ID = "incoming_call_channel"
         private const val SILENT_CHANNEL_ID = "incoming_call_silent_channel"
         private const val MISSED_CHANNEL_ID = "missed_call_channel"
+        private const val ONGOING_CHANNEL_ID = "ongoing_call_channel"
         private const val NOTIF_ID = 7001
+
+        /** «تماس در جریان» — the card that keeps a minimized call reachable. */
+        private const val ONGOING_NOTIF_ID = 7002
+
+        /**
+         * Whether the Flutter call screen is *mounted* (not minimized).
+         *
+         * Distinct from [callUiForeground]: the user can leave the call screen
+         * without leaving the app — that is the whole point of being able to
+         * look up a contact mid-call — and only Dart knows it happened. Set
+         * over the call method channel («setCallScreenVisible»).
+         */
+        @JvmStatic
+        @Volatile
+        var callRouteUp = false
+
+        /** Whether MainActivity is between onStart and onStop. */
+        @JvmStatic
+        @Volatile
+        var callUiForeground = false
+
+        /** True only when the call screen is really in front of the user. */
+        @JvmStatic
+        fun callScreenShowing(): Boolean = callRouteUp && callUiForeground
+
+        /**
+         * Flutter reporting whether its in-call route is on screen.
+         *
+         * Posting/cancelling the ongoing-call card is driven from here as well
+         * as from the activity lifecycle, because minimizing the call inside a
+         * foreground app produces no lifecycle callback at all.
+         */
+        @JvmStatic
+        fun setCallScreenVisible(visible: Boolean) {
+            callRouteUp = visible
+            instance?.refreshOngoingNotification()
+        }
+
+        /** Extra on the launcher intent the ongoing-call card taps into. */
+        const val EXTRA_RETURN_TO_CALL = "return_to_call"
 
         /** Missed-call ids live in their own range, one slot per caller. */
         private const val MISSED_ID_BASE = 7100
@@ -258,6 +299,19 @@ class CallInCallService : InCallService() {
                     NotificationManager.IMPORTANCE_DEFAULT,
                 ).apply { description = "اعلان تماس‌های بی‌پاسخ" },
             )
+            // LOW: it must never pop a heads-up over whatever the user left
+            // the call screen to do — it is a way back, not an interruption.
+            nm.createNotificationChannel(
+                NotificationChannel(
+                    ONGOING_CHANNEL_ID, "تماس در جریان",
+                    NotificationManager.IMPORTANCE_LOW,
+                ).apply {
+                    description = "اعلان تماس فعال برای بازگشت به صفحه تماس"
+                    setSound(null, null)
+                    enableVibration(false)
+                    setShowBadge(false)
+                },
+            )
         }
 
         /**
@@ -353,6 +407,9 @@ class CallInCallService : InCallService() {
             ProximityGate.refresh(applicationContext)
             com.example.communication_super_app.MainActivity.instance
                 ?.syncLockScreenVisibility()
+            // Answered / held / ended — each changes whether there is a call to
+            // offer a way back to, and what its duration counts from.
+            refreshOngoingNotification()
             // Nothing live is left, but the call this state belongs to is not
             // the one the UI is following (it hung up while a stale STATE_NEW
             // placeholder was `currentCall`): tear the screen down here rather
@@ -410,6 +467,10 @@ class CallInCallService : InCallService() {
         // The service is the only owner of the proximity lock; leaving it held
         // would blank the phone with no call to explain it.
         ProximityGate.release()
+        // An ongoing-call card outliving the service would point at a call that
+        // no longer exists, with a «پایان» button bound to nothing.
+        cancelOngoingCallNotification()
+        callRouteUp = false
         super.onDestroy()
     }
 
@@ -509,6 +570,10 @@ class CallInCallService : InCallService() {
      * screen alone. It comes back (silent) the moment the user leaves.
      */
     fun onCallUiVisible(visible: Boolean) {
+        callUiForeground = visible
+        // A live call the user has walked away from needs its way back,
+        // whether or not anything is ringing.
+        refreshOngoingNotification()
         val ringing = trackedCalls.firstOrNull { it.state == Call.STATE_RINGING }
             ?: return
         if (visible) {
@@ -572,6 +637,7 @@ class CallInCallService : InCallService() {
         // after everyone had hung up.
         val remaining = topLevelCalls()
         ProximityGate.refresh(applicationContext)
+        refreshOngoingNotification()
         if (remaining.isEmpty()) {
             // Last call gone — tear the in-call UI down and stop showing the
             // app over the keyguard (the inbox must stay behind the app lock).
@@ -748,6 +814,12 @@ class CallInCallService : InCallService() {
                     call.details?.accountHandle?.id,
                 ) ?: -1
             ),
+            // When the call connected, per telecom (0 = not yet). The call
+            // timer is derived from this rather than counted in Dart: the call
+            // screen can now be left and come back, and a screen-local counter
+            // restarted at zero every time — as it also did on a cold start
+            // into a call that was already minutes old.
+            "connectTimeMillis" to (call.details?.connectTimeMillis ?: 0L),
         )
         val event = when (state) {
             Call.STATE_RINGING -> CallEvent.INCOMING
@@ -902,6 +974,105 @@ class CallInCallService : InCallService() {
     private fun cancelIncomingCallNotification() {
         (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
             .cancel(NOTIF_ID)
+    }
+
+    // ── Ongoing-call notification («تماس در جریان») ──────────────────────────
+
+    /**
+     * Posts or cancels the ongoing-call card, from the one rule that decides
+     * it: **a connected call the user cannot currently see needs a way back.**
+     *
+     * This is what makes leaving the call screen safe. The app holds the dialer
+     * role, so it is the only call UI on the device: without a card in the
+     * shade, minimizing the call — or simply pressing Home — left a live call
+     * with no route back to it short of hanging up from the shade's own volume
+     * dialog. On Android 12+ a `CallStyle` notification is also what produces
+     * the green status-bar chip, which is the affordance the user actually
+     * reaches for.
+     *
+     * Ringing is deliberately excluded: the incoming card already owns that
+     * state, with its own پاسخ/رد buttons, and two cards for one call is what
+     * the missed-call work was about.
+     */
+    fun refreshOngoingNotification() {
+        val call = topLevelCalls().firstOrNull {
+            it.state == Call.STATE_ACTIVE ||
+                it.state == Call.STATE_HOLDING ||
+                it.state == Call.STATE_DIALING ||
+                it.state == Call.STATE_CONNECTING
+        }
+        if (call == null || callScreenShowing()) {
+            cancelOngoingCallNotification()
+            return
+        }
+        postOngoingCallNotification(call)
+    }
+
+    private fun postOngoingCallNotification(call: Call) {
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        ensureChannels(applicationContext)
+        val piFlags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+
+        // The tap target: bring the activity forward AND tell Dart to put the
+        // call route back. Bringing the activity up alone would land the user
+        // on whatever they minimized the call to look at.
+        val launch = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(EXTRA_RETURN_TO_CALL, true)
+        } ?: Intent()
+        val open = PendingIntent.getActivity(this, 3, launch, piFlags)
+        val hangUp = PendingIntent.getBroadcast(
+            this, 4,
+            Intent(CallActionReceiver.ACTION_DECLINE).setPackage(packageName),
+            piFlags,
+        )
+
+        val phone = phoneOf(call)
+        val name = lookupContactName(phone)
+            ?: phone.takeIf { it.isNotEmpty() }
+            ?: "تماس"
+        val caller = Person.Builder().setName(name).setImportant(true).build()
+        val connectedAt = call.details?.connectTimeMillis ?: 0L
+        val builder = NotificationCompat.Builder(this, ONGOING_CHANNEL_ID)
+            .setSmallIcon(applicationInfo.icon)
+            .setContentTitle(name)
+            .setContentText("تماس در جریان")
+            .setStyle(NotificationCompat.CallStyle.forOngoingCall(caller, hangUp))
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setContentIntent(open)
+            // A CallStyle notification that is neither tied to a foreground
+            // service nor carrying a full-screen intent is REJECTED with
+            // IllegalArgumentException (see postIncomingCallNotification). This
+            // service is bound, not foreground, so the intent is set — and
+            // never fires, because the channel is IMPORTANCE_LOW.
+            .setFullScreenIntent(open, false)
+        // The live duration, ticked by the system. Only once telecom has a
+        // connect time: before that the chronometer would count from the epoch.
+        if (connectedAt > 0) {
+            builder.setUsesChronometer(true).setWhen(connectedAt).setShowWhen(true)
+        } else {
+            builder.setShowWhen(false)
+        }
+        try {
+            nm.notify(ONGOING_NOTIF_ID, builder.build())
+        } catch (e: Exception) {
+            // Never take the process down over a notification: this service IS
+            // the call UI, and a crash here hands the call to the OEM dialer.
+            Log.e(TAG, "ongoing-call notification rejected: ${e.message}")
+        }
+    }
+
+    private fun cancelOngoingCallNotification() {
+        try {
+            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+                .cancel(ONGOING_NOTIF_ID)
+        } catch (e: Exception) {
+            Log.d(TAG, "cancelOngoingCallNotification: ${e.message}")
+        }
     }
 
     /**

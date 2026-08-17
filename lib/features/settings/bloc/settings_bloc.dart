@@ -2,6 +2,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:communication_super_app/core/utils/contact_name_style.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
+import 'package:communication_super_app/core/utils/message_text_scale.dart';
 import 'package:communication_super_app/features/messages/services/sms_service.dart';
 import 'settings_event.dart';
 import 'settings_state.dart';
@@ -11,6 +12,7 @@ import 'settings_state.dart';
 class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
   static const _prefix = 'set_';
   static const _calendarKey = '${_prefix}calendar_type';
+  static const _messageTextScaleKey = '${_prefix}message_text_scale';
 
   /// Preferences written by versions that had settings this app no longer has
   /// (the accessibility page, the quick replies, the caller-ID switches, the
@@ -31,6 +33,7 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     on<LoadSettings>(_onLoad);
     on<SetBoolSetting>(_onSetBool);
     on<SetCalendarType>(_onSetCalendar);
+    on<SetMessageTextScale>(_onSetMessageTextScale);
   }
 
   static String _keyOf(BoolSetting k) => '$_prefix${k.name}';
@@ -84,6 +87,11 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
         swipeActions: b(BoolSetting.swipeActions),
         deliveryReports: b(BoolSetting.deliveryReports),
         calendarType: calendar,
+        // Clamped on read: a preference written by a future build with a wider
+        // range must not render a conversation at an unusable size here.
+        messageTextScale: MessageTextScale.clamp(
+          prefs.getDouble(_messageTextScaleKey) ?? MessageTextScale.normal,
+        ),
       ),
     );
 
@@ -113,6 +121,17 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     emit(next);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_boolKey(event.key), event.value);
+  }
+
+  Future<void> _onSetMessageTextScale(
+    SetMessageTextScale event,
+    Emitter<SettingsState> emit,
+  ) async {
+    final scale = MessageTextScale.clamp(event.scale);
+    if (scale == state.messageTextScale) return;
+    emit(state.copyWith(messageTextScale: scale));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_messageTextScaleKey, scale);
   }
 
   Future<void> _onSetCalendar(

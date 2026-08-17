@@ -40,8 +40,7 @@ class NativeCallLogService {
     if (!_initialized) {
       _subscription = _eventChannel.receiveBroadcastStream().listen(
         (_) => _changeController.add(null),
-        onError: (Object e) =>
-            debugPrint('Call-log EventChannel error: $e'),
+        onError: (Object e) => debugPrint('Call-log EventChannel error: $e'),
         cancelOnError: false,
       );
       _initialized = true;
@@ -80,10 +79,9 @@ class NativeCallLogService {
   Future<int> deleteDeviceCallLogs(List<String> ids) async {
     if (ids.isEmpty) return 0;
     try {
-      final deleted = await _methodChannel.invokeMethod<int>(
-        'deleteCallLogs',
-        {'ids': ids},
-      );
+      final deleted = await _methodChannel.invokeMethod<int>('deleteCallLogs', {
+        'ids': ids,
+      });
       return deleted ?? 0;
     } on PlatformException catch (e) {
       debugPrint('Device call-log delete failed: ${e.code} ${e.message}');

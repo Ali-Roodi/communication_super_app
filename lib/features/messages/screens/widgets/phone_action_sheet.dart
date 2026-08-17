@@ -9,6 +9,7 @@ import 'package:communication_super_app/features/contacts/models/contact_model.d
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
+import 'package:communication_super_app/features/contacts/widgets/save_number_actions.dart';
 import '../conversation_screen.dart';
 
 /// What to do with a phone number tapped inside a message: call it, text it,
@@ -162,10 +163,10 @@ class _PhoneActionSheetState extends State<_PhoneActionSheet> {
                   ),
                 ),
               )
-            else
+            else ...[
               ListTile(
                 leading: const Icon(Icons.person_add_alt),
-                title: const Text('افزودن به مخاطبین'),
+                title: const Text('ایجاد مخاطب جدید'),
                 onTap: () => _pop(
                   (pageContext) => Navigator.of(pageContext).push(
                     MaterialPageRoute(
@@ -175,6 +176,18 @@ class _PhoneActionSheetState extends State<_PhoneActionSheet> {
                   ),
                 ),
               ),
+              // The more common half: a second number for somebody already in
+              // the address book. Without it the only way to record one was to
+              // leave for Contacts and find the person by hand.
+              ListTile(
+                leading: const Icon(Icons.person_search_outlined),
+                title: const Text('افزودن به مخاطب موجود'),
+                onTap: () => _pop(
+                  (pageContext) =>
+                      addNumberToExistingContact(pageContext, widget.number),
+                ),
+              ),
+            ],
             ListTile(
               leading: const Icon(Icons.copy_outlined),
               title: const Text('کپی شماره'),

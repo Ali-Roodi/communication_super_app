@@ -84,7 +84,10 @@ void main() {
 
   ScheduledMessageBloc build() => ScheduledMessageBloc(
     repository: repo,
-    deliveryService: ScheduledDeliveryService(repository: repo, smsService: sms),
+    deliveryService: ScheduledDeliveryService(
+      repository: repo,
+      smsService: sms,
+    ),
     nativeScheduler: _NoopNative(),
     autoDeliver: false,
   );
@@ -95,7 +98,9 @@ void main() {
     var first = true;
     // The deliverer reads the due rows first (jitter is decided per row) and
     // only then claims the ids it picked.
-    when(() => repo.getDue(any())).thenAnswer((_) async => first ? rows : const []);
+    when(
+      () => repo.getDue(any()),
+    ).thenAnswer((_) async => first ? rows : const []);
     when(
       () => repo.claimDue(any(), any(), restrictTo: any(named: 'restrictTo')),
     ).thenAnswer((_) async {
@@ -111,13 +116,27 @@ void main() {
       setUp: () {
         claimYieldsOnce([_due()]);
         when(
-          () => sms.sendSms(any(), any()),
+          () => sms.sendSms(
+            any(),
+            any(),
+            subscriptionId: any(named: 'subscriptionId'),
+            optimistic: any(named: 'optimistic'),
+          ),
         ).thenAnswer((_) async => const SmsServiceResult.ok());
       },
       build: build,
       act: (b) => b.add(const DeliverDueScheduled()),
       verify: (_) {
-        verify(() => sms.sendSms('09120000000', 'سلام')).called(1);
+        verify(
+          () => sms.sendSms(
+            '09120000000',
+            'سلام',
+            subscriptionId: any(named: 'subscriptionId'),
+            // NEVER optimistic: a scheduled row owns its own retry, so a
+            // refused attempt must leave nothing in the conversation.
+            optimistic: false,
+          ),
+        ).called(1);
         final captured =
             verify(() => repo.upsert(captureAny())).captured.last
                 as ScheduledMessage;
@@ -131,7 +150,12 @@ void main() {
       setUp: () {
         claimYieldsOnce([_due()]);
         when(
-          () => sms.sendSms(any(), any()),
+          () => sms.sendSms(
+            any(),
+            any(),
+            subscriptionId: any(named: 'subscriptionId'),
+            optimistic: any(named: 'optimistic'),
+          ),
         ).thenAnswer((_) async => const SmsServiceResult.fail('NO_SERVICE'));
       },
       build: build,
@@ -150,11 +174,14 @@ void main() {
     blocTest<ScheduledMessageBloc, ScheduledState>(
       'the final attempt marks the message failed',
       setUp: () {
-        claimYieldsOnce([
-          _due(attemptCount: ScheduledMessage.maxAttempts - 1),
-        ]);
+        claimYieldsOnce([_due(attemptCount: ScheduledMessage.maxAttempts - 1)]);
         when(
-          () => sms.sendSms(any(), any()),
+          () => sms.sendSms(
+            any(),
+            any(),
+            subscriptionId: any(named: 'subscriptionId'),
+            optimistic: any(named: 'optimistic'),
+          ),
         ).thenAnswer((_) async => const SmsServiceResult.fail('NO_SIM_CARD'));
       },
       build: build,
@@ -174,7 +201,12 @@ void main() {
       setUp: () {
         claimYieldsOnce([_due(repeat: ScheduleRepeat.daily)]);
         when(
-          () => sms.sendSms(any(), any()),
+          () => sms.sendSms(
+            any(),
+            any(),
+            subscriptionId: any(named: 'subscriptionId'),
+            optimistic: any(named: 'optimistic'),
+          ),
         ).thenAnswer((_) async => const SmsServiceResult.ok());
       },
       build: build,
@@ -192,7 +224,14 @@ void main() {
       'sends nothing when the claim comes back empty',
       build: build,
       act: (b) => b.add(const DeliverDueScheduled()),
-      verify: (_) => verifyNever(() => sms.sendSms(any(), any())),
+      verify: (_) => verifyNever(
+        () => sms.sendSms(
+          any(),
+          any(),
+          subscriptionId: any(named: 'subscriptionId'),
+          optimistic: any(named: 'optimistic'),
+        ),
+      ),
     );
 
     blocTest<ScheduledMessageBloc, ScheduledState>(
@@ -232,14 +271,28 @@ void main() {
         when(() => repo.getById('s1')).thenAnswer((_) async => _due());
         claimYieldsOnce([_due()]);
         when(
-          () => sms.sendSms(any(), any()),
+          () => sms.sendSms(
+            any(),
+            any(),
+            subscriptionId: any(named: 'subscriptionId'),
+            optimistic: any(named: 'optimistic'),
+          ),
         ).thenAnswer((_) async => const SmsServiceResult.ok());
       },
       build: build,
       act: (b) => b.add(const SendScheduledNow('s1')),
       verify: (_) {
         verify(() => repo.reschedule('s1', any())).called(1);
-        verify(() => sms.sendSms('09120000000', 'سلام')).called(1);
+        verify(
+          () => sms.sendSms(
+            '09120000000',
+            'سلام',
+            subscriptionId: any(named: 'subscriptionId'),
+            // NEVER optimistic: a scheduled row owns its own retry, so a
+            // refused attempt must leave nothing in the conversation.
+            optimistic: false,
+          ),
+        ).called(1);
       },
     );
 
@@ -254,7 +307,14 @@ void main() {
       act: (b) => b.add(const SendScheduledNow('s1')),
       verify: (_) {
         verifyNever(() => repo.reschedule(any(), any()));
-        verifyNever(() => sms.sendSms(any(), any()));
+        verifyNever(
+          () => sms.sendSms(
+            any(),
+            any(),
+            subscriptionId: any(named: 'subscriptionId'),
+            optimistic: any(named: 'optimistic'),
+          ),
+        );
       },
     );
   });
@@ -270,7 +330,14 @@ void main() {
       act: (b) => b.add(const DeliverDueScheduled()),
       wait: const Duration(milliseconds: 10),
       verify: (_) {
-        verifyNever(() => sms.sendSms(any(), any()));
+        verifyNever(
+          () => sms.sendSms(
+            any(),
+            any(),
+            subscriptionId: any(named: 'subscriptionId'),
+            optimistic: any(named: 'optimistic'),
+          ),
+        );
       },
     );
 
@@ -281,13 +348,27 @@ void main() {
         when(() => repo.getById('s1')).thenAnswer((_) async => row);
         claimYieldsOnce([row]);
         when(
-          () => sms.sendSms(any(), any()),
+          () => sms.sendSms(
+            any(),
+            any(),
+            subscriptionId: any(named: 'subscriptionId'),
+            optimistic: any(named: 'optimistic'),
+          ),
         ).thenAnswer((_) async => const SmsServiceResult.ok());
       },
       build: build,
       act: (b) => b.add(const SendScheduledNow('s1')),
       verify: (_) {
-        verify(() => sms.sendSms('09120000000', 'سلام')).called(1);
+        verify(
+          () => sms.sendSms(
+            '09120000000',
+            'سلام',
+            subscriptionId: any(named: 'subscriptionId'),
+            // NEVER optimistic: a scheduled row owns its own retry, so a
+            // refused attempt must leave nothing in the conversation.
+            optimistic: false,
+          ),
+        ).called(1);
       },
     );
   });

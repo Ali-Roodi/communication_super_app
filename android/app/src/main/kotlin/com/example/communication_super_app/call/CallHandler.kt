@@ -106,6 +106,17 @@ class CallHandler(
                         CallInCallService.instance?.swapCalls()
                         result.success(null)
                     }
+                    // Whether the Flutter in-call route is on screen. Drives
+                    // the ongoing-call card, which is the only way back to a
+                    // call the user minimized — no lifecycle callback fires
+                    // when the call screen is left for another screen of the
+                    // same app, so Dart has to say so.
+                    "setCallScreenVisible" -> {
+                        CallInCallService.setCallScreenVisible(
+                            call.argument<Boolean>("visible") ?: false,
+                        )
+                        result.success(null)
+                    }
                     "canMerge"        -> result.success(CallInCallService.canMerge())
                     "isInCall"        -> result.success(
                         CallInCallService.currentCall != null || CallConnection.instance != null

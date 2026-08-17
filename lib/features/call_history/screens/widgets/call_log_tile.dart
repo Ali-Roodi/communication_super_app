@@ -14,7 +14,10 @@ import 'package:communication_super_app/features/call_history/bloc/call_log_bloc
 import 'package:communication_super_app/features/call_history/bloc/call_log_event.dart';
 import 'package:communication_super_app/features/call_history/models/call_log_model.dart';
 import 'package:communication_super_app/features/call_history/screens/widgets/call_detail_sheet.dart';
+import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
+import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
+import 'package:communication_super_app/features/contacts/widgets/save_number_actions.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_bloc.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_event.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_state.dart';
@@ -27,10 +30,17 @@ import 'package:communication_super_app/features/settings/screens/widgets/block_
 ///
 /// Collapsed it shows avatar · name (+ «(۳)» when calls were merged) over
 /// type-arrow · call label · time, with a call button at the end. Tapping the
-/// row **expands the same card in place** (it does not navigate): the other
-/// calls of the group are listed and a set of tonal action rows appears. That
-/// inline accordion is the interaction Google Phone uses, so the list never
-/// loses its scroll position.
+/// row **expands the same card in place** (it does not navigate) to reveal the
+/// tonal action rows. That inline accordion is the interaction Google Phone
+/// uses, so the list never loses its scroll position.
+///
+/// **The tap shows actions; the long-press shows history.** The expansion used
+/// to list the timestamps of the other calls merged into this row above the
+/// buttons, which pushed the buttons the tap was for down the card to make room
+/// for something nobody had asked for. The per-call breakdown — with the SMS
+/// exchanged with the same number merged into one timeline — lives in
+/// `showCallDetailSheet`, reached by long-pressing the row or by «سابقه» inside
+/// the expansion.
 class CallLogTile extends StatelessWidget {
   final CallLogModel log;
 
@@ -149,9 +159,7 @@ class CallLogTile extends StatelessWidget {
               // A bare number renders LTR so «0919 096 1805» reads
               // left-to-right like everywhere else; names stay RTL.
               child: Directionality(
-                textDirection: _hasName
-                    ? TextDirection.rtl
-                    : TextDirection.ltr,
+                textDirection: _hasName ? TextDirection.rtl : TextDirection.ltr,
                 child: Text(
                   _displayName,
                   maxLines: 1,
@@ -169,7 +177,10 @@ class CallLogTile extends StatelessWidget {
                 padding: const EdgeInsetsDirectional.only(start: 6),
                 child: Text(
                   '(${PersianUtils.toPersianNumber('$count')})',
-                  style: TextStyle(fontSize: 15, color: scheme.onSurfaceVariant),
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
               ),
           ],
@@ -210,8 +221,13 @@ class CallLogTile extends StatelessWidget {
 
 // ── Expanded body ────────────────────────────────────────────────────────────
 
-/// What the card reveals when tapped: the timestamps of the other calls merged
-/// into this row, then the tonal action rows.
+/// What the card reveals when tapped: **the actions, and nothing else.**
+///
+/// It used to list the timestamps of the other calls merged into this row
+/// above them. That is history, not an action — it pushed the buttons the tap
+/// was actually for down the card, and it is already available in two better
+/// places: «سابقه» right here, and the long-press, which opens the same sheet
+/// with the calls *and* the SMS merged into one timeline.
 class _ExpandedBody extends StatelessWidget {
   final CallLogModel log;
   final List<CallLogModel> groupLogs;
@@ -227,45 +243,11 @@ class _ExpandedBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    // The representative is already shown collapsed — list the rest.
-    final others = groupLogs.length > 1 ? groupLogs.sublist(1) : const [];
-
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          for (final other in others)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: Row(
-                children: [
-                  Icon(
-                    _callIcon(other.callType),
-                    size: 15,
-                    color: _alertColor(other.callType) ?? scheme.onSurfaceVariant,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    _relativeTime(other.timestamp),
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const Spacer(),
-                  Text(
-                    _duration(other),
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          if (others.isNotEmpty) const SizedBox(height: 4),
           TonalActionRow(
             icon: Icons.chat_bubble_outline,
             label: 'پیام',
@@ -290,11 +272,21 @@ class _ExpandedBody extends StatelessWidget {
             ),
           ),
           const SizedBox(height: GroupRadius.gap),
-          if (!hasName)
-            _AddContactRow(phone: log.phoneNumber)
-          else
+          // Saving a number and reaching the person behind one are different
+          // questions, and Google Phone answers both here. An unsaved number
+          // gets BOTH ways to keep it — «افزودن به مخاطب موجود» is the more
+          // common one (a second number for someone already in the book) and
+          // was missing entirely; a saved one gets its contact page and its
+          // editor, which had no entry point from «اخیر» at all.
+          if (!hasName) ...[
+            _SaveNumberRows(phone: log.phoneNumber),
+            const SizedBox(height: GroupRadius.gap),
+          ] else ...[
+            _ContactRows(log: log),
+            const SizedBox(height: GroupRadius.gap),
             _FavoriteRow(log: log),
-          const SizedBox(height: GroupRadius.gap),
+            const SizedBox(height: GroupRadius.gap),
+          ],
           TonalActionRow(
             icon: Icons.block,
             label: 'مسدود کردن و گزارش هرزنامه',
@@ -330,27 +322,106 @@ class _ExpandedBody extends StatelessWidget {
   }
 }
 
-/// «افزودن مخاطب» for an unsaved number — refreshes recents once saved so the
-/// new name resolves in the list.
-class _AddContactRow extends StatelessWidget {
+/// The two ways to keep an unsaved number, both of which Google Phone offers
+/// on a recents row. Recents is refreshed once something is saved, so the new
+/// name resolves in the list straight away.
+class _SaveNumberRows extends StatelessWidget {
   final String phone;
-  const _AddContactRow({required this.phone});
+  const _SaveNumberRows({required this.phone});
 
   @override
   Widget build(BuildContext context) {
-    return TonalActionRow(
-      icon: Icons.person_add_alt,
-      label: 'افزودن مخاطب',
-      onTap: () async {
-        final callLogBloc = context.read<CallLogBloc>();
-        final saved = await Navigator.of(context).push<bool>(
-          MaterialPageRoute(
-            builder: (_) => AddEditContactScreen(initialPhone: phone),
-          ),
-        );
-        if (saved == true) callLogBloc.add(const RefreshCallLogs());
-      },
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TonalActionRow(
+          icon: Icons.person_add_alt,
+          label: 'ایجاد مخاطب جدید',
+          onTap: () => _save(context, createContactWithNumber(context, phone)),
+        ),
+        const SizedBox(height: GroupRadius.gap),
+        TonalActionRow(
+          icon: Icons.person_search_outlined,
+          label: 'افزودن به مخاطب موجود',
+          onTap: () =>
+              _save(context, addNumberToExistingContact(context, phone)),
+        ),
+      ],
     );
+  }
+
+  /// Refreshes «اخیر» once the editor reports a save. The bloc is read before
+  /// the await: this row is inside an accordion the refresh itself can rebuild.
+  void _save(BuildContext context, Future<bool> saving) {
+    final callLogBloc = context.read<CallLogBloc>();
+    saving.then((saved) {
+      if (saved) callLogBloc.add(const RefreshCallLogs());
+    });
+  }
+}
+
+/// «مشاهده مخاطب» + «ویرایش مخاطب» for a row that resolved to somebody.
+///
+/// Editing had no entry point from «اخیر» at all — the only way to fix a name
+/// or add a number for a person you had just spoken to was to leave for the
+/// contacts tab and find them again.
+class _ContactRows extends StatelessWidget {
+  final CallLogModel log;
+  const _ContactRows({required this.log});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TonalActionRow(
+          icon: Icons.person_outline,
+          label: 'مشاهده مخاطب',
+          onTap: () => _open(context, edit: false),
+        ),
+        const SizedBox(height: GroupRadius.gap),
+        TonalActionRow(
+          icon: Icons.edit_outlined,
+          label: 'ویرایش مخاطب',
+          onTap: () => _open(context, edit: true),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _open(BuildContext context, {required bool edit}) async {
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    final callLogBloc = context.read<CallLogBloc>();
+    // Indexed lookup — the call log stores a name, not a usable contact id for
+    // every provider row, so the person is resolved by number.
+    final match = await ContactRepository().getContactByPhoneNumber(
+      log.phoneNumber,
+    );
+    if (match == null) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('مخاطب در دفترچه تلفن پیدا نشد')),
+      );
+      return;
+    }
+    // A SIM (ADN) record cannot be edited in place — one name, one number, a
+    // card-set field length and no durable id. Its detail page offers «کپی در
+    // تلفن», which is the honest version of editing it.
+    if (edit && !match.isSimContact) {
+      final saved = await navigator.push<bool>(
+        MaterialPageRoute(
+          builder: (_) => AddEditContactScreen(contactId: match.id),
+        ),
+      );
+      if (saved == true) callLogBloc.add(const RefreshCallLogs());
+      return;
+    }
+    await navigator.push(
+      MaterialPageRoute(
+        builder: (_) => DeviceContactDetailScreen(contact: match),
+      ),
+    );
+    callLogBloc.add(const RefreshCallLogs());
   }
 }
 
@@ -428,9 +499,7 @@ class FavoriteToggleTile extends StatelessWidget {
             isFav ? Icons.star : Icons.star_border,
             color: isFav ? AppColors.callHoldOrange : null,
           ),
-          title: Text(
-            isFav ? 'حذف از موردعلاقه‌ها' : 'افزودن به موردعلاقه‌ها',
-          ),
+          title: Text(isFav ? 'حذف از موردعلاقه‌ها' : 'افزودن به موردعلاقه‌ها'),
           onTap: () {
             if (isFav) {
               favoritesBloc.add(RemoveFavorite(norm));
@@ -495,27 +564,6 @@ String _callLabel(CallType type) {
     case CallType.blocked:
       return 'مسدود شده';
   }
-}
-
-String _duration(CallLogModel log) {
-  switch (log.callType) {
-    case CallType.missed:
-      return 'بی‌پاسخ';
-    case CallType.rejected:
-      return 'رد شده';
-    case CallType.blocked:
-      return 'مسدود';
-    case CallType.incoming:
-    case CallType.outgoing:
-      break;
-  }
-  final s = log.duration ?? 0;
-  if (s == 0) return '—';
-  final m = s ~/ 60;
-  final sec = s % 60;
-  if (m == 0) return '${PersianUtils.toPersianNumber('$sec')} ثانیه';
-  final ps = PersianUtils.toPersianNumber(sec.toString().padLeft(2, '0'));
-  return '${PersianUtils.toPersianNumber('$m')}:$ps';
 }
 
 /// Persian relative time: «هم‌اکنون»، «۳ دقیقه پیش»، «دیروز»، «۱۴۰۳/۰۲/۱۵»…

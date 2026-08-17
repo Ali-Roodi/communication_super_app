@@ -23,9 +23,11 @@ import 'package:communication_super_app/features/settings/bloc/blocked_numbers_b
 import 'package:communication_super_app/features/settings/models/blocked_number_model.dart';
 import 'package:communication_super_app/features/settings/screens/widgets/block_number_dialog.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
+import 'package:communication_super_app/features/settings/bloc/settings_event.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
+import 'package:communication_super_app/features/contacts/widgets/save_number_actions.dart';
 import '../bloc/scheduled_bloc.dart';
 import '../bloc/scheduled_event.dart';
 import '../bloc/scheduled_state.dart';
@@ -39,6 +41,7 @@ import 'widgets/conversation_app_bars.dart';
 import 'widgets/conversation_sheets.dart';
 import 'widgets/message_action_overlay.dart';
 import 'widgets/message_composer.dart';
+import 'widgets/pinch_text_scale.dart';
 import 'widgets/schedule_send_sheet.dart';
 import 'widgets/scheduled_bubble.dart';
 
@@ -441,6 +444,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
             } else if (state is MessageSent) {
               context.read<MessageBloc>().add(LoadMessages(widget.threadId));
             } else if (state is MessageSendFailed) {
+              // Reloaded on failure too, not only on success. The bloc is
+              // global and the inbox answers every send outcome with a
+              // `LoadThreads`, so by the time a *second* refused send lands the
+              // bloc is sitting on `ThreadsLoaded` and the fold-into-the-open-
+              // conversation path gives up — the «ارسال نشد» bubble was in the
+              // database but did not appear until the thread was re-opened.
+              context.read<MessageBloc>().add(LoadMessages(widget.threadId));
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(state.userMessage),
@@ -458,24 +468,36 @@ class _ConversationScreenState extends State<ConversationScreen> {
               );
             }
           },
-          child: Column(
-            children: [
-              _buildSpamPrompt(context),
-              // The thread sits on its own rounded sheet, one plane above the
-              // page the header shares — Google Messages' conversation surface.
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(28),
-                  ),
-                  child: ColoredBox(
-                    color: Theme.of(context).colorScheme.cardSurface,
-                    child: _buildMessageList(),
+          // «اندازه متن پیام»: pinch the thread to resize it, persisted and
+          // shared with the Settings row. Wrapped around the thread and the
+          // composer but NOT the app bar — a title at 200% breaks the header's
+          // layout, and Google Messages does not scale its chrome either.
+          child: PinchTextScale(
+            scale: context.select<SettingsBloc, double>(
+              (b) => b.state.messageTextScale,
+            ),
+            onScaleChanged: (scale) =>
+                context.read<SettingsBloc>().add(SetMessageTextScale(scale)),
+            child: Column(
+              children: [
+                _buildSpamPrompt(context),
+                // The thread sits on its own rounded sheet, one plane above the
+                // page the header shares — Google Messages' conversation
+                // surface.
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(28),
+                    ),
+                    child: ColoredBox(
+                      color: Theme.of(context).colorScheme.cardSurface,
+                      child: _buildMessageList(),
+                    ),
                   ),
                 ),
-              ),
-              _buildComposer(),
-            ],
+                _buildComposer(),
+              ],
+            ),
           ),
         ),
         floatingActionButton: _showScrollToBottom && !_selectionMode
@@ -600,6 +622,12 @@ class _ConversationScreenState extends State<ConversationScreen> {
         _openContact();
       case 'add':
         _addContact();
+      case 'addExisting':
+        addNumberToExistingContact(context, widget.phoneNumber).then((saved) {
+          if (saved && mounted) _resolveContactName();
+        });
+      case 'textSize':
+        showMessageTextSizeSheet(context);
       case 'block':
         // Asks once, folds the spam report into the same question, and leaves
         // the conversation: blocking moves it out of the inbox into «هرزنامه و
@@ -857,10 +885,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
               _showMessageOptions(msg, anchor, isLastInGroup);
             }
           },
+          // Re-sends the row that is already there (same id, same place in the
+          // thread). It used to dispatch a fresh `SendMessage`, which left the
+          // failed bubble behind and put a second copy under it.
           onRetry: msg.status == MessageStatus.failed
-              ? () => _messageBloc.add(
-                  SendMessage(phoneNumber: widget.phoneNumber, body: msg.body),
-                )
+              ? () => _messageBloc.add(RetryMessage(msg.id))
               : null,
         ),
       ],
@@ -927,6 +956,15 @@ class _ConversationScreenState extends State<ConversationScreen> {
       isLastInGroup: isLastInGroup,
       showLinkPreview: context.read<SettingsBloc>().state.linkPreviews,
       actions: [
+        // First, and only on a message that failed: it is the one thing anyone
+        // wants from such a bubble, and it is what Google Messages puts at the
+        // top of the same menu.
+        if (msg.type == MessageType.sent && msg.status == MessageStatus.failed)
+          MessageAction(
+            icon: Icons.refresh,
+            label: 'ارسال مجدد',
+            onSelected: () => _messageBloc.add(RetryMessage(msg.id)),
+          ),
         MessageAction(
           icon: msg.isStarred ? Icons.star : Icons.star_border,
           label: msg.isStarred ? 'حذف از ستاره‌دارها' : 'ستاره‌دار کردن',

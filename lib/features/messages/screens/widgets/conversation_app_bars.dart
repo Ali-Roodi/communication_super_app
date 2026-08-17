@@ -93,11 +93,20 @@ class ConversationAppBar extends StatelessWidget
           itemBuilder: (_) => [
             if (hasName)
               const PopupMenuItem(value: 'view', child: Text('مشاهده مخاطب'))
-            else
+            else ...[
               const PopupMenuItem(
                 value: 'add',
-                child: Text('افزودن به مخاطبین'),
+                child: Text('ایجاد مخاطب جدید'),
               ),
+              const PopupMenuItem(
+                value: 'addExisting',
+                child: Text('افزودن به مخاطب موجود'),
+              ),
+            ],
+            // The discoverable half of the pinch gesture on the thread — a
+            // two-finger gesture is not something the person who needs bigger
+            // text is going to find on their own.
+            const PopupMenuItem(value: 'textSize', child: Text('اندازه متن')),
             const PopupMenuItem(
               value: 'block',
               child: Text('مسدود کردن و گزارش هرزنامه'),

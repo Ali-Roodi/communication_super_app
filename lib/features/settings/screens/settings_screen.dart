@@ -220,11 +220,7 @@ class _AboutGroupState extends State<_AboutGroup> {
           title: 'نام برنامه',
           summary: 'هم‌رسان',
         ),
-        SettingsRow(
-          icon: Icons.tag,
-          title: 'نسخه',
-          summary: _version ?? '…',
-        ),
+        SettingsRow(icon: Icons.tag, title: 'نسخه', summary: _version ?? '…'),
       ],
     );
   }
@@ -332,7 +328,9 @@ class _SecurityGroupState extends State<_SecurityGroup> {
         SettingsRow(
           icon: Icons.pin_outlined,
           title: hasPin ? 'تغییر رمز عبور' : 'تنظیم رمز عبور',
-          summary: hasPin ? 'قفل برنامه فعال است' : 'برنامه بدون قفل باز می‌شود',
+          summary: hasPin
+              ? 'قفل برنامه فعال است'
+              : 'برنامه بدون قفل باز می‌شود',
           onTap: () => _openPinSetup(context),
         ),
         if (hasPin)
@@ -445,7 +443,10 @@ class SettingsChoice<T> extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, style: TextStyle(fontSize: 17, color: scheme.onSurface)),
+            Text(
+              title,
+              style: TextStyle(fontSize: 17, color: scheme.onSurface),
+            ),
             const SizedBox(height: 4),
             Text(
               options[current] ?? '',
@@ -505,7 +506,6 @@ extension SettingsContext on BuildContext {
   ThemeBloc get themeBloc => read<ThemeBloc>();
 }
 
-
 /// «ارسال گزارش خطا» — opt-in, off by default.
 ///
 /// The copy is explicit about what does *not* travel, because in an SMS app
@@ -537,7 +537,8 @@ class _CrashReportingGroupState extends State<_CrashReportingGroup> {
       children: [
         SettingsSwitch(
           title: 'ارسال گزارش خطا',
-          summary: 'فقط محل بروز خطا ارسال می‌شود؛ متن پیام‌ها، شماره‌ها و '
+          summary:
+              'فقط محل بروز خطا ارسال می‌شود؛ متن پیام‌ها، شماره‌ها و '
               'نام مخاطبین هرگز از گوشی خارج نمی‌شوند',
           value: enabled ?? false,
           onChanged: enabled == null

@@ -5,6 +5,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'core/navigation/app_route_observer.dart';
 import 'core/services/crash_reporting.dart';
 import 'core/navigation/call_ui_coordinator.dart';
+import 'core/navigation/return_to_call_bar.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_bloc.dart';
 import 'core/bloc_providers/app_bloc_providers.dart';
@@ -73,8 +74,14 @@ class MyApp extends StatelessWidget {
                   GlobalCupertinoLocalizations.delegate,
                 ],
                 builder: (context, child) {
-                  return AppLockWrapper(
-                    child: child ?? const AuthWrapperScreen(),
+                  // ReturnToCallBar wraps the navigator, NOT a screen: the
+                  // point of leaving the call screen is to use the app, and
+                  // every one of those destinations is a pushed route that
+                  // would cover a bar mounted any lower.
+                  return ReturnToCallBar(
+                    child: AppLockWrapper(
+                      child: child ?? const AuthWrapperScreen(),
+                    ),
                   );
                 },
                 // CallUiCoordinator sits ABOVE the auth flow: an incoming call

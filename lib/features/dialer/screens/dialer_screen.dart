@@ -376,7 +376,9 @@ class _KeyGrid extends StatelessWidget {
     );
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('${picked.contact.name} روی کلید $digit تنظیم شد')),
+      SnackBar(
+        content: Text('${picked.contact.name} روی کلید $digit تنظیم شد'),
+      ),
     );
   }
 

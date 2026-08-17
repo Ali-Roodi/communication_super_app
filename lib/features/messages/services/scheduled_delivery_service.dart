@@ -80,6 +80,11 @@ class ScheduledDeliveryService {
         msg.phoneNumber,
         msg.body,
         subscriptionId: msg.subscriptionId,
+        // A scheduled row owns its own retry and backoff, so a refused attempt
+        // must leave nothing in the conversation — an optimistic insert would
+        // stack one dead «ارسال نشد» bubble per attempt under a message that
+        // is still going to be sent.
+        optimistic: false,
       );
       if (result.success) {
         await _repository.upsert(msg.advanceAfterSend(now: now));

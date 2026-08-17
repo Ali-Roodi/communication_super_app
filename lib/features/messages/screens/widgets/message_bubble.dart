@@ -380,9 +380,14 @@ class _MessageBubbleState extends State<MessageBubble> {
                 ),
               ],
             ),
-            if (widget.showTimestamp ||
-                widget.expanded ||
-                message.status == MessageStatus.failed)
+            // A failed message says so in words and offers the retry right
+            // there. The tick alone («!») is a symbol nobody was taught, and
+            // it is the one status the user has to act on — Google Messages
+            // prints «Not sent. Tap to retry.» under the bubble for exactly
+            // this reason.
+            if (isSent && message.status == MessageStatus.failed)
+              _failedRow(context)
+            else if (widget.showTimestamp || widget.expanded)
               Padding(
                 padding: const EdgeInsets.only(top: 2, left: 4, right: 4),
                 child: Row(
@@ -434,6 +439,46 @@ class _MessageBubbleState extends State<MessageBubble> {
     );
   }
 
+  /// «ارسال نشد · تلاش مجدد» under a bubble the radio refused.
+  ///
+  /// Replaces the timestamp row rather than sitting next to it: the time a
+  /// message was *not* sent at is not the thing to read, and a failed message
+  /// that also shows «✓ پیامک» reads as half-sent. Tapping anywhere on the row
+  /// retries — the whole row is the target, not the 14 px icon.
+  Widget _failedRow(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 3, left: 4, right: 4),
+      child: InkWell(
+        onTap: widget.selectionMode ? null : widget.onRetry,
+        borderRadius: BorderRadius.circular(6),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.error_outline,
+                size: 14,
+                color: AppColors.danger,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                widget.onRetry == null
+                    ? 'ارسال نشد'
+                    : 'ارسال نشد · برای تلاش مجدد ضربه بزنید',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontSize: 12,
+                  color: AppColors.danger,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   /// The delivery state in words, for the row a tap opens.
   ///
   /// «تحویل داده شد» is only ever shown for a message the carrier actually
@@ -475,13 +520,12 @@ class _MessageBubbleState extends State<MessageBubble> {
           color: theme.textTheme.bodySmall?.color,
         );
       case MessageStatus.failed:
-        return GestureDetector(
-          onTap: widget.onRetry,
-          child: const Icon(
-            Icons.error_outline,
-            size: 14,
-            color: AppColors.danger,
-          ),
+        // Unreachable for a sent message — [_failedRow] takes the whole row
+        // over, retry included. Kept so the switch stays total.
+        return const Icon(
+          Icons.error_outline,
+          size: 14,
+          color: AppColors.danger,
         );
     }
   }

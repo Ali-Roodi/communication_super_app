@@ -30,3 +30,13 @@ class SetCalendarType extends SettingsEvent {
   @override
   List<Object?> get props => [calendarType];
 }
+
+/// «اندازه متن پیام». Dispatched by the settings row and by the pinch gesture
+/// on a conversation — one value, so the two can never disagree.
+class SetMessageTextScale extends SettingsEvent {
+  final double scale;
+  const SetMessageTextScale(this.scale);
+
+  @override
+  List<Object?> get props => [scale];
+}

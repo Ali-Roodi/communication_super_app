@@ -52,13 +52,12 @@ class FavoritesScreen extends StatelessWidget {
 
                 return GridView.builder(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 110),
-                  gridDelegate:
-                      const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        mainAxisSpacing: 8,
-                        crossAxisSpacing: 8,
-                        childAspectRatio: 0.82,
-                      ),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    mainAxisSpacing: 8,
+                    crossAxisSpacing: 8,
+                    childAspectRatio: 0.82,
+                  ),
                   itemCount: favorites.length + 1,
                   itemBuilder: (context, index) {
                     if (index == 0) {
@@ -328,7 +327,8 @@ class _EmptyState extends StatelessWidget {
     return EmptyState(
       icon: Icons.star_outline,
       title: 'موردعلاقه‌ای ندارید',
-      subtitle: 'برای دسترسی سریع، مخاطبین پرتماس را به موردعلاقه‌ها اضافه کنید',
+      subtitle:
+          'برای دسترسی سریع، مخاطبین پرتماس را به موردعلاقه‌ها اضافه کنید',
       action: FilledButton.tonalIcon(
         onPressed: onAdd,
         icon: const Icon(Icons.add),
