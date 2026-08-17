@@ -7,6 +7,7 @@ import android.os.Looper
 import android.provider.CallLog
 import android.util.Log
 import io.flutter.plugin.common.EventChannel
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 
 /**
@@ -18,10 +19,14 @@ import io.flutter.plugin.common.MethodChannel
  *   Dart reacts by running a mirror-sync, so a call shows up in «اخیر»
  *   moments after it ends — no manual refresh.
  *
- * - **MethodChannel** (`call_log`): `deleteCallLogs(ids)` deletes rows from the
- *   device provider (requires WRITE_CALL_LOG, already declared + granted with
- *   the Phone permission group). This is what makes an in-app delete *global*
- *   instead of resurrecting on the next device import.
+ * - **MethodChannel** (`call_log`): `callLogEntries` reads the rows, and
+ *   `deleteCallLogs(ids)` deletes them from the device provider (requires
+ *   WRITE_CALL_LOG, already declared + granted with the Phone permission
+ *   group). The delete is what makes an in-app delete *global* instead of
+ *   resurrecting on the next device import.
+ *
+ * No method here ever *requests* a permission — that is the whole reason the
+ * read is native (see `callLogEntries`).
  */
 class CallLogSyncHandler(private val context: Context) {
     companion object {
@@ -79,6 +84,29 @@ class CallLogSyncHandler(private val context: Context) {
                         result.error("QUERY_FAILED", e.message, null)
                     }
                 }
+                // Full rows for the import half of the mirror-sync. This used
+                // to be the `call_log` plugin; it is native now because that
+                // plugin requests READ_CALL_LOG *itself* (request code 0) and,
+                // when a second call arrives while the first is still waiting
+                // for the dialog, replies twice on one MethodChannel.Result —
+                // `IllegalStateException: Reply already submitted`, thrown on
+                // the main looper out of `onRequestPermissionsResult`, i.e. an
+                // unrecoverable crash. It only fires on a *fresh install*
+                // (afterwards the permission is already granted and the plugin
+                // never opens a dialog), which is exactly how it was reported.
+                // Nothing here ever asks for a permission: a missing grant is
+                // a SecurityException the caller handles.
+                "callLogEntries" -> {
+                    val since = call.longArgument("sinceMs")
+                    val until = call.longArgument("untilMs")
+                    try {
+                        result.success(queryEntries(since, until))
+                    } catch (e: SecurityException) {
+                        result.error("PERMISSION_DENIED", "READ_CALL_LOG not granted", null)
+                    } catch (e: Exception) {
+                        result.error("QUERY_FAILED", e.message, null)
+                    }
+                }
                 // "Clear the call history" — the whole provider table, not the
                 // ids that happen to be paged into the list. Deleting by id
                 // would silently leave everything below the scroll position.
@@ -118,6 +146,80 @@ class CallLogSyncHandler(private val context: Context) {
                 eventSink = null
             }
         })
+    }
+
+    /** Dart sends whole numbers as Int until they outgrow it, then as Long. */
+    private fun MethodCall.longArgument(name: String): Long? =
+        when (val v = argument<Any>(name)) {
+            is Int -> v.toLong()
+            is Long -> v
+            else -> null
+        }
+
+    /**
+     * Every call in `[sinceMs, untilMs]` (either bound may be null), newest
+     * first, as the maps `CallLogService` maps into `CallLogModel`s.
+     *
+     * `duration` is seconds and `timestamp` is epoch millis — the units the
+     * provider itself uses. `phoneAccountId` is the SIM's telecom account, the
+     * only thing `SimService.subscriptionForAccountId` can map back to a
+     * subscription; the row's own `SUBSCRIPTION_ID`-ish columns are OEM-private.
+     */
+    private fun queryEntries(sinceMs: Long?, untilMs: Long?): List<Map<String, Any?>> {
+        val where = ArrayList<String>(2)
+        val args = ArrayList<String>(2)
+        if (sinceMs != null) {
+            where.add("${CallLog.Calls.DATE} >= ?")
+            args.add(sinceMs.toString())
+        }
+        if (untilMs != null) {
+            where.add("${CallLog.Calls.DATE} <= ?")
+            args.add(untilMs.toString())
+        }
+
+        val rows = ArrayList<Map<String, Any?>>()
+        context.contentResolver.query(
+            CallLog.Calls.CONTENT_URI,
+            arrayOf(
+                CallLog.Calls._ID,
+                CallLog.Calls.NUMBER,
+                CallLog.Calls.TYPE,
+                CallLog.Calls.DATE,
+                CallLog.Calls.DURATION,
+                CallLog.Calls.PHONE_ACCOUNT_ID,
+            ),
+            if (where.isEmpty()) null else where.joinToString(" AND "),
+            if (args.isEmpty()) null else args.toTypedArray(),
+            "${CallLog.Calls.DATE} DESC",
+        )?.use { cursor ->
+            val idIndex = cursor.getColumnIndex(CallLog.Calls._ID)
+            val numberIndex = cursor.getColumnIndex(CallLog.Calls.NUMBER)
+            val typeIndex = cursor.getColumnIndex(CallLog.Calls.TYPE)
+            val dateIndex = cursor.getColumnIndex(CallLog.Calls.DATE)
+            val durationIndex = cursor.getColumnIndex(CallLog.Calls.DURATION)
+            val accountIndex = cursor.getColumnIndex(CallLog.Calls.PHONE_ACCOUNT_ID)
+            while (cursor.moveToNext()) {
+                rows.add(
+                    mapOf(
+                        "id" to if (idIndex >= 0) cursor.getString(idIndex) else null,
+                        "number" to if (numberIndex >= 0) cursor.getString(numberIndex) else null,
+                        // The raw provider constant; Dart maps it, so a value
+                        // this build has never heard of still arrives intact.
+                        "callType" to if (typeIndex >= 0) cursor.getInt(typeIndex) else 0,
+                        "timestamp" to if (dateIndex >= 0) cursor.getLong(dateIndex) else 0L,
+                        "duration" to
+                            if (durationIndex >= 0 && !cursor.isNull(durationIndex)) {
+                                cursor.getInt(durationIndex)
+                            } else {
+                                null
+                            },
+                        "phoneAccountId" to
+                            if (accountIndex >= 0) cursor.getString(accountIndex) else null,
+                    ),
+                )
+            }
+        }
+        return rows
     }
 
     /**

@@ -2,7 +2,6 @@ import 'dart:isolate';
 
 import 'dart:async';
 
-import 'package:call_log/call_log.dart' as call_log;
 import 'package:permission_handler/permission_handler.dart';
 import '../models/call_log_model.dart';
 import '../repositories/call_log_repository.dart';
@@ -269,48 +268,35 @@ class CallLogService {
 
     // Queued: this read competes with the contacts and SMS imports on a cold
     // start, and each holds a large channel payload while it works.
-    final Iterable<call_log.CallLogEntry> entries = await DeviceSyncQueue.run(
-      () => (since == null && until == null)
-          ? call_log.CallLog.get()
-          : call_log.CallLog.query(
-              dateFrom: since?.millisecondsSinceEpoch,
-              dateTo: until?.millisecondsSinceEpoch,
-            ),
+    //
+    // Native, not the `call_log` package: that plugin requests READ_CALL_LOG
+    // itself and replies twice on one `MethodChannel.Result` when a second
+    // call arrives while its permission dialog is up, which killed the app on
+    // every fresh install. See `NativeCallLogService.deviceCallLogEntries`.
+    final entries = await DeviceSyncQueue.run(
+      () => NativeCallLogService.instance.deviceCallLogEntries(
+        sinceMs: since?.millisecondsSinceEpoch,
+        untilMs: until?.millisecondsSinceEpoch,
+      ),
     );
-
-    // Serialize entries to make isolate-friendly data.
-    final serialized = entries.map((e) {
-      return {
-        'id': e.id?.toString(),
-        'number': e.number ?? '',
-        'callType': e.callType?.name ?? call_log.CallType.unknown.name,
-        'duration': e.duration,
-        'timestamp': e.timestamp,
-        'phoneAccountId': e.phoneAccountId,
-      };
-    }).toList();
 
     // Map on a background isolate to avoid UI jank.
     final mapped = await Isolate.run<List<Map<String, dynamic>>>(() {
-      return serialized.map((data) {
-        CallType callType;
-        final ct = data['callType'] as String;
-        if (ct == call_log.CallType.incoming.name) {
-          callType = CallType.incoming;
-        } else if (ct == call_log.CallType.outgoing.name) {
-          callType = CallType.outgoing;
-        } else if (ct == call_log.CallType.rejected.name) {
-          callType = CallType.rejected;
-        } else if (ct == call_log.CallType.blocked.name) {
-          callType = CallType.blocked;
-        } else {
-          // missed, voiceMail, answeredExternally, wifi*, unknown → missed
-          callType = CallType.missed;
-        }
+      return entries.map((data) {
+        // The raw `CallLog.Calls.TYPE` constant, mapped here rather than
+        // natively so a value this build has never heard of still arrives.
+        final callType = switch (data['callType'] as int? ?? 0) {
+          1 => CallType.incoming,
+          2 => CallType.outgoing,
+          5 => CallType.rejected,
+          6 => CallType.blocked,
+          // 3 missed, 4 voicemail, 7 answered elsewhere, anything else → missed
+          _ => CallType.missed,
+        };
 
         return {
           'id': data['id'] as String? ?? '',
-          'phoneNumber': data['number'] as String,
+          'phoneNumber': data['number'] as String? ?? '',
           'callType': callType.index,
           'duration': data['duration'] as int?,
           'timestamp':

@@ -51,10 +51,26 @@ dependencies:
   # ("Reply already submitted") and crashed the app whenever a telephony call
   # overlapped a permission dialog. All SMS provider access is native now
   # (SmsHandler.querySms / SmsDeliverReceiver / SmsNotifier).
+  #
+  # `call_log` was removed for the SAME failure, found on a fresh install on a
+  # Redmi Note 7 (Android 10): it requests READ_CALL_LOG itself with request
+  # code 0, keeps one pending `MethodChannel.Result`, and on a second call
+  # while the dialog is up it answers that result twice —
+  # `IllegalStateException: Reply already submitted` thrown on the main looper
+  # out of `onRequestPermissionsResult`, i.e. a hard crash. It could only
+  # happen on the first run, because afterwards the permission is granted and
+  # the plugin never opens a dialog. Reading the log is native now
+  # (`CallLogSyncHandler.callLogEntries`), which never asks for a permission.
+  #
+  # The rule both removals come from: a plugin that requests permissions on its
+  # own does not belong in this app — every runtime grant goes through
+  # `PermissionGate`.
+  # `flutter_phone_direct_caller` went with them: it had no callers left (every
+  # dial goes through `placeCall` → `CallHandler`) and the same defect — it
+  # requests CALL_PHONE itself and answers a `MethodChannel.Result` it never
+  # clears.
   flutter_contacts: ^1.1.7
   permission_handler: ^12.0.1
-  flutter_phone_direct_caller: ^2.2.1
-  call_log: ^6.0.1
 
   # Security & Storage
   flutter_secure_storage: ^9.2.4

@@ -74,6 +74,37 @@ class NativeCallLogService {
     }
   }
 
+  /// Every device call in the given window, newest first, as raw provider
+  /// rows (`id`, `number`, `callType` — the `CallLog.Calls.TYPE` constant —
+  /// `timestamp` in epoch millis, `duration` in seconds, `phoneAccountId`).
+  ///
+  /// This replaced the `call_log` package, which asked for READ_CALL_LOG
+  /// itself and crashed the app on a fresh install by replying twice on one
+  /// `MethodChannel.Result` (see `CallLogSyncHandler.callLogEntries`). Returns
+  /// an empty list when the native side refuses — the caller keeps the mirror
+  /// it already has rather than treating "cannot read" as "nothing there".
+  Future<List<Map<String, dynamic>>> deviceCallLogEntries({
+    int? sinceMs,
+    int? untilMs,
+  }) async {
+    try {
+      final rows = await _methodChannel.invokeListMethod<dynamic>(
+        'callLogEntries',
+        {'sinceMs': sinceMs, 'untilMs': untilMs},
+      );
+      return rows == null
+          ? const []
+          : rows
+                .map((row) => Map<String, dynamic>.from(row as Map))
+                .toList(growable: false);
+    } on PlatformException catch (e) {
+      debugPrint('Device call-log read failed: ${e.code} ${e.message}');
+      return const [];
+    } on MissingPluginException {
+      return const [];
+    }
+  }
+
   /// Deletes the given provider row ids from the device call log.
   /// Returns the number of rows the provider reported deleted.
   Future<int> deleteDeviceCallLogs(List<String> ids) async {
