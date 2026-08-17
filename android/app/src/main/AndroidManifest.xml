@@ -76,6 +76,23 @@
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="false">
+
+        <!-- «گرفتن عکس» for a contact: ACTION_IMAGE_CAPTURE writes into a file
+             this app owns, and a file:// Uri cannot legally cross to the camera
+             app. The grant is scoped to cache/contact_photos (see file_paths).
+             NOTE: android.permission.CAMERA is deliberately NOT declared —
+             declaring it would make the platform *require* a runtime grant this
+             app never needs, and every grant here goes through PermissionGate. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -285,6 +302,13 @@
         <intent>
             <action android:name="android.intent.action.VIEW"/>
             <data android:mimeType="vnd.android.cursor.item/*"/>
+        </intent>
+        <!-- «گرفتن عکس» on a contact. Without this, targetSdk 30+ package
+             visibility makes resolveActivity() answer null even when a camera
+             app is installed, and the row would report "no camera app" on every
+             phone that has one. -->
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE"/>
         </intent>
     </queries>
 </manifest>

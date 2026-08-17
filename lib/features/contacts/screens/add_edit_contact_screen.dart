@@ -8,6 +8,7 @@ import 'package:communication_super_app/core/widgets/avatar_widget.dart';
 import 'package:communication_super_app/core/widgets/jalali_date_picker.dart';
 import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/core/services/image_picker_service.dart';
+import 'package:communication_super_app/features/contacts/widgets/contact_photo_actions.dart';
 import 'package:communication_super_app/core/sim/sim_card.dart';
 import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:communication_super_app/core/theme/app_dimensions.dart';
@@ -266,6 +267,11 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
           ? (await contact.update().then((c) => c.id))
           : (await contact.insert().then((c) => c.id));
       await ContactGroupsService.instance.applyLabels(savedId, labelNames);
+      // After the update, not before: `contact.update()` re-writes the contact's
+      // data rows, so a photo deleted first would simply be written back.
+      if (_photoRemoved) {
+        await ImagePickerService.instance.deleteContactPhoto(savedId);
+      }
 
       ContactRepository().invalidateCache();
       LazyContactAvatar.invalidateCache();
@@ -503,72 +509,75 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
           : AppColors.keypadLight,
       padding: const EdgeInsets.symmetric(vertical: 24),
       child: Center(
-        child: Stack(
-          children: [
-            _photo != null
-                ? CircleAvatar(
-                    radius: 60,
-                    backgroundImage: MemoryImage(_photo!),
-                  )
-                : AvatarWidget(
-                    name: name.isEmpty ? 'مخاطب جدید' : name,
-                    size: 120,
-                  ),
-            Positioned(
-              bottom: 0,
-              right: 0,
-              child: Material(
-                color: theme.colorScheme.primary,
-                shape: const CircleBorder(),
-                child: InkWell(
-                  customBorder: const CircleBorder(),
-                  onTap: _pickPhoto,
-                  child: const Padding(
-                    padding: EdgeInsets.all(8),
+        // **The whole avatar is the button**, with one badge on it — Google
+        // Contacts' photo control. It used to be two floating buttons stuck to
+        // the circle, one of them a delete, which put "throw the photo away" a
+        // mis-tap from "change the photo"; removing is now a row in the sheet,
+        // where it can be read before it is chosen.
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: _pickPhoto,
+          child: Stack(
+            children: [
+              _photo != null
+                  ? CircleAvatar(
+                      radius: 60,
+                      backgroundImage: MemoryImage(_photo!),
+                    )
+                  : AvatarWidget(
+                      name: name.isEmpty ? 'مخاطب جدید' : name,
+                      size: 120,
+                    ),
+              PositionedDirectional(
+                bottom: 0,
+                end: 0,
+                child: Material(
+                  color: theme.colorScheme.primaryContainer,
+                  shape: const CircleBorder(),
+                  elevation: 1,
+                  child: Padding(
+                    padding: const EdgeInsets.all(9),
                     child: Icon(
-                      Icons.photo_camera,
-                      color: Colors.white,
+                      _photo == null
+                          ? Icons.add_a_photo_outlined
+                          : Icons.edit_outlined,
+                      color: theme.colorScheme.onPrimaryContainer,
                       size: 20,
                     ),
                   ),
                 ),
               ),
-            ),
-            if (_photo != null)
-              Positioned(
-                bottom: 0,
-                left: 0,
-                child: Material(
-                  color: AppColors.callRejectRed,
-                  shape: const CircleBorder(),
-                  child: InkWell(
-                    customBorder: const CircleBorder(),
-                    onTap: () => setState(() => _photo = null),
-                    child: const Padding(
-                      padding: EdgeInsets.all(8),
-                      child: Icon(
-                        Icons.delete_outline,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
+  /// «عکس مخاطب»: where from → pick → crop → keep.
+  ///
+  /// A cancelled crop leaves the existing photo alone. Only «حذف عکس» clears it
+  /// — collapsing "cancelled" and "removed" into a null result is how backing
+  /// out of the crop silently deletes the picture the contact already had.
   Future<void> _pickPhoto() async {
-    try {
-      final bytes = await ImagePickerService.instance.pickImage();
-      if (bytes != null && mounted) setState(() => _photo = bytes);
-    } catch (e) {
-      _snack('انتخاب عکس ناموفق بود');
-    }
+    final result = await pickContactPhoto(context, hasPhoto: _photo != null);
+    if (result == null || !mounted) return;
+    setState(() {
+      _photo = result.removed ? null : result.bytes;
+      // Remembered, not derived from `_photo == null`: a contact that never had
+      // one is also null, and asking the provider to delete nothing is a wasted
+      // round trip on every save.
+      if (result.removed) _photoRemoved = true;
+      if (result.bytes != null) _photoRemoved = false;
+    });
   }
+
+  /// «حذف عکس» was chosen and the save has to carry it out natively.
+  ///
+  /// `flutter_contacts` ignores `contact.photo = null` on update — the row stays
+  /// and the old picture is back on the next read, which is exactly what «حذف
+  /// عکس» looked like before. See [ImagePickerService.deleteContactPhoto].
+  bool _photoRemoved = false;
 
   Widget _buildNameSection() {
     return Column(

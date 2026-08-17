@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The single directory the camera app is allowed to write into.
+
+  Scoped to `cache/contact_photos` and nothing else: an EXTRA_OUTPUT Uri is a
+  write grant handed to another process, so the path it covers is the blast
+  radius. The captured file is read back and re-encoded immediately — it is a
+  hand-off buffer, not storage.
+-->
+<paths>
+    <cache-path name="contact_photos" path="contact_photos/" />
+</paths>
