@@ -1,6 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:communication_super_app/core/database/database_helper.dart';
 import 'package:communication_super_app/core/constants/app_constants.dart';
+import '../models/message_group.dart';
 import '../models/message_model.dart';
 import '../models/template_wire.dart';
 import 'package:communication_super_app/core/utils/search_text.dart';
@@ -521,7 +522,11 @@ class MessageRepository {
       '''
       SELECT thread_id, MIN(phone_number) AS phone_number
       FROM ${AppConstants.messagesTable}
-      WHERE is_deleted = 0
+      -- Group threads are excluded: their `thread_id` (and their stand-in
+      -- `phone_number`) is `'g:' || uuid`, and a UUID is full of digits — so a
+      -- numeric query would match groups at random. A group is found by its
+      -- members instead, which the caller resolves and passes as `alsoThreadIds`.
+      WHERE is_deleted = 0 AND thread_id NOT LIKE '${GroupThread.prefix}%'
       GROUP BY thread_id
       ORDER BY MAX(timestamp) DESC
       LIMIT ?
@@ -690,6 +695,13 @@ class MessageRepository {
 
   /// Which of [deviceIds] the local store already carries, read in chunks that
   /// stay under SQLite's bound-variable limit.
+  ///
+  /// **Two sources, and the second is load-bearing.** A group send writes one
+  /// row in `messages` but N rows into `content://sms`, and only one
+  /// `device_sms_id` fits on a message row — the rest live in
+  /// `message_group_targets`. Reading only the first source would leave N-1
+  /// provider rows looking brand new to the mirror-sync, which would import the
+  /// group message a second time into every member's 1:1 conversation.
   Future<Set<int>> _knownDeviceSmsIds(List<int> deviceIds) async {
     if (deviceIds.isEmpty) return const {};
     final db = await _dbHelper.database;
@@ -698,11 +710,15 @@ class MessageRepository {
       final end = i + 500 > deviceIds.length ? deviceIds.length : i + 500;
       final chunk = deviceIds.sublist(i, end);
       final placeholders = List.filled(chunk.length, '?').join(',');
-      final rows = await db.query(
-        AppConstants.messagesTable,
-        columns: ['device_sms_id'],
-        where: 'device_sms_id IN ($placeholders)',
-        whereArgs: chunk,
+      final rows = await db.rawQuery(
+        '''
+        SELECT device_sms_id FROM ${AppConstants.messagesTable}
+        WHERE device_sms_id IN ($placeholders)
+        UNION
+        SELECT device_sms_id FROM ${AppConstants.messageGroupTargetsTable}
+        WHERE device_sms_id IN ($placeholders)
+        ''',
+        [...chunk, ...chunk],
       );
       for (final row in rows) {
         known.add((row['device_sms_id'] as num).toInt());

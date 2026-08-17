@@ -3,16 +3,19 @@ import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'message_event.dart';
 import 'message_state.dart';
+import '../repositories/group_repository.dart';
 import '../repositories/message_repository.dart';
 import '../services/sms_service.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
+import '../models/message_group.dart';
 import '../models/message_model.dart';
 
 class MessageBloc extends Bloc<MessageEvent, MessageState> {
   final MessageRepository _repository;
   final SmsService _smsService;
   final ContactRepository _contactRepository;
+  final GroupRepository _groupRepository;
   static bool _hasImported = false;
 
   /// One-per-session cache of the normalized-number → contact name lookup table.
@@ -63,9 +66,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     MessageRepository? repository,
     SmsService? smsService,
     ContactRepository? contactRepository,
+    GroupRepository? groupRepository,
   }) : _repository = repository ?? MessageRepository(),
        _smsService = smsService ?? SmsService(),
        _contactRepository = contactRepository ?? ContactRepository(),
+       _groupRepository = groupRepository ?? GroupRepository(),
        super(const MessageInitial()) {
     on<LoadThreads>(_onLoadThreads);
     on<SyncDeviceMessages>(_onSyncDeviceMessages);
@@ -74,6 +79,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     on<LoadMessages>(_onLoadMessages);
     on<LoadMoreMessages>(_onLoadMoreMessages);
     on<SendMessage>(_onSendMessage);
+    on<SendGroupMessage>(_onSendGroupMessage);
     on<RetryMessage>(_onRetryMessage);
     on<ReceiveMessage>(_onReceiveMessage);
     on<MessageSentExternally>(_onMessageSentExternally);
@@ -272,14 +278,16 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     if (_cachedPhoneToName == null && rawThreads.isNotEmpty) {
       emit(
         ThreadsLoaded(
-          rawThreads,
+          await _resolveGroups(rawThreads),
           hasMore: hasMore,
           archived: archived,
           syncing: syncing,
         ),
       );
     }
-    final threads = await _resolveContactNames(rawThreads);
+    final threads = await _resolveGroups(
+      await _resolveContactNames(rawThreads),
+    );
     emit(
       ThreadsLoaded(
         threads,
@@ -288,6 +296,34 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         syncing: syncing,
       ),
     );
+  }
+
+  /// Attaches the [MessageGroup] to every group thread in [threads].
+  ///
+  /// The inbox query is deliberately blind to what kind of thread id it is
+  /// paging (see [GroupThread]) — that is what lets pinning, archiving, the
+  /// unread count and the search work on a group without a single branch — so the
+  /// group itself is joined on afterwards, here.
+  ///
+  /// Read on demand instead of cached: it is two reads of tables holding a
+  /// handful of rows, and a cache would have to be invalidated by the group
+  /// details screen, a rename, a member added, a member removed and a delete —
+  /// five paths that each look correct while showing a stale title.
+  Future<List<MessageThread>> _resolveGroups(
+    List<MessageThread> threads,
+  ) async {
+    if (!threads.any((t) => t.isGroup)) return threads;
+    try {
+      final groups = await _groupRepository.getAllByThreadId();
+      return [
+        for (final thread in threads)
+          thread.isGroup
+              ? thread.copyWith(group: groups[thread.threadId])
+              : thread,
+      ];
+    } catch (_) {
+      return threads;
+    }
   }
 
   /// Starts the incoming-SMS listener once. The `SmsService._listening` guard
@@ -508,7 +544,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         );
         return;
       }
-      final resolved = await _resolveContactNames(more);
+      final resolved = await _resolveGroups(await _resolveContactNames(more));
       final combined = [...current.threads, ...resolved];
       _setPagedCount(combined.length, archived: current.archived);
       emit(
@@ -600,6 +636,57 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         );
       }
     } catch (e) {
+      _notify(
+        emit,
+        MessageSendFailed(
+          errorCode: 'SMS_SEND_FAILED',
+          userMessage: _localizedSendError(null),
+        ),
+      );
+    }
+  }
+
+  /// «پیام گروهی»: one send per member, one bubble.
+  ///
+  /// Membership is read here rather than carried in the event, because the group
+  /// may have changed since the composer was opened — the message goes to whoever
+  /// is in it now.
+  Future<void> _onSendGroupMessage(
+    SendGroupMessage event,
+    Emitter<MessageState> emit,
+  ) async {
+    try {
+      final group = await _groupRepository.getById(event.groupId);
+      if (group == null || group.members.isEmpty) {
+        _notify(
+          emit,
+          const MessageSendFailed(
+            errorCode: 'SMS_SEND_FAILED',
+            userMessage: 'این گروه عضوی ندارد.',
+          ),
+        );
+        return;
+      }
+      final result = await _smsService.sendGroupSms(
+        group: group,
+        body: event.body,
+        subscriptionId: event.subscriptionId,
+      );
+      // The group's «آخرین فعالیت» follows its conversation, so the details list
+      // and the recipient picker order the newest group first.
+      await _groupRepository.touch(event.groupId);
+      if (result.success) {
+        _notify(emit, const MessageSent());
+      } else {
+        _notify(
+          emit,
+          MessageSendFailed(
+            errorCode: result.errorCode ?? 'SMS_SEND_FAILED',
+            userMessage: _localizedSendError(result.errorCode),
+          ),
+        );
+      }
+    } catch (_) {
       _notify(
         emit,
         MessageSendFailed(
@@ -784,6 +871,27 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     final current = state;
     if (current is ThreadsLoaded && !current.archived) {
       final enriched = await _resolveContactNames(current.threads);
+      // A group member's name is denormalized into `message_group_members` so a
+      // group can be titled without reading the address book. This is the one
+      // place that copy is refreshed — otherwise renaming a contact left every
+      // group they are in showing the old name for ever.
+      final index = _cachedPhoneToName;
+      if (index != null && index.isNotEmpty) {
+        try {
+          final changed = await _groupRepository.refreshMemberNames(index);
+          if (changed > 0) {
+            emit(
+              ThreadsLoaded(
+                await _resolveGroups(enriched),
+                hasMore: current.hasMore,
+              ),
+            );
+            return;
+          }
+        } catch (_) {
+          // A stale denormalized name is not worth failing a refresh over.
+        }
+      }
       emit(ThreadsLoaded(enriched, hasMore: current.hasMore));
     }
   }

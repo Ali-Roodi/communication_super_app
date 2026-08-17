@@ -3,7 +3,7 @@ class AppConstants {
 
   // Database
   static const String databaseName = 'communication_app.db';
-  static const int databaseVersion = 21;
+  static const int databaseVersion = 22;
 
   // Tables
   static const String contactsTable = 'contacts';
@@ -26,6 +26,29 @@ class AppConstants {
   /// The digit itself is the primary key — there are eight of them and a
   /// position can hold exactly one number.
   static const String speedDialTable = 'speed_dial';
+
+  /// «پیام گروهی» (v22) — a group *conversation* that this app maintains
+  /// locally, because there is no MMS to carry a real one.
+  ///
+  /// A group thread's `messages.thread_id` is `'g:' || message_groups.id` (see
+  /// `GroupThread`), so every existing inbox/search/pin/archive query keeps
+  /// working on it unchanged — it is just another thread id that happens not to
+  /// be a phone number.
+  static const String messageGroupsTable = 'message_groups';
+
+  /// Who is in a group. `normalized` is the canonical thread id
+  /// (`PhoneNormalizer.toThreadId`) so «+98912…» and «0912…» are one member.
+  static const String messageGroupMembersTable = 'message_group_members';
+
+  /// One row per recipient per group message: the real SMS that carried it.
+  ///
+  /// This is what makes the fan-out safe. A group send writes **one** row in
+  /// `messages` but puts **N** rows into `content://sms`, and only one
+  /// `device_sms_id` fits on a message row — without these the mirror-sync would
+  /// see the other N-1 provider rows as unknown and import the message again
+  /// into each member's 1:1 conversation. `MessageRepository.knownDeviceSmsIds`
+  /// unions this table for exactly that reason.
+  static const String messageGroupTargetsTable = 'message_group_targets';
 
   /// FTS5 index over the folded text of every message body — the substring
   /// index the message search uses when the device's SQLite can build one.

@@ -106,6 +106,9 @@ class _ArchivedThreadsScreenState extends State<ArchivedThreadsScreen> {
               threadId: thread.threadId,
               phoneNumber: thread.phoneNumber,
               contactName: thread.contactName,
+              // An archived conversation can be a group too; carried so the
+              // header opens named rather than resolving a frame later.
+              group: thread.group,
             ),
           ),
         ),

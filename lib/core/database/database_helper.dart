@@ -320,6 +320,11 @@ class DatabaseHelper {
     if (oldVersion < 21) {
       await _createSpeedDialTable(db);
     }
+
+    // v22: «پیام گروهی» — local group conversations + the fan-out bookkeeping.
+    if (oldVersion < 22) {
+      await _createMessageGroupTables(db);
+    }
   }
 
   /// ALTERs [table] only when [column] is not already there.
@@ -372,6 +377,80 @@ class DatabaseHelper {
         contact_id TEXT,
         updated_at INTEGER NOT NULL
       )
+    ''');
+  }
+
+  /// «پیام گروهی» (v22): a group conversation, its members, and the real SMS
+  /// each group message fanned out into.
+  ///
+  /// The group is **local**. There is no MMS in this app, so there is no
+  /// provider thread that could hold several recipients and no way for a reply
+  /// to come back into one — a member's answer lands in that member's own 1:1
+  /// conversation, exactly as Google Messages behaves with «Group MMS» off. What
+  /// this buys is the half that *is* real: one place to write to everybody, one
+  /// history of what was written, one row in the inbox.
+  ///
+  /// `message_group_targets` is the load-bearing table. One group message =
+  /// one row in `messages` (`device_sms_id` NULL) + N provider rows, and the
+  /// mirror-sync diffs the provider's id list against the ids the app knows. If
+  /// those N ids were not recorded anywhere, the very next sync would treat them
+  /// as new messages and import a copy into each member's 1:1 chat.
+  Future<void> _createMessageGroupTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.messageGroupsTable} (
+        id TEXT PRIMARY KEY,
+        -- NULL until the user names it: the title is then derived from the
+        -- members, so renaming a contact renames the group too.
+        title TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.messageGroupMembersTable} (
+        group_id TEXT NOT NULL,
+        -- PhoneNormalizer.toThreadId — the same canonical key as
+        -- messages.thread_id, so a member added from a call log and the same
+        -- person added from Contacts are one row.
+        normalized TEXT NOT NULL,
+        phone_number TEXT NOT NULL,
+        -- Denormalized on purpose (same reason as speed_dial): the inbox row and
+        -- the chat header have to name the group before the address book has
+        -- been read, and a member who is not (or no longer) a contact still has
+        -- to read as something.
+        display_name TEXT,
+        added_at INTEGER NOT NULL,
+        PRIMARY KEY (group_id, normalized)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.messageGroupTargetsTable} (
+        message_id TEXT NOT NULL,
+        normalized TEXT NOT NULL,
+        phone_number TEXT NOT NULL,
+        -- pending | sent | delivered | failed, per recipient. The bubble shows
+        -- the aggregate; «اطلاعات» shows this.
+        status TEXT NOT NULL,
+        -- The provider row this recipient's SMS became. NULL when the write-
+        -- through did not happen (not the default SMS app) or the send failed.
+        device_sms_id INTEGER,
+        subscription_id INTEGER,
+        -- Per-recipient tracking id handed to the native send, so a carrier
+        -- delivery report finds this exact recipient rather than the whole
+        -- group message.
+        tracking_id TEXT,
+        PRIMARY KEY (message_id, normalized)
+      )
+    ''');
+    // The mirror-sync's known-id union reads this by device_sms_id.
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_group_targets_device
+      ON ${AppConstants.messageGroupTargetsTable}(device_sms_id)
+    ''');
+    // Delivery reports arrive keyed by tracking id.
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_group_targets_tracking
+      ON ${AppConstants.messageGroupTargetsTable}(tracking_id)
     ''');
   }
 
@@ -906,6 +985,9 @@ class DatabaseHelper {
 
       // Speed dial (v21)
       await _createSpeedDialTable(db);
+
+      // Local group conversations + fan-out bookkeeping (v22)
+      await _createMessageGroupTables(db);
     } catch (e) {
       throw Exception('Failed to create database tables: $e');
     }

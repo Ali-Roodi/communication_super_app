@@ -12,6 +12,7 @@ import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/utils/persian_alphabet.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/search_text.dart';
+import 'package:communication_super_app/core/widgets/contact_index_list.dart';
 import 'package:communication_super_app/core/widgets/contact_numbers_line.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
 import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
@@ -29,14 +30,11 @@ import 'package:communication_super_app/features/settings/screens/settings_scree
 import 'add_edit_contact_screen.dart';
 import '../models/contact_model.dart';
 
-// Fixed extents so the fast-scroll index bar can compute jump offsets. A row
-// occupies [_kRowHeight]; the card itself is that minus the group gap, so the
-// cards of a section read as one run with hairline seams.
-//
-// Sized for two lines (name + numbers), not one — a name-only row cannot tell
-// two contacts with the same name apart.
-const double _kRowHeight = 72;
-const double _kHeaderHeight = 44;
+// The row / header extents and the fast-scroll bar live in
+// `core/widgets/contact_index_list.dart` — shared with the «پیام جدید» recipient
+// picker, which needs the same list. A second copy would mean the jump offsets
+// and the list's order could drift apart, and the jump only lands on the right
+// name while they agree.
 
 class ContactsListScreen extends StatefulWidget {
   const ContactsListScreen({super.key});
@@ -45,7 +43,8 @@ class ContactsListScreen extends StatefulWidget {
   State<ContactsListScreen> createState() => _ContactsListScreenState();
 }
 
-class _ContactsListScreenState extends State<ContactsListScreen> {
+class _ContactsListScreenState extends State<ContactsListScreen>
+    with AlphabetBarVisibility {
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   bool _hasLoaded = false;
@@ -65,11 +64,6 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
   /// contact id → the number the (numeric) query matched, for the result rows.
   Map<String, String> _resultNumbers = const {};
 
-  /// The fast-scroll alphabet is transient: it fades in while the list moves
-  /// and fades back out a moment after it stops (Google Contacts' behaviour).
-  bool _indexVisible = false;
-  Timer? _indexHideTimer;
-
   /// Ids of the multi-selected contacts. Long-pressing a row enters the mode —
   /// Google Contacts has no per-contact long-press sheet, the actions live in
   /// the contextual bar.
@@ -84,12 +78,12 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
   // alphabet changes).
   List<ContactModel>? _lastContacts;
   List<String>? _lastLetters;
-  List<_Section> _sections = [];
+  List<ContactSection> _sections = [];
 
   /// Index alphabet for the current device language.
   List<String> get _indexLetters => activeIndexLetters();
 
-  List<_Section> _getOrBuildSections(List<ContactModel> contacts) {
+  List<ContactSection> _getOrBuildSections(List<ContactModel> contacts) {
     final letters = _indexLetters;
     if (identical(_lastContacts, contacts) &&
         identical(_lastLetters, letters)) {
@@ -97,12 +91,9 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
     }
     _lastContacts = contacts;
     _lastLetters = letters;
-    _sections = _buildSections(contacts, letters);
+    _sections = buildContactSections(contacts, letters);
     return _sections;
   }
-
-  /// Ordering rank of [letter] within the active alphabet ('#' sorts last).
-  int _indexRank(String letter) => letterRank(letter, _indexLetters);
 
   @override
   void initState() {
@@ -130,9 +121,9 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
   @override
   void dispose() {
     _searchDebounce?.cancel();
-    _indexHideTimer?.cancel();
     _searchController.dispose();
     _scrollController.dispose();
+    // AlphabetBarVisibility cancels its fade-out timer in its own dispose.
     super.dispose();
   }
 
@@ -605,22 +596,19 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
 
   // ── Sectioned list with inline headers + fast-scroll bar ──────────────────
 
-  Widget _buildSectionedList(List<_Section> sections, ThemeData theme) {
+  Widget _buildSectionedList(List<ContactSection> sections, ThemeData theme) {
     _visible = [for (final s in sections) ...s.contacts];
     final slivers = <Widget>[];
     for (final s in sections) {
       slivers.add(
-        // Not pinned: Flutter stacks *every* pinned persistent header at the top
-        // as you scroll, which piled the letters up and pushed the list off the
-        // screen. Fast navigation is handled by the alphabet bar instead.
         SliverPersistentHeader(
           pinned: false,
-          delegate: _SectionHeaderDelegate(s.letter),
+          delegate: ContactSectionHeaderDelegate(s.letter),
         ),
       );
       slivers.add(
         SliverFixedExtentList(
-          itemExtent: _kRowHeight,
+          itemExtent: kContactRowHeight,
           delegate: SliverChildBuilderDelegate(
             (_, i) => _contactRow(s.contacts[i]),
             childCount: s.contacts.length,
@@ -638,15 +626,7 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
           child: NotificationListener<ScrollNotification>(
             // Google reveals its index only while the list is moving, so the
             // letters never sit on top of a resting list.
-            onNotification: (n) {
-              if (n is ScrollStartNotification ||
-                  n is ScrollUpdateNotification) {
-                _revealIndex();
-              } else if (n is ScrollEndNotification) {
-                _scheduleHideIndex();
-              }
-              return false;
-            },
+            onNotification: onIndexScrollNotification,
             child: CustomScrollView(
               controller: _scrollController,
               slivers: [
@@ -663,19 +643,19 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
           bottom: 88,
           left: 0, // mirrored to the left edge for the RTL layout
           child: IgnorePointer(
-            ignoring: !_indexVisible,
+            ignoring: !indexVisible,
             child: AnimatedOpacity(
-              opacity: _indexVisible ? 1 : 0,
-              duration: Duration(milliseconds: _indexVisible ? 120 : 320),
+              opacity: indexVisible ? 1 : 0,
+              duration: Duration(milliseconds: indexVisible ? 120 : 320),
               curve: Curves.easeOut,
-              child: _AlphabetBar(
+              child: ContactAlphabetBar(
                 letters: _indexLetters,
                 available: sections.map((s) => s.letter).toSet(),
                 onSelect: _jumpToLetter,
                 // Dragging the bar counts as activity, so it doesn't fade out
                 // from under the finger.
-                onInteract: _revealIndex,
-                onInteractEnd: _scheduleHideIndex,
+                onInteract: revealIndex,
+                onInteractEnd: scheduleHideIndex,
               ),
             ),
           ),
@@ -684,37 +664,9 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
     );
   }
 
-  // ── Fast-scroll index visibility ────────────────────────────────────────
-
-  /// Shows the alphabet index and cancels any pending fade-out.
-  void _revealIndex() {
-    _indexHideTimer?.cancel();
-    if (!_indexVisible) setState(() => _indexVisible = true);
-  }
-
-  /// Fades the index out shortly after the last scroll/drag.
-  void _scheduleHideIndex() {
-    _indexHideTimer?.cancel();
-    _indexHideTimer = Timer(const Duration(milliseconds: 1400), () {
-      if (mounted) setState(() => _indexVisible = false);
-    });
-  }
-
   void _jumpToLetter(String letter) {
-    // The bar always shows A–Z + #, but not every letter has a section. Jump to
-    // the first section at or after the tapped letter (stock-phone behavior).
-    final targetRank = _indexRank(letter);
-    var targetIndex = -1;
-    var offset = 0.0;
-    var acc = 0.0;
-    for (var i = 0; i < _sections.length; i++) {
-      if (targetIndex == -1 && _indexRank(_sections[i].letter) >= targetRank) {
-        targetIndex = i;
-        offset = acc;
-      }
-      acc += _kHeaderHeight + _sections[i].contacts.length * _kRowHeight;
-    }
-    if (targetIndex == -1) return; // nothing at/after the tapped letter
+    final offset = sectionJumpOffset(_sections, letter, _indexLetters);
+    if (offset == null) return; // nothing at/after the tapped letter
     if (!_scrollController.hasClients) return;
     final max = _scrollController.position.maxScrollExtent;
     _scrollController.animateTo(
@@ -724,79 +676,11 @@ class _ContactsListScreenState extends State<ContactsListScreen> {
     );
   }
 
-  List<_Section> _buildSections(
-    List<ContactModel> contacts,
-    List<String> letters,
-  ) {
-    final grouped = <String, List<ContactModel>>{};
-    for (final c in contacts) {
-      // `sortName`, not `name`: under «مرتب‌سازی بر اساس نام خانوادگی» the row
-      // belongs to the section of the family name, which is not the letter the
-      // displayed name starts with.
-      grouped
-          .putIfAbsent(sectionLetterFor(c.sortName, letters), () => [])
-          .add(c);
-    }
-    final keys = grouped.keys.toList()
-      ..sort((a, b) => _indexRank(a).compareTo(_indexRank(b)));
-    return [for (final k in keys) _Section(k, grouped[k]!)];
-  }
-
   Widget _buildEmptyState(ThemeData theme) => const EmptyState(
     icon: Icons.person_outline,
     title: 'مخاطبی یافت نشد',
     subtitle: 'مخاطبین ذخیره‌شده روی گوشی اینجا نمایش داده می‌شوند',
   );
-}
-
-// ── Section model ─────────────────────────────────────────────────────────────
-
-class _Section {
-  final String letter;
-  final List<ContactModel> contacts;
-  const _Section(this.letter, this.contacts);
-}
-
-// ── Sticky section header ─────────────────────────────────────────────────────
-
-class _SectionHeaderDelegate extends SliverPersistentHeaderDelegate {
-  final String letter;
-  _SectionHeaderDelegate(this.letter);
-
-  @override
-  double get minExtent => _kHeaderHeight;
-  @override
-  double get maxExtent => _kHeaderHeight;
-
-  @override
-  Widget build(
-    BuildContext context,
-    double shrinkOffset,
-    bool overlapsContent,
-  ) {
-    final theme = Theme.of(context);
-    return Container(
-      height: _kHeaderHeight,
-      width: double.infinity,
-      alignment: AlignmentDirectional.centerStart,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      color: theme.scaffoldBackgroundColor,
-      child: Text(
-        // Grey, not tinted — Google Contacts keeps its alphabet letters neutral
-        // and reserves the primary colour for settings headings.
-        letter,
-        style: TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w600,
-          color: theme.colorScheme.onSurfaceVariant,
-        ),
-      ),
-    );
-  }
-
-  @override
-  bool shouldRebuild(_SectionHeaderDelegate oldDelegate) =>
-      oldDelegate.letter != letter;
 }
 
 // ── Contact row ───────────────────────────────────────────────────────────────
@@ -933,101 +817,6 @@ class _ContactRow extends StatelessWidget {
       ),
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
-    );
-  }
-}
-
-// ── Fast-scroll alphabet index bar ────────────────────────────────────────────
-
-class _AlphabetBar extends StatelessWidget {
-  final List<String> letters;
-
-  /// Letters that actually have a section — the rest are shown dimmed.
-  final Set<String> available;
-  final ValueChanged<String> onSelect;
-
-  /// Called while the bar is being touched / dragged, and once the gesture
-  /// ends, so the owner can keep it visible for the duration.
-  final VoidCallback onInteract;
-  final VoidCallback onInteractEnd;
-
-  const _AlphabetBar({
-    required this.letters,
-    required this.available,
-    required this.onSelect,
-    required this.onInteract,
-    required this.onInteractEnd,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    if (letters.length < 2) return const SizedBox.shrink();
-    final theme = Theme.of(context);
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        void handle(Offset local) {
-          final h = constraints.maxHeight;
-          if (h <= 0) return;
-          final i = (local.dy / h * letters.length).floor().clamp(
-            0,
-            letters.length - 1,
-          );
-          onSelect(letters[i]);
-        }
-
-        // Distribute the letters over the FULL bar height (one Expanded slot
-        // each) instead of packing them at line-height — the breathing room
-        // between glyphs is whatever the slot leaves around the text, so the
-        // index stays legible on any screen. The glyph itself takes ~60% of
-        // its slot; the Persian alphabet (33 entries) simply gets slightly
-        // smaller slots than Latin (27).
-        final slot = constraints.maxHeight / letters.length;
-        final fontSize = slot.isFinite ? (slot * 0.62).clamp(8.0, 13.0) : 12.0;
-
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTapDown: (d) {
-            onInteract();
-            handle(d.localPosition);
-          },
-          onTapUp: (_) => onInteractEnd(),
-          onTapCancel: onInteractEnd,
-          onVerticalDragStart: (_) => onInteract(),
-          onVerticalDragUpdate: (d) {
-            onInteract();
-            handle(d.localPosition);
-          },
-          onVerticalDragEnd: (_) => onInteractEnd(),
-          onVerticalDragCancel: onInteractEnd,
-          child: SizedBox(
-            width: 24,
-            height: constraints.maxHeight,
-            child: Column(
-              children: [
-                for (final l in letters)
-                  Expanded(
-                    child: Center(
-                      child: Text(
-                        l,
-                        style: TextStyle(
-                          fontSize: fontSize,
-                          height: 1,
-                          fontWeight: FontWeight.w600,
-                          color: available.contains(l)
-                              ? theme.colorScheme.primary
-                              : theme.colorScheme.primary.withValues(
-                                  alpha: 0.3,
-                                ),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        );
-      },
     );
   }
 }

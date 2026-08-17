@@ -29,11 +29,21 @@ class ThreadTile extends StatelessWidget {
     this.selectionMode = false,
   });
 
-  String get _displayName => thread.contactName?.isNotEmpty == true
-      ? thread.contactName!
-      : PersianUtils.displayPhone(
-          PhoneNormalizer.toNational(thread.phoneNumber),
-        );
+  String get _displayName {
+    // A group thread's `phoneNumber` is its thread id, not an address (see
+    // `GroupThread`) — printing it would show «g:…». Its name is the group's,
+    // and the group may not be resolved yet on the very first paint of a page.
+    if (thread.isGroup) {
+      return thread.group?.displayTitle ??
+          thread.contactName ??
+          'گفتگوی گروهی';
+    }
+    return thread.contactName?.isNotEmpty == true
+        ? thread.contactName!
+        : PersianUtils.displayPhone(
+            PhoneNormalizer.toNational(thread.phoneNumber),
+          );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -185,6 +195,21 @@ class ThreadTile extends StatelessWidget {
         radius: 24,
         backgroundColor: scheme.primary,
         child: Icon(Icons.check, color: scheme.onPrimary),
+      );
+    }
+    // A group has no photo and no initials worth showing (a derived title starts
+    // with whichever member happens to be first), so it gets the people glyph
+    // Google Messages uses — same 48 dp box, so the row height is unchanged.
+    if (thread.isGroup) {
+      return Container(
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(
+          color: scheme.secondaryContainer,
+          shape: BoxShape.circle,
+        ),
+        alignment: Alignment.center,
+        child: Icon(Icons.group_outlined, color: scheme.onSecondaryContainer),
       );
     }
     // Contact photo when the number is saved, initials otherwise — same 48 dp

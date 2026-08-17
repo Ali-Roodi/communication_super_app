@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:communication_super_app/core/services/composer_draft_store.dart';
 import 'package:communication_super_app/core/services/deep_link_service.dart';
 import 'package:communication_super_app/core/services/location_service.dart';
@@ -31,9 +32,12 @@ import 'package:communication_super_app/features/contacts/widgets/save_number_ac
 import '../bloc/scheduled_bloc.dart';
 import '../bloc/scheduled_event.dart';
 import '../bloc/scheduled_state.dart';
+import '../models/message_group.dart';
 import '../models/scheduled_message_model.dart';
 import '../models/template_wire.dart';
+import '../repositories/group_repository.dart';
 import 'drafts_list_screen.dart';
+import 'group_details_screen.dart';
 import 'templates_list_screen.dart';
 import 'widgets/message_bubble.dart';
 import 'contact_selector_screen.dart';
@@ -60,12 +64,22 @@ class ConversationScreen extends StatefulWidget {
   /// the thread wins over this, so forwarding never eats unsent text.
   final String? initialText;
 
+  /// The group this conversation belongs to, when [threadId] is a group thread
+  /// (`'g:…'`, see [GroupThread]).
+  ///
+  /// Passed in by whoever already had it (the inbox row, the picker that just
+  /// created it) purely so the header paints named on the first frame; the screen
+  /// re-reads it either way, because it is the details page — reachable from
+  /// here — that can rename it or change who is in it.
+  final MessageGroup? group;
+
   const ConversationScreen({
     super.key,
     required this.threadId,
     required this.phoneNumber,
     this.contactName,
     this.initialText,
+    this.group,
   });
 
   /// Opens a conversation for any phone number — saved or not. The thread ID is
@@ -77,6 +91,7 @@ class ConversationScreen extends StatefulWidget {
     String? contactName,
     this.initialText,
   }) : threadId = PhoneNormalizer.toThreadId(phoneNumber),
+       group = null,
        contactName = (contactName?.isNotEmpty ?? false) ? contactName : null;
 
   @override
@@ -158,18 +173,44 @@ class _ConversationScreenState extends State<ConversationScreen> {
   /// for the first frames.
   bool _contactResolved = false;
 
+  /// The group behind this conversation, when the thread is a group one.
+  ///
+  /// Re-read on entry and after the details page, because a rename or a member
+  /// change made there has to show in the header without leaving the chat.
+  MessageGroup? _group;
+
+  /// Whether this conversation is a group. Read from the **thread id**, so it is
+  /// true from the first frame even before [_group] has been read back —
+  /// everything that would otherwise treat the thread id as a phone number (the
+  /// call button, the spam prompt, «مشاهده مخاطب») hangs off this.
+  bool get _isGroup => GroupThread.isGroup(widget.threadId);
+
   bool get _hasName => _contactName != null;
-  String get _title =>
-      _contactName ??
-      PersianUtils.displayPhone(PhoneNormalizer.toNational(widget.phoneNumber));
+  String get _title {
+    if (_isGroup) return _group?.displayTitle ?? 'گفتگوی گروهی';
+    return _contactName ??
+        PersianUtils.displayPhone(
+          PhoneNormalizer.toNational(widget.phoneNumber),
+        );
+  }
 
   @override
   void initState() {
     super.initState();
     _messageBloc = context.read<MessageBloc>();
-    _contactName = widget.contactName;
-    _contactResolved = _contactName != null;
-    _resolveContactName();
+    if (_isGroup) {
+      _group = widget.group;
+      // The draft store and the inbox row title themselves from `contactName`;
+      // for a group that is the group's name.
+      _contactName = _group?.displayTitle;
+      _contactResolved = true;
+      _loadGroup();
+      _loadGroupNoticeSeen();
+    } else {
+      _contactName = widget.contactName;
+      _contactResolved = _contactName != null;
+      _resolveContactName();
+    }
     _messageBloc.add(LoadMessages(widget.threadId));
     // Re-read the schedules table on entry: a message delivered while this
     // screen was gone (native worker, cold start) would otherwise still show as
@@ -187,6 +228,20 @@ class _ConversationScreenState extends State<ConversationScreen> {
     DeepLinkService.instance
       ..setVisibleThread(widget.threadId)
       ..clearThreadNotifications(widget.threadId);
+  }
+
+  /// Re-reads the group behind this thread.
+  ///
+  /// Always, even when the caller handed one in: the caller's copy is a snapshot
+  /// (an inbox row painted a minute ago), and the composer sends to whoever is in
+  /// the group *now*.
+  Future<void> _loadGroup() async {
+    final group = await GroupRepository().getByThreadId(widget.threadId);
+    if (!mounted || group == null) return;
+    setState(() {
+      _group = group;
+      _contactName = group.displayTitle;
+    });
   }
 
   /// Resolves the title from the address book when the caller did not carry a
@@ -352,6 +407,21 @@ class _ConversationScreenState extends State<ConversationScreen> {
     _messageController.clear();
     _draftStore.remove(widget.threadId);
     _clearPendingWire();
+    final group = _group;
+    if (_isGroup) {
+      // The group is named, not its members: membership is read at send time, so
+      // somebody removed on the details page a moment ago does not get the
+      // message anyway.
+      if (group == null) return;
+      _messageBloc.add(
+        SendGroupMessage(
+          groupId: group.id,
+          body: body,
+          subscriptionId: _sim?.subscriptionId,
+        ),
+      );
+      return;
+    }
     _messageBloc.add(
       SendMessage(
         phoneNumber: widget.phoneNumber,
@@ -480,6 +550,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 context.read<SettingsBloc>().add(SetMessageTextScale(scale)),
             child: Column(
               children: [
+                _buildGroupNotice(context),
                 _buildSpamPrompt(context),
                 // The thread sits on its own rounded sheet, one plane above the
                 // page the header shares — Google Messages' conversation
@@ -511,6 +582,84 @@ class _ConversationScreenState extends State<ConversationScreen> {
     );
   }
 
+  // ── «پاسخ‌ها کجا می‌آید؟» ──────────────────────────────────────────────────
+  //
+  // Without MMS there is no provider thread that can hold several recipients, so
+  // a group send is N separate messages and every answer lands in that person's
+  // own conversation. That is not a detail to leave the user to discover: the
+  // first thing anyone does in a group chat is expect a reply in it.
+  //
+  // Said **once**, not on every visit — a banner that comes back for ever is
+  // furniture. It is dismissed for the app, not for this group, because it is a
+  // fact about the app rather than about these people.
+
+  static const String _kGroupNoticeKey = 'group_sms_notice_seen_v1';
+
+  /// Null until the preference has been read; the banner does not flash in and
+  /// out while that happens.
+  bool? _groupNoticeSeen;
+
+  Future<void> _loadGroupNoticeSeen() async {
+    final prefs = await SharedPreferences.getInstance();
+    final seen = prefs.getBool(_kGroupNoticeKey) ?? false;
+    if (!mounted) return;
+    setState(() => _groupNoticeSeen = seen);
+  }
+
+  Future<void> _dismissGroupNotice() async {
+    setState(() => _groupNoticeSeen = true);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kGroupNoticeKey, true);
+  }
+
+  Widget _buildGroupNotice(BuildContext context) {
+    if (!_isGroup || _selectionMode) return const SizedBox.shrink();
+    if (_groupNoticeSeen != false) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 8, 4),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      // Column, not a Row with the button on the end: the sentence needs three
+      // lines on a phone, and a button vertically centred against them lands
+      // between the lines and reads as part of the paragraph.
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.groups_outlined,
+                size: 20,
+                color: scheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'پیام شما جداگانه برای هر عضو ارسال می‌شود و پاسخ هر نفر در '
+                  'گفتگوی خودش می‌آید.',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ),
+            ],
+          ),
+          Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: TextButton(
+              onPressed: _dismissGroupNotice,
+              child: const Text('متوجه شدم'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // ── «آیا این هرزنامه است؟» ────────────────────────────────────────────────
   //
   // Google Messages offers the report *in the conversation it is about*, on a
@@ -525,6 +674,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
   bool _spamPromptDismissed = false;
 
   Widget _buildSpamPrompt(BuildContext context) {
+    // A group has no sender to report and no number to block — the members are
+    // people the user picked themselves.
+    if (_isGroup) return const SizedBox.shrink();
     // `_contactResolved` is the load-bearing half: opened from a notification
     // this screen starts with nothing but the number, and asking «هرزنامه
     // است؟» about a saved contact for the first frames is exactly the bug this
@@ -594,6 +746,14 @@ class _ConversationScreenState extends State<ConversationScreen> {
   // ── App bars ──────────────────────────────────────────────────────────────
 
   PreferredSizeWidget _normalAppBar() {
+    if (_isGroup) {
+      return GroupConversationAppBar(
+        title: _title,
+        subtitle: _group?.memberCountLabel ?? '',
+        onOpenDetails: _openGroupDetails,
+        onMenuSelected: _onGroupMenu,
+      );
+    }
     return ConversationAppBar(
       title: _title,
       phoneNumber: widget.phoneNumber,
@@ -614,6 +774,39 @@ class _ConversationScreenState extends State<ConversationScreen> {
       onCopy: _copySelected,
       onDelete: () => _confirmDeleteMessages(_selected.toList()),
     );
+  }
+
+  void _onGroupMenu(String value) {
+    switch (value) {
+      case 'details':
+        _openGroupDetails();
+      case 'textSize':
+        showMessageTextSizeSheet(context);
+      case 'delete':
+        _confirmDeleteConversation();
+    }
+  }
+
+  /// «جزئیات گروه» — the one page that can rename the group or change who is in
+  /// it. Deleting from there comes back as a result rather than doing the delete
+  /// itself, because the delete is a *conversation* operation (provider rows
+  /// included) and this screen is the one holding the thread.
+  Future<void> _openGroupDetails() async {
+    final group = _group;
+    if (group == null) return;
+    final result = await Navigator.of(context).push<GroupDetailsResult>(
+      MaterialPageRoute(builder: (_) => GroupDetailsScreen(group: group)),
+    );
+    if (result == null || !mounted) return;
+    if (result.deleted) {
+      _messageBloc.add(DeleteThread(widget.threadId));
+      Navigator.of(context).pop();
+      return;
+    }
+    setState(() {
+      _group = result.group;
+      _contactName = result.group.displayTitle;
+    });
   }
 
   void _onMenu(String value) {
@@ -1047,7 +1240,92 @@ class _ConversationScreenState extends State<ConversationScreen> {
     ).showSnackBar(const SnackBar(content: Text('کپی شد')));
   }
 
-  void _showMessageInfo(MessageModel msg) {
+  /// «اطلاعات» on a **group** bubble: one line per recipient.
+  ///
+  /// The bubble can only show one tick for N outcomes, and the fold is
+  /// deliberately pessimistic — so this is where "who actually got it" is
+  /// answered, and where a partial failure names the people to try again for.
+  Future<void> _showGroupMessageInfo(MessageModel msg) async {
+    final targets = await GroupRepository().targetsOf(msg.id);
+    if (!mounted) return;
+    if (targets.isEmpty) {
+      _showMessageInfo(msg, groupChecked: true);
+      return;
+    }
+    final summary = GroupSendSummary.of(targets);
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('اطلاعات پیام'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('زمان: ${DateFormatter.formatDateTime(msg.timestamp)}'),
+                const SizedBox(height: 4),
+                Text(summary.label),
+                const SizedBox(height: 12),
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: targets.length,
+                    itemBuilder: (_, i) {
+                      final target = targets[i];
+                      final member = _group?.members.firstWhere(
+                        (m) => m.normalized == target.normalized,
+                        orElse: () =>
+                            GroupMember(phoneNumber: target.phoneNumber),
+                      );
+                      return ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          member?.label ??
+                              PersianUtils.displayPhone(
+                                PhoneNormalizer.toNational(target.phoneNumber),
+                              ),
+                        ),
+                        trailing: Text(
+                          switch (target.status) {
+                            'pending' => 'در حال ارسال',
+                            'delivered' => 'تحویل‌شده',
+                            'failed' => 'ناموفق',
+                            _ => 'ارسال‌شده',
+                          },
+                          style: TextStyle(
+                            color: target.failed
+                                ? Theme.of(ctx).colorScheme.error
+                                : Theme.of(ctx).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('باشه'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showMessageInfo(MessageModel msg, {bool groupChecked = false}) {
+    // A group message has N outcomes, not one — they live in their own dialog.
+    if (_isGroup && !groupChecked) {
+      _showGroupMessageInfo(msg);
+      return;
+    }
     final statusLabel = switch (msg.status) {
       MessageStatus.pending => 'در حال ارسال',
       MessageStatus.sent => 'ارسال‌شده',
@@ -1200,7 +1478,12 @@ class _ConversationScreenState extends State<ConversationScreen> {
       onStickerSelected: _insertSticker,
       onStickerBackspace: _backspaceComposer,
       // Long-press send → the quick «زمان‌بندی ارسال» sheet.
-      onSchedule: _armSchedule,
+      //
+      // Off in a group: a `scheduled_messages` row carries **one** phone number
+      // and is delivered by a native worker that knows nothing about groups, so
+      // an armed group schedule would fire as a single SMS to a thread id. The
+      // affordance is withheld rather than accepted and quietly mishandled.
+      onSchedule: _isGroup ? null : _armSchedule,
       scheduledAt: _pendingSchedule?.at,
       scheduleSummary: _pendingSchedule == null
           ? null
@@ -1302,7 +1585,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       context,
       onInsertDraft: _insertDraft,
       onInsertTemplate: _insertTemplate,
-      onSchedule: _armSchedule,
+      onSchedule: _isGroup ? null : _armSchedule,
       onInsertLocation: _insertLocation,
     );
   }

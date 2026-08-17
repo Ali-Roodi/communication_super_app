@@ -8,8 +8,10 @@ import 'package:communication_super_app/core/widgets/google_list.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 
+import '../models/message_group.dart';
 import '../models/message_model.dart';
 import '../models/template_wire.dart';
+import '../repositories/group_repository.dart';
 import '../repositories/message_repository.dart';
 import 'conversation_screen.dart';
 
@@ -39,10 +41,18 @@ class _StarredMessagesScreenState extends State<StarredMessagesScreen> {
     _load();
   }
 
+  /// Group thread id → the group, for the starred messages that came from one.
+  ///
+  /// A group message's `phone_number` is its thread id, not an address (see
+  /// [GroupThread]) — without this the row would be titled «g:3f4a…» and its
+  /// avatar would be initials of that.
+  Map<String, MessageGroup> _groups = const {};
+
   Future<void> _load() async {
     final messages = await _repository.getStarredMessages();
     final names = <String, String>{};
     for (final m in messages) {
+      if (GroupThread.isGroup(m.threadId)) continue;
       final key = PhoneNormalizer.toThreadId(m.phoneNumber);
       if (key.isEmpty || names.containsKey(key)) continue;
       final contact = await ContactRepository().getContactByPhoneNumber(
@@ -50,14 +60,21 @@ class _StarredMessagesScreenState extends State<StarredMessagesScreen> {
       );
       if (contact != null && contact.name.isNotEmpty) names[key] = contact.name;
     }
+    final groups = messages.any((m) => GroupThread.isGroup(m.threadId))
+        ? await GroupRepository().getAllByThreadId()
+        : const <String, MessageGroup>{};
     if (!mounted) return;
     setState(() {
       _messages = messages;
       _names = names;
+      _groups = groups;
     });
   }
 
   String _titleFor(MessageModel m) {
+    if (GroupThread.isGroup(m.threadId)) {
+      return _groups[m.threadId]?.displayTitle ?? 'گفتگوی گروهی';
+    }
     final key = PhoneNormalizer.toThreadId(m.phoneNumber);
     return _names[key] ??
         PersianUtils.displayPhone(PhoneNormalizer.toNational(m.phoneNumber));
@@ -101,13 +118,17 @@ class _StarredMessagesScreenState extends State<StarredMessagesScreen> {
   Widget _row(BuildContext context, MessageModel m) {
     final scheme = Theme.of(context).colorScheme;
     final title = _titleFor(m);
+    final group = _groups[m.threadId];
     return InkWell(
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => ConversationScreen(
             threadId: m.threadId,
             phoneNumber: m.phoneNumber,
-            contactName: _names[PhoneNormalizer.toThreadId(m.phoneNumber)],
+            contactName: group != null
+                ? group.displayTitle
+                : _names[PhoneNormalizer.toThreadId(m.phoneNumber)],
+            group: group,
           ),
         ),
       ),
@@ -116,11 +137,23 @@ class _StarredMessagesScreenState extends State<StarredMessagesScreen> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            PhoneContactAvatar(
-              phoneNumber: m.phoneNumber,
-              name: title,
-              size: 44,
-            ),
+            if (group != null)
+              // A group has no photo and no initials worth showing — a derived
+              // title starts with whichever member happens to be first.
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: scheme.secondaryContainer,
+                child: Icon(
+                  Icons.group_outlined,
+                  color: scheme.onSecondaryContainer,
+                ),
+              )
+            else
+              PhoneContactAvatar(
+                phoneNumber: m.phoneNumber,
+                name: title,
+                size: 44,
+              ),
             const SizedBox(width: 14),
             Expanded(
               child: Column(

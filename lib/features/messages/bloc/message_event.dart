@@ -97,6 +97,29 @@ class SendMessage extends MessageEvent {
   List<Object?> get props => [phoneNumber, body, subscriptionId];
 }
 
+/// «پیام گروهی» — one message written once, sent to every member of the group as
+/// its own SMS, and kept as one bubble in the group's conversation.
+///
+/// Carries the group id rather than the recipient list: membership can change
+/// between arming a send and running it (a member removed on the details page),
+/// and the send has to go to whoever is in the group *now*.
+class SendGroupMessage extends MessageEvent {
+  final String groupId;
+  final String body;
+
+  /// SIM to send on — the same rule as [SendMessage]. Every copy goes out on it.
+  final int? subscriptionId;
+
+  const SendGroupMessage({
+    required this.groupId,
+    required this.body,
+    this.subscriptionId,
+  });
+
+  @override
+  List<Object?> get props => [groupId, body, subscriptionId];
+}
+
 class ReceiveMessage extends MessageEvent {
   final MessageModel message;
 
