@@ -1,5 +1,7 @@
 import 'package:equatable/equatable.dart';
 
+import 'message_group.dart';
+
 enum MessageType { sent, received }
 
 enum MessageStatus { pending, sent, delivered, failed }
@@ -153,6 +155,15 @@ class MessageThread extends Equatable {
   final String? draftText;
   final DateTime? draftTime;
 
+  /// The group behind this row when [threadId] is a group thread (`'g:…'`).
+  ///
+  /// Resolved after the SQL — the group's members live in their own tables and
+  /// the inbox query is deliberately blind to what kind of thread id it is
+  /// paging (see [GroupThread]). Null for an ordinary conversation, and also for
+  /// a group row read before the groups were resolved, so every reader falls
+  /// back to [isGroup] rather than assuming this is populated.
+  final MessageGroup? group;
+
   const MessageThread({
     required this.threadId,
     required this.phoneNumber,
@@ -164,7 +175,12 @@ class MessageThread extends Equatable {
     this.isPinned = false,
     this.draftText,
     this.draftTime,
+    this.group,
   });
+
+  /// Whether this row is a group conversation — read from the thread id, so it
+  /// is true even before [group] has been resolved.
+  bool get isGroup => GroupThread.isGroup(threadId);
 
   bool get hasUnread => unreadCount > 0;
 
@@ -187,6 +203,7 @@ class MessageThread extends Equatable {
     bool? isPinned,
     String? draftText,
     DateTime? draftTime,
+    MessageGroup? group,
   }) {
     return MessageThread(
       threadId: threadId ?? this.threadId,
@@ -199,6 +216,7 @@ class MessageThread extends Equatable {
       isPinned: isPinned ?? this.isPinned,
       draftText: draftText ?? this.draftText,
       draftTime: draftTime ?? this.draftTime,
+      group: group ?? this.group,
     );
   }
 
@@ -214,5 +232,6 @@ class MessageThread extends Equatable {
     isPinned,
     draftText,
     draftTime,
+    group,
   ];
 }

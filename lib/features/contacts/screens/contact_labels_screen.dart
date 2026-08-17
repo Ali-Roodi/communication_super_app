@@ -5,7 +5,9 @@ import 'package:communication_super_app/core/widgets/contact_numbers_line.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
 import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
-import 'package:communication_super_app/features/messages/screens/broadcast_compose_screen.dart';
+import 'package:communication_super_app/features/messages/models/message_group.dart';
+import 'package:communication_super_app/features/messages/repositories/group_repository.dart';
+import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
 
 import '../models/contact_model.dart';
 import '../repositories/contact_repository.dart';
@@ -243,13 +245,19 @@ class _LabelMembersScreenState extends State<_LabelMembersScreen> {
     await _load();
   }
 
-  /// «پیامک گروهی» — one message to everyone carrying the label.
+  /// «پیامک گروهی» — opens the group conversation for everyone carrying the
+  /// label, named after it.
+  ///
+  /// It used to open a one-shot mass-text composer that left nothing behind. A
+  /// label is a group the phone already knows about, so this makes the *group*:
+  /// the messages sent to «همکاران» stay in one conversation with a history,
+  /// and `findOrCreate` means opening the label twice lands in that same
+  /// conversation instead of starting an identical second one.
   ///
   /// Recipients are the members' first numbers; anyone without a number is
-  /// simply not a recipient (and is reported, so the count on the next screen
-  /// is not a surprise).
+  /// simply not a recipient (and is reported, so the count is not a surprise).
   Future<void> _messageAll() async {
-    final recipients = <BroadcastRecipient>[];
+    final members = <GroupMember>[];
     var skipped = 0;
     for (final contact in _members) {
       final number = contact.phoneNumbers.isNotEmpty
@@ -259,11 +267,15 @@ class _LabelMembersScreenState extends State<_LabelMembersScreen> {
         skipped++;
         continue;
       }
-      recipients.add(
-        BroadcastRecipient(phoneNumber: number, name: contact.name),
+      members.add(
+        GroupMember(
+          phoneNumber: number,
+          displayName: contact.name,
+          contactId: contact.id,
+        ),
       );
     }
-    if (recipients.isEmpty) {
+    if (members.isEmpty) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('هیچ‌کدام شماره‌ای ندارند')));
@@ -278,11 +290,32 @@ class _LabelMembersScreenState extends State<_LabelMembersScreen> {
         ),
       );
     }
-    await Navigator.of(context).push(
+    // One member is not a group — that is a 1:1 conversation, and making a
+    // second thread for a person who already has one would hide half their
+    // history from every other SMS app on the phone.
+    final navigator = Navigator.of(context);
+    if (members.length == 1) {
+      await navigator.push(
+        MaterialPageRoute(
+          builder: (_) => ConversationScreen.forPhone(
+            members.first.phoneNumber,
+            contactName: members.first.displayName,
+          ),
+        ),
+      );
+      return;
+    }
+    final group = await GroupRepository().findOrCreate(
+      members: members,
+      title: widget.label.name,
+    );
+    if (!mounted) return;
+    await navigator.push(
       MaterialPageRoute(
-        builder: (_) => BroadcastComposeScreen(
-          recipients: recipients,
-          title: 'پیام به «${widget.label.name}»',
+        builder: (_) => ConversationScreen(
+          threadId: group.threadId,
+          phoneNumber: group.threadId,
+          group: group,
         ),
       ),
     );

@@ -130,7 +130,11 @@ Future<void> showAttachmentSheet(
   BuildContext context, {
   required VoidCallback onInsertDraft,
   required VoidCallback onInsertTemplate,
-  required VoidCallback onSchedule,
+  // Null in a group conversation: a scheduled row carries one phone number and
+  // is delivered by a native worker that knows nothing about groups, so offering
+  // the row there would arm a send that never fans out. Omitted rather than
+  // disabled — a greyed row invites a tap that can never be answered.
+  VoidCallback? onSchedule,
   required VoidCallback onInsertLocation,
 }) {
   return showModalBottomSheet<void>(
@@ -157,14 +161,15 @@ Future<void> showAttachmentSheet(
                 onInsertTemplate();
               },
             ),
-            ListTile(
-              leading: const Icon(Icons.schedule_send_outlined),
-              title: const Text('زمان‌بندی ارسال'),
-              onTap: () {
-                Navigator.pop(sheetCtx);
-                onSchedule();
-              },
-            ),
+            if (onSchedule != null)
+              ListTile(
+                leading: const Icon(Icons.schedule_send_outlined),
+                title: const Text('زمان‌بندی ارسال'),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  onSchedule();
+                },
+              ),
             const Divider(height: 1),
             ListTile(
               leading: const Icon(Icons.location_on_outlined),

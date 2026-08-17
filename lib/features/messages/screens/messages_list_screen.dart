@@ -6,7 +6,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/message_bloc.dart';
 import '../bloc/message_event.dart';
 import '../bloc/message_state.dart';
+import '../models/message_group.dart';
 import '../models/message_model.dart';
+import '../repositories/group_repository.dart';
 import '../repositories/message_repository.dart';
 import 'package:communication_super_app/core/navigation/app_route_observer.dart';
 import 'package:communication_super_app/core/services/composer_draft_store.dart';
@@ -14,6 +16,7 @@ import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
+import 'package:communication_super_app/core/utils/search_text.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/core/widgets/undo_snack_bar.dart';
@@ -264,6 +267,7 @@ class _MessagesListScreenState extends State<MessagesListScreen>
   Timer? _searchDebounce;
 
   final MessageRepository _messageRepository = MessageRepository();
+  final GroupRepository _groupRepository = GroupRepository();
 
   /// thread id → contact name, memoized against the identity of the contact list
   /// it was built from. Rebuilding it per query would walk the whole address book
@@ -318,6 +322,18 @@ class _MessagesListScreenState extends State<MessagesListScreen>
     } catch (_) {
       // No contacts permission — number and body matches still answer.
     }
+    // Groups are matched here, not in SQL: their thread id is a UUID (so a
+    // numeric query would hit them at random — see
+    // `MessageRepository._threadIdsMatchingNumber`) and what a user searches a
+    // group by is its name or the people in it, neither of which is a column on
+    // `messages`.
+    final groups = await _groupRepository.getAll();
+    final groupsByThread = {for (final g in groups) g.threadId: g};
+    byName = {
+      ...byName,
+      for (final group in groups)
+        if (_groupMatches(group, query)) group.threadId,
+    };
     final threads = await _messageRepository.searchThreads(
       query,
       alsoThreadIds: byName,
@@ -326,11 +342,29 @@ class _MessagesListScreenState extends State<MessagesListScreen>
     setState(() {
       _searchResults = [
         for (final t in threads)
-          t.contactName?.isNotEmpty == true
-              ? t
-              : t.copyWith(contactName: nameByThread[t.threadId]),
+          if (t.isGroup)
+            t.copyWith(group: groupsByThread[t.threadId])
+          else if (t.contactName?.isNotEmpty == true)
+            t
+          else
+            t.copyWith(contactName: nameByThread[t.threadId]),
       ];
     });
+  }
+
+  /// Whether [group] answers [query] — by its name, by a member's name, or by a
+  /// member's number in any equivalent form.
+  static bool _groupMatches(MessageGroup group, String query) {
+    if (SearchText.nameContains(group.displayTitle, query)) return true;
+    final phoneQuery = PhoneQuery(query);
+    for (final member in group.members) {
+      final name = member.displayName;
+      if (name != null && SearchText.nameContains(name, query)) return true;
+      if (!phoneQuery.isEmpty && phoneQuery.contains(member.phoneNumber)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // ── Build ────────────────────────────────────────────────────────────────
@@ -641,10 +675,17 @@ class _MessagesListScreenState extends State<MessagesListScreen>
   Future<void> _blockSelected() async {
     final all = _lastInbox?.threads ?? const <MessageThread>[];
     final chosen = all
-        .where((t) => _selected.contains(t.threadId))
+        // A group has no sender to block — it is a list of people the user
+        // picked. Blocking «g:…» would write a nonsense row into
+        // `blocked_numbers`, whose `normalized` column is the canonical thread
+        // id of a *number* and nothing else.
+        .where((t) => _selected.contains(t.threadId) && !t.isGroup)
         .toList(growable: false);
     if (chosen.isEmpty) {
       _clearSelection();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('گفتگوی گروهی قابل مسدود کردن نیست')),
+      );
       return;
     }
 
@@ -803,6 +844,9 @@ class _MessagesListScreenState extends State<MessagesListScreen>
           threadId: thread.threadId,
           phoneNumber: thread.phoneNumber,
           contactName: thread.contactName,
+          // Carried so a group chat opens with its name already on the header;
+          // the screen re-reads it either way.
+          group: thread.group,
         ),
       ),
     );

@@ -119,6 +119,91 @@ class ConversationAppBar extends StatelessWidget
   }
 }
 
+/// The header of a **group** conversation.
+///
+/// A separate widget rather than a pile of `if (isGroup)` inside
+/// [ConversationAppBar], because almost nothing survives the change: a group has
+/// no photo, no number to print, nobody to call, no contact to open and nothing
+/// to block. What it has instead is a member count and a details page — so those
+/// are what the header shows.
+class GroupConversationAppBar extends StatelessWidget
+    implements PreferredSizeWidget {
+  const GroupConversationAppBar({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    required this.onOpenDetails,
+    required this.onMenuSelected,
+  });
+
+  final String title;
+
+  /// «۴ نفر» — the one fact about a group that fits under its name.
+  final String subtitle;
+
+  final VoidCallback onOpenDetails;
+  final ValueChanged<String> onMenuSelected;
+
+  @override
+  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return AppBar(
+      titleSpacing: 0,
+      title: InkWell(
+        onTap: onOpenDetails,
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: scheme.secondaryContainer,
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: Icon(
+                Icons.group_outlined,
+                size: 20,
+                color: scheme.onSecondaryContainer,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 17),
+                  ),
+                  Text(subtitle, style: theme.textTheme.bodySmall),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        PopupMenuButton<String>(
+          onSelected: onMenuSelected,
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: 'details', child: Text('جزئیات گروه')),
+            PopupMenuItem(value: 'textSize', child: Text('اندازه متن')),
+            PopupMenuItem(value: 'delete', child: Text('حذف گفتگو')),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
 /// The contextual app bar shown while messages are multi-selected.
 class ConversationSelectionAppBar extends StatelessWidget
     implements PreferredSizeWidget {

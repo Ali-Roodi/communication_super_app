@@ -1,7 +1,9 @@
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
+import '../models/message_group.dart';
 import '../models/message_model.dart';
+import '../repositories/group_repository.dart';
 import '../repositories/message_repository.dart';
 import '../repositories/thread_sim_repository.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
@@ -74,6 +76,7 @@ class SmsService {
   final BlockedNumbersRepository _blockedRepository =
       BlockedNumbersRepository();
   final ThreadSimRepository _threadSimRepository = ThreadSimRepository();
+  final GroupRepository _groupRepository = GroupRepository();
   Function(MessageModel)? onMessageReceived;
   // _imported flag moved to SharedPreferences (sms_imported_v1) — B6 fix
   StreamSubscription<SmsReceivedEvent>? _nativeSmsSubscription;
@@ -201,6 +204,215 @@ class SmsService {
     return _transmit(pending, alreadyStored: optimistic);
   }
 
+  // ── «پیام گروهی» — one message, one bubble, N real SMS ────────────────────
+
+  /// Sends [body] to every member of [group] as its own SMS, and records the
+  /// whole thing as **one** message in the group's conversation.
+  ///
+  /// This is the honest shape of a group conversation in an app with no MMS: the
+  /// history is shared, the send is a fan-out, and a member's reply comes back
+  /// into that member's own 1:1 chat (Google Messages behaves exactly this way
+  /// with «Group MMS» off — the conversation says so).
+  ///
+  /// Two invariants the rest of the app depends on:
+  /// * The `messages` row keeps `device_sms_id` NULL. Only one provider id fits
+  ///   there and a group send makes N of them, so they live in
+  ///   `message_group_targets` — which `MessageRepository.knownDeviceSmsIds`
+  ///   unions, so the mirror-sync recognises every one of them and never
+  ///   re-imports the message into the members' 1:1 conversations. A NULL id
+  ///   also means the stale-row diff can never delete a group message.
+  /// * The row is written **before** the radio is touched, as `pending`, for the
+  ///   same reason a 1:1 send is (see [sendSms]): a refused send must leave the
+  ///   message on screen with a retry, not lose what the user typed.
+  Future<SmsServiceResult> sendGroupSms({
+    required MessageGroup group,
+    required String body,
+    int? subscriptionId,
+  }) async {
+    final hasPermission = await requestPermissions();
+    if (!hasPermission) {
+      return const SmsServiceResult.fail('PERMISSION_DENIED');
+    }
+    if (group.members.isEmpty) {
+      return const SmsServiceResult.fail('SMS_SEND_FAILED');
+    }
+
+    final messageId = const Uuid().v4();
+    final threadId = group.threadId;
+    final pending = MessageModel(
+      id: messageId,
+      threadId: threadId,
+      // A group thread has no single address. The thread id stands in so the
+      // column is never null and the unique content index still keys on
+      // something stable; nothing displays it (see [GroupThread]).
+      phoneNumber: threadId,
+      body: body,
+      type: MessageType.sent,
+      status: MessageStatus.pending,
+      timestamp: DateTime.now(),
+      isRead: true,
+      subscriptionId: subscriptionId,
+    );
+
+    await _messageRepository.createMessage(pending);
+    await _groupRepository.insertTargets([
+      for (final member in group.members)
+        GroupSendTarget(
+          messageId: messageId,
+          phoneNumber: member.phoneNumber,
+          status: 'pending',
+          subscriptionId: subscriptionId,
+          // A per-recipient tracking id, so a carrier delivery report advances
+          // the recipient it is about instead of the whole group message.
+          trackingId: const Uuid().v4(),
+        ),
+    ]);
+    // The bubble appears with ⏱ before the first radio call.
+    _sentController.add(pending);
+
+    return _fanOut(pending, await _groupRepository.targetsOf(messageId));
+  }
+
+  /// Hands one group message to the radio once per recipient and folds the
+  /// outcomes back onto the single `messages` row.
+  ///
+  /// Shared by the first send and by «ارسال مجدد», so what a success records and
+  /// what a failure leaves behind cannot drift between them — the same contract
+  /// [_transmit] has for 1:1 sends.
+  Future<SmsServiceResult> _fanOut(
+    MessageModel message,
+    List<GroupSendTarget> targets,
+  ) async {
+    if (targets.isEmpty) return const SmsServiceResult.fail('SMS_SEND_FAILED');
+
+    String? firstErrorCode;
+    var anySent = false;
+    DateTime? acceptedAt;
+    int? usedSubscription;
+
+    for (final target in targets) {
+      // Only the recipients handed in are attempted: a retry passes the failed
+      // ones, so a partly-delivered group is never re-sent to the people who
+      // already got it.
+      try {
+        final result = await _nativeSmsService.sendSms(
+          phoneNumber: target.phoneNumber,
+          message: message.body,
+          subscriptionId: message.subscriptionId,
+          trackingId: target.trackingId ?? '',
+          deliveryReport: deliveryReports,
+        );
+        if (!result.success) {
+          firstErrorCode ??= 'SMS_SEND_FAILED';
+          await _groupRepository.updateTarget(
+            GroupSendTarget(
+              messageId: target.messageId,
+              phoneNumber: target.phoneNumber,
+              status: 'failed',
+              subscriptionId: target.subscriptionId,
+              trackingId: target.trackingId,
+            ),
+          );
+          continue;
+        }
+        anySent = true;
+        acceptedAt ??= DateTime.fromMillisecondsSinceEpoch(result.timestamp);
+        usedSubscription ??= result.subscriptionId >= 0
+            ? result.subscriptionId
+            : null;
+        await _groupRepository.updateTarget(
+          GroupSendTarget(
+            messageId: target.messageId,
+            phoneNumber: target.phoneNumber,
+            status: 'sent',
+            deviceSmsId: result.deviceId > 0 ? result.deviceId : null,
+            subscriptionId: result.subscriptionId >= 0
+                ? result.subscriptionId
+                : target.subscriptionId,
+            trackingId: target.trackingId,
+          ),
+        );
+      } on PlatformException catch (e) {
+        debugPrint('Group send to ${target.phoneNumber} failed: ${e.code}');
+        firstErrorCode ??= e.code;
+        await _groupRepository.updateTarget(
+          GroupSendTarget(
+            messageId: target.messageId,
+            phoneNumber: target.phoneNumber,
+            status: 'failed',
+            subscriptionId: target.subscriptionId,
+            trackingId: target.trackingId,
+          ),
+        );
+      } catch (e) {
+        debugPrint('Group send to ${target.phoneNumber} failed: $e');
+        firstErrorCode ??= 'SMS_SEND_FAILED';
+        await _groupRepository.updateTarget(
+          GroupSendTarget(
+            messageId: target.messageId,
+            phoneNumber: target.phoneNumber,
+            status: 'failed',
+            subscriptionId: target.subscriptionId,
+            trackingId: target.trackingId,
+          ),
+        );
+      }
+    }
+
+    final updated = await refreshGroupMessageStatus(
+      message.id,
+      // The moment the radio accepted the first copy is the message's time —
+      // the composer's optimistic timestamp is from before the send.
+      timestamp: acceptedAt,
+      subscriptionId: usedSubscription ?? message.subscriptionId,
+    );
+    if (updated != null) {
+      await _threadSimRepository.remember(
+        updated.threadId,
+        updated.subscriptionId,
+      );
+    }
+    if (anySent) return const SmsServiceResult.ok();
+    return SmsServiceResult.fail(firstErrorCode ?? 'SMS_SEND_FAILED');
+  }
+
+  /// Re-reads a group message's recipients, folds them into the one tick the
+  /// bubble shows, writes that back and broadcasts it.
+  ///
+  /// The fold is deliberately pessimistic (see [GroupSendSummary]): a message
+  /// three of four people got is not «ارسال شد».
+  ///
+  /// Returns the updated row, or null when [messageId] is not a group message.
+  Future<MessageModel?> refreshGroupMessageStatus(
+    String messageId, {
+    DateTime? timestamp,
+    int? subscriptionId,
+  }) async {
+    final row = await _messageRepository.getMessageById(messageId);
+    if (row == null || !GroupThread.isGroup(row.threadId)) return null;
+    final targets = await _groupRepository.targetsOf(messageId);
+    if (targets.isEmpty) return null;
+    final summary = GroupSendSummary.of(targets);
+    final status = MessageStatus.values.firstWhere(
+      (s) => s.name == summary.aggregateStatus,
+      orElse: () => MessageStatus.sent,
+    );
+    final updated = row.copyWith(
+      status: status,
+      timestamp: timestamp,
+      subscriptionId: subscriptionId,
+    );
+    // A targeted write, never a re-insert: `createMessage` REPLACEs, and the
+    // unique content index would then delete somebody else's row to make room.
+    await _messageRepository.applySendResult(updated);
+    _statusController.add((
+      messageId: messageId,
+      status: status,
+      replacement: updated,
+    ));
+    return updated;
+  }
+
   /// «ارسال مجدد» on a bubble that failed.
   ///
   /// Re-sends the row that is already in the DB rather than composing a new
@@ -218,6 +430,29 @@ class SmsService {
     // Already on its way (or already gone) — a double tap must not send twice.
     if (row.status != MessageStatus.failed) {
       return const SmsServiceResult.ok();
+    }
+
+    // A group message retries **only the recipients it failed for**. Re-sending
+    // the whole group would text the people who already have it a second time.
+    if (GroupThread.isGroup(row.threadId)) {
+      final failed = [
+        for (final target in await _groupRepository.targetsOf(messageId))
+          if (target.failed) target,
+      ];
+      if (failed.isEmpty) return const SmsServiceResult.ok();
+      for (final target in failed) {
+        await _groupRepository.updateTarget(
+          GroupSendTarget(
+            messageId: target.messageId,
+            phoneNumber: target.phoneNumber,
+            status: 'pending',
+            subscriptionId: target.subscriptionId,
+            trackingId: target.trackingId,
+          ),
+        );
+      }
+      await refreshGroupMessageStatus(messageId);
+      return _fanOut(row, failed);
     }
     final pending = row.copyWith(status: MessageStatus.pending);
     await _messageRepository.updateMessageStatus(
@@ -402,6 +637,22 @@ class SmsService {
                 'failed' => MessageStatus.failed,
                 _ => MessageStatus.sent,
               };
+              // A group send tags each recipient's PendingIntents with that
+              // recipient's own tracking id, so a report may be about one member
+              // of a group message rather than about a message row. Asked first:
+              // the targets table is small and indexed on tracking_id, and a
+              // group id can never collide with a message id (both are UUIDs
+              // minted here).
+              final groupMessageId = await _groupRepository.applyTargetStatus(
+                event.id,
+                status.name,
+              );
+              if (groupMessageId != null) {
+                // Re-folds the recipients into the one tick the bubble shows and
+                // broadcasts it — the whole group message, not this recipient.
+                await refreshGroupMessageStatus(groupMessageId);
+                return;
+              }
               // A carrier report knows nothing but the new status, so it
               // carries no replacement row — the bloc copyWiths in place.
               await _messageRepository.updateMessageStatus(event.id, status);
@@ -622,14 +873,40 @@ class SmsService {
   Future<void> deleteMessagesGlobally(List<String> messageIds) async {
     if (messageIds.isEmpty) return;
     final messages = await _messageRepository.getMessagesByIds(messageIds);
-    final specs = <Map<String, Object?>>[
+
+    // A group message is one row but N provider rows, and its own
+    // `device_sms_id` is deliberately NULL — so its ids are read from
+    // `message_group_targets` and deleted by id. Falling through to the
+    // body+timestamp fallback would work by accident and delete by content
+    // across every address in a ±10 s window, which is not something to leave to
+    // luck in the default SMS app.
+    final groupIds = [
       for (final m in messages)
-        if (m.deviceSmsId != null)
-          {'deviceId': m.deviceSmsId}
-        else
-          {'body': m.body, 'timestamp': m.timestamp.millisecondsSinceEpoch},
+        if (GroupThread.isGroup(m.threadId)) m.id,
     ];
+    final groupTargets = await _groupRepository.targetsForMessages(groupIds);
+
+    final specs = <Map<String, Object?>>[];
+    for (final m in messages) {
+      if (GroupThread.isGroup(m.threadId)) {
+        for (final target in groupTargets[m.id] ?? const []) {
+          if (target.deviceSmsId != null) {
+            specs.add({'deviceId': target.deviceSmsId});
+          }
+        }
+        continue;
+      }
+      specs.add(
+        m.deviceSmsId != null
+            ? {'deviceId': m.deviceSmsId}
+            : {'body': m.body, 'timestamp': m.timestamp.millisecondsSinceEpoch},
+      );
+    }
     await _nativeSmsService.deleteSmsFromProvider(specs);
+    // Soft, as always: the target rows keep their `device_sms_id`s and the
+    // message row keeps its tombstone, so a provider delete the app was not
+    // allowed to make (not the default SMS app) does not resurrect on the next
+    // mirror-sync.
     await _messageRepository.softDeleteMessages(messageIds);
   }
 
@@ -642,6 +919,24 @@ class SmsService {
   /// by their last 10 digits — is re-imported by the next mirror-sync and the
   /// whole conversation reappears (typically after an app restart).
   Future<void> deleteThreadGlobally(String threadId) async {
+    // A group thread id is not an address, so there is no provider conversation
+    // to delete by address: the rows it produced are named one by one from
+    // `message_group_targets`. The group itself goes too — leaving the shell of
+    // a deleted conversation behind would put it back in the inbox the moment
+    // anything was sent to it.
+    if (GroupThread.isGroup(threadId)) {
+      final ids = await _groupRepository.deviceSmsIdsForThread(threadId);
+      if (ids.isNotEmpty) {
+        await _nativeSmsService.deleteSmsFromProvider([
+          for (final id in ids) {'deviceId': id},
+        ]);
+      }
+      // Soft, so the target rows stay valid tombstones for the mirror-sync.
+      await _messageRepository.softDeleteThread(threadId);
+      final groupId = GroupThread.groupIdOf(threadId);
+      if (groupId != null) await _groupRepository.delete(groupId);
+      return;
+    }
     // threadId IS the normalized national number — usable as the address key.
     await _nativeSmsService.deleteSmsThreadFromProvider(threadId);
     await _messageRepository.softDeleteThread(threadId);
