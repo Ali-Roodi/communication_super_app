@@ -49,7 +49,23 @@ class AppBlocProviders extends StatelessWidget {
         BlocProvider(create: (context) => MessageBloc()),
         BlocProvider(create: (context) => DraftBloc(DraftRepository())),
         BlocProvider(create: (context) => TemplateBloc(TemplateRepository())),
+        // **`lazy: false`, and that is the whole of «زمان‌بندی کار نمی‌کند».**
+        // A `BlocProvider` is lazy by default and this bloc is only ever read
+        // from `ConversationScreen` and `ScheduledMessagesScreen` — so on an
+        // ordinary launch it was never constructed, which meant: the 30-second
+        // delivery tick never started, the native AlarmManager alarm was never
+        // re-armed for whatever was already pending, and an alarm that fired
+        // while the app was alive had no Dart handler to be given back to.
+        //
+        // A message scheduled for 09:00 whose alarm the OS had dropped
+        // (Doze, App Standby, an OEM "sleeping apps" sweep) therefore sat
+        // pending through every launch until the user happened to *open a
+        // conversation* — at which point the bloc was finally built, the first
+        // sweep found it overdue, and it went out that same minute. Which is
+        // exactly what was reported: scheduled for 09:00, delivered at 11:00
+        // the moment the app was opened.
         BlocProvider(
+          lazy: false,
           create: (context) =>
               ScheduledMessageBloc()..add(const LoadScheduled()),
         ),

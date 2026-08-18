@@ -34,9 +34,7 @@ class ThreadTile extends StatelessWidget {
     // `GroupThread`) — printing it would show «g:…». Its name is the group's,
     // and the group may not be resolved yet on the very first paint of a page.
     if (thread.isGroup) {
-      return thread.group?.displayTitle ??
-          thread.contactName ??
-          'گفتگوی گروهی';
+      return thread.group?.displayTitle ?? thread.contactName ?? 'گفتگوی گروهی';
     }
     return thread.contactName?.isNotEmpty == true
         ? thread.contactName!

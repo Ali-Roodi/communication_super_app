@@ -5,10 +5,7 @@ import 'package:communication_super_app/features/messages/models/one_time_code.d
 void main() {
   group('OneTimeCode.find', () {
     test('reads the code out of a bank one-time-password SMS', () {
-      expect(
-        OneTimeCode.find('رمز پویا: 84213 - بانک ملت'),
-        '84213',
-      );
+      expect(OneTimeCode.find('رمز پویا: 84213 - بانک ملت'), '84213');
     });
 
     test('answers in ASCII even when the message used Persian digits', () {
@@ -21,10 +18,7 @@ void main() {
     });
 
     test('an amount is not a code', () {
-      expect(
-        OneTimeCode.find('رمز پویا: 84213 مبلغ 1,500,000 ریال'),
-        '84213',
-      );
+      expect(OneTimeCode.find('رمز پویا: 84213 مبلغ 1,500,000 ریال'), '84213');
     });
 
     test('a date is not a code', () {
@@ -40,10 +34,7 @@ void main() {
     });
 
     test('picks the run nearest the word that announced it', () {
-      expect(
-        OneTimeCode.find('مبلغ 25000 ریال. رمز 84213'),
-        '84213',
-      );
+      expect(OneTimeCode.find('مبلغ 25000 ریال. رمز 84213'), '84213');
     });
 
     test('a discount amount next to «کد» is not the code', () {
@@ -63,10 +54,7 @@ void main() {
     });
 
     test('the real login code still wins next to an amount', () {
-      expect(
-        OneTimeCode.find('کد ورود 44808 - اعتبار 20000 تومان'),
-        '44808',
-      );
+      expect(OneTimeCode.find('کد ورود 44808 - اعتبار 20000 تومان'), '44808');
     });
 
     test('English senders work too', () {

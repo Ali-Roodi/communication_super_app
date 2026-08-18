@@ -10,7 +10,8 @@ void main() {
 
   List<String> sorted(List<String> names) {
     final keyed = [
-      for (final n in names) (key: PersianCollator.sortKey(n, letters), name: n),
+      for (final n in names)
+        (key: PersianCollator.sortKey(n, letters), name: n),
     ]..sort((a, b) => a.key.compareTo(b.key));
     return [for (final e in keyed) e.name];
   }

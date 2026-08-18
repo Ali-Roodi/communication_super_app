@@ -77,7 +77,9 @@ void main() {
 
   group('ScheduledMessage.advanceAfterSend', () {
     test('one-shot completes after sending once', () {
-      final m = _msg(at: DateTime(2026, 6, 1, 9)).advanceAfterSend(now: _sendTime);
+      final m = _msg(
+        at: DateTime(2026, 6, 1, 9),
+      ).advanceAfterSend(now: _sendTime);
       expect(m.status, ScheduleStatus.completed);
       expect(m.occurrenceCount, 1);
     });
@@ -245,8 +247,10 @@ void main() {
       expect(m.jitterOffset.inMinutes, inInclusiveRange(0, 30));
       // Same row read twice (e.g. two deliverer ticks) must agree, otherwise a
       // message could slip past its window or fire early.
-      expect(_msg(at: at, jitter: JitterWindow.thirtyMin).jitterOffset,
-          m.jitterOffset);
+      expect(
+        _msg(at: at, jitter: JitterWindow.thirtyMin).jitterOffset,
+        m.jitterOffset,
+      );
     });
 
     test('is not due before its jittered instant', () {
@@ -254,10 +258,7 @@ void main() {
       final offset = m.jitterOffset;
       if (offset > Duration.zero) {
         expect(m.isDueAt(at), isFalse);
-        expect(
-          m.isDueAt(at.add(offset - const Duration(minutes: 1))),
-          isFalse,
-        );
+        expect(m.isDueAt(at.add(offset - const Duration(minutes: 1))), isFalse);
       }
       expect(m.isDueAt(at.add(offset)), isTrue);
     });
@@ -275,8 +276,55 @@ void main() {
       // Not a hard guarantee that they differ, but both must be in-window and
       // derived from the occurrence rather than fixed for the row.
       expect(second.jitterOffset.inMinutes, inInclusiveRange(0, 60));
-      expect(second.effectiveSendAt.difference(second.scheduledAt),
-          second.jitterOffset);
+      expect(
+        second.effectiveSendAt.difference(second.scheduledAt),
+        second.jitterOffset,
+      );
+    });
+  });
+
+  /// The jitter seed is a **cross-language contract**: `ScheduledSmsWorker.kt`
+  /// re-implements it, and `ScheduledSmsScheduler` arms the alarm at the instant
+  /// it produces. If the two ever disagree, the alarm wakes the phone at a moment
+  /// the deliverer refuses, the row goes back to `pending`, and the message is
+  /// late by up to the whole jitter window — silently.
+  ///
+  /// These vectors were produced by a *third*, independent implementation of
+  /// FNV-1a, so they pin the value rather than whatever Dart happens to do.
+  /// Kotlin must reproduce them exactly.
+  group('ScheduledMessage.jitterSeed', () {
+    test('matches the reference vectors', () {
+      expect(
+        ScheduledMessage.jitterSeed('a1b2c3', 1755500000000, 0),
+        856208446,
+      );
+      expect(
+        ScheduledMessage.jitterSeed('a1b2c3', 1755500000000, 3),
+        3806098733,
+      );
+      expect(ScheduledMessage.jitterSeed('', 0, 0), 3795608245);
+      // Non-ASCII: the id is hashed as UTF-16 code units, low byte first.
+      expect(ScheduledMessage.jitterSeed('سلام', 1700000000000, 7), 387898163);
+    });
+
+    test('the offset is stable and inside the window', () {
+      final at = DateTime.fromMillisecondsSinceEpoch(1755500000000);
+      final message = ScheduledMessage(
+        id: 'a1b2c3',
+        phoneNumber: '09121234567',
+        body: 'x',
+        scheduledAt: at,
+        jitter: JitterWindow.thirtyMin,
+        createdAt: at,
+      );
+      expect(message.jitterOffset, message.jitterOffset);
+      expect(message.jitterOffset.inMinutes, inInclusiveRange(0, 30));
+      expect(message.effectiveSendAt, at.add(message.jitterOffset));
+      // A different occurrence lands somewhere else in the window.
+      expect(
+        message.copyWith(occurrenceCount: 3).jitterOffset,
+        isNot(message.jitterOffset),
+      );
     });
   });
 }

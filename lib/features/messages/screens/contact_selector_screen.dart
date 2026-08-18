@@ -98,7 +98,8 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
   late bool _groupMode = widget.startInGroupMode || widget.pickMembers;
 
   /// True while the mode is a multi-select the user can leave («انصراف»).
-  bool get _canLeaveGroupMode => !widget.pickMembers && !widget.startInGroupMode;
+  bool get _canLeaveGroupMode =>
+      !widget.pickMembers && !widget.startInGroupMode;
 
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
@@ -637,8 +638,7 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
   /// row, the recent conversations, then the address book.
   Widget _buildBrowseList(List<ContactModel> source, ThemeData theme) {
     final sections = _getOrBuildSections(source);
-    final showGroupRow =
-        !_groupMode && !widget.pickOnly && !widget.pickMembers;
+    final showGroupRow = !_groupMode && !widget.pickOnly && !widget.pickMembers;
     final suggestions = _groupMode ? const <MessageThread>[] : _suggestions;
 
     // Fixed extents throughout, so the fast-scroll bar can compute where a
@@ -648,14 +648,12 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
     var leading = 0.0;
     if (showGroupRow) leading += kContactRowHeight;
     if (suggestions.isNotEmpty) {
-      leading +=
-          kContactHeaderHeight + suggestions.length * kContactRowHeight;
+      leading += kContactHeaderHeight + suggestions.length * kContactRowHeight;
     }
     if (sections.isNotEmpty) leading += kContactHeaderHeight;
 
     final slivers = <Widget>[
-      if (showGroupRow)
-        SliverToBoxAdapter(child: _groupRow(theme)),
+      if (showGroupRow) SliverToBoxAdapter(child: _groupRow(theme)),
       if (suggestions.isNotEmpty) ...[
         SliverPersistentHeader(
           pinned: false,
@@ -770,10 +768,7 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
       itemBuilder: (_, index) {
         if (sendTo != null && index == 0) return _sendToRow(sendTo, theme);
         final contact = results[index - (sendTo == null ? 0 : 1)];
-        return _contactRow(
-          contact,
-          matchedNumber: _resultNumbers[contact.id],
-        );
+        return _contactRow(contact, matchedNumber: _resultNumbers[contact.id]);
       },
     );
   }
@@ -921,10 +916,7 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
                 displayName: thread.contactName,
               ),
             )
-          : _choose(
-              phoneNumber: thread.phoneNumber,
-              name: thread.contactName,
-            ),
+          : _choose(phoneNumber: thread.phoneNumber, name: thread.contactName),
     );
   }
 

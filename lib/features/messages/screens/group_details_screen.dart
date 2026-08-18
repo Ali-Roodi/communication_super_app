@@ -223,7 +223,10 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
             const PopupMenuItem(value: 'contact', child: Text('مشاهده مخاطب')),
           const PopupMenuItem(
             value: 'remove',
-            child: Text('حذف از گروه', style: TextStyle(color: AppColors.danger)),
+            child: Text(
+              'حذف از گروه',
+              style: TextStyle(color: AppColors.danger),
+            ),
           ),
         ],
       ),
@@ -306,9 +309,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
             controller: controller,
             autofocus: true,
             textInputAction: TextInputAction.done,
-            decoration: const InputDecoration(
-              hintText: 'مثلاً: همکاران دفتر',
-            ),
+            decoration: const InputDecoration(hintText: 'مثلاً: همکاران دفتر'),
             onSubmitted: (value) => Navigator.pop(ctx, value),
           ),
           actions: [

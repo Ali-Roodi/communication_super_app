@@ -115,7 +115,12 @@ void main() {
     });
 
     test('separators, backslashes and newlines survive the round trip', () {
-      const values = {'مناسبت': r'الف|ب \ ج' '\n' 'د'};
+      const values = {
+        'مناسبت':
+            r'الف|ب \ ج'
+            '\n'
+            'د',
+      };
       final wire = _encode(congrats, values)!;
       expect(TemplateWire.decode(wire)!.values['مناسبت'], values['مناسبت']);
     });
@@ -146,11 +151,9 @@ void main() {
     // would silently rewrite the other side's incoming message.
     test('an edited built-in falls back to plain text', () {
       expect(
-        _encode(
-          meeting,
-          const {'عنوان': 'الف'},
-          bodyOverride: 'جلسه [عنوان] لغو شد.',
-        ),
+        _encode(meeting, const {
+          'عنوان': 'الف',
+        }, bodyOverride: 'جلسه [عنوان] لغو شد.'),
         isNull,
       );
     });

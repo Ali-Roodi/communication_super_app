@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:communication_super_app/core/sim/sim_call.dart';
-import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/features/contacts/widgets/contact_picker_sheet.dart';
 import 'package:communication_super_app/features/dialer/models/speed_dial_entry.dart';
@@ -182,8 +181,7 @@ class _KeypadPanel extends StatelessWidget {
             BlocBuilder<DialerBloc, DialerState>(
               buildWhen: (a, b) =>
                   a.dialedNumber.isEmpty != b.dialedNumber.isEmpty ||
-                  a.isInCall != b.isInCall ||
-                  a.dialSubscriptionId != b.dialSubscriptionId,
+                  a.isInCall != b.isInCall,
               // A live call must NOT disable the pill. This keypad is reached
               // from «افزودن تماس» precisely to place a second call — telecom
               // holds the first one and the two can then be merged. Gating on
@@ -192,7 +190,6 @@ class _KeypadPanel extends StatelessWidget {
               builder: (_, state) => DialerCallPill(
                 enabled: state.dialedNumber.isNotEmpty,
                 addCall: state.isInCall,
-                sim: SimService.byId(state.dialSubscriptionId),
               ),
             ),
             const SizedBox(height: 16),

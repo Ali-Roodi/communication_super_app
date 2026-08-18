@@ -251,3 +251,35 @@ class _SimRow extends StatelessWidget {
     );
   }
 }
+
+/// Rebuilds [builder] whenever the SIM roster or the system's pinned defaults
+/// change.
+///
+/// Every SIM affordance in the app reads [SimService.cached] / `isMultiSim`
+/// **statically**, inside `build` — a bubble's badge or a call-log row cannot
+/// await a platform channel to find out which card carried it. That is the
+/// right call for the read, and it is also why nothing on screen noticed a
+/// second card going into the phone: no widget depended on the roster, so the
+/// app stayed single-SIM-shaped until it was killed and reopened.
+///
+/// So the screens that keep a SIM surface *visible* wrap it in this. It is a
+/// plain [ValueListenableBuilder] over [SimService.revision]; the roster itself
+/// is still read statically inside [builder], so no call site changes shape.
+/// Screens that only read the roster at gesture time (a long-press picker, an
+/// action sheet) need nothing — by then the static cache is already current.
+class SimAware extends StatelessWidget {
+  const SimAware({super.key, required this.builder, this.child});
+
+  final ValueWidgetBuilder<int> builder;
+
+  /// Passed through untouched to [builder] — the subtree that does *not*
+  /// depend on the roster and so must not be rebuilt with it.
+  final Widget? child;
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<int>(
+    valueListenable: SimService.revision,
+    builder: builder,
+    child: child,
+  );
+}

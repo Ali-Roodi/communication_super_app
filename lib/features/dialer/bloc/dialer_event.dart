@@ -72,16 +72,6 @@ class MakeCall extends DialerEvent {
   List<Object?> get props => [subscriptionId];
 }
 
-/// The keypad's SIM chip was used to pick a card for the next dial.
-class SelectDialSim extends DialerEvent {
-  final int? subscriptionId;
-
-  const SelectDialSim(this.subscriptionId);
-
-  @override
-  List<Object?> get props => [subscriptionId];
-}
-
 class EndCall extends DialerEvent {
   const EndCall();
 }

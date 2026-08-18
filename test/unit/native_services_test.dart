@@ -40,7 +40,10 @@ void main() {
       await NativeCallService.instance.makeCall('09120000000');
 
       expect(calls.single.method, 'makeCall');
-      expect(calls.single.arguments, {'phone': '09120000000', 'subscriptionId': -1});
+      expect(calls.single.arguments, {
+        'phone': '09120000000',
+        'subscriptionId': -1,
+      });
     });
 
     test('sendDtmf forwards the digit', () async {

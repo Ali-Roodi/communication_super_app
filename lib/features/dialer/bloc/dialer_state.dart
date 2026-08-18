@@ -56,13 +56,6 @@ class DialerState extends Equatable {
   /// into a call that had already been running for minutes.
   final DateTime? callConnectedAt;
 
-  /// SIM the keypad will dial with. Null = follow the system default.
-  ///
-  /// Held here rather than in the widget because the keypad lives in a modal
-  /// sheet that is torn down and rebuilt, and losing the choice between
-  /// typing the number and pressing call is exactly the bug this fixes.
-  final int? dialSubscriptionId;
-
   final String? error;
 
   const DialerState({
@@ -84,7 +77,6 @@ class DialerState extends Equatable {
     this.isConference = false,
     this.activeSubscriptionId,
     this.callConnectedAt,
-    this.dialSubscriptionId,
     this.error,
   });
 
@@ -113,7 +105,6 @@ class DialerState extends Equatable {
     bool? isConference,
     int? activeSubscriptionId,
     DateTime? callConnectedAt,
-    int? dialSubscriptionId,
     String? error,
     bool clearError = false,
 
@@ -143,7 +134,6 @@ class DialerState extends Equatable {
       callConnectedAt: clearCallConnectedAt
           ? null
           : (callConnectedAt ?? this.callConnectedAt),
-      dialSubscriptionId: dialSubscriptionId ?? this.dialSubscriptionId,
       error: clearError ? null : (error ?? this.error),
     );
   }
@@ -168,7 +158,6 @@ class DialerState extends Equatable {
     isConference,
     activeSubscriptionId,
     callConnectedAt,
-    dialSubscriptionId,
     error,
   ];
 }

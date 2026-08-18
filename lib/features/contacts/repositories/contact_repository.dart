@@ -1,5 +1,6 @@
 import 'dart:async';
-import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter_contacts/flutter_contacts.dart' as device_contacts;
 import 'package:communication_super_app/core/services/device_sync_queue.dart';
 import 'package:communication_super_app/core/utils/contact_name_style.dart';
@@ -25,10 +26,26 @@ class ContactRepository {
   /// the next restart.
   static int _generation = 0;
 
+  /// Bumped every time the address book is known to have **changed** — a
+  /// contact saved, deleted, merged, or edited in the phone's own Contacts app.
+  ///
+  /// Distinct from [_generation], which only guards a read against a write that
+  /// overtook it. This is the app-wide "the names you are showing may be stale"
+  /// signal, and everything holding a *resolved* name rather than a live one
+  /// listens to it: the conversation header, «مورد علاقه», «اخیر». Without it a
+  /// rename showed on the contacts tab alone and every other surface kept the
+  /// old name until the app was restarted — which is exactly how it was
+  /// reported.
+  ///
+  /// Deliberately NOT bumped by a plain `forceRefresh` read: that is how the
+  /// listeners themselves re-read, and bumping there would loop.
+  static final ValueNotifier<int> revision = ValueNotifier<int>(0);
+
   /// Invalidate the cache to force a reload on next request
   void invalidateCache() {
     _cache = null;
     _generation++;
+    revision.value++;
     // Drop the derived number index too. It is keyed by the identity of the
     // contact list it was built from, so a stale index would keep answering
     // [cachedByPhoneNumber] with a contact that has since been deleted or

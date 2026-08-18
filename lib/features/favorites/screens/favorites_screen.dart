@@ -87,9 +87,64 @@ class FavoritesScreen extends StatelessWidget {
 
 // ── Favorite card ─────────────────────────────────────────────────────────────
 
-class _FavoriteCard extends StatelessWidget {
+/// One starred number.
+///
+/// The row in `favorites` carries a **denormalized** name — the one the number
+/// had when it was starred — so a rename in the address book left this grid
+/// showing the old one until the app was restarted. The live contact is
+/// therefore resolved here and preferred over the stored copy, and re-resolved
+/// whenever [ContactRepository.revision] says the address book moved. The
+/// stored name stays as the fallback: it is all there is for a number that
+/// belongs to no contact, or one whose contact has since been deleted.
+class _FavoriteCard extends StatefulWidget {
   final FavoriteModel favorite;
   const _FavoriteCard({required this.favorite});
+
+  @override
+  State<_FavoriteCard> createState() => _FavoriteCardState();
+}
+
+class _FavoriteCardState extends State<_FavoriteCard> {
+  ContactModel? _contact;
+
+  FavoriteModel get favorite => widget.favorite;
+
+  /// What the circle is labelled with, and what a chat opened from here is
+  /// titled with.
+  String get _displayName => _contact?.name ?? favorite.displayName;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolve();
+    ContactRepository.revision.addListener(_resolve);
+  }
+
+  @override
+  void didUpdateWidget(_FavoriteCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.favorite.normalized != favorite.normalized) _resolve();
+  }
+
+  @override
+  void dispose() {
+    ContactRepository.revision.removeListener(_resolve);
+    super.dispose();
+  }
+
+  /// Backed by the repository's cached number index, so this is a map lookup
+  /// once the address book is loaded. A miss clears the resolution rather than
+  /// keeping the last one — the contact may have just been deleted.
+  Future<void> _resolve() async {
+    final match = await ContactRepository().getContactByPhoneNumber(
+      favorite.phoneNumber,
+    );
+    if (!mounted ||
+        match?.id == _contact?.id && match?.name == _contact?.name) {
+      return;
+    }
+    setState(() => _contact = match);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -107,10 +162,14 @@ class _FavoriteCard extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _FavoriteAvatar(favorite: favorite),
+            LazyContactAvatar(
+              contactId: _contact?.id ?? favorite.contactId ?? '',
+              name: _displayName,
+              size: 72,
+            ),
             const SizedBox(height: 10),
             Text(
-              favorite.displayName,
+              _displayName,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
@@ -184,7 +243,7 @@ class _FavoriteCard extends StatelessWidget {
                     MaterialPageRoute(
                       builder: (_) => ConversationScreen.forPhone(
                         favorite.phoneNumber,
-                        contactName: favorite.name,
+                        contactName: _contact?.name ?? favorite.name,
                       ),
                     ),
                   );
@@ -216,60 +275,6 @@ class _FavoriteCard extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-/// The favourite's circle. A favourite stores the contact id it was created
-/// from, but older rows (and ones starred from a call log) may not have one —
-/// then the id is resolved from the number, so a saved contact's photo shows
-/// up either way instead of falling back to initials.
-class _FavoriteAvatar extends StatefulWidget {
-  final FavoriteModel favorite;
-  const _FavoriteAvatar({required this.favorite});
-
-  @override
-  State<_FavoriteAvatar> createState() => _FavoriteAvatarState();
-}
-
-class _FavoriteAvatarState extends State<_FavoriteAvatar> {
-  String? _resolvedId;
-
-  @override
-  void initState() {
-    super.initState();
-    _resolve();
-  }
-
-  @override
-  void didUpdateWidget(_FavoriteAvatar oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.favorite.normalized != widget.favorite.normalized) {
-      _resolvedId = null;
-      _resolve();
-    }
-  }
-
-  Future<void> _resolve() async {
-    if ((widget.favorite.contactId ?? '').isNotEmpty) return;
-    // Backed by the repository's cached number index, so this is a map lookup
-    // once the address book is loaded.
-    final match = await ContactRepository().getContactByPhoneNumber(
-      widget.favorite.phoneNumber,
-    );
-    if (!mounted || match == null || match.id.isEmpty) return;
-    setState(() => _resolvedId = match.id);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final id = widget.favorite.contactId?.isNotEmpty == true
-        ? widget.favorite.contactId!
-        : (_resolvedId ?? '');
-    return LazyContactAvatar(
-      contactId: id,
-      name: widget.favorite.displayName,
-      size: 72,
     );
   }
 }

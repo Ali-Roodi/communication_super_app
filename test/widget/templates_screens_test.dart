@@ -52,83 +52,85 @@ void main() {
       );
     });
 
-    testWidgets('«تأیید» appears once something is filled and returns the text', (
-      tester,
-    ) async {
-      String? result;
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Builder(
-            builder: (context) => ElevatedButton(
-              onPressed: () async {
-                final popped = await Navigator.of(context)
-                    .push<TemplateFillResult>(
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            TemplateFillScreen(template: _template()),
-                      ),
-                    );
-                result = popped?.text;
-              },
-              child: const Text('باز کن'),
+    testWidgets(
+      '«تأیید» appears once something is filled and returns the text',
+      (tester) async {
+        String? result;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () async {
+                  final popped = await Navigator.of(context)
+                      .push<TemplateFillResult>(
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              TemplateFillScreen(template: _template()),
+                        ),
+                      );
+                  result = popped?.text;
+                },
+                child: const Text('باز کن'),
+              ),
             ),
           ),
-        ),
-      );
-      await tester.tap(find.text('باز کن'));
-      await tester.pumpAndSettle();
+        );
+        await tester.tap(find.text('باز کن'));
+        await tester.pumpAndSettle();
 
-      expect(find.text('تأیید'), findsNothing);
+        expect(find.text('تأیید'), findsNothing);
 
-      await tester.enterText(find.widgetWithText(TextField, 'عنوان'), 'تست');
-      await tester.pump();
-      expect(find.text('تأیید'), findsOneWidget);
+        await tester.enterText(find.widgetWithText(TextField, 'عنوان'), 'تست');
+        await tester.pump();
+        expect(find.text('تأیید'), findsOneWidget);
 
-      await tester.tap(find.text('تأیید'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('تأیید'));
+        await tester.pumpAndSettle();
 
-      // The unanswered «[مکان]» is dropped, and «در محل» goes with it.
-      expect(result, 'جلسه تست برقرار می‌باشد.');
-    });
+        // The unanswered «[مکان]» is dropped, and «در محل» goes with it.
+        expect(result, 'جلسه تست برقرار می‌باشد.');
+      },
+    );
 
-    testWidgets('«درج نام مخاطب» is offered only with a contact, and prefixes', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: TemplateFillScreen(
-            key: const ValueKey('no-contact'),
-            template: _template(body: 'جلسه فردا برقرار است.'),
-          ),
-        ),
-      );
-      expect(find.text('درج نام مخاطب'), findsNothing);
-
-      // A different key, so the screen is rebuilt from scratch rather than
-      // updated in place (its state is seeded in initState).
-      await tester.pumpWidget(
-        MaterialApp(
-          home: TemplateFillScreen(
-            key: const ValueKey('with-contact'),
-            template: _template(
-              body: 'جلسه فردا برقرار است.',
-              useContactName: true,
+    testWidgets(
+      '«درج نام مخاطب» is offered only with a contact, and prefixes',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: TemplateFillScreen(
+              key: const ValueKey('no-contact'),
+              template: _template(body: 'جلسه فردا برقرار است.'),
             ),
-            contactName: 'مسعود عظیمی',
           ),
-        ),
-      );
+        );
+        expect(find.text('درج نام مخاطب'), findsNothing);
 
-      expect(find.text('درج نام مخاطب'), findsOneWidget);
-      expect(
-        find.text('مسعود عظیمی عزیز\nجلسه فردا برقرار است.'),
-        findsOneWidget,
-      );
+        // A different key, so the screen is rebuilt from scratch rather than
+        // updated in place (its state is seeded in initState).
+        await tester.pumpWidget(
+          MaterialApp(
+            home: TemplateFillScreen(
+              key: const ValueKey('with-contact'),
+              template: _template(
+                body: 'جلسه فردا برقرار است.',
+                useContactName: true,
+              ),
+              contactName: 'مسعود عظیمی',
+            ),
+          ),
+        );
 
-      await tester.tap(find.byType(Switch));
-      await tester.pump();
-      expect(find.text('جلسه فردا برقرار است.'), findsOneWidget);
-    });
+        expect(find.text('درج نام مخاطب'), findsOneWidget);
+        expect(
+          find.text('مسعود عظیمی عزیز\nجلسه فردا برقرار است.'),
+          findsOneWidget,
+        );
+
+        await tester.tap(find.byType(Switch));
+        await tester.pump();
+        expect(find.text('جلسه فردا برقرار است.'), findsOneWidget);
+      },
+    );
   });
 
   group('TemplatesListScreen (pick mode)', () {
@@ -154,7 +156,8 @@ void main() {
         child: MaterialApp(
           home: Builder(
             builder: (context) => ElevatedButton(
-              onPressed: () async => onResult(await showTemplatePicker(context)),
+              onPressed: () async =>
+                  onResult(await showTemplatePicker(context)),
               child: const Text('باز کن'),
             ),
           ),

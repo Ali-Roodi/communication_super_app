@@ -43,9 +43,8 @@ void main() {
     build: build,
     act: (bloc) => bloc.add(const BlockNumber('0912 111 2233')),
     expect: () => [const BlockedNumbersLoaded([])],
-    verify: (_) => verify(
-      () => repo.block(any(), report: any(named: 'report')),
-    ).called(1),
+    verify: (_) =>
+        verify(() => repo.block(any(), report: any(named: 'report'))).called(1),
   );
 
   blocTest<BlockedNumbersBloc, BlockedNumbersState>(
@@ -53,9 +52,8 @@ void main() {
     build: build,
     act: (bloc) => bloc.add(const BlockNumber('no-digits')),
     expect: () => const <BlockedNumbersState>[],
-    verify: (_) => verifyNever(
-      () => repo.block(any(), report: any(named: 'report')),
-    ),
+    verify: (_) =>
+        verifyNever(() => repo.block(any(), report: any(named: 'report'))),
   );
 
   blocTest<BlockedNumbersBloc, BlockedNumbersState>(

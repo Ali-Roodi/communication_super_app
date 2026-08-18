@@ -20,7 +20,9 @@ MessageTemplate _template(String body, {bool useContactName = false}) =>
 void main() {
   group('TemplateEngine.fieldsOf', () {
     test('derives one field per placeholder, in order', () {
-      final fields = TemplateEngine.fieldsOf('سلام [نام]، [موضوع] چطور پیش رفت؟');
+      final fields = TemplateEngine.fieldsOf(
+        'سلام [نام]، [موضوع] چطور پیش رفت؟',
+      );
 
       expect(fields.map((f) => f.label), ['نام', 'موضوع']);
       expect(fields.every((f) => f.kind == TemplateFieldKind.text), isTrue);
@@ -41,7 +43,9 @@ void main() {
     });
 
     test('a lone date keeps its own date-only picker', () {
-      final fields = TemplateEngine.fieldsOf('پرداخت در تاریخ [تاریخ] انجام شد.');
+      final fields = TemplateEngine.fieldsOf(
+        'پرداخت در تاریخ [تاریخ] انجام شد.',
+      );
 
       expect(fields.single.kind, TemplateFieldKind.date);
     });
@@ -100,10 +104,7 @@ void main() {
         values: {'عنوان': 'تست', 'تاریخ': '۱۴۰۵/۰۵/۱۰', 'زمان': '۱۶:۲۲'},
       );
 
-      expect(
-        text,
-        'جلسه تست در مورخه ۱۴۰۵/۰۵/۱۰ ساعت ۱۶:۲۲ برقرار می‌باشد.',
-      );
+      expect(text, 'جلسه تست در مورخه ۱۴۰۵/۰۵/۱۰ ساعت ۱۶:۲۲ برقرار می‌باشد.');
     });
 
     test('a word that merely ends like a connector is left alone', () {
@@ -179,10 +180,7 @@ void main() {
       final templates = await TemplateRepository().getTemplates();
 
       expect(templates, isNotEmpty);
-      expect(
-        templates.map((t) => t.title),
-        contains('دعوت‌نامه جلسه'),
-      );
+      expect(templates.map((t) => t.title), contains('دعوت‌نامه جلسه'));
       // The seed order is preserved (newest first).
       expect(templates.first.title, 'دعوت‌نامه جلسه');
     });

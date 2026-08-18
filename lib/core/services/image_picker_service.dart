@@ -44,9 +44,10 @@ class ImagePickerService {
   /// Opens the gallery chooser or the camera and returns the captured frame.
   /// Null when the user backed out.
   Future<PickedImage?> pick(PhotoSource source) async {
-    final result = await _channel.invokeMapMethod<String, Object?>('pickImage', {
-      'source': source == PhotoSource.camera ? 'camera' : 'gallery',
-    });
+    final result = await _channel.invokeMapMethod<String, Object?>(
+      'pickImage',
+      {'source': source == PhotoSource.camera ? 'camera' : 'gallery'},
+    );
     if (result == null) return null;
     final bytes = result['bytes'];
     if (bytes is! Uint8List || bytes.isEmpty) return null;

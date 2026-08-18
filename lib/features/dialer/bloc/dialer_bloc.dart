@@ -30,7 +30,6 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
 
     // ── Call handlers (Step 3) ───────────────────────────────
     on<MakeCall>(_onMakeCall);
-    on<SelectDialSim>(_onSelectDialSim);
     on<EndCall>(_onEndCall);
     on<AnswerCall>(_onAnswer);
     on<RejectCall>(_onReject);
@@ -220,10 +219,6 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     } catch (e) {
       emit(state.copyWith(error: e.toString()));
     }
-  }
-
-  void _onSelectDialSim(SelectDialSim event, Emitter<DialerState> emit) {
-    emit(state.copyWith(dialSubscriptionId: event.subscriptionId));
   }
 
   void _onCallEvent(CallEventReceived event, Emitter<DialerState> emit) {
