@@ -9,7 +9,10 @@ import 'package:communication_super_app/features/call_history/models/call_log_mo
 import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/features/contacts/bloc/contact_bloc.dart';
 import 'package:communication_super_app/features/contacts/bloc/contact_event.dart';
+import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/messages/bloc/message_event.dart';
+import 'package:communication_super_app/features/messages/bloc/scheduled_event.dart';
+import 'package:communication_super_app/features/messages/bloc/scheduled_bloc.dart';
 import 'package:communication_super_app/features/dialer/widgets/dialer_bottom_sheet.dart';
 import 'package:communication_super_app/features/favorites/screens/favorites_screen.dart';
 import 'package:communication_super_app/features/contacts/screens/contacts_list_screen.dart';
@@ -63,6 +66,12 @@ class _MainNavigationState extends State<MainNavigation>
     // Live-refresh when the device address book changes (a contact added/edited
     // in the phone's Contacts app) so names update without an app restart.
     FlutterContacts.addListener(_refreshDeviceContacts);
+    // …and when *this* app writes one. The provider observer above is not a
+    // substitute: it is asynchronous, OEM-throttled, and does not fire at all
+    // for a SIM (ADN) contact, so an edit made in our own editor could reach
+    // the contacts tab (which invalidates the cache by hand) while the inbox,
+    // «اخیر» and «مورد علاقه» kept the old name until the next launch.
+    ContactRepository.revision.addListener(_onAddressBookChanged);
 
     // Deep links — a notification tap, or a `tel:`/`sms:` intent from another
     // app. Warm-start handler + the cold-start intent. Registered here
@@ -155,6 +164,7 @@ class _MainNavigationState extends State<MainNavigation>
   @override
   void dispose() {
     FlutterContacts.removeListener(_refreshDeviceContacts);
+    ContactRepository.revision.removeListener(_onAddressBookChanged);
     WidgetsBinding.instance.removeObserver(this);
     _autoTabGrace?.cancel();
     _threadSub?.cancel();
@@ -182,6 +192,14 @@ class _MainNavigationState extends State<MainNavigation>
       context.read<CallLogBloc>().add(const SyncCallLogs());
       // And for SMS: mirror-sync the provider (new/deleted rows) silently.
       context.read<MessageBloc>().add(const SyncDeviceMessages());
+      // Scheduled sends: catch up on anything whose moment passed while we were
+      // away, then re-arm the native alarm. The re-arm is the point — an alarm
+      // is not durable state. Doze, App Standby and every OEM battery sweep can
+      // drop it while the process is dead, and nothing else notices; each time
+      // the user comes back is a chance to put it back.
+      context.read<ScheduledMessageBloc>()
+        ..add(const DeliverDueScheduled())
+        ..add(const LoadScheduled());
       if (_currentIndex == _recentsTab) {
         DeepLinkService.instance.clearMissedCallNotifications();
       }
@@ -349,19 +367,38 @@ class _MainNavigationState extends State<MainNavigation>
     // Thumbnails are NOT dropped here: nothing is known to have changed, and
     // clearing them makes every visible row re-fetch its photo.
     if (!mounted) return;
-    context.read<ContactBloc>().add(const RefreshContacts());
-    context.read<MessageBloc>().add(const RefreshContactNames());
+    _dispatchContactRefresh();
   }
 
-  /// Invalidates the device-contact cache and asks the contacts list + message
-  /// thread names to re-resolve from the fresh data. Wired to the address-book
-  /// change listener, so it only runs when something actually changed.
+  /// Invalidates the device-contact cache. Wired to the address-book change
+  /// listener, so it only runs when something actually changed.
+  ///
+  /// The bloc refreshes are not dispatched here: invalidating bumps
+  /// [ContactRepository.revision], and [_onAddressBookChanged] does them for
+  /// every source of a change, this one included.
   void _refreshDeviceContacts() {
     if (!mounted) return;
     LazyContactAvatar.invalidateCache();
+    ContactRepository().invalidateCache();
+  }
+
+  /// The address book changed — from our own editor or from the phone's.
+  ///
+  /// Every list that stores a *resolved* name has to re-resolve: the inbox and
+  /// the open conversation ([RefreshContactNames]), the contacts tab, and
+  /// «اخیر», whose rows carry a name that is not in the call-log table at all.
+  /// «مورد علاقه» reads through the contact cache as it draws, so it needs no
+  /// event — only the rebuild [ContactRepository.revision] already gives it.
+  void _onAddressBookChanged() {
+    if (!mounted) return;
+    _dispatchContactRefresh();
+  }
+
+  void _dispatchContactRefresh() {
     _lastContactResume = DateTime.now();
     context.read<ContactBloc>().add(const RefreshContacts());
     context.read<MessageBloc>().add(const RefreshContactNames());
+    context.read<CallLogBloc>().add(const RefreshCallLogContactNames());
   }
 
   @override

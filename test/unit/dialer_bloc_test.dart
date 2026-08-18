@@ -24,9 +24,7 @@ void main() {
     // The bloc loads contacts and subscribes to the call-event stream in its
     // constructor; stub both so it can be built in isolation.
     when(() => repo.getAllContacts()).thenAnswer((_) async => <ContactModel>[]);
-    when(
-      () => repo.matchPhoneDigits(any(), any()),
-    ).thenReturn(<PhoneMatch>[]);
+    when(() => repo.matchPhoneDigits(any(), any())).thenReturn(<PhoneMatch>[]);
     when(
       () => callService.callEvents,
     ).thenAnswer((_) => const Stream<CallInfo>.empty());

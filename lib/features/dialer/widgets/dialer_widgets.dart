@@ -438,18 +438,14 @@ class DialerCallPill extends StatelessWidget {
   /// they are on.
   final bool addCall;
 
-  /// SIM chosen for this dial, or null to follow the system default.
-  final SimCard? sim;
-
   const DialerCallPill({
     super.key,
     required this.enabled,
     this.addCall = false,
-    this.sim,
   });
 
   /// Hands the dial to the BLoC, asking for a SIM only when there is a real
-  /// choice to make and the user has not already made one on the chip.
+  /// choice to make.
   ///
   /// The picker cannot live inside `DialerBloc`: it needs a BuildContext, and
   /// a BLoC that pops UI is a BLoC that cannot be tested. The number itself
@@ -460,7 +456,7 @@ class DialerCallPill extends StatelessWidget {
     final number = bloc.state.dialedNumber;
     if (number.isEmpty) return;
 
-    SimCard? chosen = sim;
+    SimCard? chosen;
     if (forcePick && SimService.isMultiSim) {
       await HapticFeedback.mediumImpact();
       if (!context.mounted) return;
@@ -468,10 +464,10 @@ class DialerCallPill extends StatelessWidget {
         context,
         title: 'تماس با کدام سیم‌کارت؟',
         subtitle: number,
-        selected: sim ?? SimService.defaultFor(SimUse.voice),
+        selected: SimService.defaultFor(SimUse.voice),
       );
       if (chosen == null) return; // dismissed = cancelled
-    } else if (chosen == null) {
+    } else {
       if (!context.mounted) return;
       chosen = await resolveVoiceSim(context, number);
       // Dismissed picker = cancelled call. Only distinguishable on a phone
@@ -486,19 +482,6 @@ class DialerCallPill extends StatelessWidget {
     // The dialer lives in a modal bottom sheet (launched from the FAB);
     // dismiss it so the system call UI is unobstructed.
     navigator.maybePop();
-  }
-
-  /// Opens the picker and *keeps* the choice for the next dial, instead of
-  /// calling immediately — the chip is a setting, the pill is the action.
-  Future<void> _pickSim(BuildContext context) async {
-    final bloc = context.read<DialerBloc>();
-    final chosen = await showSimPicker(
-      context,
-      title: 'تماس با کدام سیم‌کارت؟',
-      selected: sim ?? SimService.defaultFor(SimUse.voice),
-    );
-    if (chosen == null) return;
-    bloc.add(SelectDialSim(chosen.subscriptionId));
   }
 
   @override
@@ -542,28 +525,13 @@ class DialerCallPill extends StatelessWidget {
       ),
     );
 
-    if (!SimService.isMultiSim) return pill;
-
-    // The chip is drawn OUTSIDE the pill and sized so the pill keeps its
-    // position: the keypad's centre of gravity is the call button, and moving
-    // it sideways on a dual-SIM phone would put it under a different thumb.
-    const double kSide = 72;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const SizedBox(width: kSide),
-        pill,
-        SizedBox(
-          width: kSide,
-          child: Center(
-            child: SimChip(
-              sim: sim ?? SimService.defaultFor(SimUse.voice),
-              onTap: () => _pickSim(context),
-            ),
-          ),
-        ),
-      ],
-    );
+    // No SIM chip beside the pill, on one card or two. Google Phone's keypad
+    // carries none either: the card is decided by Android's own default, and
+    // when nothing is pinned the picker opens on the dial itself
+    // ([resolveVoiceSim]) — which is a question asked at the moment it matters
+    // rather than a control sitting on the keypad for ever. The per-call
+    // override survives as the long-press on the pill.
+    return pill;
   }
 }
 

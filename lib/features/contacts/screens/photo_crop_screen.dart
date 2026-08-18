@@ -128,8 +128,7 @@ class _PhotoCropScreenState extends State<PhotoCropScreen> {
     final ratio = next / _scaleAtStart;
     // Zoom about the point the fingers landed on, then follow wherever they
     // moved. One expression from the start values — nothing accumulates.
-    final zoomed =
-        _focalAtStart - (_focalAtStart - _offsetAtStart) * ratio;
+    final zoomed = _focalAtStart - (_focalAtStart - _offsetAtStart) * ratio;
     final panned = zoomed + (details.localFocalPoint - _focalAtStart);
     setState(() {
       _scale = next;
@@ -193,7 +192,8 @@ class _PhotoCropScreenState extends State<PhotoCropScreen> {
                     // it needs somewhere to be grabbed from.
                     final side = math.max(
                       1.0,
-                      math.min(constraints.maxWidth, constraints.maxHeight) - 32,
+                      math.min(constraints.maxWidth, constraints.maxHeight) -
+                          32,
                     );
                     if (side != _side) {
                       final first = _side == 1;
@@ -289,9 +289,7 @@ class _PhotoCropScreenState extends State<PhotoCropScreen> {
               // drawn round everywhere in this app, so cropping against a square
               // and discovering afterwards that the haircut is gone is the wrong
               // order.
-              const Positioned.fill(
-                child: IgnorePointer(child: _CircleMask()),
-              ),
+              const Positioned.fill(child: IgnorePointer(child: _CircleMask())),
             ],
           ),
         ),

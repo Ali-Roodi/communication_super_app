@@ -39,14 +39,17 @@ void main() {
   tearDownAll(() => DatabaseHelper.resetForTesting());
 
   group('MessageSearchQuery.tight / canUseFts', () {
-    test('folds and strips spacing, and refuses a needle under three chars', () {
-      expect(MessageSearchQuery('محمد رضا').tight, 'محمدرضا');
-      // ي → ی, Persian digits → ASCII, spacing gone.
-      expect(MessageSearchQuery('علي ۵').tight, 'علی5');
-      expect(MessageSearchQuery('جلسه').canUseFts, isTrue);
-      expect(MessageSearchQuery('اب').canUseFts, isFalse);
-      expect(MessageSearchQuery('a').canUseFts, isFalse);
-    });
+    test(
+      'folds and strips spacing, and refuses a needle under three chars',
+      () {
+        expect(MessageSearchQuery('محمد رضا').tight, 'محمدرضا');
+        // ي → ی, Persian digits → ASCII, spacing gone.
+        expect(MessageSearchQuery('علي ۵').tight, 'علی5');
+        expect(MessageSearchQuery('جلسه').canUseFts, isTrue);
+        expect(MessageSearchQuery('اب').canUseFts, isFalse);
+        expect(MessageSearchQuery('a').canUseFts, isFalse);
+      },
+    );
 
     test('quotes the MATCH argument and doubles embedded quotes', () {
       expect(MessageSearchQuery('جلسه').ftsMatch, '"جلسه"');
@@ -55,22 +58,24 @@ void main() {
   });
 
   group('search index', () {
-    test('a fresh database indexes what it is given and reports ready',
-        () async {
-      final repo = MessageRepository();
-      await repo.createMessage(_message('1', body: 'جلسه هفتگی ساعت ۱۰'));
+    test(
+      'a fresh database indexes what it is given and reports ready',
+      () async {
+        final repo = MessageRepository();
+        await repo.createMessage(_message('1', body: 'جلسه هفتگی ساعت ۱۰'));
 
-      // Nothing indexed yet, so the index must NOT be trusted — a half-filled
-      // index that answered here would silently omit this very message.
-      expect(await repo.searchIndexReady(), isFalse);
-      // …and the search still finds it, through the scan path.
-      expect(await repo.searchMessages('هفتگی'), hasLength(1));
+        // Nothing indexed yet, so the index must NOT be trusted — a half-filled
+        // index that answered here would silently omit this very message.
+        expect(await repo.searchIndexReady(), isFalse);
+        // …and the search still finds it, through the scan path.
+        expect(await repo.searchMessages('هفتگی'), hasLength(1));
 
-      await _drain(repo);
-      if (!DatabaseHelper.messageSearchFtsReady) return; // no FTS5 here
-      expect(await repo.searchIndexReady(), isTrue);
-      expect(await repo.searchMessages('هفتگی'), hasLength(1));
-    });
+        await _drain(repo);
+        if (!DatabaseHelper.messageSearchFtsReady) return; // no FTS5 here
+        expect(await repo.searchIndexReady(), isTrue);
+        expect(await repo.searchMessages('هفتگی'), hasLength(1));
+      },
+    );
 
     test('both paths answer identically', () async {
       final repo = MessageRepository();
@@ -167,8 +172,12 @@ void main() {
     test('threads are found through the index too', () async {
       final repo = MessageRepository();
       await repo.createMessage(
-        _message('1', threadId: '09121112233', body: 'قرارمان سر جایش هست',
-            type: MessageType.sent),
+        _message(
+          '1',
+          threadId: '09121112233',
+          body: 'قرارمان سر جایش هست',
+          type: MessageType.sent,
+        ),
       );
       await repo.createMessage(
         _message('2', threadId: '09121112233', body: 'باشه', minute: 5),

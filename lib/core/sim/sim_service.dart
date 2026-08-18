@@ -27,6 +27,17 @@ class SimService {
   static List<SimCard> _cache = const <SimCard>[];
   static SimDefaults _defaults = const SimDefaults.unknown();
 
+  /// Bumped whenever [cached] or [defaults] changes — a card inserted or
+  /// removed, a name resolved, READ_PHONE_STATE granted, the system default
+  /// re-pinned.
+  ///
+  /// Every SIM affordance reads the static roster synchronously inside `build`
+  /// (a bubble's badge cannot await a channel), so nothing in the element tree
+  /// depends on it and nothing rebuilt when a second card went in: the app
+  /// stayed single-SIM-shaped until it was killed and reopened. Screens that
+  /// keep a SIM surface on screen wrap it in [SimAware], which listens here.
+  static final ValueNotifier<int> revision = ValueNotifier<int>(0);
+
   final StreamController<List<SimCard>> _controller =
       StreamController<List<SimCard>>.broadcast();
   StreamSubscription<dynamic>? _subscription;
@@ -58,7 +69,18 @@ class SimService {
       _subscription = _events.receiveBroadcastStream().listen(
         (dynamic event) {
           if (event is! List) return;
-          _publish(_parse(event));
+          if (!_publish(_parse(event))) return;
+          // The roster really moved. Everything *derived* from it is now stale
+          // too and none of it rides on this event: which card the system has
+          // pinned for SMS and for voice, and the PhoneAccount↔subscription
+          // map every call-log row is stamped from. Re-read both.
+          //
+          // This is the second half of "the app only notices a new SIM after a
+          // restart": the roster updated live, while `defaults` still said
+          // «single SIM, nothing pinned» and the account map still had one
+          // entry, so the picker had nothing to pick and every new call was
+          // logged with no SIM.
+          unawaited(_refreshDerived());
         },
         onError: (Object error) {
           debugPrint('SIM event stream error: $error');
@@ -82,7 +104,13 @@ class SimService {
       final defaults = await _method.invokeMapMethod<String, dynamic>(
         'getDefaults',
       );
-      if (defaults != null) _defaults = SimDefaults.fromMap(defaults);
+      if (defaults != null) {
+        final parsed = SimDefaults.fromMap(defaults);
+        if (parsed != _defaults) {
+          _defaults = parsed;
+          revision.value++;
+        }
+      }
       await loadPhoneAccounts();
       _publish(sims);
       // A direct load satisfies ensureLoaded too — otherwise the permission
@@ -163,13 +191,41 @@ class SimService {
     return sims;
   }
 
-  void _publish(List<SimCard> sims) {
+  /// Re-reads what the roster event does not carry: the system's pinned
+  /// defaults and the PhoneAccount↔subscription map.
+  Future<void> _refreshDerived() async {
+    try {
+      final defaults = await _method.invokeMapMethod<String, dynamic>(
+        'getDefaults',
+      );
+      if (defaults != null) {
+        final parsed = SimDefaults.fromMap(defaults);
+        if (parsed != _defaults) {
+          _defaults = parsed;
+          revision.value++;
+        }
+      }
+    } catch (e) {
+      debugPrint('getDefaults after roster change failed: $e');
+    }
+    await loadPhoneAccounts();
+  }
+
+  /// Returns true when the roster actually changed.
+  bool _publish(List<SimCard> sims) {
     // Identical rosters are dropped: the native listener fires several times
     // for one card insertion (radio up, records loaded, name resolved) and
     // every one of them would otherwise rebuild the contacts list.
-    if (listEquals(_cache, sims)) return;
+    if (listEquals(_cache, sims)) return false;
     _cache = List<SimCard>.unmodifiable(sims);
     if (!_controller.isClosed) _controller.add(_cache);
+    // Widgets read [cached] / [isMultiSim] synchronously inside `build` — a
+    // SIM badge may not await a platform channel — so the roster changing is
+    // not something the element tree can notice by itself. This is how the
+    // surfaces that are *already on screen* when a card goes in find out; see
+    // [SimAware].
+    revision.value++;
+    return true;
   }
 
   /// The SIM behind a subscription id, or null when it is unknown — a stored

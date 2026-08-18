@@ -111,7 +111,10 @@ void main() {
 
     test('a number typed as 0… finds a contact stored as +98…', () {
       expect(
-        ContactRepository.matchContacts(contacts, '09121234567').map((c) => c.id),
+        ContactRepository.matchContacts(
+          contacts,
+          '09121234567',
+        ).map((c) => c.id),
         ['1'],
       );
       expect(
@@ -136,7 +139,10 @@ void main() {
 
     test('email is searchable', () {
       expect(
-        ContactRepository.matchContacts(contacts, 'example.com').map((c) => c.id),
+        ContactRepository.matchContacts(
+          contacts,
+          'example.com',
+        ).map((c) => c.id),
         ['3'],
       );
     });

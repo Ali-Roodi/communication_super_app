@@ -260,21 +260,23 @@ class SelectableBubbleText extends StatelessWidget {
 /// A single chat bubble in the conversation list.
 ///
 /// Bubbles are grouped (same sender within 2 min); [isLastInGroup] controls the
-/// "tail" corner radius and [showTimestamp] whether the time + delivery status
-/// row is rendered beneath the bubble. All interaction is delegated to the
-/// callbacks so this widget stays presentation-only.
+/// "tail" corner radius. All interaction is delegated to the callbacks so this
+/// widget stays presentation-only.
 class MessageBubble extends StatefulWidget {
   final MessageModel message;
   final bool isLastInGroup;
-  final bool showTimestamp;
 
-  /// The user tapped this bubble to ask «رسید یا نه؟».
+  /// The user tapped this bubble to ask «کِی؟ رسید یا نه؟».
   ///
-  /// The grouped layout only prints the time + ticks under the *last* bubble of
-  /// a group, so a message in the middle of a burst had no way of telling the
-  /// user whether it had arrived. A tap opens exactly that one message's row —
-  /// with the state spelled out in words next to the tick — and a second tap
-  /// closes it again, which is what Google Messages does.
+  /// The caption under a bubble — time, SIM badge, «پیامک», the tick and its
+  /// word — is the *answer to a question nobody asked most of the time*, so it
+  /// is drawn only for the tapped message and nothing else. It used to appear
+  /// by itself under the last bubble of every group and under any bubble with
+  /// a 10-minute gap after it, which meant a thread carried a row of grey
+  /// captions the reader had not asked for while a message in the middle of a
+  /// burst still could not say whether it had arrived. One tap opens exactly
+  /// one message's row, a second closes it, and the rule is the same for a
+  /// received message as for a sent one.
   final bool expanded;
   final bool selected;
   final bool selectionMode;
@@ -294,7 +296,6 @@ class MessageBubble extends StatefulWidget {
     super.key,
     required this.message,
     required this.isLastInGroup,
-    required this.showTimestamp,
     this.expanded = false,
     required this.selected,
     required this.selectionMode,
@@ -387,7 +388,7 @@ class _MessageBubbleState extends State<MessageBubble> {
             // this reason.
             if (isSent && message.status == MessageStatus.failed)
               _failedRow(context)
-            else if (widget.showTimestamp || widget.expanded)
+            else if (widget.expanded)
               Padding(
                 padding: const EdgeInsets.only(top: 2, left: 4, right: 4),
                 child: Row(
@@ -417,18 +418,16 @@ class _MessageBubbleState extends State<MessageBubble> {
                       _statusIcon(context),
                       // A tick is a symbol; the tap asked a question, so the
                       // opened row answers it in words.
-                      if (widget.expanded) ...[
-                        const SizedBox(width: 5),
-                        Text(
-                          _statusLabel,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            fontSize: 12,
-                            color: message.status == MessageStatus.failed
-                                ? AppColors.danger
-                                : null,
-                          ),
+                      const SizedBox(width: 5),
+                      Text(
+                        _statusLabel,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontSize: 12,
+                          color: message.status == MessageStatus.failed
+                              ? AppColors.danger
+                              : null,
                         ),
-                      ],
+                      ),
                     ],
                   ],
                 ),

@@ -6,7 +6,10 @@ import 'package:communication_super_app/features/messages/screens/widgets/messag
 import 'package:communication_super_app/features/messages/screens/widgets/schedule_send_sheet.dart';
 
 /// Opens the sheet from a button and hands the result back to the test.
-Widget _harness(void Function(ScheduleChoice?) onResult, {ScheduleChoice? seed}) {
+Widget _harness(
+  void Function(ScheduleChoice?) onResult, {
+  ScheduleChoice? seed,
+}) {
   return MaterialApp(
     home: Scaffold(
       body: Builder(
@@ -158,27 +161,29 @@ void main() {
       expect(find.text('تأیید'), findsOneWidget);
     });
 
-    test('scheduleDetailSummary names the repeat and the jitter, or neither',
-        () {
-      final at = DateTime(2026, 6, 1, 18);
-      expect(scheduleDetailSummary(ScheduleChoice(at: at)), isNull);
-      expect(
-        scheduleDetailSummary(
-          ScheduleChoice(at: at, jitter: JitterWindow.thirtyMin),
-        ),
-        'تا ۳۰ دقیقه پراکندگی',
-      );
-      expect(
-        scheduleDetailSummary(
-          ScheduleChoice(
-            at: at,
-            repeat: ScheduleRepeat.daily,
-            jitter: JitterWindow.tenMin,
+    test(
+      'scheduleDetailSummary names the repeat and the jitter, or neither',
+      () {
+        final at = DateTime(2026, 6, 1, 18);
+        expect(scheduleDetailSummary(ScheduleChoice(at: at)), isNull);
+        expect(
+          scheduleDetailSummary(
+            ScheduleChoice(at: at, jitter: JitterWindow.thirtyMin),
           ),
-        ),
-        'هر روز · تا ۱۰ دقیقه پراکندگی',
-      );
-    });
+          'تا ۳۰ دقیقه پراکندگی',
+        );
+        expect(
+          scheduleDetailSummary(
+            ScheduleChoice(
+              at: at,
+              repeat: ScheduleRepeat.daily,
+              jitter: JitterWindow.tenMin,
+            ),
+          ),
+          'هر روز · تا ۱۰ دقیقه پراکندگی',
+        );
+      },
+    );
   });
 
   group('MessageComposer scheduled state', () {

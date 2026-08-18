@@ -30,6 +30,7 @@ class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
     on<RefreshCallLogs>(_onRefreshCallLogs);
     on<LoadMoreCallLogs>(_onLoadMoreCallLogs);
     on<SyncCallLogs>(_onSyncCallLogs);
+    on<RefreshCallLogContactNames>(_onRefreshContactNames);
     on<DeleteCallLog>(_onDeleteCallLog);
     on<DeleteCallLogs>(_onDeleteCallLogs);
     on<ClearCallLogs>(_onClearCallLogs);
@@ -140,6 +141,34 @@ class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
       final page = await _repository.getAllCallLogs(limit: limit, offset: 0);
       final callLogs = await _service.resolveContactNames(page);
       emit(CallLogsLoaded(callLogs, hasMore: page.length >= limit));
+    } catch (_) {
+      // Silent by design: keep whatever is on screen.
+    }
+  }
+
+  /// Re-overlays contact names onto the rows already on screen.
+  ///
+  /// The rows are re-read from the mirror rather than patched in place, because
+  /// a name has to be able to *disappear*: `resolveContactNames` only overlays
+  /// a match, so patching would leave a deleted contact's name on the row for
+  /// ever. The DB never stores one, so a re-read is the clean slate. No device
+  /// access, no loading state, and the paged-in length is preserved.
+  Future<void> _onRefreshContactNames(
+    RefreshCallLogContactNames event,
+    Emitter<CallLogState> emit,
+  ) async {
+    final current = state;
+    if (current is! CallLogsLoaded || current.callLogs.isEmpty) return;
+    final limit = current.callLogs.length;
+    try {
+      CallLogService.invalidateCache();
+      final page = await _repository.getAllCallLogs(limit: limit, offset: 0);
+      emit(
+        CallLogsLoaded(
+          await _service.resolveContactNames(page),
+          hasMore: current.hasMore,
+        ),
+      );
     } catch (_) {
       // Silent by design: keep whatever is on screen.
     }

@@ -48,9 +48,7 @@ void main() {
         );
 
     test('a named group keeps its name', () {
-      final group = build([
-        _member('09120000001', 'علی'),
-      ], title: 'همکاران');
+      final group = build([_member('09120000001', 'علی')], title: 'همکاران');
       expect(group.displayTitle, 'همکاران');
       expect(group.hasTitle, isTrue);
     });
@@ -94,10 +92,7 @@ void main() {
     });
 
     test('member keys are canonical, so one person is one member', () {
-      final group = build([
-        _member('+989120000001'),
-        _member('09120000001'),
-      ]);
+      final group = build([_member('+989120000001'), _member('09120000001')]);
       expect(group.memberKeys, {'09120000001'});
     });
   });
@@ -216,7 +211,10 @@ void main() {
     test('rename with an empty name restores the derived title', () async {
       final repo = GroupRepository();
       final group = await repo.create(
-        members: [_member('09120000001', 'علی'), _member('09120000002', 'مریم')],
+        members: [
+          _member('09120000001', 'علی'),
+          _member('09120000002', 'مریم'),
+        ],
         title: 'همکاران',
       );
       await repo.rename(group.id, '');

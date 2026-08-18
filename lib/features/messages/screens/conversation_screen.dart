@@ -37,6 +37,7 @@ import '../models/scheduled_message_model.dart';
 import '../models/template_wire.dart';
 import '../repositories/group_repository.dart';
 import 'drafts_list_screen.dart';
+import 'conversation_details_screen.dart';
 import 'group_details_screen.dart';
 import 'templates_list_screen.dart';
 import 'widgets/message_bubble.dart';
@@ -210,6 +211,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       _contactName = widget.contactName;
       _contactResolved = _contactName != null;
       _resolveContactName();
+      ContactRepository.revision.addListener(_onAddressBookChanged);
     }
     _messageBloc.add(LoadMessages(widget.threadId));
     // Re-read the schedules table on entry: a message delivered while this
@@ -251,26 +253,57 @@ class _ConversationScreenState extends State<ConversationScreen> {
   /// Seeded synchronously from the number index when it is already built (the
   /// normal case: the inbox has been listed), so the chat opens with the name
   /// already on it instead of showing the number for a frame.
-  Future<void> _resolveContactName() async {
-    if (_contactName != null) return;
+  ///
+  /// [force] re-asks even when a name is already on the header — the address
+  /// book changed underneath it (see [_onAddressBookChanged]), so the name it
+  /// is showing is exactly the one that must not be trusted. It also has to be
+  /// able to go back to *no* name: the contact may have been deleted, and the
+  /// spam prompt hangs off that answer.
+  Future<void> _resolveContactName({bool force = false}) async {
+    if (_contactName != null && !force) return;
     final cached = ContactRepository.cachedByPhoneNumber(widget.phoneNumber);
     if (cached != null) {
-      _contactName = cached.name;
-      _contactResolved = true;
+      _applyResolvedName(cached.name, notify: force);
       return;
     }
     if (ContactRepository.hasNumberIndex) {
       // The index is built and this number is not in it — authoritative.
-      setState(() => _contactResolved = true);
+      _applyResolvedName(force ? null : _contactName, notify: true);
       return;
     }
     final match = await ContactRepository().getContactByPhoneNumber(
       widget.phoneNumber,
     );
     if (!mounted) return;
-    setState(() {
-      _contactName = match?.name;
+    _applyResolvedName(match?.name, notify: true);
+  }
+
+  /// Commits a resolution. [notify] is false only on the initState path, where
+  /// there is no element to rebuild yet.
+  void _applyResolvedName(String? name, {required bool notify}) {
+    void apply() {
+      _contactName = (name != null && name.isNotEmpty) ? name : null;
       _contactResolved = true;
+    }
+
+    if (notify) {
+      setState(apply);
+    } else {
+      apply();
+    }
+  }
+
+  /// The address book changed while this conversation was open — most often
+  /// because the user tapped the header, renamed the contact and came back.
+  ///
+  /// The header used to keep the name it had resolved on entry, so the rename
+  /// was invisible until the app was restarted. The number index is rebuilt
+  /// lazily, so the re-resolve is deferred to the next frame rather than run
+  /// against the snapshot that is being replaced.
+  void _onAddressBookChanged() {
+    if (!mounted || _isGroup) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _resolveContactName(force: true);
     });
   }
 
@@ -287,19 +320,48 @@ class _ConversationScreenState extends State<ConversationScreen> {
     setState(() => _sim = resolved);
   }
 
-  Future<void> _pickSim() async {
-    final chosen = await showSimPicker(
-      context,
-      title: 'ارسال با کدام سیم‌کارت؟',
-      subtitle: _title,
-      selected: _sim,
-    );
-    if (chosen == null || !mounted) return;
+  void _adoptSim(SimCard sim) {
     setState(() {
-      _sim = chosen;
+      _sim = sim;
       // A later async seed must not undo an explicit choice.
       _simPickedByUser = true;
     });
+  }
+
+  /// «جزئیات گفتگو» — Google Messages' details page, opened by tapping the
+  /// header. It is where the SIM this conversation sends on is named and
+  /// changed (the composer no longer carries a chip), and where archiving,
+  /// blocking and deleting live.
+  ///
+  /// Everything that ends the conversation comes back as an outcome rather
+  /// than being done there: the delete has to take the provider rows with it
+  /// and this screen is the one holding the thread — the same split
+  /// [GroupDetailsScreen] uses.
+  Future<void> _openDetails() async {
+    final result = await Navigator.of(context).push<ConversationDetailsResult>(
+      MaterialPageRoute(
+        builder: (_) => ConversationDetailsScreen(
+          threadId: widget.threadId,
+          phoneNumber: widget.phoneNumber,
+          title: _title,
+          contactName: _contactName,
+          sim: _sim,
+        ),
+      ),
+    );
+    if (result == null || !mounted) return;
+    if (result.sim case final sim?) _adoptSim(sim);
+    switch (result.outcome) {
+      case ConversationDetailsOutcome.none:
+        break;
+      case ConversationDetailsOutcome.deleted:
+        _messageBloc.add(DeleteThread(widget.threadId));
+        Navigator.of(context).pop();
+      case ConversationDetailsOutcome.blocked:
+      case ConversationDetailsOutcome.archived:
+        // Both move the thread out of the inbox behind this screen.
+        Navigator.of(context).pop();
+    }
   }
 
   void _onComposerFocusChanged() {
@@ -368,6 +430,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
   @override
   void dispose() {
     DeepLinkService.instance.setVisibleThread(null);
+    ContactRepository.revision.removeListener(_onAddressBookChanged);
     _saveComposerDraft();
     _scrollController.removeListener(_onScroll);
     _composerFocus.removeListener(_onComposerFocusChanged);
@@ -490,94 +553,100 @@ class _ConversationScreenState extends State<ConversationScreen> {
       _keyboardHeight = inset;
     }
 
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
-        appBar: _selectionMode ? _selectionAppBar() : _normalAppBar(),
-        body: BlocListener<MessageBloc, MessageState>(
-          listenWhen: (_, curr) =>
-              curr is MessagesLoaded ||
-              curr is MessageSent ||
-              curr is MessageSendFailed ||
-              curr is MessageError,
-          listener: (context, state) {
-            if (state is MessagesLoaded) {
-              _isLoadingMore = false;
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                // reverse:true keeps the newest at offset 0; snap there only
-                // when the user hasn't scrolled up (loading older messages must
-                // not yank the view back to the bottom).
-                if (_scrollController.hasClients && !_showScrollToBottom) {
-                  _scrollController.jumpTo(0);
-                }
-              });
-            } else if (state is MessageSent) {
-              context.read<MessageBloc>().add(LoadMessages(widget.threadId));
-            } else if (state is MessageSendFailed) {
-              // Reloaded on failure too, not only on success. The bloc is
-              // global and the inbox answers every send outcome with a
-              // `LoadThreads`, so by the time a *second* refused send lands the
-              // bloc is sitting on `ThreadsLoaded` and the fold-into-the-open-
-              // conversation path gives up — the «ارسال نشد» bubble was in the
-              // database but did not appear until the thread was re-opened.
-              context.read<MessageBloc>().add(LoadMessages(widget.threadId));
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(state.userMessage),
-                  backgroundColor: Theme.of(context).colorScheme.error,
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            } else if (state is MessageError) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(state.message),
-                  backgroundColor: Theme.of(context).colorScheme.error,
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            }
-          },
-          // «اندازه متن پیام»: pinch the thread to resize it, persisted and
-          // shared with the Settings row. Wrapped around the thread and the
-          // composer but NOT the app bar — a title at 200% breaks the header's
-          // layout, and Google Messages does not scale its chrome either.
-          child: PinchTextScale(
-            scale: context.select<SettingsBloc, double>(
-              (b) => b.state.messageTextScale,
-            ),
-            onScaleChanged: (scale) =>
-                context.read<SettingsBloc>().add(SetMessageTextScale(scale)),
-            child: Column(
-              children: [
-                _buildGroupNotice(context),
-                _buildSpamPrompt(context),
-                // The thread sits on its own rounded sheet, one plane above the
-                // page the header shares — Google Messages' conversation
-                // surface.
-                Expanded(
-                  child: ClipRRect(
-                    borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(28),
-                    ),
-                    child: ColoredBox(
-                      color: Theme.of(context).colorScheme.cardSurface,
-                      child: _buildMessageList(),
+    // A bubble's SIM badge is read from the *static* roster inside `build`
+    // (it cannot await a channel), so a card going into the phone while this
+    // chat is open is invisible to the element tree. SimAware is the dependency
+    // that makes it visible.
+    return SimAware(
+      builder: (context, _, _) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Scaffold(
+          appBar: _selectionMode ? _selectionAppBar() : _normalAppBar(),
+          body: BlocListener<MessageBloc, MessageState>(
+            listenWhen: (_, curr) =>
+                curr is MessagesLoaded ||
+                curr is MessageSent ||
+                curr is MessageSendFailed ||
+                curr is MessageError,
+            listener: (context, state) {
+              if (state is MessagesLoaded) {
+                _isLoadingMore = false;
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  // reverse:true keeps the newest at offset 0; snap there only
+                  // when the user hasn't scrolled up (loading older messages must
+                  // not yank the view back to the bottom).
+                  if (_scrollController.hasClients && !_showScrollToBottom) {
+                    _scrollController.jumpTo(0);
+                  }
+                });
+              } else if (state is MessageSent) {
+                context.read<MessageBloc>().add(LoadMessages(widget.threadId));
+              } else if (state is MessageSendFailed) {
+                // Reloaded on failure too, not only on success. The bloc is
+                // global and the inbox answers every send outcome with a
+                // `LoadThreads`, so by the time a *second* refused send lands the
+                // bloc is sitting on `ThreadsLoaded` and the fold-into-the-open-
+                // conversation path gives up — the «ارسال نشد» bubble was in the
+                // database but did not appear until the thread was re-opened.
+                context.read<MessageBloc>().add(LoadMessages(widget.threadId));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(state.userMessage),
+                    backgroundColor: Theme.of(context).colorScheme.error,
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              } else if (state is MessageError) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(state.message),
+                    backgroundColor: Theme.of(context).colorScheme.error,
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+            },
+            // «اندازه متن پیام»: pinch the thread to resize it, persisted and
+            // shared with the Settings row. Wrapped around the thread and the
+            // composer but NOT the app bar — a title at 200% breaks the header's
+            // layout, and Google Messages does not scale its chrome either.
+            child: PinchTextScale(
+              scale: context.select<SettingsBloc, double>(
+                (b) => b.state.messageTextScale,
+              ),
+              onScaleChanged: (scale) =>
+                  context.read<SettingsBloc>().add(SetMessageTextScale(scale)),
+              child: Column(
+                children: [
+                  _buildGroupNotice(context),
+                  _buildSpamPrompt(context),
+                  // The thread sits on its own rounded sheet, one plane above the
+                  // page the header shares — Google Messages' conversation
+                  // surface.
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(28),
+                      ),
+                      child: ColoredBox(
+                        color: Theme.of(context).colorScheme.cardSurface,
+                        child: _buildMessageList(),
+                      ),
                     ),
                   ),
-                ),
-                _buildComposer(),
-              ],
+                  _buildComposer(),
+                ],
+              ),
             ),
           ),
+          floatingActionButton: _showScrollToBottom && !_selectionMode
+              ? FloatingActionButton.small(
+                  heroTag: 'scroll_bottom',
+                  onPressed: _scrollToBottom,
+                  child: const Icon(Icons.keyboard_arrow_down),
+                )
+              : null,
         ),
-        floatingActionButton: _showScrollToBottom && !_selectionMode
-            ? FloatingActionButton.small(
-                heroTag: 'scroll_bottom',
-                onPressed: _scrollToBottom,
-                child: const Icon(Icons.keyboard_arrow_down),
-              )
-            : null,
       ),
     );
   }
@@ -758,7 +827,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       title: _title,
       phoneNumber: widget.phoneNumber,
       hasName: _hasName,
-      onOpenContact: _openContact,
+      onOpenContact: _openDetails,
       onCall: () => placeCall(context, widget.phoneNumber),
       onCallPickingSim: SimService.isMultiSim
           ? () => placeCallPickingSim(context, widget.phoneNumber)
@@ -848,10 +917,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       ),
     );
     if (!mounted) return;
-    _contactName = null;
-    _contactResolved = false;
-    await _resolveContactName();
-    if (mounted) setState(() {});
+    await _resolveContactName(force: true);
   }
 
   Future<void> _openContact() async {
@@ -1047,10 +1113,6 @@ class _ConversationScreenState extends State<ConversationScreen> {
     final showDateSep =
         prev == null || !_sameDay(prev.timestamp, msg.timestamp);
     final isLastInGroup = next == null || !_sameGroup(msg, next);
-    final gapToNext = next?.timestamp.difference(msg.timestamp);
-    final showTimestamp =
-        isLastInGroup ||
-        (gapToNext != null && gapToNext > const Duration(minutes: 10));
     final selected = _selected.contains(msg.id);
 
     return Column(
@@ -1059,7 +1121,6 @@ class _ConversationScreenState extends State<ConversationScreen> {
         MessageBubble(
           message: msg,
           isLastInGroup: isLastInGroup,
-          showTimestamp: showTimestamp,
           expanded: _expandedMessageId == msg.id,
           selected: selected,
           selectionMode: _selectionMode,
@@ -1491,10 +1552,6 @@ class _ConversationScreenState extends State<ConversationScreen> {
       onClearSchedule: () => setState(() => _pendingSchedule = null),
       // Tapping the banner re-opens the sheet seeded with the armed choice.
       onEditSchedule: _armSchedule,
-      sim: _sim,
-      // The chip itself renders nothing on a single-SIM phone; passing the
-      // callback unconditionally keeps that decision in one place.
-      onPickSim: _pickSim,
     );
   }
 

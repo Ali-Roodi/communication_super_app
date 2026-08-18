@@ -28,14 +28,16 @@ void main() {
 
   setUp(() {
     repo = _MockRepo();
-    when(() => repo.getDrafts(
-          categoryId: any(named: 'categoryId'),
-          uncategorized: any(named: 'uncategorized'),
-        )).thenAnswer((_) async => <Draft>[]);
+    when(
+      () => repo.getDrafts(
+        categoryId: any(named: 'categoryId'),
+        uncategorized: any(named: 'uncategorized'),
+      ),
+    ).thenAnswer((_) async => <Draft>[]);
     when(repo.getCategories).thenAnswer((_) async => <MessageCategory>[]);
-    when(repo.getDraftCounts).thenAnswer(
-      (_) async => (total: 0, uncategorized: 0),
-    );
+    when(
+      repo.getDraftCounts,
+    ).thenAnswer((_) async => (total: 0, uncategorized: 0));
   });
 
   group('DraftBloc multi-select actions', () {
@@ -66,8 +68,9 @@ void main() {
     blocTest<DraftBloc, DraftState>(
       'MoveDraftsToCategory files the selection, null meaning uncategorized',
       build: () {
-        when(() => repo.moveDraftsToCategory(any(), any()))
-            .thenAnswer((_) async {});
+        when(
+          () => repo.moveDraftsToCategory(any(), any()),
+        ).thenAnswer((_) async {});
         return DraftBloc(repo);
       },
       act: (bloc) => bloc.add(const MoveDraftsToCategory(['d1'], null)),
@@ -89,10 +92,12 @@ void main() {
       verify: (_) {
         // The reload after the delete must ask for «همه», not for the category
         // that no longer exists.
-        verify(() => repo.getDrafts(categoryId: 'c1', uncategorized: false))
-            .called(1);
-        verify(() => repo.getDrafts(categoryId: null, uncategorized: false))
-            .called(greaterThanOrEqualTo(1));
+        verify(
+          () => repo.getDrafts(categoryId: 'c1', uncategorized: false),
+        ).called(1);
+        verify(
+          () => repo.getDrafts(categoryId: null, uncategorized: false),
+        ).called(greaterThanOrEqualTo(1));
       },
     );
   });
@@ -101,16 +106,17 @@ void main() {
     blocTest<DraftBloc, DraftState>(
       'carries the existing pin flag through an edit',
       build: () {
-        when(() => repo.getDraft('d1'))
-            .thenAnswer((_) async => _draft('d1', isPinned: true));
+        when(
+          () => repo.getDraft('d1'),
+        ).thenAnswer((_) async => _draft('d1', isPinned: true));
         when(() => repo.upsertDraft(any())).thenAnswer((_) async {});
         return DraftBloc(repo);
       },
       act: (bloc) => bloc.add(const SaveDraft(id: 'd1', body: 'متن تازه')),
       verify: (_) {
-        final saved = verify(() => repo.upsertDraft(captureAny()))
-            .captured
-            .single as Draft;
+        final saved =
+            verify(() => repo.upsertDraft(captureAny())).captured.single
+                as Draft;
         expect(saved.body, 'متن تازه');
         // The upsert REPLACEs the row — losing this flag silently unpinned a
         // draft every time it was edited.
@@ -127,9 +133,9 @@ void main() {
       act: (bloc) => bloc.add(const SaveDraft(body: 'متن')),
       verify: (_) {
         verifyNever(() => repo.getDraft(any()));
-        final saved = verify(() => repo.upsertDraft(captureAny()))
-            .captured
-            .single as Draft;
+        final saved =
+            verify(() => repo.upsertDraft(captureAny())).captured.single
+                as Draft;
         expect(saved.isPinned, isFalse);
       },
     );

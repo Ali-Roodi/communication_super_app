@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:communication_super_app/core/sim/widgets/sim_picker.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
@@ -174,102 +175,108 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
             },
           ),
           Expanded(
-            child: BlocConsumer<CallLogBloc, CallLogState>(
-              // A failed clear reports itself and then puts the list back, so
-              // the message has to be a snack — the error state it passes
-              // through is gone by the next frame.
-              listener: (context, state) {
-                if (state is CallLogError) {
-                  ScaffoldMessenger.of(
-                    context,
-                  ).showSnackBar(SnackBar(content: Text(state.message)));
-                }
-              },
-              builder: (context, state) {
-                if (state is CallLogLoading) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (state is CallLogError) {
-                  return Center(child: Text('خطا: ${state.message}'));
-                }
-                if (state is! CallLogsLoaded) return const SizedBox.shrink();
+            // A row's SIM badge is read from the *static* roster inside
+            // `build`, so a card going into the phone while this list is on
+            // screen is invisible to the element tree without this.
+            child: SimAware(
+              builder: (context, _, _) => BlocConsumer<CallLogBloc, CallLogState>(
+                // A failed clear reports itself and then puts the list back, so
+                // the message has to be a snack — the error state it passes
+                // through is gone by the next frame.
+                listener: (context, state) {
+                  if (state is CallLogError) {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text(state.message)));
+                  }
+                },
+                builder: (context, state) {
+                  if (state is CallLogLoading) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (state is CallLogError) {
+                    return Center(child: Text('خطا: ${state.message}'));
+                  }
+                  if (state is! CallLogsLoaded) return const SizedBox.shrink();
 
-                if (state.callLogs.isEmpty) {
-                  return const EmptyState(
-                    icon: Icons.call_outlined,
-                    title: 'تماس اخیری وجود ندارد',
-                    subtitle:
-                        'تماس‌های ورودی و خروجی شما اینجا نمایش داده می‌شوند',
-                  );
-                }
+                  if (state.callLogs.isEmpty) {
+                    return const EmptyState(
+                      icon: Icons.call_outlined,
+                      title: 'تماس اخیری وجود ندارد',
+                      subtitle:
+                          'تماس‌های ورودی و خروجی شما اینجا نمایش داده می‌شوند',
+                    );
+                  }
 
-                final items = _getOrBuildItems(state.callLogs);
-                if (items.isEmpty) {
-                  return EmptyState(
-                    icon: _filter == _CallFilter.missed
-                        ? Icons.call_missed
-                        : Icons.person_outline,
-                    title: _filter == _CallFilter.missed
-                        ? 'تماس بی‌پاسخی نیست'
-                        : 'تماسی با مخاطبین ذخیره‌شده نیست',
-                  );
-                }
+                  final items = _getOrBuildItems(state.callLogs);
+                  if (items.isEmpty) {
+                    return EmptyState(
+                      icon: _filter == _CallFilter.missed
+                          ? Icons.call_missed
+                          : Icons.person_outline,
+                      title: _filter == _CallFilter.missed
+                          ? 'تماس بی‌پاسخی نیست'
+                          : 'تماسی با مخاطبین ذخیره‌شده نیست',
+                    );
+                  }
 
-                return RefreshIndicator(
-                  onRefresh: () async =>
-                      context.read<CallLogBloc>().add(const RefreshCallLogs()),
-                  child: ListView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.only(bottom: 120),
-                    itemCount: items.length + (state.hasMore ? 1 : 0),
-                    itemBuilder: (context, index) {
-                      if (state.hasMore && index == items.length) {
-                        return const Padding(
-                          padding: EdgeInsets.all(16),
-                          child: Center(child: CircularProgressIndicator()),
+                  return RefreshIndicator(
+                    onRefresh: () async => context.read<CallLogBloc>().add(
+                      const RefreshCallLogs(),
+                    ),
+                    child: ListView.builder(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.only(bottom: 120),
+                      itemCount: items.length + (state.hasMore ? 1 : 0),
+                      itemBuilder: (context, index) {
+                        if (state.hasMore && index == items.length) {
+                          return const Padding(
+                            padding: EdgeInsets.all(16),
+                            child: Center(child: CircularProgressIndicator()),
+                          );
+                        }
+                        final item = items[index];
+                        if (item is String) return SectionLabel(item);
+
+                        final row = item as _Row;
+                        final rep = row.group.representative;
+                        return Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            12,
+                            row.isFirst ? 0 : GroupRadius.gap,
+                            12,
+                            0,
+                          ),
+                          child: CallLogTile(
+                            log: rep,
+                            count: row.group.count,
+                            groupIds: row.group.ids,
+                            groupLogs: row.group.logs,
+                            expanded: _expandedId == rep.id,
+                            onToggle: () => setState(
+                              () => _expandedId = _expandedId == rep.id
+                                  ? null
+                                  : rep.id,
+                            ),
+                            radius: BorderRadius.vertical(
+                              top: Radius.circular(
+                                row.isFirst
+                                    ? GroupRadius.outer
+                                    : GroupRadius.inner,
+                              ),
+                              bottom: Radius.circular(
+                                row.isLast
+                                    ? GroupRadius.outer
+                                    : GroupRadius.inner,
+                              ),
+                            ),
+                          ),
                         );
-                      }
-                      final item = items[index];
-                      if (item is String) return SectionLabel(item);
-
-                      final row = item as _Row;
-                      final rep = row.group.representative;
-                      return Padding(
-                        padding: EdgeInsets.fromLTRB(
-                          12,
-                          row.isFirst ? 0 : GroupRadius.gap,
-                          12,
-                          0,
-                        ),
-                        child: CallLogTile(
-                          log: rep,
-                          count: row.group.count,
-                          groupIds: row.group.ids,
-                          groupLogs: row.group.logs,
-                          expanded: _expandedId == rep.id,
-                          onToggle: () => setState(
-                            () => _expandedId = _expandedId == rep.id
-                                ? null
-                                : rep.id,
-                          ),
-                          radius: BorderRadius.vertical(
-                            top: Radius.circular(
-                              row.isFirst
-                                  ? GroupRadius.outer
-                                  : GroupRadius.inner,
-                            ),
-                            bottom: Radius.circular(
-                              row.isLast
-                                  ? GroupRadius.outer
-                                  : GroupRadius.inner,
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                );
-              },
+                      },
+                    ),
+                  );
+                },
+              ),
             ),
           ),
         ],

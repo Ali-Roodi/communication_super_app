@@ -165,22 +165,24 @@ void main() {
     // Blocking from a conversation hands over the address as the carrier
     // delivered it; if that were stored verbatim, every lookup — which asks for
     // the national form — would miss, and blocking would silently do nothing.
-    test('every equivalent form of a number resolves to one blocked row',
-        () async {
-      final repo = BlockedNumbersRepository();
-      await repo.block('+98 912 111 2233');
+    test(
+      'every equivalent form of a number resolves to one blocked row',
+      () async {
+        final repo = BlockedNumbersRepository();
+        await repo.block('+98 912 111 2233');
 
-      final all = await repo.getBlocked();
-      expect(all, hasLength(1));
-      expect(all.single.normalized, '09121112233');
-      expect(await repo.isBlocked('09121112233'), isTrue);
-      expect(await repo.isBlocked('989121112233'), isTrue);
-      expect(await repo.isBlocked('9121112233'), isTrue);
+        final all = await repo.getBlocked();
+        expect(all, hasLength(1));
+        expect(all.single.normalized, '09121112233');
+        expect(await repo.isBlocked('09121112233'), isTrue);
+        expect(await repo.isBlocked('989121112233'), isTrue);
+        expect(await repo.isBlocked('9121112233'), isTrue);
 
-      // Blocking it again in another format must not add a second row.
-      await repo.block('00989121112233');
-      expect(await repo.getBlocked(), hasLength(1));
-    });
+        // Blocking it again in another format must not add a second row.
+        await repo.block('00989121112233');
+        expect(await repo.getBlocked(), hasLength(1));
+      },
+    );
 
     test('reporting an already-blocked number upgrades it to spam', () async {
       final repo = BlockedNumbersRepository();
@@ -227,38 +229,40 @@ void main() {
   // over the paged-in inbox list and could only see each thread's NEWEST message,
   // which on a normal conversation is the received one.
   group('message search covers sent and received alike', () {
-    test('a sent body is a hit, and so is one that is not the newest message',
-        () async {
-      final repo = MessageRepository();
-      await repo.createMessage(
-        _message(
-          '1',
-          threadId: '09121112233',
-          body: 'قرارمان سر جایش هست',
-          type: MessageType.sent,
-          minute: 0,
-        ),
-      );
-      // Newer, received, and it does NOT contain the query.
-      await repo.createMessage(
-        _message(
-          '2',
-          threadId: '09121112233',
-          body: 'باشه',
-          type: MessageType.received,
-          minute: 5,
-        ),
-      );
+    test(
+      'a sent body is a hit, and so is one that is not the newest message',
+      () async {
+        final repo = MessageRepository();
+        await repo.createMessage(
+          _message(
+            '1',
+            threadId: '09121112233',
+            body: 'قرارمان سر جایش هست',
+            type: MessageType.sent,
+            minute: 0,
+          ),
+        );
+        // Newer, received, and it does NOT contain the query.
+        await repo.createMessage(
+          _message(
+            '2',
+            threadId: '09121112233',
+            body: 'باشه',
+            type: MessageType.received,
+            minute: 5,
+          ),
+        );
 
-      final hits = await repo.searchMessages('قرارمان');
-      expect(hits, hasLength(1));
-      expect(hits.single.type, MessageType.sent);
+        final hits = await repo.searchMessages('قرارمان');
+        expect(hits, hasLength(1));
+        expect(hits.single.type, MessageType.sent);
 
-      final threads = await repo.searchThreads('قرارمان');
-      expect(threads.map((t) => t.threadId), ['09121112233']);
-      // The row still shows the newest message, not the matched one.
-      expect(threads.single.lastMessage, 'باشه');
-    });
+        final threads = await repo.searchThreads('قرارمان');
+        expect(threads.map((t) => t.threadId), ['09121112233']);
+        // The row still shows the newest message, not the matched one.
+        expect(threads.single.lastMessage, 'باشه');
+      },
+    );
 
     test('Persian folding applies to bodies, not just to names', () async {
       final repo = MessageRepository();
@@ -279,61 +283,59 @@ void main() {
 
     // The DB holds the compact template payload verbatim (see TemplateWire), so
     // the prose the user actually read is not in any column.
-    test('a compact template payload is searched by its rebuilt text', () async {
-      final repo = MessageRepository();
-      await repo.createMessage(
-        _message(
-          '1',
-          body: '[#T1:mtg:0]جلسه هفتگی',
-          type: MessageType.sent,
-        ),
-      );
-      expect(await repo.searchMessages('برقرار'), hasLength(1));
-      expect(await repo.searchMessages('هفتگی'), hasLength(1));
-    });
+    test(
+      'a compact template payload is searched by its rebuilt text',
+      () async {
+        final repo = MessageRepository();
+        await repo.createMessage(
+          _message('1', body: '[#T1:mtg:0]جلسه هفتگی', type: MessageType.sent),
+        );
+        expect(await repo.searchMessages('برقرار'), hasLength(1));
+        expect(await repo.searchMessages('هفتگی'), hasLength(1));
+      },
+    );
   });
 
   // Blocking has a visible half: the conversation leaves the lists. Without it
   // the messages stop arriving but the thread sits in the inbox exactly as
   // before, which is what made blocking read as a no-op.
   group('blocked conversations leave the thread lists', () {
-    test('getAllThreads hides a blocked thread and unblocking brings it back',
-        () async {
-      final messages = MessageRepository();
-      final blocked = BlockedNumbersRepository();
-      await messages.createMessage(_message('1', threadId: '09121112233'));
-      await messages.createMessage(_message('2', threadId: '09120000000'));
+    test(
+      'getAllThreads hides a blocked thread and unblocking brings it back',
+      () async {
+        final messages = MessageRepository();
+        final blocked = BlockedNumbersRepository();
+        await messages.createMessage(_message('1', threadId: '09121112233'));
+        await messages.createMessage(_message('2', threadId: '09120000000'));
 
-      expect(
-        (await messages.getAllThreads()).map((t) => t.threadId),
-        containsAll(['09121112233', '09120000000']),
-      );
+        expect(
+          (await messages.getAllThreads()).map((t) => t.threadId),
+          containsAll(['09121112233', '09120000000']),
+        );
 
-      // Blocked in the carrier's E.164 form — the form a conversation actually
-      // hands over — while the thread id is the national one.
-      await blocked.block('+989121112233', report: true);
-      expect(
-        (await messages.getAllThreads()).map((t) => t.threadId),
-        ['09120000000'],
-      );
+        // Blocked in the carrier's E.164 form — the form a conversation actually
+        // hands over — while the thread id is the national one.
+        await blocked.block('+989121112233', report: true);
+        expect((await messages.getAllThreads()).map((t) => t.threadId), [
+          '09120000000',
+        ]);
 
-      // Still readable, and reachable for the «هرزنامه و مسدودشده» page.
-      expect(
-        await messages.getMessagesByThread('09121112233'),
-        hasLength(1),
-      );
-      expect(
-        (await messages.getAllThreads(includeBlocked: true))
-            .map((t) => t.threadId),
-        containsAll(['09121112233', '09120000000']),
-      );
+        // Still readable, and reachable for the «هرزنامه و مسدودشده» page.
+        expect(await messages.getMessagesByThread('09121112233'), hasLength(1));
+        expect(
+          (await messages.getAllThreads(
+            includeBlocked: true,
+          )).map((t) => t.threadId),
+          containsAll(['09121112233', '09120000000']),
+        );
 
-      await blocked.unblock('09121112233');
-      expect(
-        (await messages.getAllThreads()).map((t) => t.threadId),
-        containsAll(['09121112233', '09120000000']),
-      );
-    });
+        await blocked.unblock('09121112233');
+        expect(
+          (await messages.getAllThreads()).map((t) => t.threadId),
+          containsAll(['09121112233', '09120000000']),
+        );
+      },
+    );
 
     test('a blocked thread is hidden from search too', () async {
       final messages = MessageRepository();
@@ -387,12 +389,8 @@ void main() {
     test('softDeleteThread hides the thread but keeps the device tombstones so '
         'the mirror-sync cannot re-import it', () async {
       final repo = MessageRepository();
-      await repo.createMessage(
-        _message('m1', minute: 0, deviceSmsId: 11),
-      );
-      await repo.createMessage(
-        _message('m2', minute: 5, deviceSmsId: 12),
-      );
+      await repo.createMessage(_message('m1', minute: 0, deviceSmsId: 11));
+      await repo.createMessage(_message('m2', minute: 5, deviceSmsId: 12));
 
       await repo.softDeleteThread('09120000000');
       expect(await repo.getAllThreads(), isEmpty);
@@ -429,10 +427,10 @@ void main() {
       await repo.createMessage(_message('b1', threadId: '09120000002'));
 
       final threads = await repo.getAllThreads();
-      expect(
-        threads.map((t) => t.threadId).toSet(),
-        {'09120000001', '09120000002'},
-      );
+      expect(threads.map((t) => t.threadId).toSet(), {
+        '09120000001',
+        '09120000002',
+      });
       expect(threads, hasLength(2));
     });
 
@@ -445,24 +443,23 @@ void main() {
       expect(threads.single.lastMessage, 'جدید');
     });
 
-    test('getAllThreads floats a pinned thread above a newer unpinned one',
-        () async {
-      final repo = MessageRepository();
-      await repo.createMessage(_message('a1', threadId: '09120000001'));
-      await repo.createMessage(
-        _message('b1', threadId: '09120000002', minute: 30),
-      );
+    test(
+      'getAllThreads floats a pinned thread above a newer unpinned one',
+      () async {
+        final repo = MessageRepository();
+        await repo.createMessage(_message('a1', threadId: '09120000001'));
+        await repo.createMessage(
+          _message('b1', threadId: '09120000002', minute: 30),
+        );
 
-      await repo.pinThread('09120000001');
+        await repo.pinThread('09120000001');
 
-      final threads = await repo.getAllThreads();
-      expect(threads.map((t) => t.threadId), [
-        '09120000001',
-        '09120000002',
-      ]);
-      expect(threads.first.isPinned, isTrue);
-      expect(threads.last.isPinned, isFalse);
-    });
+        final threads = await repo.getAllThreads();
+        expect(threads.map((t) => t.threadId), ['09120000001', '09120000002']);
+        expect(threads.first.isPinned, isTrue);
+        expect(threads.last.isPinned, isFalse);
+      },
+    );
 
     test('getAllThreads paging applies to threads, not to messages', () async {
       final repo = MessageRepository();
@@ -484,19 +481,14 @@ void main() {
       final firstPage = await repo.getAllThreads(limit: 2, offset: 0);
       final secondPage = await repo.getAllThreads(limit: 2, offset: 2);
 
-      expect(firstPage.map((t) => t.threadId), [
-        '09120000003',
-        '09120000002',
-      ]);
+      expect(firstPage.map((t) => t.threadId), ['09120000003', '09120000002']);
       expect(secondPage.map((t) => t.threadId), ['09120000001']);
       expect(firstPage.first.lastMessage, 'پیام 3-2');
     });
 
     test('getAllThreads counts only unread received messages', () async {
       final repo = MessageRepository();
-      await repo.createMessage(
-        _message('r1', minute: 0, isRead: false),
-      );
+      await repo.createMessage(_message('r1', minute: 0, isRead: false));
       await repo.createMessage(
         _message('r2', minute: 1, body: 'دومی', isRead: false),
       );
@@ -507,30 +499,32 @@ void main() {
       expect((await repo.getAllThreads()).single.unreadCount, 2);
     });
 
-    test('markThreadAsUnread marks a thread whose messages are all sent',
-        () async {
-      final repo = MessageRepository();
-      await repo.createMessage(
-        _message('s1', minute: 0, type: MessageType.sent, isRead: true),
-      );
-      await repo.createMessage(
-        _message(
-          's2',
-          minute: 1,
-          body: 'دومی',
-          type: MessageType.sent,
-          isRead: true,
-        ),
-      );
+    test(
+      'markThreadAsUnread marks a thread whose messages are all sent',
+      () async {
+        final repo = MessageRepository();
+        await repo.createMessage(
+          _message('s1', minute: 0, type: MessageType.sent, isRead: true),
+        );
+        await repo.createMessage(
+          _message(
+            's2',
+            minute: 1,
+            body: 'دومی',
+            type: MessageType.sent,
+            isRead: true,
+          ),
+        );
 
-      await repo.markThreadAsUnread('09120000000');
+        await repo.markThreadAsUnread('09120000000');
 
-      // Exactly one row flagged — the newest — so the badge reads «۱».
-      expect((await repo.getAllThreads()).single.unreadCount, 1);
+        // Exactly one row flagged — the newest — so the badge reads «۱».
+        expect((await repo.getAllThreads()).single.unreadCount, 1);
 
-      await repo.markThreadAsRead('09120000000');
-      expect((await repo.getAllThreads()).single.unreadCount, 0);
-    });
+        await repo.markThreadAsRead('09120000000');
+        expect((await repo.getAllThreads()).single.unreadCount, 0);
+      },
+    );
 
     test('markThreadAsUnread ignores deleted received messages', () async {
       final repo = MessageRepository();
@@ -569,17 +563,19 @@ void main() {
       expect(remaining.map((m) => m.id), ['m1', 'm3']);
     });
 
-    test('removeRowsMissingFromDevice is a no-op when every id is still there',
-        () async {
-      final repo = MessageRepository();
-      await repo.createMessage(_message('m1', minute: 0, deviceSmsId: 11));
-      await repo.createMessage(
-        _message('m2', minute: 1, body: 'دوم', deviceSmsId: 12),
-      );
+    test(
+      'removeRowsMissingFromDevice is a no-op when every id is still there',
+      () async {
+        final repo = MessageRepository();
+        await repo.createMessage(_message('m1', minute: 0, deviceSmsId: 11));
+        await repo.createMessage(
+          _message('m2', minute: 1, body: 'دوم', deviceSmsId: 12),
+        );
 
-      expect(await repo.removeRowsMissingFromDevice({11, 12}), 0);
-      expect(await repo.getMessagesByThread('09120000000'), hasLength(2));
-    });
+        expect(await repo.removeRowsMissingFromDevice({11, 12}), 0);
+        expect(await repo.getMessagesByThread('09120000000'), hasLength(2));
+      },
+    );
   });
 
   group('DraftRepository', () {
@@ -633,43 +629,45 @@ void main() {
       expect(uncategorized.map((d) => d.id), ['d1']);
     });
 
-    test('deleteCategories moves every affected draft to uncategorized',
-        () async {
-      final repo = DraftRepository();
-      for (final id in ['c1', 'c2']) {
-        await repo.addCategory(
-          MessageCategory(
-            id: id,
-            name: 'دسته $id',
-            createdAt: DateTime(2026, 1, 1),
+    test(
+      'deleteCategories moves every affected draft to uncategorized',
+      () async {
+        final repo = DraftRepository();
+        for (final id in ['c1', 'c2']) {
+          await repo.addCategory(
+            MessageCategory(
+              id: id,
+              name: 'دسته $id',
+              createdAt: DateTime(2026, 1, 1),
+            ),
+          );
+        }
+        await repo.upsertDraft(
+          Draft(
+            id: 'd1',
+            body: 'یک',
+            categoryId: 'c1',
+            updatedAt: DateTime(2026, 1, 1),
           ),
         );
-      }
-      await repo.upsertDraft(
-        Draft(
-          id: 'd1',
-          body: 'یک',
-          categoryId: 'c1',
-          updatedAt: DateTime(2026, 1, 1),
-        ),
-      );
-      await repo.upsertDraft(
-        Draft(
-          id: 'd2',
-          body: 'دو',
-          categoryId: 'c2',
-          updatedAt: DateTime(2026, 1, 2),
-        ),
-      );
+        await repo.upsertDraft(
+          Draft(
+            id: 'd2',
+            body: 'دو',
+            categoryId: 'c2',
+            updatedAt: DateTime(2026, 1, 2),
+          ),
+        );
 
-      await repo.deleteCategories(['c1', 'c2']);
+        await repo.deleteCategories(['c1', 'c2']);
 
-      expect(await repo.getCategories(), isEmpty);
-      expect(
-        (await repo.getDrafts(uncategorized: true)).map((d) => d.id).toSet(),
-        {'d1', 'd2'},
-      );
-    });
+        expect(await repo.getCategories(), isEmpty);
+        expect(
+          (await repo.getDrafts(uncategorized: true)).map((d) => d.id).toSet(),
+          {'d1', 'd2'},
+        );
+      },
+    );
 
     test('pinned drafts sort above newer unpinned ones', () async {
       final repo = DraftRepository();
@@ -703,30 +701,31 @@ void main() {
       expect((await repo.getCategories()).map((c) => c.id), ['b', 'a']);
     });
 
-    test('moveDraftsToCategory files a selection without touching updated_at',
-        () async {
-      final repo = DraftRepository();
-      final stamp = DateTime(2026, 1, 1);
-      await repo.addCategory(
-        MessageCategory(id: 'c1', name: 'تولد', createdAt: stamp),
-      );
-      await repo.upsertDraft(Draft(id: 'd1', body: 'یک', updatedAt: stamp));
-      await repo.upsertDraft(Draft(id: 'd2', body: 'دو', updatedAt: stamp));
+    test(
+      'moveDraftsToCategory files a selection without touching updated_at',
+      () async {
+        final repo = DraftRepository();
+        final stamp = DateTime(2026, 1, 1);
+        await repo.addCategory(
+          MessageCategory(id: 'c1', name: 'تولد', createdAt: stamp),
+        );
+        await repo.upsertDraft(Draft(id: 'd1', body: 'یک', updatedAt: stamp));
+        await repo.upsertDraft(Draft(id: 'd2', body: 'دو', updatedAt: stamp));
 
-      await repo.moveDraftsToCategory(['d1', 'd2'], 'c1');
+        await repo.moveDraftsToCategory(['d1', 'd2'], 'c1');
 
-      final filed = await repo.getDrafts(categoryId: 'c1');
-      expect(filed.map((d) => d.id).toSet(), {'d1', 'd2'});
-      expect(filed.every((d) => d.updatedAt == stamp), isTrue);
-      expect(await repo.getDrafts(uncategorized: true), isEmpty);
+        final filed = await repo.getDrafts(categoryId: 'c1');
+        expect(filed.map((d) => d.id).toSet(), {'d1', 'd2'});
+        expect(filed.every((d) => d.updatedAt == stamp), isTrue);
+        expect(await repo.getDrafts(uncategorized: true), isEmpty);
 
-      // …and back out again.
-      await repo.moveDraftsToCategory(['d1'], null);
-      expect(
-        (await repo.getDrafts(uncategorized: true)).map((d) => d.id),
-        ['d1'],
-      );
-    });
+        // …and back out again.
+        await repo.moveDraftsToCategory(['d1'], null);
+        expect((await repo.getDrafts(uncategorized: true)).map((d) => d.id), [
+          'd1',
+        ]);
+      },
+    );
 
     test('deleteDrafts removes the whole selection', () async {
       final repo = DraftRepository();
@@ -984,25 +983,27 @@ void main() {
       expect(await repo.earliestDueAt(), retryAt);
     });
 
-    test('reschedule pulls the fire time forward and clears the backoff',
-        () async {
-      final repo = ScheduledMessageRepository();
-      final now = DateTime(2026, 6, 1, 9);
-      await repo.upsert(
-        _scheduled(
-          '1',
-          at: DateTime(2026, 6, 5, 8),
-        ).withFailedAttempt(errorCode: 'NO_SERVICE', now: now),
-      );
+    test(
+      'reschedule pulls the fire time forward and clears the backoff',
+      () async {
+        final repo = ScheduledMessageRepository();
+        final now = DateTime(2026, 6, 1, 9);
+        await repo.upsert(
+          _scheduled(
+            '1',
+            at: DateTime(2026, 6, 5, 8),
+          ).withFailedAttempt(errorCode: 'NO_SERVICE', now: now),
+        );
 
-      await repo.reschedule('1', now);
+        await repo.reschedule('1', now);
 
-      final row = (await repo.getById('1'))!;
-      expect(row.scheduledAt, now);
-      expect(row.status, ScheduleStatus.pending);
-      expect(row.attemptCount, 0);
-      expect(row.nextAttemptAt, isNull);
-      expect(await repo.claimDue(now, 'x'), hasLength(1));
-    });
+        final row = (await repo.getById('1'))!;
+        expect(row.scheduledAt, now);
+        expect(row.status, ScheduleStatus.pending);
+        expect(row.attemptCount, 0);
+        expect(row.nextAttemptAt, isNull);
+        expect(await repo.claimDue(now, 'x'), hasLength(1));
+      },
+    );
   });
 }

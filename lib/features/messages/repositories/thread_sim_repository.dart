@@ -60,7 +60,7 @@ class ThreadSimRepository {
   /// "never chosen", so callers fall back to the system default either way —
   /// which is the same answer the async path gives on a first visit.
   static SimCard? cachedSimFor(String threadId) =>
-      SimService.byId(_cache?[threadId]);
+      SimService.byId(_cache?[threadId]) ?? defaultSim;
 
   /// Records the SIM a message actually went out on.
   Future<void> remember(String threadId, int? subscriptionId) async {
@@ -85,13 +85,28 @@ class ThreadSimRepository {
     (_cache ??= <String, int>{})[threadId] = subscriptionId;
   }
 
-  /// The SIM a composer should start on: what this conversation last used,
-  /// falling back to the system default, falling back to the only SIM.
+  /// The SIM a conversation sends on: what it last used, falling back to the
+  /// system default, falling back to the first card in slot order.
   ///
-  /// Null on a dual-SIM phone with no default pinned means «هر بار بپرس» — the
-  /// composer shows an unset chip rather than silently choosing.
+  /// That last fallback is why this never answers null while a SIM is present,
+  /// and it is deliberate. The affordance that used to mean «هر بار بپرس» — an
+  /// unset chip inside the composer — is gone (Google Messages has no such
+  /// chip; it names the card on the conversation's details page and nowhere
+  /// else). A page that has to *print* which SIM a message will leave on cannot
+  /// print «none», so the conversation resolves a concrete card and the send
+  /// uses exactly the one that was shown. Without the fallback, a dual-SIM
+  /// phone with no system default would have shown a card and sent on whatever
+  /// the platform picked, which need not be the same one.
   Future<SimCard?> initialSimFor(String threadId) async {
-    return await simFor(threadId) ?? SimService.defaultFor(SimUse.sms);
+    return await simFor(threadId) ?? defaultSim;
+  }
+
+  /// The card a conversation with no history of its own starts on.
+  static SimCard? get defaultSim {
+    final pinned = SimService.defaultFor(SimUse.sms);
+    if (pinned != null) return pinned;
+    final roster = SimService.cached;
+    return roster.isEmpty ? null : roster.first;
   }
 
   static void invalidateCache() => _cache = null;

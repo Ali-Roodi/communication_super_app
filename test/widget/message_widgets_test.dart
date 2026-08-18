@@ -37,7 +37,6 @@ void main() {
               status: MessageStatus.delivered,
             ),
             isLastInGroup: true,
-            showTimestamp: false,
             selected: false,
             selectionMode: false,
             onTap: () {},
@@ -59,7 +58,7 @@ void main() {
               status: MessageStatus.delivered,
             ),
             isLastInGroup: true,
-            showTimestamp: true,
+            expanded: true,
             selected: false,
             selectionMode: false,
             onTap: () {},
@@ -82,7 +81,6 @@ void main() {
               status: MessageStatus.failed,
             ),
             isLastInGroup: true,
-            showTimestamp: true,
             selected: false,
             selectionMode: false,
             onTap: () {},
@@ -96,6 +94,33 @@ void main() {
       expect(retried, isTrue);
     });
 
+    // The caption under a bubble (time · SIM · «پیامک» · tick) is drawn for the
+    // tapped message and nothing else — the same rule for a received message as
+    // for a sent one.
+    for (final type in MessageType.values) {
+      testWidgets('$type bubble hides its caption until it is expanded', (
+        tester,
+      ) async {
+        Widget bubble({required bool expanded}) => _wrap(
+          MessageBubble(
+            message: _message(type: type, status: MessageStatus.delivered),
+            isLastInGroup: true,
+            expanded: expanded,
+            selected: false,
+            selectionMode: false,
+            onTap: () {},
+            onLongPress: (_) {},
+          ),
+        );
+
+        await tester.pumpWidget(bubble(expanded: false));
+        expect(find.textContaining(':'), findsNothing);
+
+        await tester.pumpWidget(bubble(expanded: true));
+        expect(find.textContaining(':'), findsOneWidget);
+      });
+    }
+
     testWidgets('selection mode shows the selection check icon', (
       tester,
     ) async {
@@ -107,7 +132,6 @@ void main() {
               status: MessageStatus.delivered,
             ),
             isLastInGroup: true,
-            showTimestamp: false,
             selected: true,
             selectionMode: true,
             onTap: () {},

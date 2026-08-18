@@ -26,6 +26,18 @@ class SyncCallLogs extends CallLogEvent {
   const SyncCallLogs();
 }
 
+/// Re-resolve the contact name on every row already on screen, without touching
+/// the device.
+///
+/// `call_logs` does not store a contact name — it is overlaid from the address
+/// book as the page is read — so a rename leaves every recents row showing the
+/// old one until something re-reads. Nothing did, which is why «اخیر» only
+/// caught up on the next app start. Silent and device-free: this fires on an
+/// address-book change, not a call-log one.
+class RefreshCallLogContactNames extends CallLogEvent {
+  const RefreshCallLogContactNames();
+}
+
 class DeleteCallLog extends CallLogEvent {
   final String id;
 

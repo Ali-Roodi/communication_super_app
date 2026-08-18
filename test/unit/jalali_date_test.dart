@@ -23,13 +23,18 @@ void main() {
 
   group('round-trip', () {
     test('fromDateTime → toDateTime is stable for many dates', () {
-      for (var d = DateTime(1990, 1, 1);
-          d.isBefore(DateTime(2035, 1, 1));
-          d = d.add(const Duration(days: 17))) {
+      for (
+        var d = DateTime(1990, 1, 1);
+        d.isBefore(DateTime(2035, 1, 1));
+        d = d.add(const Duration(days: 17))
+      ) {
         final j = JalaliDate.fromDateTime(d);
         final back = JalaliDate.toDateTime(j.year, j.month, j.day);
-        expect([back.year, back.month, back.day], [d.year, d.month, d.day],
-            reason: 'failed for $d (jalali ${j.year}/${j.month}/${j.day})');
+        expect(
+          [back.year, back.month, back.day],
+          [d.year, d.month, d.day],
+          reason: 'failed for $d (jalali ${j.year}/${j.month}/${j.day})',
+        );
       }
     });
   });

@@ -49,6 +49,15 @@ object ScheduledSmsWorker {
     /** Bounds the catch-up walk; mirror of `_maxSkipAhead`. */
     private const val MAX_SKIP_AHEAD = 5000
 
+    /**
+     * How many nominally-soonest pending rows [earliestPending] reads to find
+     * the soonest *effective* one. A jitter window is at most an hour, so a row
+     * further down this list than the whole armed queue cannot overtake the
+     * head; the limit only stops the query degenerating on a table somebody has
+     * filled with thousands of schedules.
+     */
+    private const val EARLIEST_SCAN_LIMIT = 200
+
     /** Mirror of `ScheduledMessage.retryDelay`. */
     private fun retryDelayMs(attempt: Int): Long =
         if (attempt <= 1) 60_000L else 5 * 60_000L
@@ -95,24 +104,44 @@ object ScheduledSmsWorker {
         }
     }
 
-    /** The soonest pending message's due time and its jitter window. */
-    data class Earliest(val at: Long, val jitterMinutes: Int)
+    /** The instant the soonest pending message actually goes out. */
+    data class Earliest(val at: Long)
 
     /**
-     * The soonest instant at which a pending message becomes due (its nominal
-     * time, or its retry time when a previous attempt failed), plus that
-     * message's jitter window. Null when nothing is pending.
+     * The soonest instant at which a pending message actually goes out: its
+     * nominal time plus its own jitter offset, never before a pending retry
+     * backoff. Null when nothing is pending.
+     *
+     * This is the *effective* instant, not the nominal one, so the alarm and
+     * the delivery gate name the same moment — see [jitterOffsetMs].
      */
     fun earliestPending(context: Context): Earliest? {
         val db = openDb(context, readOnly = true) ?: return null
         return try {
+            // The jitter offset is per row and cannot be expressed in SQL, so
+            // the candidates are read and the minimum is taken here. The
+            // ordering below is only a *bound*: a row's effective instant is
+            // never earlier than its nominal one, so the soonest effective
+            // instant is inside this window of nominally-soonest rows.
+            var soonest: Long? = null
             db.rawQuery(
-                "SELECT MAX(scheduled_at, COALESCE(next_attempt_at, 0)) AS due_at, jitter " +
-                    "FROM $TABLE WHERE status = 'pending' ORDER BY due_at ASC LIMIT 1",
+                "SELECT * FROM $TABLE WHERE status = 'pending' " +
+                    "ORDER BY MAX(scheduled_at, COALESCE(next_attempt_at, 0)) ASC " +
+                    "LIMIT $EARLIEST_SCAN_LIMIT",
                 null,
             ).use { c ->
-                if (c.moveToFirst()) Earliest(c.getLong(0), jitterMinutes(c.getString(1))) else null
+                while (c.moveToNext()) {
+                    val row = readRow(c)
+                    // Mirror of `ScheduledMessage.isDueAt`: the jittered send
+                    // time, and never before a pending retry backoff.
+                    val at = maxOf(
+                        row.scheduledAt + jitterOffsetMs(row),
+                        row.nextAttemptAt ?: 0L,
+                    )
+                    if (soonest == null || at < soonest!!) soonest = at
+                }
             }
+            soonest?.let { Earliest(it) }
         } catch (e: Exception) {
             Log.e(TAG, "earliestPending failed: ${e.message}")
             null
@@ -221,17 +250,49 @@ object ScheduledSmsWorker {
 
     /**
      * Offset inside the row's jitter window, derived from the id and the
-     * occurrence so every pass agrees — a re-rolled offset would let a row
-     * fire early on the next sweep. Dart's `ScheduledMessage.jitterOffset`
-     * does the same with its own hash; the contract is only "somewhere inside
-     * the window".
+     * occurrence so every pass agrees — a re-rolled offset would let a row fire
+     * early on the next sweep.
+     *
+     * **Byte-for-byte the same number Dart computes** — see
+     * `ScheduledMessage.jitterSeed`. It used to be `id.hashCode()` mixed with
+     * arithmetic of its own while Dart used `Object.hash` and the *alarm* used
+     * a fresh `Random`, so the three disagreed: the alarm woke the phone, this
+     * gate decided the window had not opened, the row went back to `pending`,
+     * and a jittered message could land long after its window. Change this and
+     * the Dart side together.
      */
-    private fun jitterOffsetMs(row: Row): Long {
-        val window = jitterMinutes(row.jitter)
-        if (window <= 0) return 0L
-        val seed = (row.id.hashCode().toLong() * 31 + row.occurrenceCount) xor row.scheduledAt
-        val minutes = Math.floorMod(seed, (window + 1).toLong())
-        return minutes * 60_000L
+    private fun jitterOffsetMs(row: Row): Long =
+        jitterMinutes(row.jitter).let { window ->
+            if (window <= 0) {
+                0L
+            } else {
+                (jitterSeed(row.id, row.scheduledAt, row.occurrenceCount) %
+                    (window + 1).toLong()) * 60_000L
+            }
+        }
+
+    /** FNV-1a, 32-bit, byte-oriented. Mirror of `ScheduledMessage.jitterSeed`. */
+    private fun jitterSeed(id: String, scheduledAtMs: Long, occurrenceCount: Int): Long {
+        var hash = 0x811C9DC5L
+        fun mix(byte: Long) {
+            hash = (hash xor (byte and 0xFF)) and 0xFFFFFFFFL
+            hash = (hash * 0x01000193L) and 0xFFFFFFFFL
+        }
+        for (unit in id) {
+            mix(unit.code.toLong())
+            mix((unit.code shr 8).toLong())
+        }
+        var shift = 0
+        while (shift < 64) {
+            mix(scheduledAtMs shr shift)
+            shift += 8
+        }
+        shift = 0
+        while (shift < 32) {
+            mix((occurrenceCount shr shift).toLong())
+            shift += 8
+        }
+        return hash
     }
 
     // ── Query ────────────────────────────────────────────────────────────────
@@ -250,6 +311,8 @@ object ScheduledSmsWorker {
         val occurrenceCount: Int,
         val attemptCount: Int,
         val jitter: String,
+        /** Retry backoff, when a previous attempt failed. */
+        val nextAttemptAt: Long?,
         /** SIM to send on; null = the system default at delivery time. */
         val subscriptionId: Int?,
     )
@@ -282,6 +345,7 @@ object ScheduledSmsWorker {
             occurrenceCount = intOrNull("occurrence_count") ?: 0,
             attemptCount = intOrNull("attempt_count") ?: 0,
             jitter = strOrNull("jitter") ?: "none",
+            nextAttemptAt = longOrNull("next_attempt_at"),
             subscriptionId = intOrNull("subscription_id"),
         )
     }

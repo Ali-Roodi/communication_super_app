@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Brand accent — AppColors.accent / Figma Info-100 -->
-    <color name="ic_launcher_background">#00A6ED</color>
+    <!-- The logo's own ground (Hamresan-Logo.svg's 512x512 backing rect). The
+         adaptive foreground is the artwork alone, so this colour is what the
+         launcher's mask actually shows around it. -->
+    <color name="ic_launcher_background">#023066</color>
 </resources>

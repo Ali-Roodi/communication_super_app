@@ -164,18 +164,49 @@ class ScheduledMessage extends Equatable {
   ///
   /// Derived from the id and the occurrence rather than rolled fresh, so every
   /// tick of the deliverer agrees on when the message goes out — a re-rolled
-  /// offset would let a row slip past its window or fire early on the next
-  /// tick. `ScheduledSmsScheduler` (native) spreads the alarm the same way; it
-  /// picks its own point in the window, which is equally valid because the only
-  /// contract is "somewhere inside the window".
+  /// offset would let a row slip past its window or fire early on the next tick.
+  ///
+  /// **Every party has to compute the same number**, and they used not to: this
+  /// was `Object.hash`, the Kotlin worker had its own arithmetic, and
+  /// `ScheduledSmsScheduler` rolled a fresh `Random` value for the alarm. So
+  /// the alarm woke the phone at one point in the window, the deliverer decided
+  /// the window had not opened yet, handed the row back, and the message waited
+  /// for a later wake-up — a jittered message could land an hour after the
+  /// window it was promised. [jitterSeed] is a plain FNV-1a so Kotlin can
+  /// reproduce it exactly (see `ScheduledSmsWorker.jitterOffsetMs`); change the
+  /// two together, like everything else on this seam.
   Duration get jitterOffset {
     if (jitter.minutes <= 0) return Duration.zero;
-    final seed = Object.hash(
+    final seed = jitterSeed(
       id,
       scheduledAt.millisecondsSinceEpoch,
       occurrenceCount,
     );
-    return Duration(minutes: seed.abs() % (jitter.minutes + 1));
+    return Duration(minutes: seed % (jitter.minutes + 1));
+  }
+
+  /// FNV-1a over the id, the scheduled instant and the occurrence — 32-bit and
+  /// byte-oriented so Dart and Kotlin cannot disagree. `String.hashCode` and
+  /// `Object.hash` are both implementation-defined and differ across the two
+  /// languages, which is exactly why they may not be used here.
+  static int jitterSeed(String id, int scheduledAtMs, int occurrenceCount) {
+    var hash = 0x811C9DC5;
+    void mix(int byte) {
+      hash = (hash ^ (byte & 0xFF)) & 0xFFFFFFFF;
+      hash = (hash * 0x01000193) & 0xFFFFFFFF;
+    }
+
+    for (final unit in id.codeUnits) {
+      mix(unit);
+      mix(unit >> 8);
+    }
+    for (var shift = 0; shift < 64; shift += 8) {
+      mix(scheduledAtMs >> shift);
+    }
+    for (var shift = 0; shift < 32; shift += 8) {
+      mix(occurrenceCount >> shift);
+    }
+    return hash;
   }
 
   /// When this occurrence actually goes out: its scheduled time plus the

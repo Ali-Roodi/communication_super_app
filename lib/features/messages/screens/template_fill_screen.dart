@@ -122,6 +122,16 @@ class _TemplateFillScreenState extends State<TemplateFillScreen> {
       final time = await showTimePicker(
         context: context,
         initialTime: TimeOfDay.fromDateTime(initial),
+        // Dial only. The keyboard-entry mode is **broken in Persian and cannot be
+        // fixed from here**: `GlobalMaterialLocalizations` for `fa` formats the
+        // hour and the minute in Persian digits, and Flutter's own field validates
+        // them with `int.tryParse`, which does not read «۱۹». The dialog therefore
+        // opened pre-filled with its own value and answered «زمان معتبری وارد
+        // کنید» before anything was typed — verified on the device, unedited.
+        // The alternative (a MaterialLocalizations override emitting ASCII) would
+        // fix the parse by putting «16:19» on a dial the rest of the app renders
+        // in Persian, so the toggle is simply not offered.
+        initialEntryMode: TimePickerEntryMode.dialOnly,
       );
       if (time == null || !mounted) return;
       picked = DateTime(
