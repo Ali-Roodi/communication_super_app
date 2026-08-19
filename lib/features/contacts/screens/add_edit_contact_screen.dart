@@ -220,6 +220,21 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
 
       final contact = _editing ?? Contact();
       contact.photo = _photo;
+      // **Cleared, and that is a crash fix, not a tidy-up.** `flutter_contacts`
+      // builds one `GroupMembership` INSERT per entry of `contact.groups` on
+      // *every* update — unconditionally — while only deleting the existing
+      // membership rows when `withGroups: true`, which this call is not (labels
+      // are written by [ContactGroupsService.applyLabels], see below). So each
+      // save doubled the contact's membership rows: 1 → 2 → 4 … and on the
+      // tenth save the batch crossed `ContactsProvider2`'s limit of 500
+      // operations and `applyBatch` threw
+      // «Too many content provider operations between yield points». The
+      // plugin runs that on a bare `CoroutineScope(Dispatchers.IO)` with no
+      // try/catch, so it is an **uncaught exception on a background thread**:
+      // the process dies, which is why saving an edited contact threw the user
+      // out of the app with nothing catchable on the Dart side. Verified on the
+      // device — one contact had reached 512 identical membership rows.
+      contact.groups = [];
       contact.name = Name(
         first: _firstName.text.trim(),
         last: _lastName.text.trim(),

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -399,7 +400,19 @@ class _ContactsListScreenState extends State<ContactsListScreen>
         if (c != null) targets.add(c);
       }
       if (targets.isNotEmpty) {
-        await device_contacts.FlutterContacts.deleteContacts(targets);
+        // Chunked, because `deleteContacts` is one `applyBatch` with one
+        // operation per contact and ContactsProvider2 throws past 500 of them
+        // («Too many content provider operations between yield points»). The
+        // plugin runs it on a bare `CoroutineScope(Dispatchers.IO)` with no
+        // try/catch, so that exception is uncaught on a background thread and
+        // takes the whole process down — «انتخاب همه» on a large address book
+        // would have crashed the app rather than reporting a failure.
+        const chunk = 400;
+        for (var i = 0; i < targets.length; i += chunk) {
+          await device_contacts.FlutterContacts.deleteContacts(
+            targets.sublist(i, math.min(i + chunk, targets.length)),
+          );
+        }
         deleted += targets.length;
       }
       ContactRepository().invalidateCache();

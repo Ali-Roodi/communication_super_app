@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:communication_super_app/core/sim/sim_call.dart';
+import 'package:communication_super_app/core/sim/sim_card.dart';
 import 'package:communication_super_app/core/sim/sim_service.dart';
+import 'package:communication_super_app/core/sim/widgets/sim_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
+import 'package:communication_super_app/core/theme/app_dimensions.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/utils/contact_name_style.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
@@ -28,6 +31,7 @@ import 'package:communication_super_app/features/favorites/bloc/favorites_bloc.d
 import 'package:communication_super_app/features/favorites/bloc/favorites_event.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_state.dart';
 import 'package:communication_super_app/features/favorites/models/favorite_model.dart';
+import 'package:communication_super_app/features/messages/repositories/thread_sim_repository.dart';
 import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
 import 'package:communication_super_app/features/settings/screens/widgets/block_number_dialog.dart';
 
@@ -59,11 +63,52 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
   /// thing that makes «جدا کردن» meaningful.
   int _rawCount = 1;
 
+  /// Which card each of this contact's numbers sends SMS on, keyed by thread
+  /// id. Read once the numbers are known; a miss falls back to the cache,
+  /// which answers the system default.
+  final Map<String, SimCard?> _numberSims = <String, SimCard?>{};
+
   @override
   void initState() {
     super.initState();
-    _load();
+    _load().then((_) {
+      if (mounted) _loadThreadSims();
+    });
     _loadExtras();
+  }
+
+  /// The numbers this page shows, in the order the «تلفن» section lists them.
+  List<String> get _phoneNumbers {
+    final phones = _full?.phones ?? const <Phone>[];
+    if (phones.isNotEmpty) {
+      return [
+        for (final p in phones)
+          if (p.number.trim().isNotEmpty) p.number.trim(),
+      ];
+    }
+    final fallback = widget.contact.phoneNumbers.isNotEmpty
+        ? widget.contact.phoneNumbers
+        : [widget.contact.primaryPhone];
+    return [
+      for (final p in fallback)
+        if (p.trim().isNotEmpty) p.trim(),
+    ];
+  }
+
+  Future<void> _loadThreadSims() async {
+    final repo = ThreadSimRepository();
+    final resolved = <String, SimCard?>{};
+    for (final number in _phoneNumbers) {
+      final threadId = PhoneNormalizer.toThreadId(number);
+      if (threadId.isEmpty || resolved.containsKey(threadId)) continue;
+      resolved[threadId] = await repo.initialSimFor(threadId);
+    }
+    if (!mounted) return;
+    setState(() {
+      _numberSims
+        ..clear()
+        ..addAll(resolved);
+    });
   }
 
   Future<void> _loadExtras() async {
@@ -486,6 +531,139 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
     );
   }
 
+  // ── «ارسال با» ─────────────────────────────────────────────────────────
+
+  /// The card the conversation's details page carries, above this contact's
+  /// numbers: which SIM a message to them goes out on.
+  ///
+  /// One row per number, because the choice is per *conversation* and a
+  /// conversation is keyed on the number — two numbers on one contact are two
+  /// threads and may legitimately send on different cards. With a single
+  /// number the card is exactly the conversation's one, «تعویض» in the header.
+  /// Absent on a single-SIM phone, like every other SIM affordance here.
+  Widget? _sendingWithCard(BuildContext context) {
+    if (!SimService.isMultiSim) return null;
+
+    final entries = <({String number, String threadId, SimCard sim})>[];
+    final seen = <String>{};
+    for (final number in _phoneNumbers) {
+      final threadId = PhoneNormalizer.toThreadId(number);
+      if (threadId.isEmpty || !seen.add(threadId)) continue;
+      // The async read wins; the cache answers the system default while it is
+      // still in flight, which is what a number with no history gets anyway.
+      final sim =
+          _numberSims[threadId] ?? ThreadSimRepository.cachedSimFor(threadId);
+      if (sim == null) continue;
+      entries.add((number: number, threadId: threadId, sim: sim));
+    }
+    if (entries.isEmpty) return null;
+
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final single = entries.length == 1;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+        decoration: BoxDecoration(
+          color: scheme.raisedSurface,
+          borderRadius: BorderRadius.circular(AppDimensions.radiusLg),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text('ارسال با', style: theme.textTheme.titleMedium),
+                ),
+                if (single)
+                  TextButton.icon(
+                    onPressed: () => _pickThreadSim(entries.first),
+                    icon: const Icon(Icons.swap_vert, size: 18),
+                    label: const Text('تعویض'),
+                  ),
+              ],
+            ),
+            for (final entry in entries) ...[
+              const SizedBox(height: 6),
+              _simRow(theme, entry, showNumber: !single),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _simRow(
+    ThemeData theme,
+    ({String number, String threadId, SimCard sim}) entry, {
+    required bool showNumber,
+  }) {
+    final scheme = theme.colorScheme;
+    final sim = entry.sim;
+    // With several numbers the second line has to say which one this row is
+    // about; with one, the SIM's own subtitle is the useful thing there.
+    final second = showNumber
+        ? PersianUtils.displayPhone(PhoneNormalizer.toNational(entry.number))
+        : sim.subtitle;
+    return Row(
+      children: [
+        SimBadge(sim: sim),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${sim.slotLabel} · ${sim.name}',
+                style: theme.textTheme.bodyLarge,
+              ),
+              if (second != null)
+                Directionality(
+                  // A phone number is left-to-right content.
+                  textDirection: TextDirection.ltr,
+                  child: Text(
+                    second,
+                    textAlign: TextAlign.right,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        if (showNumber)
+          TextButton.icon(
+            onPressed: () => _pickThreadSim(entry),
+            icon: const Icon(Icons.swap_vert, size: 18),
+            label: const Text('تعویض'),
+          ),
+      ],
+    );
+  }
+
+  /// Picks the card one of this contact's conversations sends on, and
+  /// **persists it here**. The details page inside a conversation hands its
+  /// pick back to the composer, which writes it on the next send; this page
+  /// has no composer behind it, so a choice made here would otherwise be lost
+  /// the moment the page pops.
+  Future<void> _pickThreadSim(
+    ({String number, String threadId, SimCard sim}) entry,
+  ) async {
+    final chosen = await showSimPicker(
+      context,
+      title: 'ارسال با کدام سیم‌کارت؟',
+      subtitle: _name,
+      selected: entry.sim,
+    );
+    if (chosen == null || !mounted) return;
+    await ThreadSimRepository().remember(entry.threadId, chosen.subscriptionId);
+    if (!mounted) return;
+    setState(() => _numberSims[entry.threadId] = chosen);
+  }
+
   // ── Sections ──────────────────────────────────────────────────────────────
 
   List<Widget> _buildSections(BuildContext context) {
@@ -494,6 +672,15 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
     final emails = _full?.emails ?? const <Email>[];
     final addresses = _full?.addresses ?? const <Address>[];
     final notes = _full?.notes ?? const <Note>[];
+
+    // «ارسال با», above the numbers. SimAware, so a card going into the phone
+    // brings the whole section in without a restart.
+    widgets.add(
+      SimAware(
+        builder: (context, _, _) =>
+            _sendingWithCard(context) ?? const SizedBox.shrink(),
+      ),
+    );
 
     void section(String title, List<Widget> rows) {
       if (rows.isEmpty) return;
