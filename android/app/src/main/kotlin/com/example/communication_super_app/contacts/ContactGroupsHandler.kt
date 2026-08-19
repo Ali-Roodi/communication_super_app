@@ -43,6 +43,13 @@ class ContactGroupsHandler(private val context: Context) {
 
         private fun isInternal(title: String) =
             INTERNAL_TITLES.contains(title.trim().lowercase())
+
+        /**
+         * Operations per `applyBatch`. ContactsProvider2 refuses a batch of 500
+         * or more; well under it, because the ceiling is the provider's and a
+         * failed batch writes nothing at all.
+         */
+        private const val MAX_OPS_PER_BATCH = 400
     }
 
     private data class GroupRow(
@@ -56,6 +63,13 @@ class ContactGroupsHandler(private val context: Context) {
         val id: Long,
         val accountName: String?,
         val accountType: String?,
+    )
+
+    /** One `GroupMembership` data row. */
+    private data class Membership(
+        val dataId: Long,
+        val rawContactId: Long,
+        val groupId: Long,
     )
 
     fun setup(channel: MethodChannel) {
@@ -315,9 +329,34 @@ class ContactGroupsHandler(private val context: Context) {
 
         val all = groups()
         val byId = all.associateBy { it.id }
-        val current = currentMemberships(raws.map { it.id })
 
         val ops = ArrayList<ContentProviderOperation>()
+
+        // **Duplicate membership rows are dropped here**, because something
+        // else wrote them and the contact cannot be repaired anywhere else.
+        // `flutter_contacts` re-inserts one row per `contact.groups` entry on
+        // every `update()` without deleting the old ones, so a contact saved
+        // from the editor doubled its rows on each save (1 → 2 → 4 …) until the
+        // batch crossed ContactsProvider2's 500-operation ceiling and the
+        // provider threw, killing the process. The Dart side no longer sends
+        // groups at all (see `AddEditContactScreen._save`); this clears up what
+        // the earlier builds already wrote, on the next save of that contact.
+        val current = LinkedHashMap<Long, Long>()
+        val seen = HashSet<Pair<Long, Long>>()
+        for (row in currentMemberships(raws.map { it.id })) {
+            if (seen.add(row.rawContactId to row.groupId)) {
+                current[row.dataId] = row.groupId
+            } else {
+                ops.add(
+                    ContentProviderOperation.newDelete(ContactsContract.Data.CONTENT_URI)
+                        .withSelection(
+                            "${ContactsContract.Data._ID} = ?",
+                            arrayOf("${row.dataId}"),
+                        )
+                        .build(),
+                )
+            }
+        }
 
         // Remove the labels that are no longer wanted. Internal groups and
         // groups we cannot even see are left exactly as they are.
@@ -369,11 +408,30 @@ class ContactGroupsHandler(private val context: Context) {
 
         if (ops.isEmpty()) return true
         return try {
-            context.contentResolver.applyBatch(ContactsContract.AUTHORITY, ops)
+            applyInChunks(ops)
             true
         } catch (e: Exception) {
             Log.e(TAG, "membership write failed: ${e.message}")
             false
+        }
+    }
+
+    /**
+     * Applies [ops] in batches of at most [MAX_OPS_PER_BATCH].
+     *
+     * `ContactsProvider2` counts the operations of one `applyBatch` and throws
+     * «Too many content provider operations between yield points. The maximum
+     * number of operations per yield point is 500» past that — the whole batch
+     * fails, nothing is written. A repair pass over a contact that had
+     * accumulated hundreds of stale membership rows is exactly the case that
+     * reaches it.
+     */
+    private fun applyInChunks(ops: List<ContentProviderOperation>) {
+        for (chunk in ops.chunked(MAX_OPS_PER_BATCH)) {
+            context.contentResolver.applyBatch(
+                ContactsContract.AUTHORITY,
+                ArrayList(chunk),
+            )
         }
     }
 
@@ -390,26 +448,34 @@ class ContactGroupsHandler(private val context: Context) {
     private fun labelsOf(contactId: String): List<String> {
         val byId = groups().associateBy { it.id }
         return currentMemberships(rawContactsOf(contactId).map { it.id })
-            .values
-            .mapNotNull { byId[it]?.title?.trim() }
+            .mapNotNull { byId[it.groupId]?.title?.trim() }
             .filter { it.isNotEmpty() && !isInternal(it) }
             .distinct()
     }
 
-    /** `Data._ID` → `group_row_id` for every membership of these raw contacts. */
-    private fun currentMemberships(rawIds: List<Long>): Map<Long, Long> {
-        if (rawIds.isEmpty()) return emptyMap()
-        val out = LinkedHashMap<Long, Long>()
+    /**
+     * Every membership row of these raw contacts, duplicates included — the
+     * caller decides what to do with them ([applyLabels] deletes the extras).
+     */
+    private fun currentMemberships(rawIds: List<Long>): List<Membership> {
+        if (rawIds.isEmpty()) return emptyList()
+        val out = ArrayList<Membership>()
         context.contentResolver.query(
             ContactsContract.Data.CONTENT_URI,
-            arrayOf(ContactsContract.Data._ID, GroupMembership.GROUP_ROW_ID),
+            arrayOf(
+                ContactsContract.Data._ID,
+                ContactsContract.Data.RAW_CONTACT_ID,
+                GroupMembership.GROUP_ROW_ID,
+            ),
             "${ContactsContract.Data.MIMETYPE} = ? AND " +
                 "${ContactsContract.Data.RAW_CONTACT_ID} IN " +
                 "(${rawIds.joinToString(",")})",
             arrayOf(GroupMembership.CONTENT_ITEM_TYPE),
             null,
         )?.use { c ->
-            while (c.moveToNext()) out[c.getLong(0)] = c.getLong(1)
+            while (c.moveToNext()) {
+                out.add(Membership(c.getLong(0), c.getLong(1), c.getLong(2)))
+            }
         }
         return out
     }
