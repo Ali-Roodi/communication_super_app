@@ -54,7 +54,12 @@ class ScheduledBubble extends StatelessWidget {
       onLongPress: onLongPress,
       child: Padding(
         padding: const EdgeInsets.only(top: 4, bottom: 4, left: 8, right: 8),
+        // `textDirection: ltr`, like [MessageBubble]: an outgoing bubble hugs
+        // the physical right of the thread, which the conversation's RTL
+        // direction would otherwise resolve to the left — leaving the ghost
+        // bubble on the opposite side from the sent messages around it.
         child: Column(
+          textDirection: TextDirection.ltr,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Container(

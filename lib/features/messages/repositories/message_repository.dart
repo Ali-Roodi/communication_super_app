@@ -38,6 +38,32 @@ class MessageRepository {
     return maps.map((map) => MessageModel.fromMap(map)).toList();
   }
 
+  /// The SIM the newest *received* message of this conversation arrived on,
+  /// or null when nothing is known (no received row, or a row the OEM never
+  /// stamped a subscription onto).
+  ///
+  /// This is what a conversation the user has never replied to answers with:
+  /// a message that reached the work card is answered from the work card, the
+  /// same way the native quick-reply already answers. Tombstones are read too
+  /// — the SIM a thread arrives on is a property of the conversation, and
+  /// deleting the message that proved it does not change which card the other
+  /// side reaches.
+  Future<int?> lastIncomingSubscriptionId(String threadId) async {
+    if (threadId.isEmpty) return null;
+    final db = await _dbHelper.database;
+    final rows = await db.query(
+      AppConstants.messagesTable,
+      columns: ['subscription_id'],
+      where: 'thread_id = ? AND type = ? AND subscription_id IS NOT NULL',
+      whereArgs: [threadId, MessageType.received.name],
+      orderBy: 'timestamp DESC',
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final value = rows.first['subscription_id'];
+    return value is num ? value.toInt() : null;
+  }
+
   // ── «ستاره‌دار» ─────────────────────────────────────────────────────────
 
   /// Stars or unstars one message. Local-only metadata — nothing is written to

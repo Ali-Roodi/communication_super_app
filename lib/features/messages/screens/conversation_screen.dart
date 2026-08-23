@@ -225,6 +225,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
     _composerFocus.addListener(_onComposerFocusChanged);
     _restoreComposerDraft();
     _restoreThreadSim();
+    // A conversation opened from a notification can beat the SIM roster's own
+    // read (a message routinely wakes a dead process), and the seed above then
+    // resolves to nothing. Re-seed when the roster lands.
+    SimService.revision.addListener(_restoreThreadSim);
     // Native notifier: suppress notifications for this (visible) thread and
     // dismiss the ones already in the shade.
     DeepLinkService.instance
@@ -307,12 +311,18 @@ class _ConversationScreenState extends State<ConversationScreen> {
     });
   }
 
-  /// Seeds the composer's SIM: what this conversation last sent on, else the
-  /// system default, else (dual SIM, «هر بار بپرس») nothing — an unset chip
-  /// that asks, rather than a chip naming a card the send would not use.
+  /// Seeds the SIM this conversation sends on: what it last sent on, else the
+  /// card the other side last *reached* it on, else the system default.
+  ///
+  /// The middle answer is the one a dual-SIM phone actually needs. A stranger
+  /// who wrote to the second card used to be answered from the first, because
+  /// nothing but the user's own past sends counted — so the reply reached them
+  /// from a number they had never written to, and the native quick-reply
+  /// (which has always answered on the arrival card) disagreed with the app's
+  /// own composer.
   ///
   /// Seeded synchronously from the repository's in-memory mirror first so a
-  /// re-opened conversation does not flash an unset chip for one frame.
+  /// re-opened conversation does not flash the wrong card for one frame.
   Future<void> _restoreThreadSim() async {
     _sim = ThreadSimRepository.cachedSimFor(widget.threadId);
     final resolved = await _threadSim.initialSimFor(widget.threadId);
@@ -431,6 +441,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
   void dispose() {
     DeepLinkService.instance.setVisibleThread(null);
     ContactRepository.revision.removeListener(_onAddressBookChanged);
+    SimService.revision.removeListener(_restoreThreadSim);
     _saveComposerDraft();
     _scrollController.removeListener(_onScroll);
     _composerFocus.removeListener(_onComposerFocusChanged);

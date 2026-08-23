@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:communication_super_app/core/sim/sim_service.dart';
+import 'package:communication_super_app/core/sim/widgets/sim_picker.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/dialer_bloc.dart';
 import '../bloc/dialer_event.dart';
@@ -39,6 +40,11 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
   void initState() {
     super.initState();
     _resolveContact();
+    // A ringing call routinely wakes a dead process, so the SIM roster can
+    // still be empty when this screen paints — which is exactly when the app
+    // used to decide the phone was single-SIM and print «تماس ورودی» with no
+    // card on it. Load it and let [SimAware] repaint the line.
+    SimService.instance.ensureLoaded();
   }
 
   /// «تماس ورودی», plus which card is ringing when there is more than one.
@@ -106,11 +112,16 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
                         ),
                 ),
                 const SizedBox(height: 24),
-                Text(
-                  // «تماس ورودی · سیم ۲ · ایرانسل» — on a dual-SIM phone the
-                  // card that is ringing is the first thing worth knowing.
-                  _incomingLine(context),
-                  style: const TextStyle(color: Colors.white38, fontSize: 14),
+                // «تماس ورودی · سیم ۲ · ایرانسل» — on a dual-SIM phone the
+                // card that is ringing is the first thing worth knowing.
+                SimAware(
+                  builder: (context, _, _) => Text(
+                    _incomingLine(context),
+                    style: const TextStyle(
+                      color: Colors.white38,
+                      fontSize: 14,
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 12),
                 Text(

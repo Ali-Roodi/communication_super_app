@@ -503,7 +503,9 @@ class SmsService {
         deliveryReport: deliveryReports,
       );
 
-      if (!result.success) return fail('SMS_SEND_FAILED');
+      // `await`ed on purpose: without it a DB write failing inside `fail`
+      // escapes this try/catch.
+      if (!result.success) return await fail('SMS_SEND_FAILED');
 
       final sent = pending.copyWith(
         status: MessageStatus.sent,
@@ -613,6 +615,9 @@ class SmsService {
                 );
 
                 await _messageRepository.createMessage(messageModel);
+                // The arrival SIM of this conversation just changed hands;
+                // drop the memo so the next reply is composed on it.
+                ThreadSimRepository.invalidateIncoming(threadId);
 
                 // NOTE: no Dart-side notification here — the native receiver
                 // (SmsNotifier) already posted one with inline-reply and
@@ -798,6 +803,11 @@ class SmsService {
 
     await importMissing('inbox', inboxIds, MessageType.received);
     await importMissing('sent', sentIds, MessageType.sent);
+
+    // Imported rows carry the SIM the provider stamped them with, so anything
+    // memoized about which card a conversation arrives on is now a guess made
+    // from less data.
+    ThreadSimRepository.clearIncoming();
 
     // ── 3. Remove local rows deleted on the device ─────────────────────────
     // A local row linked to a provider id that is in neither box no longer

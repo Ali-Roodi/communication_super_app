@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -31,7 +33,7 @@ void main() {
     repo = _MockCallLogRepository();
     when(
       () => service.ensureSynced(forceRefresh: any(named: 'forceRefresh')),
-    ).thenAnswer((_) async {});
+    ).thenAnswer((_) async => false);
     // Name resolution is a pass-through in tests (no contacts).
     when(() => service.resolveContactNames(any())).thenAnswer(
       (inv) async => inv.positionalArguments.first as List<CallLogModel>,
@@ -65,6 +67,49 @@ void main() {
       // The whole table must never be read: only the paginated page.
       verifyNever(() => repo.getAllCallLogs());
     },
+  );
+
+  blocTest<CallLogBloc, CallLogState>(
+    'LoadCallLogs paints the local mirror without waiting for the device sync',
+    setUp: () {
+      // The device half never answers — a slow provider, or a phone that is
+      // simply busy on a cold start. «اخیر» must not wait for it: it used to,
+      // behind a full-screen spinner, which is what made every launch look
+      // like it was loading for a second or two.
+      when(
+        () => service.ensureSynced(forceRefresh: any(named: 'forceRefresh')),
+      ).thenAnswer((_) => Completer<bool>().future);
+      when(
+        () => repo.getAllCallLogs(
+          limit: any(named: 'limit'),
+          offset: any(named: 'offset'),
+        ),
+      ).thenAnswer((_) async => [_log('1')]);
+    },
+    build: build,
+    act: (bloc) => bloc.add(const LoadCallLogs()),
+    expect: () => [
+      const CallLogLoading(),
+      CallLogsLoaded([_log('1')], hasMore: false),
+    ],
+  );
+
+  blocTest<CallLogBloc, CallLogState>(
+    'an empty mirror stays loading until the device has been read once',
+    setUp: () {
+      when(
+        () => repo.getAllCallLogs(
+          limit: any(named: 'limit'),
+          offset: any(named: 'offset'),
+        ),
+      ).thenAnswer((_) async => <CallLogModel>[]);
+    },
+    build: build,
+    act: (bloc) => bloc.add(const LoadCallLogs()),
+    // «تماس اخیری وجود ندارد» must not flash over a phone whose calls are
+    // still being imported — the empty state is only emitted once the device
+    // pass has actually happened, and exactly once (no load/sync loop).
+    expect: () => [const CallLogLoading(), const CallLogsLoaded([])],
   );
 
   blocTest<CallLogBloc, CallLogState>(

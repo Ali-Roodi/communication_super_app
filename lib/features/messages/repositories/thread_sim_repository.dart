@@ -5,6 +5,8 @@ import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
+import 'message_repository.dart';
+
 /// Which SIM each conversation sends on.
 ///
 /// Google Messages remembers this **per conversation**, and that is the whole
@@ -21,6 +23,13 @@ class ThreadSimRepository {
   /// composer chip inside `build` instead of a frame later. The table is one
   /// small row per conversation the user has ever sent from.
   static Map<String, int>? _cache;
+
+  /// thread id → the subscription its newest received message arrived on
+  /// (null = looked up, nothing known). Separate from [_cache], which is the
+  /// user's own choice and outranks it.
+  static final Map<String, int?> _incomingCache = <String, int?>{};
+
+  final MessageRepository _messages = MessageRepository();
 
   Future<Map<String, int>> _load() async {
     final cached = _cache;
@@ -98,7 +107,37 @@ class ThreadSimRepository {
   /// phone with no system default would have shown a card and sent on whatever
   /// the platform picked, which need not be the same one.
   Future<SimCard?> initialSimFor(String threadId) async {
-    return await simFor(threadId) ?? defaultSim;
+    final remembered = await simFor(threadId);
+    if (remembered != null) return remembered;
+    return await _incomingSimFor(threadId) ?? defaultSim;
+  }
+
+  /// The card the other side last reached this conversation on.
+  ///
+  /// Between "what this conversation last sent on" and "the phone's default
+  /// SMS card" there is a third answer, and on a dual-SIM phone it is the one
+  /// the user means: a message that arrived on SIM 2 is answered on SIM 2.
+  /// Without this a first reply always went out on the system default, so the
+  /// other side saw an answer from a number they had never written to — and
+  /// the native quick-reply, which already replies on the arrival SIM,
+  /// disagreed with the app's own composer.
+  ///
+  /// Memoized per thread (including the misses) because it is read on every
+  /// conversation open and the answer only changes when a message arrives —
+  /// which invalidates it explicitly.
+  Future<SimCard?> _incomingSimFor(String threadId) async {
+    if (_incomingCache.containsKey(threadId)) {
+      return SimService.byId(_incomingCache[threadId]);
+    }
+    int? subscriptionId;
+    try {
+      subscriptionId = await _messages.lastIncomingSubscriptionId(threadId);
+    } catch (e) {
+      debugPrint('incoming SIM read failed: $e');
+      return null;
+    }
+    _incomingCache[threadId] = subscriptionId;
+    return SimService.byId(subscriptionId);
   }
 
   /// The card a conversation with no history of its own starts on.
@@ -109,5 +148,18 @@ class ThreadSimRepository {
     return roster.isEmpty ? null : roster.first;
   }
 
-  static void invalidateCache() => _cache = null;
+  static void invalidateCache() {
+    _cache = null;
+    _incomingCache.clear();
+  }
+
+  /// Drops the remembered arrival SIM of one conversation. Called when a
+  /// message lands, since the newest received row is exactly what the answer
+  /// is derived from.
+  static void invalidateIncoming(String threadId) =>
+      _incomingCache.remove(threadId);
+
+  /// Drops every remembered arrival SIM — after a device import, which brings
+  /// in received rows this app never saw land.
+  static void clearIncoming() => _incomingCache.clear();
 }

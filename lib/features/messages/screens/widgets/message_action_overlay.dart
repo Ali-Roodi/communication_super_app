@@ -173,8 +173,10 @@ class _MessageActionLayer extends StatelessWidget {
     top = math.max(top, safeTop + growth);
 
     final menuTop = bottomOf(top) + _kGap;
-    // Menus in Google Messages hang from the bubble's own edge.
-    final rawMenuLeft = isSent ? anchor.left : anchor.right - _kMenuWidth;
+    // Menus in Google Messages hang from the bubble's own edge — and a sent
+    // bubble hugs the RIGHT of the thread (see MessageBubble: the sides are
+    // physical, not directional).
+    final rawMenuLeft = isSent ? anchor.right - _kMenuWidth : anchor.left;
     final menuLeft = rawMenuLeft.clamp(8.0, size.width - _kMenuWidth - 8);
 
     return Directionality(
@@ -299,8 +301,9 @@ class _LiftedBubble extends StatelessWidget {
           width: anchor.width,
           child: Transform.scale(
             scale: 1 + (_kZoom - 1) * t,
-            // Anchored to the edge the bubble hugs so it grows inward.
-            alignment: isSent ? Alignment.centerLeft : Alignment.centerRight,
+            // Anchored to the edge the bubble hugs so it grows inward: sent
+            // bubbles sit on the right, received ones on the left.
+            alignment: isSent ? Alignment.centerRight : Alignment.centerLeft,
             child: child,
           ),
         );

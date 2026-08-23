@@ -6,6 +6,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/message_bloc.dart';
 import '../bloc/message_event.dart';
 import '../bloc/message_state.dart';
+import '../bloc/scheduled_bloc.dart';
+import '../bloc/scheduled_state.dart';
+import '../models/scheduled_message_model.dart';
 import '../models/message_group.dart';
 import '../models/message_model.dart';
 import '../repositories/group_repository.dart';
@@ -194,33 +197,58 @@ class _MessagesListScreenState extends State<MessagesListScreen>
     }
   }
 
-  /// Overlays composer drafts onto the thread list: existing threads get a draft
-  /// preview, drafts to new numbers become synthetic rows, and rows with a fresh
-  /// draft float to the top (pinned rows still lead).
-  List<MessageThread> _mergeDrafts(List<MessageThread> threads) {
-    if (_drafts.isEmpty) return threads;
+  /// Overlays what a conversation still owes the user onto its row: an unsent
+  /// composer draft and the soonest queued send.
+  ///
+  /// Both float the row to the top (pinned rows still lead) and both can be the
+  /// *only* reason a row exists. Scheduling was the missing half: arming a send
+  /// for somebody far down the inbox left their row exactly where the last
+  /// delivered message had put it — usually below the fold, with nothing
+  /// anywhere to say a message was waiting.
+  List<MessageThread> _mergeOverlays(
+    List<MessageThread> threads,
+    Map<String, ScheduledMessage> scheduled,
+  ) {
+    if (_drafts.isEmpty && scheduled.isEmpty) return threads;
     final existing = {for (final t in threads) t.threadId};
     final merged = <MessageThread>[
       for (final t in threads)
-        _drafts.containsKey(t.threadId)
-            ? t.copyWith(
-                draftText: _drafts[t.threadId]!.text,
-                draftTime: _drafts[t.threadId]!.updatedAt,
-              )
-            : t,
+        _overlay(t, _drafts[t.threadId], scheduled[t.threadId]),
     ];
     for (final e in _drafts.entries) {
       if (existing.contains(e.key)) continue;
       final d = e.value;
       merged.add(
-        MessageThread(
-          threadId: e.key,
-          phoneNumber: d.phoneNumber.isNotEmpty ? d.phoneNumber : e.key,
-          contactName: d.contactName,
-          lastMessage: '',
-          lastMessageTime: d.updatedAt,
-          draftText: d.text,
-          draftTime: d.updatedAt,
+        _overlay(
+          MessageThread(
+            threadId: e.key,
+            phoneNumber: d.phoneNumber.isNotEmpty ? d.phoneNumber : e.key,
+            contactName: d.contactName,
+            lastMessage: '',
+            lastMessageTime: d.updatedAt,
+          ),
+          d,
+          scheduled[e.key],
+        ),
+      );
+    }
+    // A schedule to a number with no conversation yet is a row of its own, for
+    // the same reason a draft to one is: the thread it belongs to does not
+    // exist until something is actually sent.
+    for (final e in scheduled.entries) {
+      if (existing.contains(e.key) || _drafts.containsKey(e.key)) continue;
+      final m = e.value;
+      merged.add(
+        _overlay(
+          MessageThread(
+            threadId: e.key,
+            phoneNumber: m.phoneNumber.isNotEmpty ? m.phoneNumber : e.key,
+            contactName: m.contactName,
+            lastMessage: '',
+            lastMessageTime: m.scheduledAt,
+          ),
+          null,
+          m,
         ),
       );
     }
@@ -229,6 +257,35 @@ class _MessagesListScreenState extends State<MessagesListScreen>
       return b.sortTime.compareTo(a.sortTime);
     });
     return merged;
+  }
+
+  MessageThread _overlay(
+    MessageThread thread,
+    ComposerDraft? draft,
+    ScheduledMessage? scheduled,
+  ) {
+    if (draft == null && scheduled == null) return thread;
+    return thread.copyWith(
+      draftText: draft?.text,
+      draftTime: draft?.updatedAt,
+      scheduledText: scheduled?.body,
+      scheduledTime: scheduled?.scheduledAt,
+    );
+  }
+
+  /// thread id → its soonest queued send. Read from the (global, non-lazy)
+  /// `ScheduledMessageBloc`, so the inbox needs no query of its own and updates
+  /// the instant a message is scheduled, delivered or cancelled.
+  Map<String, ScheduledMessage> _scheduledByThread(ScheduledState state) {
+    if (state is! ScheduledLoaded) return const {};
+    final out = <String, ScheduledMessage>{};
+    for (final m in state.pending) {
+      final existing = out[m.threadId];
+      if (existing == null || m.scheduledAt.isBefore(existing.scheduledAt)) {
+        out[m.threadId] = m;
+      }
+    }
+    return out;
   }
 
   // ── Selection helpers ───────────────────────────────────────────────────
@@ -441,6 +498,11 @@ class _MessagesListScreenState extends State<MessagesListScreen>
     final swipeActions = context.select<SettingsBloc, bool>(
       (bloc) => bloc.state.swipeActions,
     );
+    // `ScheduledLoaded` is Equatable over its rows, so the deliverer's 30 s
+    // tick does not rebuild the inbox unless something actually changed.
+    final scheduled = _scheduledByThread(
+      context.watch<ScheduledMessageBloc>().state,
+    );
     return [
       BlocConsumer<MessageBloc, MessageState>(
         listener: (context, state) {
@@ -493,7 +555,7 @@ class _MessagesListScreenState extends State<MessagesListScreen>
           }
           final threads = searching
               ? _searchResults!
-              : _mergeDrafts(inbox.threads);
+              : _mergeOverlays(inbox.threads, scheduled);
           if (threads.isEmpty) {
             return filler(
               searching
@@ -528,12 +590,17 @@ class _MessagesListScreenState extends State<MessagesListScreen>
                     );
                   }
                   final thread = threads[index];
-                  final draftOnly =
-                      thread.hasDraft && !realIds.contains(thread.threadId);
+                  final synthetic = !realIds.contains(thread.threadId);
+                  final draftOnly = thread.hasDraft && synthetic;
                   return _buildThreadRow(
                     context,
                     thread,
                     draftOnly: draftOnly,
+                    // A row that exists only because a send is queued has no
+                    // conversation behind it yet: nothing to archive, mark read
+                    // or select. Tapping it opens the chat, where the pending
+                    // bubble and its options live.
+                    scheduledOnly: synthetic && !thread.hasDraft,
                     swipeActions: swipeActions,
                   );
                 },
@@ -741,6 +808,7 @@ class _MessagesListScreenState extends State<MessagesListScreen>
     BuildContext context,
     MessageThread thread, {
     bool draftOnly = false,
+    bool scheduledOnly = false,
     required bool swipeActions,
   }) {
     final selected = _selected.contains(thread.threadId);
@@ -761,6 +829,7 @@ class _MessagesListScreenState extends State<MessagesListScreen>
       // sheet; pin / mark read / archive / block / delete all live in the
       // selection bar, so one gesture reaches every action.
       onLongPress: () {
+        if (scheduledOnly && !_selectionMode) return;
         if (draftOnly && !_selectionMode) {
           // A draft-only row is synthetic (no conversation behind it), so it
           // can't take part in the thread actions — its long-press discards.
@@ -772,8 +841,9 @@ class _MessagesListScreenState extends State<MessagesListScreen>
       },
     );
 
-    // «کشیدن برای بایگانی» (Settings → پیامک‌ها) turns the swipe gestures off.
-    if (!swipeActions) return tile;
+    // «کشیدن برای بایگانی» (Settings → پیامک‌ها) turns the swipe gestures off,
+    // and a scheduled-only row has nothing for them to act on.
+    if (!swipeActions || scheduledOnly) return tile;
 
     // A draft-only row has no conversation to archive / mark read — either swipe
     // simply discards the draft.

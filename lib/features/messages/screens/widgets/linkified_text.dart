@@ -27,20 +27,71 @@ class LinkifiedText extends StatefulWidget {
     this.enableTaps = true,
   });
 
-  /// URLs first (so `www.` inside a URL isn't re-matched), then USSD codes
-  /// (before numbers, so `**21*0912…#` is one code and not a code with a phone
-  /// number inside it), then bare numbers long enough to be phone numbers
-  /// (avoids linkifying OTP codes).
+  /// Top-level domains a bare host is trusted with **on its own**, with no
+  /// path after it. Anything outside this list still linkifies when it carries
+  /// a path (`foo.bar/baz`) — which is the shape every short link has.
+  ///
+  /// Deliberately short: every entry is also a way to mis-linkify a filename
+  /// or an abbreviation, so it lists the TLDs an Iranian inbox actually
+  /// carries plus the ones the common shorteners live on.
+  static const String _bareTlds =
+      'ir|com|net|org|co|me|io|ly|gl|gd|gy|cc|to|it|app|dev|info|biz|tv|xyz|'
+      'site|online|shop|store|gov|edu|ac|link|live|news|blog|space|top|fun|'
+      'life|world|today|cloud|tech|digital|media|team|group|agency|company|'
+      'network|pro|club|us|uk|in';
+
+  /// A link written with no scheme and no `www.` — «b2n.ir/xK9», «bit.ly/3aZ»,
+  /// «digikala.com».
+  ///
+  /// Every URL shortener produces exactly this shape and none of them used to
+  /// be tappable: the pattern knew only `http(s)://` and `www.`, so the single
+  /// most common link in an Iranian SMS rendered as inert text.
+  ///
+  /// Two shapes, and the split is what keeps it off ordinary prose:
+  ///
+  /// * a host on a [_bareTlds] domain, path optional — «digikala.com»;
+  /// * a host on *any* alphabetic TLD **followed by a path** — «foo.bar/baz».
+  ///
+  /// The lookbehind keeps it out of email addresses and out of the middle of a
+  /// longer token, and every label must be ASCII — so «۱٬۵۰۰٬۰۰۰»,
+  /// «مبلغ.نهایی» and «report.pdf» are all left alone.
+  static final String _bareDomain =
+      r'(?<![\w@.\-/])(?:[A-Za-z0-9][A-Za-z0-9\-]*\.)+'
+      '(?:(?:$_bareTlds)'
+      r'(?![A-Za-z0-9])(?:/[^\s]*)?|[A-Za-z]{2,10}/[^\s]+)';
+
+  /// Matches a bare-domain link and nothing else — how a tapped run is told
+  /// apart from a phone number.
+  static final RegExp _bareDomainExact = RegExp('^(?:$_bareDomain)\$');
+
+  /// Full URLs first, so `www.` inside one is not re-matched and so the
+  /// bare-domain rule below can never split one in half. Then the scheme-less
+  /// links, then USSD codes (before numbers, so `**21*0912…#` is one code and
+  /// not a code with a phone number inside it), then bare runs long enough to
+  /// be phone numbers (which keeps OTP codes out of it).
   /// The forward USSD form is listed BEFORE the mirrored one: a run that reads
   /// as a code as written is that code, and only a run that cannot be read
   /// forwards at all is re-read backwards (see [UssdCode.correctedOf]).
   static final RegExp _linkPattern = RegExp(
     '(https?://[^\\s]+|www\\.[^\\s]+|'
+    '$_bareDomain'
+    '|'
     '${UssdCode.pattern.pattern}'
     '|'
     '${UssdCode.mirroredPattern.pattern}'
     r'|\+?\d[\d\- ]{7,}\d)',
   );
+
+  /// Whether [link] is a web address this app should open in a browser —
+  /// including the scheme-less short links [_bareDomain] matches.
+  static bool isWebLink(String link) =>
+      link.startsWith('http') ||
+      link.startsWith('www.') ||
+      _bareDomainExact.hasMatch(link);
+
+  /// [link] as an absolute URL, adding the scheme a bare domain omits.
+  static Uri webUriOf(String link) =>
+      Uri.parse(link.startsWith('http') ? link : 'https://$link');
 
   static final RegExp _webUrlPattern = RegExp(r'(https?://[^\s]+|www\.[^\s]+)');
 
@@ -139,10 +190,10 @@ class _LinkifiedTextState extends State<LinkifiedText> {
     // Trim trailing punctuation that regularly trails URLs in prose.
     final link = raw.replaceFirst(RegExp(r'[.,;:!?)\]»]+$'), '');
     final Uri uri;
-    if (link.startsWith('http')) {
-      uri = Uri.parse(link);
-    } else if (link.startsWith('www.')) {
-      uri = Uri.parse('https://$link');
+    if (LinkifiedText.isWebLink(link)) {
+      // Covers scheme-less short links too («b2n.ir/xK9»), which get the
+      // `https://` the sender left off.
+      uri = LinkifiedText.webUriOf(link);
     } else {
       // A phone number opens the in-app sheet (call / SMS / contact), never a
       // `tel:` intent: this app IS the default dialer, so the intent resolves

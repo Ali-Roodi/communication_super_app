@@ -12,7 +12,6 @@ import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
-import 'package:communication_super_app/features/contacts/widgets/phone_number_picker.dart';
 import '../bloc/favorites_bloc.dart';
 import '../bloc/favorites_event.dart';
 import '../bloc/favorites_state.dart';
@@ -446,18 +445,19 @@ class _FavoritePickerSheetState extends State<_FavoritePickerSheet> {
                               query: SearchText.digits(_query),
                             ),
                           ),
-                          onTap: () async {
-                            final picked = await pickContactNumber(
-                              context,
-                              numbers: c.phoneNumbers.isEmpty
-                                  ? [phone]
-                                  : c.phoneNumbers,
-                              title: 'کدام شماره ${c.name}؟',
-                            );
-                            if (picked == null || !context.mounted) return;
+                          // A favourite is a *person*, not one of their
+                          // numbers. Asking «کدام شماره؟» here made starring
+                          // somebody a two-step decision about a question that
+                          // only matters at the moment of calling — and it is
+                          // asked there, by the long-press sheet and by
+                          // `placeCall`. The row is keyed on the contact's
+                          // primary number and the card resolves the live
+                          // contact from it, so the name, the photo and the
+                          // numbers all stay current.
+                          onTap: () {
                             widget.favoritesBloc.add(
                               AddFavorite(
-                                phoneNumber: picked,
+                                phoneNumber: phone,
                                 name: c.name,
                                 contactId: c.id,
                               ),

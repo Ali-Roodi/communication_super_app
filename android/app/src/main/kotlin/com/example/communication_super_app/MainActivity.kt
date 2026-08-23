@@ -43,6 +43,14 @@ class MainActivity : FlutterActivity() {
     /// the editor asks for. Owns its own activity-result plumbing.
     private var photoHandler: PhotoHandler? = null
 
+    /**
+     * Whether this activity is currently asking to be shown over the keyguard.
+     *
+     * Only a live call ever sets it, and only clearing it may hand the screen
+     * back to the lock screen — see [showOverLockScreen].
+     */
+    private var overLockScreen = false
+
     companion object {
         /** The live activity, so the in-call service can flip its lock-screen
          *  window flags. Cleared in onDestroy. */
@@ -404,9 +412,19 @@ class MainActivity : FlutterActivity() {
             // to the keyguard *first*. Only clearing the flags leaves this
             // activity on top for a frame or two, which showed a flash of the
             // app's normal UI (inbox/dialer) over the lock screen.
-            if (!show && keyguard.isKeyguardLocked) {
+            //
+            // GATED ON [overLockScreen], and that gate is the whole point: this
+            // runs from `onCreate`/`onResume` too, and waking a locked phone
+            // resumes the foreground activity *behind* the keyguard. Without
+            // the gate, every screen-on with this app in front hit
+            // `moveTaskToBack` — so unlocking the phone landed on the home
+            // screen and the app looked as if it had closed itself, losing
+            // whatever the user was reading. Only a call that actually put
+            // this activity over the keyguard may hand the screen back.
+            if (!show && overLockScreen && keyguard.isKeyguardLocked) {
                 moveTaskToBack(true)
             }
+            overLockScreen = show
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                 setShowWhenLocked(show)
                 setTurnScreenOn(show)

@@ -532,7 +532,11 @@ class CallInCallService : InCallService() {
             // incoming-call UI.
             val backgrounded =
                 !com.example.communication_super_app.MainActivity.isResumed
-            postIncomingCallNotification(phoneOf(call), headsUp = backgrounded)
+            postIncomingCallNotification(
+                phoneOf(call),
+                headsUp = backgrounded,
+                subscriptionId = subscriptionOf(call),
+            )
             // Belt and braces: OEMs throttle full-screen intents, and a
             // throttled one leaves the user staring at the lock screen. Ask for
             // the activity ourselves too — it is singleTop, so the worst case is
@@ -585,7 +589,11 @@ class CallInCallService : InCallService() {
             // over a keyguard, and re-posting on each stop is what put the card
             // back next to the call screen. Once the screen has been up for
             // this call, the card stays gone.
-            postIncomingCallNotification(phoneOf(ringing), headsUp = false)
+            postIncomingCallNotification(
+                phoneOf(ringing),
+                headsUp = false,
+                subscriptionId = subscriptionOf(ringing),
+            )
         }
     }
 
@@ -889,6 +897,16 @@ class CallInCallService : InCallService() {
     // ── Incoming-call notification (full-screen intent) ─────────────────────
 
     /**
+     * The subscription a call is on, or [SimRegistry.INVALID_SUBSCRIPTION_ID].
+     *
+     * Telecom names a `PhoneAccountHandle`, never a subscription, so this is
+     * the same mapping the published call state and the call log use.
+     */
+    private fun subscriptionOf(call: Call): Int =
+        SimRegistry.subscriptionIdForAccountId(this, call.details?.accountHandle?.id)
+            ?: SimRegistry.INVALID_SUBSCRIPTION_ID
+
+    /**
      * Incoming-call notification, two flavors:
      *
      * - [headsUp] = true (app backgrounded/dead): high-priority with a
@@ -899,7 +917,11 @@ class CallInCallService : InCallService() {
      *   in-app UI, but still there with answer/decline if the user leaves the
      *   call screen.
      */
-    private fun postIncomingCallNotification(phone: String, headsUp: Boolean = true) {
+    private fun postIncomingCallNotification(
+        phone: String,
+        headsUp: Boolean = true,
+        subscriptionId: Int = SimRegistry.INVALID_SUBSCRIPTION_ID,
+    ) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channelId = if (headsUp) CHANNEL_ID else SILENT_CHANNEL_ID
         ensureChannels(applicationContext)
@@ -935,7 +957,20 @@ class CallInCallService : InCallService() {
         val notification = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(applicationInfo.icon)
             .setContentTitle(name)
-            .setContentText("تماس ورودی")
+            // «تماس ورودی · سیم ۲ · ایرانسل». On a locked phone this card is
+            // often the only thing the user sees of the call, so the card the
+            // call is ringing on has to be on it too — not only on the app's
+            // own call screen behind the keyguard.
+            .setContentText(
+                if (SimRegistry.isMultiSim(applicationContext)) {
+                    SimRegistry.labelOf(applicationContext, subscriptionId)
+                        ?.let { "تماس ورودی · $it" } ?: "تماس ورودی"
+                } else {
+                    // One card: naming it says nothing, exactly as everywhere
+                    // else in the app (see SimService.isMultiSim).
+                    "تماس ورودی"
+                },
+            )
             .setStyle(
                 NotificationCompat.CallStyle.forIncomingCall(caller, decline, answer),
             )

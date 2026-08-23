@@ -99,12 +99,19 @@ class _DefaultAppGateState extends State<DefaultAppGate>
   }
 
   Future<void> _check() async {
-    final sms = await NativeSmsService().isDefaultSmsApp();
-    final dialer = await NativeCallService.instance.isDefaultDialer();
-    final fullScreen = await NativeCallService.instance
-        .canUseFullScreenIntent();
-    final notifications = await NativeCallService.instance
-        .areCallNotificationsEnabled();
+    // In parallel, not one after another: four platform round-trips run
+    // back-to-back sat in front of the app's first frame on every single
+    // launch. They are independent reads.
+    final answers = await Future.wait<bool>([
+      NativeSmsService().isDefaultSmsApp(),
+      NativeCallService.instance.isDefaultDialer(),
+      NativeCallService.instance.canUseFullScreenIntent(),
+      NativeCallService.instance.areCallNotificationsEnabled(),
+    ]);
+    final sms = answers[0];
+    final dialer = answers[1];
+    final fullScreen = answers[2];
+    final notifications = answers[3];
     if (!mounted) return;
 
     final hadAll = (_isDefaultSms ?? false) && (_isDefaultDialer ?? false);
@@ -212,7 +219,11 @@ class _DefaultAppGateState extends State<DefaultAppGate>
   @override
   Widget build(BuildContext context) {
     if (_isDefaultSms == null || _isDefaultDialer == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      // Blank, never a spinner. This is four platform reads that resolve in a
+      // few frames, and a spinner in that gap is most of what "the app shows a
+      // loading screen every time I open it" was — the same reason
+      // [PermissionGate] and [AuthWrapperScreen] render nothing here.
+      return const Scaffold(body: SizedBox.shrink());
     }
     final role = _pendingRole;
     if (_appShown || _skipped || role == null) {
