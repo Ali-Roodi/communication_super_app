@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:communication_super_app/core/navigation/call_ui_coordinator.dart';
 import 'package:communication_super_app/core/navigation/return_to_call_bar.dart';
 import 'package:communication_super_app/core/sim/sim_service.dart';
+import 'package:communication_super_app/core/sim/widgets/sim_picker.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/dialer_bloc.dart';
 import '../bloc/dialer_event.dart';
@@ -47,6 +48,7 @@ class _InCallScreenState extends State<InCallScreen> {
   void initState() {
     super.initState();
     _resolveContact(widget.phone);
+    _ensureSimRoster();
   }
 
   /// The number of the call currently shown — the bloc's activePhone once it
@@ -86,6 +88,10 @@ class _InCallScreenState extends State<InCallScreen> {
     _timer?.cancel();
     super.dispose();
   }
+
+  /// The roster may be unread when a call wakes the process; loading it here
+  /// is what lets [SimAware] fill the carrier line in a frame later.
+  void _ensureSimRoster() => SimService.instance.ensureLoaded();
 
   /// The carrier line under the top of the call screen — or **nothing**.
   ///
@@ -177,14 +183,28 @@ class _InCallScreenState extends State<InCallScreen> {
                 const Spacer(flex: 2),
                 // The SIM this call is on — Google Phone's carrier line.
                 // Absent unless it has something to say (see [_simLine]).
-                if (_simLine(state) case final line?) ...[
-                  Text(
-                    line,
-                    style: const TextStyle(color: Colors.white38, fontSize: 13),
-                  ),
-                  const SizedBox(height: 24),
-                ] else
-                  const SizedBox(height: 8),
+                // Wrapped in [SimAware] because a call can mount this screen
+                // before the roster is readable — a call routinely wakes a
+                // dead process — and the line would then stay blank for the
+                // whole call.
+                SimAware(
+                  builder: (context, _, _) {
+                    final line = _simLine(state);
+                    if (line == null) return const SizedBox(height: 8);
+                    return Column(
+                      children: [
+                        Text(
+                          line,
+                          style: const TextStyle(
+                            color: Colors.white38,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                      ],
+                    );
+                  },
+                ),
                 _buildAvatar(conference: conference),
                 const SizedBox(height: 20),
                 Text(

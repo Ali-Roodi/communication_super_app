@@ -155,6 +155,15 @@ class MessageThread extends Equatable {
   final String? draftText;
   final DateTime? draftTime;
 
+  /// The soonest queued outgoing message for this thread, shown as a
+  /// «زمان‌بندی‌شده» preview and floating the row up exactly as a draft does.
+  ///
+  /// A scheduled send is an unfinished piece of the conversation, same as a
+  /// draft — leaving the row wherever the last delivered message left it hides
+  /// the one thing about that thread the user still has to think about.
+  final String? scheduledText;
+  final DateTime? scheduledTime;
+
   /// The group behind this row when [threadId] is a group thread (`'g:…'`).
   ///
   /// Resolved after the SQL — the group's members live in their own tables and
@@ -175,6 +184,8 @@ class MessageThread extends Equatable {
     this.isPinned = false,
     this.draftText,
     this.draftTime,
+    this.scheduledText,
+    this.scheduledTime,
     this.group,
   });
 
@@ -186,11 +197,18 @@ class MessageThread extends Equatable {
 
   bool get hasDraft => draftText != null && draftText!.trim().isNotEmpty;
 
-  /// Sort key: a fresh draft should lift the row above older messages.
-  DateTime get sortTime =>
-      (draftTime != null && draftTime!.isAfter(lastMessageTime))
-      ? draftTime!
-      : lastMessageTime;
+  bool get hasScheduled =>
+      scheduledText != null && scheduledTime != null;
+
+  /// Sort key: a fresh draft, or a queued send, lifts the row above older
+  /// messages. A scheduled time is in the future, so such a row leads the
+  /// inbox until it is delivered or cancelled — which is the point.
+  DateTime get sortTime {
+    var t = lastMessageTime;
+    if (draftTime != null && draftTime!.isAfter(t)) t = draftTime!;
+    if (scheduledTime != null && scheduledTime!.isAfter(t)) t = scheduledTime!;
+    return t;
+  }
 
   MessageThread copyWith({
     String? threadId,
@@ -203,6 +221,8 @@ class MessageThread extends Equatable {
     bool? isPinned,
     String? draftText,
     DateTime? draftTime,
+    String? scheduledText,
+    DateTime? scheduledTime,
     MessageGroup? group,
   }) {
     return MessageThread(
@@ -216,6 +236,8 @@ class MessageThread extends Equatable {
       isPinned: isPinned ?? this.isPinned,
       draftText: draftText ?? this.draftText,
       draftTime: draftTime ?? this.draftTime,
+      scheduledText: scheduledText ?? this.scheduledText,
+      scheduledTime: scheduledTime ?? this.scheduledTime,
       group: group ?? this.group,
     );
   }
@@ -232,6 +254,8 @@ class MessageThread extends Equatable {
     isPinned,
     draftText,
     draftTime,
+    scheduledText,
+    scheduledTime,
     group,
   ];
 }

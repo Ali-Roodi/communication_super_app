@@ -47,6 +47,36 @@ void main() {
       expect(find.text('سلام دنیا'), findsOneWidget);
     });
 
+    testWidgets('sent sits on the right of the thread, received on the left', (
+      tester,
+    ) async {
+      // The conversation is RTL, so directional alignment would put the user's
+      // own messages on the LEFT — which is what it did. The sides of a chat
+      // are physical.
+      for (final type in MessageType.values) {
+        await tester.pumpWidget(
+          _wrap(
+            MessageBubble(
+              message: _message(type: type, status: MessageStatus.delivered),
+              isLastInGroup: true,
+              selected: false,
+              selectionMode: false,
+              onTap: () {},
+              onLongPress: (_) {},
+            ),
+          ),
+        );
+        final screen = tester.getSize(find.byType(Scaffold)).width;
+        final bubble = tester.getRect(find.text('سلام دنیا'));
+        final onRight = bubble.center.dx > screen / 2;
+        expect(
+          onRight,
+          type == MessageType.sent,
+          reason: 'a ${type.name} bubble is on the wrong side',
+        );
+      }
+    });
+
     testWidgets('sent + delivered shows the done_all status icon', (
       tester,
     ) async {

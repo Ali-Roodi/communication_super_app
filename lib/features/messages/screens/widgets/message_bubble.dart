@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:communication_super_app/core/sim/sim_card.dart';
 import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:communication_super_app/core/sim/widgets/sim_picker.dart';
@@ -201,7 +202,7 @@ class OneTimeCodeChip extends StatelessWidget {
 /// Nothing is selected when the overlay opens — the lift is *only* a zoom. A
 /// long-press inside the lifted bubble then grabs the word under the finger
 /// (SelectionArea's own word-granular gesture) and the handles widen it.
-class SelectableBubbleText extends StatelessWidget {
+class SelectableBubbleText extends StatefulWidget {
   final Widget child;
 
   /// False in the list: the text is plain and the bubble owns the gestures.
@@ -218,9 +219,27 @@ class SelectableBubbleText extends StatelessWidget {
   });
 
   @override
+  State<SelectableBubbleText> createState() => _SelectableBubbleTextState();
+}
+
+class _SelectableBubbleTextState extends State<SelectableBubbleText> {
+  /// What is selected right now, so «جستجو در وب» has something to search.
+  ///
+  /// `SelectableRegionState` keeps its selected content private, so the only
+  /// way to read it is the callback — which is also why this widget is
+  /// stateful. Held in a plain field, not in `setState`: nothing on screen
+  /// depends on it, and rebuilding the lifted bubble on every drag of a
+  /// selection handle would fight the gesture.
+  String _selection = '';
+
+  @override
   Widget build(BuildContext context) {
-    if (!enabled) return child;
-    return SelectionArea(contextMenuBuilder: _selectionToolbar, child: child);
+    if (!widget.enabled) return widget.child;
+    return SelectionArea(
+      onSelectionChanged: (content) => _selection = content?.plainText ?? '',
+      contextMenuBuilder: _selectionToolbar,
+      child: widget.child,
+    );
   }
 
   /// Persian selection toolbar. The app ships no `MaterialLocalizations` for
@@ -237,23 +256,56 @@ class SelectableBubbleText extends StatelessWidget {
               label: 'کپی',
               onPressed: () {
                 item.onPressed?.call();
-                onCopied?.call();
+                widget.onCopied?.call();
               },
             ),
           );
         case ContextMenuButtonType.selectAll:
           items.add(item.copyWith(label: 'انتخاب همه'));
-        // Share / search / lookup need platform plumbing this app doesn't
-        // have — they are left out rather than shown broken.
+        // Share / lookup need platform plumbing this app doesn't have — they
+        // are left out rather than shown broken. Search is ours (below).
         default:
           break;
       }
+    }
+    final query = _selection.trim();
+    if (query.isNotEmpty) {
+      items.add(
+        ContextMenuButtonItem(
+          label: 'جستجو در وب',
+          onPressed: () {
+            state.hideToolbar();
+            _searchWeb(query);
+            widget.onCopied?.call();
+          },
+        ),
+      );
     }
     if (items.isEmpty) return const SizedBox.shrink();
     return AdaptiveTextSelectionToolbar.buttonItems(
       anchors: state.contextMenuAnchors,
       buttonItems: items,
     );
+  }
+
+  /// Hands the selection to the phone's browser as a search.
+  ///
+  /// A search URL rather than `ACTION_WEB_SEARCH`: the intent needs native
+  /// plumbing and answers with nothing on a phone whose browser did not
+  /// register for it, while every browser resolves an `https:` URL.
+  Future<void> _searchWeb(String query) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final uri = Uri.parse(
+      'https://www.google.com/search?q=${Uri.encodeQueryComponent(query)}',
+    );
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok) throw Exception('no handler');
+    } catch (_) {
+      messenger?.showSnackBar(
+        const SnackBar(content: Text('مرورگری برای جستجو یافت نشد')),
+      );
+    }
   }
 }
 
@@ -349,12 +401,25 @@ class _MessageBubbleState extends State<MessageBubble> {
           left: 8,
           right: 8,
         ),
+        // `textDirection: ltr` on the two flexes, deliberately, inside an
+        // otherwise RTL screen: which side of the thread a bubble sits on is a
+        // *physical* question, not a typographic one. Sent right, received
+        // left — the arrangement every messenger uses, Persian ones included.
+        //
+        // Left as directional alignment, `end` resolved to the LEFT under the
+        // conversation's RTL direction, so the user's own messages ran down
+        // the left of the screen while their tail corner (a plain, non
+        // directional `BorderRadius.only`) still pointed right. The bubble's
+        // own text keeps the ambient RTL direction — a Flex's `textDirection`
+        // decides how that Flex lays its children out and nothing else.
         child: Column(
+          textDirection: TextDirection.ltr,
           crossAxisAlignment: isSent
               ? CrossAxisAlignment.end
               : CrossAxisAlignment.start,
           children: [
             Row(
+              textDirection: TextDirection.ltr,
               mainAxisAlignment: isSent
                   ? MainAxisAlignment.end
                   : MainAxisAlignment.start,

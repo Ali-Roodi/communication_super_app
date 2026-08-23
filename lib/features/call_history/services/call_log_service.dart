@@ -41,19 +41,25 @@ class CallLogService {
   /// re-read a 50-row page. On a phone with a long history that full read ran
   /// on the main isolate on every tab open *and* every app resume, which is the
   /// recents-tab stall. Rows themselves are read paginated by the bloc.
-  Future<void> ensureSynced({bool forceRefresh = false}) async {
+  /// Returns whether it actually touched the device — i.e. whether the caller
+  /// has any reason to re-read the mirror. False means "the mirror was already
+  /// populated and nothing was imported", which is the ordinary launch, and a
+  /// caller that re-queried on it would repaint the list for nothing.
+  Future<bool> ensureSynced({bool forceRefresh = false}) async {
     // Piggyback on an in-flight sync instead of starting a second one.
     final inFlight = _loading;
     if (inFlight != null) {
       await inFlight.future;
-      if (!forceRefresh) return;
+      if (!forceRefresh) return false;
     }
 
     final completer = Completer<void>();
     _loading = completer;
+    var imported = false;
     try {
       if (forceRefresh || !await _repository.hasAnyCallLogs()) {
         await syncFromDevice(force: forceRefresh);
+        imported = true;
       }
     } catch (_) {
       // Keep whatever the mirror already holds; the bloc still shows it.
@@ -61,6 +67,7 @@ class CallLogService {
       _loading = null;
       completer.complete();
     }
+    return imported;
   }
 
   /// How far back the mirror reaches. Calls older than this were imported by an

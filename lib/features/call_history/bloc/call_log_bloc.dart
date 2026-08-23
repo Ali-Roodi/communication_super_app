@@ -50,11 +50,70 @@ class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
     return super.close();
   }
 
+  /// «اخیر» on a launch: **paint the local mirror, then improve it.**
+  ///
+  /// This used to `await` the device mirror-sync and the address-book read
+  /// before it emitted anything, behind a full-screen spinner — a second or
+  /// two of «در حال بارگذاری» on every single open, over rows that were
+  /// already in SQLite and unchanged since the last launch. The same mistake
+  /// `MessageBloc` fixed for the inbox, and fixed the same way:
+  ///
+  /// 1. the local page goes out immediately, unnamed;
+  /// 2. contact names are overlaid as a second emit (the address-book read is
+  ///    the expensive half, and a row is perfectly readable without it);
+  /// 3. the device sync runs **detached** and re-emits only if it changed
+  ///    something.
+  ///
+  /// A spinner is emitted only when there is genuinely nothing to show yet —
+  /// never over a list the user is already looking at.
   Future<void> _onLoadCallLogs(
     LoadCallLogs event,
     Emitter<CallLogState> emit,
   ) async {
-    emit(const CallLogLoading());
+    final current = state;
+    if (current is! CallLogsLoaded) emit(const CallLogLoading());
+    try {
+      final page = await _repository.getAllCallLogs(
+        limit: _callLogPageSize,
+        offset: 0,
+      );
+      final hasMore = page.length >= _callLogPageSize;
+      if (page.isEmpty && !_deviceSyncDone) {
+        // Nothing in the mirror *and* the device has not been read yet — a
+        // first launch. «تماس اخیری وجود ندارد» here is a claim the app cannot
+        // make: it would flash over a phone full of calls for as long as the
+        // import takes. Stay on the loading state; [_backgroundSync]
+        // re-dispatches the moment it lands.
+        unawaited(_backgroundSync());
+        return;
+      }
+      // Bare rows first: numbers, times and directions are all in the mirror.
+      if (page.isNotEmpty) emit(CallLogsLoaded(page, hasMore: hasMore));
+      // Then the names. `getAllContacts` is a cached hand-back after the first
+      // call, so this is only slow once per process.
+      final named = await _service.resolveContactNames(page);
+      emit(CallLogsLoaded(named, hasMore: hasMore));
+    } catch (e) {
+      if (state is! CallLogsLoaded) emit(CallLogError(e.toString()));
+    }
+    // Detached on purpose: awaiting it here is what made the tab wait for the
+    // provider. It re-emits through `SyncCallLogs` when it finds anything.
+    unawaited(_backgroundSync());
+  }
+
+  /// The device half of a load: attach the observer and mirror the provider,
+  /// then re-read so anything it imported is painted. Never throws into the
+  /// bloc.
+  ///
+  /// **Runs at most once per bloc**, which is what makes the re-dispatch safe:
+  /// `ensureSynced` imports whenever the mirror is empty, so on a phone whose
+  /// call log is genuinely empty (a fresh device, or READ_CALL_LOG refused) an
+  /// unlatched version would load, sync, load, sync for ever. Every later
+  /// change arrives through the native ContentObserver instead, and
+  /// «کشیدن برای تازه‌سازی» forces its own pass.
+  Future<void> _backgroundSync() async {
+    if (_deviceSyncStarted) return;
+    _deviceSyncStarted = true;
     try {
       // (Re)attach the native ContentObserver — the first attempt may have run
       // before the READ_CALL_LOG grant.
@@ -62,24 +121,31 @@ class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
         await NativeCallLogService.instance.initialize();
       }
       await _service.ensureSynced();
-      final page = await _repository.getAllCallLogs(
-        limit: _callLogPageSize,
-        offset: 0,
-      );
-      // The DB doesn't store contact_name, so resolve it from the current
-      // contacts before display.
-      final callLogs = await _service.resolveContactNames(page);
-      emit(CallLogsLoaded(callLogs, hasMore: page.length >= _callLogPageSize));
-    } catch (e) {
-      emit(CallLogError(e.toString()));
+    } catch (_) {
+      // Keep whatever the mirror already holds; the list is already on screen.
     }
+    _deviceSyncDone = true;
+    if (!isClosed) add(const LoadCallLogs());
   }
+
+  /// The one-per-process device pass: started, and finished. [_deviceSyncDone]
+  /// is what tells «the mirror is empty» apart from «the mirror has not been
+  /// filled yet» — the empty state and the loading state.
+  bool _deviceSyncStarted = false;
+  bool _deviceSyncDone = false;
 
   Future<void> _onRefreshCallLogs(
     RefreshCallLogs event,
     Emitter<CallLogState> emit,
   ) async {
-    emit(const CallLogLoading());
+    // A pull-to-refresh is its own device pass, so nothing is pending after it
+    // either way.
+    _deviceSyncStarted = true;
+    _deviceSyncDone = true;
+    // No spinner over a list that is already on screen: the pull-to-refresh
+    // gesture draws its own, and swapping the rows for a centred spinner threw
+    // the scroll position away on every pull.
+    if (state is! CallLogsLoaded) emit(const CallLogLoading());
     try {
       await _service.ensureSynced(forceRefresh: true);
       final page = await _repository.getAllCallLogs(

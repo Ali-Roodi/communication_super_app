@@ -171,6 +171,35 @@ class ThreadTile extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
       );
     }
+    // A queued send is the thread's next event, so it outranks the last
+    // delivered message in the preview — but never a draft, which is the one
+    // thing the user has left unfinished.
+    if (thread.hasScheduled) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(
+              Icons.schedule,
+              size: 15,
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              TemplateWire.displayText(
+                thread.scheduledText!,
+              ).replaceAll('\n', ' '),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant),
+            ),
+          ),
+        ],
+      );
+    }
     return Text(
       // A template message is stored as its compact wire payload; the preview
       // shows the rebuilt text, never the payload (see [TemplateWire]).

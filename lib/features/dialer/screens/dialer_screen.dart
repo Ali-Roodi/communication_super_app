@@ -126,20 +126,23 @@ class _SuggestionList extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
           ),
         ),
-        if (matches.isEmpty)
-          SliverToBoxAdapter(
-            child: addCall
-                ? const SizedBox.shrink()
-                : GroupedList(
-                    children: [DialerUnknownRow(phone: state.dialedNumber)],
-                  ),
-          )
-        else
+        if (matches.isNotEmpty)
           SliverGroupedList(
             itemCount: matches.length,
             itemBuilder: (_, i) =>
                 DialerContactRow(match: matches[i], addCall: addCall),
           ),
+        // What can be done with the number itself — always, and whether or not
+        // a contact matched, exactly as Google Phone lists them. Dropped only
+        // in «افزودن تماس» mode, where this keypad is picking the second leg
+        // of a conference and nothing else.
+        if (!addCall) ...[
+          if (matches.isNotEmpty)
+            const SliverToBoxAdapter(child: SizedBox(height: 8)),
+          SliverToBoxAdapter(
+            child: DialerNumberActions(phone: state.dialedNumber),
+          ),
+        ],
         const SliverToBoxAdapter(child: SizedBox(height: 8)),
       ],
     );

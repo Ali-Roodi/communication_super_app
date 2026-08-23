@@ -13,11 +13,13 @@ import 'package:communication_super_app/core/widgets/highlighted_phone.dart';
 import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
 import 'package:communication_super_app/features/contacts/models/phone_match.dart';
-import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_bloc.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_event.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_state.dart';
+import 'package:communication_super_app/features/contacts/widgets/save_number_actions.dart';
+import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
+import 'package:communication_super_app/core/widgets/google_list.dart';
 
 // ── Number display + caret + backspace ───────────────────────────────────────
 
@@ -726,21 +728,69 @@ class _MatchedName extends StatelessWidget {
   }
 }
 
-/// The "not in contacts" suggestion row — tap to add the dialed number.
-class DialerUnknownRow extends StatelessWidget {
+/// What the keypad offers for the number being typed, whoever it belongs to:
+/// «ایجاد مخاطب جدید» · «افزودن به مخاطب موجود» · «ارسال پیامک».
+///
+/// Google Phone lists all three under the suggestions from the first digit,
+/// and keeps them there when a contact matches — a number that resolves to
+/// somebody is still a number you may want to text, and a second number for
+/// somebody already saved is the commonest reason to reach for the keypad at
+/// all. This app only ever showed «ایجاد مخاطب جدید», and only while *nothing*
+/// matched, so both of the other two were unreachable from here.
+class DialerNumberActions extends StatelessWidget {
   final String phone;
 
-  const DialerUnknownRow({super.key, required this.phone});
+  const DialerNumberActions({super.key, required this.phone});
+
+  @override
+  Widget build(BuildContext context) {
+    return GroupedList(
+      children: [
+        _DialerActionRow(
+          icon: Icons.person_add_alt,
+          label: 'ایجاد مخاطب جدید',
+          // Only the first row spells the number out: all three act on the
+          // same one, and repeating it three times reads as three numbers.
+          subtitle: phone,
+          onTap: () => createContactWithNumber(context, phone),
+        ),
+        _DialerActionRow(
+          icon: Icons.person_search_outlined,
+          label: 'افزودن به مخاطب موجود',
+          onTap: () => addNumberToExistingContact(context, phone),
+        ),
+        _DialerActionRow(
+          icon: Icons.sms_outlined,
+          label: 'ارسال پیامک',
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => ConversationScreen.forPhone(phone),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DialerActionRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String? subtitle;
+  final VoidCallback onTap;
+
+  const _DialerActionRow({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.subtitle,
+  });
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return InkWell(
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => AddEditContactScreen(initialPhone: phone),
-        ),
-      ),
+      onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 10, 16, 10),
         child: Row(
@@ -753,7 +803,7 @@ class DialerUnknownRow extends StatelessWidget {
                 shape: BoxShape.circle,
               ),
               child: Icon(
-                Icons.person_add_alt,
+                icon,
                 color: scheme.onSecondaryContainer,
                 size: 22,
               ),
@@ -764,20 +814,22 @@ class DialerUnknownRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'ایجاد مخاطب جدید',
+                    label,
                     style: TextStyle(fontSize: 16, color: scheme.onSurface),
                   ),
-                  const SizedBox(height: 2),
-                  Directionality(
-                    textDirection: TextDirection.ltr,
-                    child: Text(
-                      PersianUtils.displayPhone(phone),
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: scheme.onSurfaceVariant,
+                  if (subtitle case final s?) ...[
+                    const SizedBox(height: 2),
+                    Directionality(
+                      textDirection: TextDirection.ltr,
+                      child: Text(
+                        PersianUtils.displayPhone(s),
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: scheme.onSurfaceVariant,
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
