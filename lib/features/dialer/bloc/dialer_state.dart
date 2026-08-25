@@ -112,6 +112,18 @@ class DialerState extends Equatable {
     /// every other field treats null as "leave it alone", and a stale connect
     /// time would keep the return-to-call bar counting after the hang-up.
     bool clearCallConnectedAt = false,
+
+    /// Drops the caller name — the number belongs to nobody in the address
+    /// book. A plain null cannot say that, and this is not cosmetic: every
+    /// other field reads null as "leave it alone", so a call from an unsaved
+    /// number (or from one whose contact was just deleted) inherited the
+    /// **previous** caller's name and the call screen named the wrong person.
+    bool clearActiveName = false,
+
+    /// Drops the SIM the call is on, for the same reason — and the invariant is
+    /// already spelled out in the schema: NULL means unknown, never SIM 1. A
+    /// wrong SIM badge is worse than none.
+    bool clearActiveSubscriptionId = false,
   }) {
     return DialerState(
       dialedNumber: dialedNumber ?? this.dialedNumber,
@@ -120,7 +132,7 @@ class DialerState extends Equatable {
       isLoadingContacts: isLoadingContacts ?? this.isLoadingContacts,
       callStatus: callStatus ?? this.callStatus,
       activePhone: activePhone ?? this.activePhone,
-      activeName: activeName ?? this.activeName,
+      activeName: clearActiveName ? null : (activeName ?? this.activeName),
       isMuted: isMuted ?? this.isMuted,
       isSpeakerOn: isSpeakerOn ?? this.isSpeakerOn,
       audioRoute: audioRoute ?? this.audioRoute,
@@ -130,7 +142,9 @@ class DialerState extends Equatable {
       callCount: callCount ?? this.callCount,
       canMerge: canMerge ?? this.canMerge,
       isConference: isConference ?? this.isConference,
-      activeSubscriptionId: activeSubscriptionId ?? this.activeSubscriptionId,
+      activeSubscriptionId: clearActiveSubscriptionId
+          ? null
+          : (activeSubscriptionId ?? this.activeSubscriptionId),
       callConnectedAt: clearCallConnectedAt
           ? null
           : (callConnectedAt ?? this.callConnectedAt),
