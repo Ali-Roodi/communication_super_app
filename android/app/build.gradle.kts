@@ -57,10 +57,6 @@ android {
         isCoreLibraryDesugaringEnabled = true
     }
 
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
-    }
-
     defaultConfig {
         // The shipping application id. It used to be
         // `com.example.communication_super_app`: the `com.example.*` prefix is a
@@ -179,6 +175,20 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
+}
+
+// Replaces the `android { kotlinOptions { jvmTarget = … } }` block AGP 9 removed
+// (KGP dropped the `kotlinOptions` DSL — https://kotl.in/u1r8ln).
+//
+// It must stay in lockstep with `compileOptions` above. A jvmTarget that
+// disagrees with sourceCompatibility/targetCompatibility does not fail at the
+// point of the mismatch — it fails wherever Kotlin and Java code share a class
+// hierarchy, which here is everywhere: the Flutter embedding is Java and every
+// handler in this app is Kotlin.
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
 }
 
 flutter {
