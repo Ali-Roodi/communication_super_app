@@ -58,9 +58,11 @@ class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
   /// already in SQLite and unchanged since the last launch. The same mistake
   /// `MessageBloc` fixed for the inbox, and fixed the same way:
   ///
-  /// 1. the local page goes out immediately, unnamed;
-  /// 2. contact names are overlaid as a second emit (the address-book read is
-  ///    the expensive half, and a row is perfectly readable without it);
+  /// 1. the local page goes out immediately, named from the persisted
+  ///    address-book cache (`ContactNameCache`) — SQLite, no channel;
+  /// 2. the authoritative names are overlaid as a second emit (the address-book
+  ///    read is the expensive half). On a phone whose contacts have not changed
+  ///    that emit is equal to the first and repaints nothing;
   /// 3. the device sync runs **detached** and re-emits only if it changed
   ///    something.
   ///
@@ -87,8 +89,17 @@ class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
         unawaited(_backgroundSync());
         return;
       }
-      // Bare rows first: numbers, times and directions are all in the mirror.
-      if (page.isNotEmpty) emit(CallLogsLoaded(page, hasMore: hasMore));
+      // First paint: the mirror's rows, named from what the last run resolved
+      // (SQLite, no channel round trip). Bare numbers here is what made every
+      // launch show the list twice — once as numbers, once with names.
+      if (page.isNotEmpty) {
+        emit(
+          CallLogsLoaded(
+            await CallLogService.applyRememberedNames(page),
+            hasMore: hasMore,
+          ),
+        );
+      }
       // Then the names. `getAllContacts` is a cached hand-back after the first
       // call, so this is only slow once per process.
       final named = await _service.resolveContactNames(page);

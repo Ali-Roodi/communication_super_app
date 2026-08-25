@@ -8,6 +8,7 @@ import '../repositories/call_log_repository.dart';
 import 'native_call_log_service.dart';
 import 'package:communication_super_app/core/services/device_sync_queue.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
+import 'package:communication_super_app/features/contacts/repositories/contact_name_cache.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
@@ -233,6 +234,35 @@ class CallLogService {
           return c == null
               ? log
               : log.copyWith(contactId: c['id'], contactName: c['name']);
+        }(),
+    ];
+  }
+
+  /// Overlays the names the **last** run resolved, read from SQLite.
+  ///
+  /// «اخیر» paints its page from the local mirror the moment it has it and
+  /// overlays names as a second emit, because [resolveContactNames] has to wait
+  /// for the whole device address book to come over a platform channel. That
+  /// second emit is visible on every launch — the row appears as a bare number
+  /// and the name lands a beat later. This closes the gap with what the app
+  /// already knew: it is answered from the database that is already open, and
+  /// the authoritative pass still runs behind it (and produces an identical
+  /// list, which `CallLogsLoaded` being Equatable turns into no repaint).
+  /// Static because it reaches for nothing on this service — and because a
+  /// first paint must never be intercepted by a stand-in for it.
+  static Future<List<CallLogModel>> applyRememberedNames(
+    List<CallLogModel> logs,
+  ) async {
+    if (logs.isEmpty) return logs;
+    final remembered = await ContactNameCache.read();
+    if (remembered.isEmpty) return logs;
+    return [
+      for (final log in logs)
+        () {
+          final c = remembered[_normalizePhoneNumber(log.phoneNumber)];
+          return c == null
+              ? log
+              : log.copyWith(contactId: c.contactId, contactName: c.name);
         }(),
     ];
   }

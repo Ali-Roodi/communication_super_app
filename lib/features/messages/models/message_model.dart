@@ -224,12 +224,20 @@ class MessageThread extends Equatable {
     String? scheduledText,
     DateTime? scheduledTime,
     MessageGroup? group,
+
+    /// Drops the resolved contact name — this number belongs to nobody in the
+    /// address book any more. A plain null cannot say it (every other field
+    /// reads null as "leave it alone"), and a name that cannot *disappear* is
+    /// how a deleted contact went on titling its conversation.
+    bool clearContactName = false,
   }) {
     return MessageThread(
       threadId: threadId ?? this.threadId,
       phoneNumber: phoneNumber ?? this.phoneNumber,
       contactId: contactId ?? this.contactId,
-      contactName: contactName ?? this.contactName,
+      contactName: clearContactName
+          ? null
+          : (contactName ?? this.contactName),
       lastMessage: lastMessage ?? this.lastMessage,
       lastMessageTime: lastMessageTime ?? this.lastMessageTime,
       unreadCount: unreadCount ?? this.unreadCount,

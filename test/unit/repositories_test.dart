@@ -13,6 +13,7 @@ import 'package:communication_super_app/features/messages/repositories/draft_rep
 import 'package:communication_super_app/features/call_history/models/call_log_model.dart';
 import 'package:communication_super_app/features/call_history/repositories/call_log_repository.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
+import 'package:communication_super_app/features/contacts/repositories/contact_name_cache.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/messages/models/scheduled_message_model.dart';
 import 'package:communication_super_app/features/messages/repositories/scheduled_message_repository.dart';
@@ -1005,5 +1006,50 @@ void main() {
         expect(await repo.claimDue(now, 'x'), hasLength(1));
       },
     );
+  });
+
+  group('ContactNameCache', () {
+    setUp(ContactNameCache.resetForTest);
+
+    test('round-trips the address book, keyed on the canonical number', () async {
+      await ContactNameCache.write([
+        _contact('1', name: 'ایمان', phone: '+98 910 790 2209'),
+      ]);
+      ContactNameCache.resetForTest();
+
+      final read = await ContactNameCache.read();
+      // Written as E.164 with spaces, found by the national form — the same key
+      // `messages.thread_id` and `blocked_numbers.normalized` use.
+      expect(read['09107902209']?.name, 'ایمان');
+      expect(read['09107902209']?.contactId, '1');
+    });
+
+    test('a contact that left the address book leaves the cache', () async {
+      await ContactNameCache.write([
+        _contact('1', name: 'ایمان', phone: '09107902209'),
+        _contact('2', name: 'مریم', phone: '09121111111'),
+      ]);
+      // The whole set is replaced, not upserted — an upsert-only cache would go
+      // on naming a contact the user deleted.
+      await ContactNameCache.write([
+        _contact('2', name: 'مریم', phone: '09121111111'),
+      ]);
+      ContactNameCache.resetForTest();
+
+      final read = await ContactNameCache.read();
+      expect(read.containsKey('09107902209'), isFalse);
+      expect(read['09121111111']?.name, 'مریم');
+    });
+
+    test('an unchanged address book is not rewritten', () async {
+      final contacts = [_contact('1', name: 'ایمان', phone: '09107902209')];
+      await ContactNameCache.write(contacts);
+      // Second write is a no-op; the point is that it neither throws nor loses
+      // the row (this is what runs after every cached contacts read).
+      await ContactNameCache.write(contacts);
+      ContactNameCache.resetForTest();
+
+      expect((await ContactNameCache.read()), hasLength(1));
+    });
   });
 }

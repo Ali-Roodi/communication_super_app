@@ -10,6 +10,7 @@ import 'package:communication_super_app/core/utils/search_text.dart';
 import '../models/contact_model.dart';
 import '../models/phone_match.dart';
 import '../services/sim_contacts_service.dart';
+import 'contact_name_cache.dart';
 
 class ContactRepository {
   static List<ContactModel>? _cache;
@@ -144,6 +145,11 @@ class ContactRepository {
       // hand the caller the fresh data instead of caching what it just missed.
       if (_generation != generation) return merged;
       _cache = merged;
+      // Remember the names for the *next* launch. Detached: nothing on screen
+      // waits for it, and it no-ops when the address book has not changed. Only
+      // a read that survived the generation check above is written — a snapshot
+      // that lost the race must not be persisted as the current address book.
+      unawaited(ContactNameCache.write(merged));
       return _cache!;
     } finally {
       _loading = null;

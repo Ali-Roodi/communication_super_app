@@ -3,7 +3,7 @@ class AppConstants {
 
   // Database
   static const String databaseName = 'communication_app.db';
-  static const int databaseVersion = 22;
+  static const int databaseVersion = 23;
 
   // Tables
   static const String contactsTable = 'contacts';
@@ -54,6 +54,17 @@ class AppConstants {
   /// index the message search uses when the device's SQLite can build one.
   /// See `DatabaseHelper.messageSearchFtsReady`.
   static const String messageSearchTable = 'message_search';
+
+  /// Last known «normalized number → contact» of the device address book (v23).
+  ///
+  /// A *cache*, never a source of truth: the address book is on the other side
+  /// of a platform channel and reading it whole takes long enough that the
+  /// inbox and «اخیر» painted their rows as bare numbers and dropped the names
+  /// in a beat later — visible on every single launch. This table is read from
+  /// the database that is already open, so the first paint after a restart
+  /// carries the names the last run resolved, and the real read then corrects
+  /// it (silently, when nothing changed — the states are Equatable).
+  static const String contactNameCacheTable = 'contact_name_cache';
 
   // Storage Keys
   static const String pinKey = 'app_pin';
