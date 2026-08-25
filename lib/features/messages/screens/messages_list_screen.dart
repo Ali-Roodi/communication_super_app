@@ -431,20 +431,42 @@ class _MessagesListScreenState extends State<MessagesListScreen>
     if (_showDefaultSmsBanner) _recheckDefaultSilently();
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: BlocListener<BlockedNumbersBloc, BlockedNumbersState>(
-        // The inbox hides blocked conversations, so the list has to be re-read
-        // whenever the blocked set changes — after a block, an unblock, an undo,
-        // or an unblock done on the «هرزنامه و مسدودشده» page.
-        //
-        // Listening for the *result* rather than firing `LoadThreads` next to the
-        // `BlockNumber` dispatch is the point: the block is written
-        // asynchronously, so a reload queued alongside it read the table before
-        // the row landed and painted the thread the user had just blocked.
-        listenWhen: (previous, current) =>
-            previous.blockedKeys.length != current.blockedKeys.length,
-        listener: (context, _) {
-          if (mounted) context.read<MessageBloc>().add(const LoadThreads());
-        },
+      child: MultiBlocListener(
+        listeners: [
+          BlocListener<BlockedNumbersBloc, BlockedNumbersState>(
+            // The inbox hides blocked conversations, so the list has to be
+            // re-read whenever the blocked set changes — after a block, an
+            // unblock, an undo, or an unblock done on the «هرزنامه و مسدودشده»
+            // page.
+            //
+            // Listening for the *result* rather than firing `LoadThreads` next
+            // to the `BlockNumber` dispatch is the point: the block is written
+            // asynchronously, so a reload queued alongside it read the table
+            // before the row landed and painted the thread the user had just
+            // blocked.
+            listenWhen: (previous, current) =>
+                previous.blockedKeys.length != current.blockedKeys.length,
+            listener: (context, _) {
+              if (mounted) context.read<MessageBloc>().add(const LoadThreads());
+            },
+          ),
+          // Search results are a snapshot of one answered query, not a view of
+          // the inbox — so deleting, archiving, blocking or pinning a hit left
+          // the row sitting on screen and the action read as a no-op (leaving
+          // the search and coming back showed it gone all along).
+          //
+          // The inbox emit is the authoritative "the table changed" signal:
+          // every one of those actions goes through the bloc and answers with a
+          // fresh `ThreadsLoaded`, and `ThreadsLoaded` is Equatable, so an emit
+          // that carries nothing new never reaches this listener.
+          BlocListener<MessageBloc, MessageState>(
+            listenWhen: (previous, current) =>
+                current is ThreadsLoaded && !current.archived,
+            listener: (context, _) {
+              if (mounted && _query.trim().isNotEmpty) _runSearch();
+            },
+          ),
+        ],
         child: Scaffold(
           // Google Messages has no app bar: the header is a collapsing sliver and
           // the conversations sit on a rounded sheet that scrolls up under it.
@@ -700,8 +722,9 @@ class _MessagesListScreenState extends State<MessagesListScreen>
   /// the action unpins them (Google's toggle behaviour on a mixed selection is
   /// "make them all pinned first").
   void _pinSelected() {
-    final all = _lastInbox?.threads ?? const <MessageThread>[];
-    final chosen = all.where((t) => _selected.contains(t.threadId)).toList();
+    final chosen = _visibleThreads
+        .where((t) => _selected.contains(t.threadId))
+        .toList();
     if (chosen.isEmpty) {
       _clearSelection();
       return;
@@ -721,15 +744,22 @@ class _MessagesListScreenState extends State<MessagesListScreen>
     _clearSelection();
   }
 
-  /// Selects every row currently on screen — the search results while
+  /// The rows the user is actually looking at — the search results while
   /// searching, the paged-in inbox otherwise.
+  ///
+  /// Every selection action reads this rather than the inbox alone: a search
+  /// hit is routinely a conversation that has never been paged into the inbox
+  /// list, so «سنجاق» and «مسدود کردن» on a search result found nothing to act
+  /// on and did nothing at all.
+  List<MessageThread> get _visibleThreads =>
+      _searchResults ?? _lastInbox?.threads ?? const <MessageThread>[];
+
+  /// Selects every row currently on screen.
   void _selectAllVisible() {
-    final visible =
-        _searchResults ?? _lastInbox?.threads ?? const <MessageThread>[];
     setState(() {
       _selected
         ..clear()
-        ..addAll(visible.map((t) => t.threadId));
+        ..addAll(_visibleThreads.map((t) => t.threadId));
     });
   }
 
@@ -740,8 +770,7 @@ class _MessagesListScreenState extends State<MessagesListScreen>
   /// مسدودشده», so the inbox is reloaded afterwards: without that the rows the
   /// user just blocked stay on screen and the block reads as a no-op.
   Future<void> _blockSelected() async {
-    final all = _lastInbox?.threads ?? const <MessageThread>[];
-    final chosen = all
+    final chosen = _visibleThreads
         // A group has no sender to block — it is a list of people the user
         // picked. Blocking «g:…» would write a nonsense row into
         // `blocked_numbers`, whose `normalized` column is the canonical thread
