@@ -221,16 +221,40 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     }
   }
 
+  /// Whether [info] is authoritative about *who* the call is with.
+  ///
+  /// Telecom sends state changes for a call it has already named; only an event
+  /// that carries the number identifies the party, and an event without one
+  /// (an audio-state or hold change) must leave the identity alone.
+  static bool _namesTheParty(CallInfo info) => info.phone.isNotEmpty;
+
+  /// The caller's name as this event reports it — empty folded to null, so
+  /// «no contact» is one value and not two.
+  static String? _nameOf(CallInfo info) {
+    final name = info.name;
+    return (name == null || name.isEmpty) ? null : name;
+  }
+
   void _onCallEvent(CallEventReceived event, Emitter<DialerState> emit) {
     final info = event.callInfo;
+    // The identity fields are REPLACED by an event that carries a number, never
+    // merged into what was there. `copyWith` reads null as "leave it alone", so
+    // without the explicit clears a call from an unsaved number kept the name —
+    // and the SIM badge — of the previous caller.
+    final name = _nameOf(info);
+    final identifies = _namesTheParty(info);
+    final clearName = identifies && name == null;
+    final clearSim = identifies && info.subscriptionId == null;
     switch (info.event) {
       case NativeCallEvent.incoming:
         emit(
           state.copyWith(
             callStatus: CallStatus.incoming,
             activePhone: info.phone,
-            activeName: info.name,
+            activeName: name,
+            clearActiveName: clearName,
             activeSubscriptionId: info.subscriptionId,
+            clearActiveSubscriptionId: clearSim,
           ),
         );
       case NativeCallEvent.ringing:
@@ -240,8 +264,10 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
           state.copyWith(
             callStatus: CallStatus.ringing,
             activePhone: info.phone.isNotEmpty ? info.phone : null,
-            activeName: info.name,
+            activeName: name,
+            clearActiveName: clearName,
             activeSubscriptionId: info.subscriptionId,
+            clearActiveSubscriptionId: clearSim,
           ),
         );
       case NativeCallEvent.active:
@@ -249,9 +275,11 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
           state.copyWith(
             callStatus: CallStatus.active,
             activePhone: info.phone.isNotEmpty ? info.phone : null,
-            activeName: info.name,
+            activeName: name,
+            clearActiveName: clearName,
             isConference: info.isConference ?? state.isConference,
             activeSubscriptionId: info.subscriptionId,
+            clearActiveSubscriptionId: clearSim,
             // Telecom's own connect time. Authoritative, and the reason the
             // duration survives minimizing the call screen and a cold start
             // into a call that was already running.
@@ -270,9 +298,9 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
         // reset call state — keypad و dialedNumber را حفظ کن
         emit(_idleState());
       case NativeCallEvent.callFailed:
-        emit(
-          state.copyWith(callStatus: CallStatus.idle, error: 'تماس برقرار نشد'),
-        );
+        // Through `_idleState` like every other teardown: leaving the identity
+        // fields behind is what let the next call inherit this one's name.
+        emit(_idleState().copyWith(error: 'تماس برقرار نشد'));
       case NativeCallEvent.audioState:
         // Telecom changed the route/mute outside our toggles (e.g. a headset
         // connected mid-call). This is the ONLY source of truth for the live
@@ -353,6 +381,8 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
       state.copyWith(
         callStatus: CallStatus.idle,
         activePhone: '',
+        clearActiveName: true,
+        clearActiveSubscriptionId: true,
         isMuted: false,
         isSpeakerOn: false,
         callCount: 0,
@@ -386,6 +416,8 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
       state.copyWith(
         callStatus: CallStatus.idle,
         activePhone: '',
+        clearActiveName: true,
+        clearActiveSubscriptionId: true,
         isMuted: false,
         isSpeakerOn: false,
         callCount: 0,
@@ -444,6 +476,8 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
   DialerState _idleState() => state.copyWith(
     callStatus: CallStatus.idle,
     activePhone: '',
+    clearActiveName: true,
+    clearActiveSubscriptionId: true,
     isMuted: false,
     isSpeakerOn: false,
     audioRoute: CallAudioRoute.earpiece,

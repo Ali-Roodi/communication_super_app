@@ -95,6 +95,105 @@ void main() {
       await bloc.close();
     });
 
+    test(
+      'a call from an unsaved number does NOT inherit the previous name',
+      () async {
+        final bloc = makeBloc();
+        bloc.add(
+          const CallEventReceived(
+            CallInfo(
+              event: NativeCallEvent.incoming,
+              phone: '09120000000',
+              name: 'ایمان',
+              subscriptionId: 2,
+            ),
+          ),
+        );
+        await settle();
+        expect(bloc.state.activeName, 'ایمان');
+        expect(bloc.state.activeSubscriptionId, 2);
+
+        bloc.add(
+          const CallEventReceived(CallInfo(event: NativeCallEvent.disconnected)),
+        );
+        await settle();
+        expect(bloc.state.activeName, isNull);
+        expect(bloc.state.activeSubscriptionId, isNull);
+
+        // The next caller has no contact and telecom reports no SIM. `copyWith`
+        // reads null as "leave it alone", so without the explicit clears this
+        // screen named the *previous* caller and badged the previous card.
+        bloc.add(
+          const CallEventReceived(
+            CallInfo(event: NativeCallEvent.incoming, phone: '09351111111'),
+          ),
+        );
+        await settle();
+        expect(bloc.state.activePhone, '09351111111');
+        expect(bloc.state.activeName, isNull);
+        expect(bloc.state.activeSubscriptionId, isNull);
+        await bloc.close();
+      },
+    );
+
+    test(
+      'a deleted contact stops naming the call, without a disconnect between',
+      () async {
+        final bloc = makeBloc();
+        bloc.add(
+          const CallEventReceived(
+            CallInfo(
+              event: NativeCallEvent.incoming,
+              phone: '09107902209',
+              name: 'ایمان',
+            ),
+          ),
+        );
+        await settle();
+        expect(bloc.state.activeName, 'ایمان');
+
+        // Same number, contact since deleted: the native PhoneLookup answers
+        // with nothing, and that answer has to win.
+        bloc.add(
+          const CallEventReceived(
+            CallInfo(event: NativeCallEvent.active, phone: '09107902209'),
+          ),
+        );
+        await settle();
+        expect(bloc.state.activeName, isNull);
+        await bloc.close();
+      },
+    );
+
+    test(
+      'an event that names nobody leaves a live call\'s identity alone',
+      () async {
+        final bloc = makeBloc();
+        bloc.add(
+          const CallEventReceived(
+            CallInfo(
+              event: NativeCallEvent.incoming,
+              phone: '09120000000',
+              name: 'ایمان',
+              subscriptionId: 1,
+            ),
+          ),
+        );
+        await settle();
+        // AUDIO_STATE and hold changes carry no number: they are about the
+        // call, not about who is on it.
+        bloc.add(
+          const CallEventReceived(
+            CallInfo(event: NativeCallEvent.onHold),
+          ),
+        );
+        await settle();
+        expect(bloc.state.activeName, 'ایمان');
+        expect(bloc.state.activeSubscriptionId, 1);
+        await bloc.close();
+      },
+    );
+
     test('disconnected event resets call state to idle', () async {
       final bloc = makeBloc();
       bloc.add(
