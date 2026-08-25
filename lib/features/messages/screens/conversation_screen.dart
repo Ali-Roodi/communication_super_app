@@ -49,6 +49,7 @@ import 'widgets/message_composer.dart';
 import 'widgets/pinch_text_scale.dart';
 import 'widgets/schedule_send_sheet.dart';
 import 'widgets/scheduled_bubble.dart';
+import 'package:communication_super_app/core/navigation/app_route_observer.dart';
 
 /// Google Messages style chat screen.
 ///
@@ -99,9 +100,28 @@ class ConversationScreen extends StatefulWidget {
   State<ConversationScreen> createState() => _ConversationScreenState();
 }
 
-class _ConversationScreenState extends State<ConversationScreen> {
+class _ConversationScreenState extends State<ConversationScreen>
+    with RouteAware {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+
+  /// The last [MessagesLoaded] that belongs to **this** thread.
+  ///
+  /// `MessageBloc` is global and holds exactly one conversation at a time, so a
+  /// second chat opened on top of this one (tapping a number inside a message,
+  /// «هدایت») replaces the bloc's state with *its* messages while this screen is
+  /// still mounted underneath. Rendering whatever `MessagesLoaded` happened to
+  /// be current is why coming back from that second chat showed the other
+  /// conversation's messages under this one's header — the messages were never
+  /// wrong in the database, the screen was reading somebody else's state.
+  ///
+  /// So: every read is filtered by [_isMine], and the last matching page is kept
+  /// here to paint from while the bloc is busy with another thread.
+  MessagesLoaded? _lastLoaded;
+
+  /// Whether [state] is this conversation's own loaded page.
+  bool _isMine(MessageState state) =>
+      state is MessagesLoaded && state.threadId == widget.threadId;
 
   /// Owned here (not by the composer) so the emoji button can hand focus back
   /// to the field: closing the panel has to *open the keyboard*, and only the
@@ -429,7 +449,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     }
     if (_isLoadingMore) return;
     final state = context.read<MessageBloc>().state;
-    if (state is! MessagesLoaded || !state.hasMore) return;
+    if (!_isMine(state) || !(state as MessagesLoaded).hasMore) return;
     // Older messages live near the top (maxScrollExtent) now.
     if (pos.maxScrollExtent - pos.pixels <= 200) {
       _isLoadingMore = true;
@@ -438,7 +458,31 @@ class _ConversationScreenState extends State<ConversationScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) appRouteObserver.subscribe(this, route);
+  }
+
+  /// A conversation opened on top of this one has been popped.
+  ///
+  /// Two things have to happen, and neither is optional. `MessageBloc` is now
+  /// parked on the *other* thread's page, so this screen has to ask for its own
+  /// again — and while that chat was open it was also the "visible thread" for
+  /// the native notifier, which must be handed back here or notifications for
+  /// this conversation keep being posted while the user is reading it.
+  @override
+  void didPopNext() {
+    if (!mounted) return;
+    DeepLinkService.instance
+      ..setVisibleThread(widget.threadId)
+      ..clearThreadNotifications(widget.threadId);
+    _messageBloc.add(LoadMessages(widget.threadId));
+  }
+
+  @override
   void dispose() {
+    appRouteObserver.unsubscribe(this);
     DeepLinkService.instance.setVisibleThread(null);
     ContactRepository.revision.removeListener(_onAddressBookChanged);
     SimService.revision.removeListener(_restoreThreadSim);
@@ -575,7 +619,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
           appBar: _selectionMode ? _selectionAppBar() : _normalAppBar(),
           body: BlocListener<MessageBloc, MessageState>(
             listenWhen: (_, curr) =>
-                curr is MessagesLoaded ||
+                _isMine(curr) ||
                 curr is MessageSent ||
                 curr is MessageSendFailed ||
                 curr is MessageError,
@@ -775,9 +819,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
     final state = context.read<MessageBloc>().state;
     final received =
-        state is MessagesLoaded &&
-        state.threadId == widget.threadId &&
-        state.messages.any((m) => m.type == MessageType.received);
+        _isMine(state) &&
+        (state as MessagesLoaded).messages.any(
+          (m) => m.type == MessageType.received,
+        );
     if (!received) return const SizedBox.shrink();
 
     final scheme = Theme.of(context).colorScheme;
@@ -956,12 +1001,18 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   Widget _buildMessageList() {
     return BlocBuilder<MessageBloc, MessageState>(
-      buildWhen: (_, curr) => curr is MessageLoading || curr is MessagesLoaded,
-      builder: (context, state) {
-        if (state is MessageLoading) {
+      // `MessagesLoaded` for ANOTHER thread is not this screen's news: the bloc
+      // is global, and a chat opened on top of this one parks it on that
+      // conversation. See [_lastLoaded].
+      buildWhen: (_, curr) => curr is MessageLoading || _isMine(curr),
+      builder: (context, rawState) {
+        if (_isMine(rawState)) _lastLoaded = rawState as MessagesLoaded;
+        final state = _lastLoaded;
+        // A spinner only while there is genuinely nothing of this thread to
+        // paint — never over a page already on screen.
+        if (state == null) {
           return const Center(child: CircularProgressIndicator());
         }
-        if (state is! MessagesLoaded) return const SizedBox.shrink();
 
         // Read once for the whole list. Inside the item builder this was a
         // `context.watch` per bubble: every visible bubble registered its own
@@ -1438,8 +1489,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
   }
 
   void _copySelected() {
-    final state = context.read<MessageBloc>().state;
-    if (state is! MessagesLoaded) return;
+    final state = _lastLoaded;
+    if (state == null) return;
     final texts = state.messages
         .where((m) => _selected.contains(m.id))
         // The clipboard gets what the bubbles show, not the stored wire.
