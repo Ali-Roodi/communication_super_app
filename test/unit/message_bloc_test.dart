@@ -129,4 +129,38 @@ void main() {
       expect: () => const <MessageState>[],
     );
   });
+
+  group('MessageBloc.RefreshContactNames', () {
+    blocTest<MessageBloc, MessageState>(
+      'takes the name off a thread whose contact was deleted',
+      setUp: () {
+        // The address book no longer knows this number.
+        when(() => contacts.getAllContacts()).thenAnswer((_) async => const []);
+      },
+      build: build,
+      seed: () => ThreadsLoaded([
+        MessageThread(
+          threadId: '09107902209',
+          phoneNumber: '09107902209',
+          contactName: 'ایمان',
+          lastMessage: 'سلام',
+          lastMessageTime: DateTime(2026, 1, 1, 12),
+        ),
+      ]),
+      act: (bloc) => bloc.add(const RefreshContactNames()),
+      // The name has to be able to *disappear*: this pass re-resolves the rows
+      // already on screen, so keeping any name a row carried is what let a
+      // deleted contact go on titling its conversation.
+      expect: () => [
+        ThreadsLoaded([
+          MessageThread(
+            threadId: '09107902209',
+            phoneNumber: '09107902209',
+            lastMessage: 'سلام',
+            lastMessageTime: DateTime(2026, 1, 1, 12),
+          ),
+        ]),
+      ],
+    );
+  });
 }

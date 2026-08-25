@@ -6,6 +6,7 @@ import 'message_state.dart';
 import '../repositories/group_repository.dart';
 import '../repositories/message_repository.dart';
 import '../services/sms_service.dart';
+import 'package:communication_super_app/features/contacts/repositories/contact_name_cache.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import '../models/message_group.dart';
@@ -276,9 +277,13 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     // inbox can say it is still importing instead of saying there is nothing.
     final syncing = _syncing || !_hasImported;
     if (_cachedPhoneToName == null && rawThreads.isNotEmpty) {
+      // Not bare rows: the names this device resolved on its last run are in
+      // SQLite, so the first paint of a launch already carries them. On a phone
+      // whose address book has not changed since, the authoritative pass below
+      // produces an identical `ThreadsLoaded` and nothing repaints at all.
       emit(
         ThreadsLoaded(
-          await _resolveGroups(rawThreads),
+          await _resolveGroups(_applyNames(rawThreads, await _rememberedNames())),
           hasMore: hasMore,
           archived: archived,
           syncing: syncing,
@@ -771,18 +776,59 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         _cachedPhoneToName = map;
       }
 
-      final phoneToName = _cachedPhoneToName!;
-      if (phoneToName.isEmpty) return threads;
-
-      return threads.map((t) {
-        if (t.contactName != null && t.contactName!.isNotEmpty) return t;
-        final name = phoneToName[PhoneNormalizer.toThreadId(t.phoneNumber)];
-        if (name == null || name.isEmpty) return t;
-        return t.copyWith(contactName: name);
-      }).toList();
+      return _applyNames(threads, _cachedPhoneToName!);
     } catch (_) {
       return threads;
     }
+  }
+
+  /// Titles [threads] from [phoneToName] — and **untitles** the ones it has no
+  /// name for.
+  ///
+  /// The overwrite is the point. This used to keep any name a row already
+  /// carried, which reads as an optimization and is a bug: `RefreshContactNames`
+  /// re-resolves the rows that are *already on screen*, so a contact the user
+  /// had just deleted went on naming its conversation until something happened
+  /// to re-read the inbox from SQLite. A name has to be able to disappear.
+  ///
+  /// Group rows are left exactly as they are: their title comes from the group,
+  /// not from the address book (see [_resolveGroups]).
+  static List<MessageThread> _applyNames(
+    List<MessageThread> threads,
+    Map<String, String> phoneToName,
+  ) {
+    return [
+      for (final thread in threads)
+        if (thread.isGroup)
+          thread
+        else
+          () {
+            final key = PhoneNormalizer.toThreadId(thread.phoneNumber);
+            final name = key.isEmpty ? null : phoneToName[key];
+            final resolved = (name == null || name.isEmpty) ? null : name;
+            if (resolved == thread.contactName) return thread;
+            return thread.copyWith(
+              contactName: resolved,
+              clearContactName: resolved == null,
+            );
+          }(),
+    ];
+  }
+
+  /// The names the **last** run resolved, read from SQLite.
+  ///
+  /// Used for the very first emit of a launch: the real address-book read is a
+  /// platform-channel round trip over the whole book, and waiting for it is why
+  /// the inbox painted bare numbers and dropped the names in a beat later on
+  /// every single launch. This answers from the database that is already open,
+  /// and the authoritative read then corrects it — silently when nothing has
+  /// changed, because [ThreadsLoaded] is Equatable and an identical emit never
+  /// reaches the screen.
+  Future<Map<String, String>> _rememberedNames() async {
+    final cached = await ContactNameCache.read();
+    return {
+      for (final entry in cached.entries) entry.key: entry.value.name,
+    };
   }
 
   /// Maps a native error code to a user-facing Persian string.

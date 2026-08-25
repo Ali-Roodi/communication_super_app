@@ -325,6 +325,35 @@ class DatabaseHelper {
     if (oldVersion < 22) {
       await _createMessageGroupTables(db);
     }
+
+    // v23: the persisted address-book name cache. Starts empty and fills itself
+    // on the first device read, so an upgraded install behaves exactly as before
+    // for one launch and then paints its names from the first frame.
+    if (oldVersion < 23) {
+      await _createContactNameCacheTable(db);
+    }
+  }
+
+  /// Last known «normalized number → contact» of the device address book (v23).
+  ///
+  /// A pure cache of what `flutter_contacts` last handed back — see
+  /// [AppConstants.contactNameCacheTable]. `normalized` is the canonical
+  /// national key (`PhoneNormalizer.toThreadId`), the same one
+  /// `messages.thread_id`, `blocked_numbers.normalized` and
+  /// `favorites.normalized` use, so a lookup is one indexed hit and no caller
+  /// has to care what format the number was written in.
+  ///
+  /// `contact_id` rides along because the row is also what the avatar is loaded
+  /// by; without it the first paint would show initials and swap in the photo
+  /// a beat later, which is the same flicker one level down.
+  Future<void> _createContactNameCacheTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.contactNameCacheTable} (
+        normalized TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        contact_id TEXT
+      )
+    ''');
   }
 
   /// ALTERs [table] only when [column] is not already there.
@@ -988,6 +1017,9 @@ class DatabaseHelper {
 
       // Local group conversations + fan-out bookkeeping (v22)
       await _createMessageGroupTables(db);
+
+      // Persisted address-book name cache (v23)
+      await _createContactNameCacheTable(db);
     } catch (e) {
       throw Exception('Failed to create database tables: $e');
     }
