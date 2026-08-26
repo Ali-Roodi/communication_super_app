@@ -125,6 +125,21 @@
                 <data android:scheme="mms"/>
                 <data android:scheme="mmsto"/>
             </intent-filter>
+            <!-- The system share sheet — «اشتراک‌گذاری» of a piece of text from
+                 any other app.
+                 ACTION_SEND carries its payload in EXTRA_TEXT and has **no data
+                 URI at all**, so the sms:/smsto: filter above (which requires
+                 one) could never match it. That is the whole of "هم‌رسان is not
+                 in the share list": the Kotlin and Dart halves have always known
+                 how to consume it — `consumeLaunchAction` maps a text/plain
+                 ACTION_SEND onto the `sms` launch action, which opens the
+                 recipient picker with the shared text already in the composer —
+                 and nothing ever advertised it to the system. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="text/plain"/>
+            </intent-filter>
             <!-- Default-dialer role requirement: handle ACTION_DIAL, both with
                  a tel: number and bare (open the keypad). -->
             <intent-filter>

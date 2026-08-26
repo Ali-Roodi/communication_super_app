@@ -53,7 +53,8 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator>
   static _CallUiCoordinatorState? _instance;
 
   /// Previous call status — the listener needs the transition (not just the
-  /// new value) to decide between push / pushReplacement / no-op.
+  /// new value) to decide between opening a screen and leaving the one that is
+  /// already up alone.
   CallStatus _lastCallStatus = CallStatus.idle;
 
   /// The number/name the minimized call was showing, so restoring re-opens the
@@ -98,7 +99,7 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator>
     final state = context.read<DialerBloc>().state;
     _minimizedPhone = state.activePhone;
     _minimizedName = state.activeName;
-    _dismissCallRoute();
+    _dismissCallRoutes();
     CallUiCoordinator.minimized.value = true;
     _reportCallScreenVisible(false);
   }
@@ -145,13 +146,30 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator>
     context.read<DialerBloc>().add(const SyncCallState());
   }
 
-  /// The call route currently pushed by this coordinator. Kept so that going
-  /// idle removes exactly THIS route — a blind `navigator.pop()` could pop an
-  /// unrelated screen (or walk the stack past the root) when the call screen
-  /// was never pushed or was already gone.
-  Route<void>? _callRoute;
+  /// Every call route this coordinator has pushed and not yet taken down.
+  ///
+  /// Routes are tracked (rather than popped blindly) so that going idle removes
+  /// exactly THESE routes — a bare `navigator.pop()` could pop an unrelated
+  /// screen, or walk past the root, when the call screen was never pushed or
+  /// was already gone.
+  ///
+  /// It is a **list**, and that is the fix for a call screen that outlived its
+  /// call. A single field was overwritten by the next push, which orphaned the
+  /// route it was holding: a call-waiting ring pushed `IncomingCallScreen` over
+  /// the live call's `InCallScreen` and forgot the latter; when the second call
+  /// went away and the first one ended, the coordinator removed only the route
+  /// it still remembered and the user was left staring at the *other* one —
+  /// a dead incoming-call screen for somebody who had rung off minutes ago,
+  /// with no call anywhere on the phone. Everything pushed is now owned, and
+  /// [_dismissCallRoutes] takes all of it down.
+  ///
+  /// In practice it holds at most one: [_pushCall] removes what came before.
+  final List<Route<void>> _callRoutes = <Route<void>>[];
 
-  void _pushCall(BuildContext context, Widget screen, {bool replace = false}) {
+  /// The call screen currently on top, or null when none is up.
+  Route<void>? get _callRoute => _callRoutes.isEmpty ? null : _callRoutes.last;
+
+  void _pushCall(BuildContext context, Widget screen) {
     final navigator = appNavigatorKey.currentState;
     if (navigator == null) return;
     // No transition: an incoming call arrives while whatever was last on screen
@@ -163,12 +181,18 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator>
       pageBuilder: (_, _, _) =>
           BlocProvider.value(value: context.read<DialerBloc>(), child: screen),
     );
-    final previous = _callRoute;
-    _callRoute = route;
-    if (replace && previous != null && previous.isActive) {
-      navigator.pushReplacement(route);
-    } else {
-      navigator.push(route);
+    final stale = List<Route<void>>.of(_callRoutes);
+    _callRoutes
+      ..clear()
+      ..add(route);
+    // Push first, then retire what it supersedes: the new screen is already
+    // painted over them, so removing them is invisible. (With a zero-length
+    // transition this is exactly what `pushReplacement` looks like — but it
+    // reaches the routes this coordinator owns wherever they sit in the stack,
+    // instead of whatever happens to be on top.)
+    navigator.push(route);
+    for (final superseded in stale) {
+      if (superseded.isActive) navigator.removeRoute(superseded);
     }
     // The screen is up, so the shade card is redundant and the return bar must
     // go. Both are also re-derived on every push, not only on the first: a
@@ -177,12 +201,14 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator>
     _reportCallScreenVisible(true);
   }
 
-  void _dismissCallRoute() {
+  void _dismissCallRoutes() {
     final navigator = appNavigatorKey.currentState;
-    final route = _callRoute;
-    _callRoute = null;
-    if (navigator == null || route == null || !route.isActive) return;
-    navigator.removeRoute(route);
+    final routes = List<Route<void>>.of(_callRoutes);
+    _callRoutes.clear();
+    if (navigator == null) return;
+    for (final route in routes) {
+      if (route.isActive) navigator.removeRoute(route);
+    }
   }
 
   /// Pops everything above the in-call route (dialer sheet, contact page …)
@@ -246,7 +272,6 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator>
                   phone: state.activePhone,
                   contactName: state.activeName,
                 ),
-                replace: true,
               );
             } else if (prev != CallStatus.ringing &&
                 prev != CallStatus.connecting &&
@@ -279,7 +304,7 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator>
             if (prev != CallStatus.idle) {
               Future<void>.delayed(const Duration(milliseconds: 600), () {
                 if (!mounted || _lastCallStatus != CallStatus.idle) return;
-                _dismissCallRoute();
+                _dismissCallRoutes();
               });
             }
         }

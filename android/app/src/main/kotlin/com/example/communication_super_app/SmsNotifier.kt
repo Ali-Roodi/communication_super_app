@@ -53,7 +53,20 @@ object SmsNotifier {
             // The user is LOOKING at this conversation right now — no
             // notification (Google Messages behavior). Backgrounded app
             // still notifies even for the "open" thread.
-            if (MainActivity.isResumed && MainActivity.visibleThreadId == threadId) {
+            //
+            // «Looking at it» means the screen is on AND the phone is unlocked,
+            // and both halves are load-bearing. `isResumed` alone is not the
+            // question it sounds like: on this device (and on every OEM build
+            // that resumes the foreground activity behind the keyguard) waking
+            // a locked phone puts MainActivity back into onResume with the lock
+            // screen still on top of it. So once the phone had been woken even
+            // once, every further message from the last-opened conversation was
+            // dropped on the floor — «اگر گوشی لاک باشه نوتیف پیام روی صفحه
+            // نمی‌آید». A user who cannot see the screen cannot have read it.
+            if (MainActivity.isResumed &&
+                MainActivity.visibleThreadId == threadId &&
+                isUserWatching(context)
+            ) {
                 Log.d(TAG, "Suppressed notification for visible thread")
                 return
             }
@@ -171,7 +184,7 @@ object SmsNotifier {
             pushConversationShortcut(context, shortcutId, title, sender, threadId)
 
             val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(context.applicationInfo.icon)
+                .setSmallIcon(R.drawable.ic_stat_message)
                 .setContentTitle(title)
                 .setContentText(text)
                 .setStyle(style)
@@ -179,6 +192,12 @@ object SmsNotifier {
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setDefaults(NotificationCompat.DEFAULT_ALL)
                 .setCategory(Notification.CATEGORY_MESSAGE)
+                // Spelled out rather than left to the platform default: this is
+                // what puts the card on the lock screen at all. PRIVATE (not
+                // SECRET) is the messenger's setting — the card is always
+                // shown, and only its *content* is folded away when the user
+                // has asked for sensitive notifications to be hidden.
+                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
                 .setAutoCancel(true)
                 .setContentIntent(contentIntent)
                 .setShortcutId(shortcutId)
@@ -209,6 +228,27 @@ object SmsNotifier {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to post SMS notification: ${e.message}", e)
         }
+    }
+
+    /**
+     * Whether the screen is on and the phone is unlocked — i.e. whether the
+     * user can actually see what the app is showing.
+     *
+     * Both reads are cheap (no binder round trip beyond the service lookup) and
+     * both are needed: an unlocked phone with the display off is not being
+     * looked at either, and a phone with no lock set reports `isKeyguardLocked`
+     * false even while asleep. Any failure answers **false**, because the cost
+     * of guessing wrong is a silently swallowed message.
+     */
+    private fun isUserWatching(context: Context): Boolean = try {
+        val keyguard =
+            context.getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
+        val power =
+            context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        power.isInteractive && !keyguard.isKeyguardLocked
+    } catch (e: Exception) {
+        Log.w(TAG, "isUserWatching failed: ${e.message}")
+        false
     }
 
     /** Dismisses every posted SMS notification tagged with [threadId]. */

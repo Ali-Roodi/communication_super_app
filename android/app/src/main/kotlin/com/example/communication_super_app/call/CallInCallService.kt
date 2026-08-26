@@ -20,6 +20,7 @@ import com.example.communication_super_app.sim.SimRegistry
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
 import com.example.communication_super_app.BlockedNumbers
+import com.example.communication_super_app.R
 
 /**
  * The in-call UI binding for cellular calls — bound by telecom while this app
@@ -221,6 +222,21 @@ class CallInCallService : InCallService() {
         @JvmStatic
         fun isLive(call: Call): Boolean = call.state in LIVE_STATES
 
+        /**
+         * The call the UI should follow once [ending] is gone, or null when
+         * the phone is about to be idle.
+         *
+         * An ACTIVE call wins over a held or ringing one: it is the
+         * conversation the user is actually having, and the point of asking is
+         * to keep the screen on it rather than on the leg that just dropped.
+         */
+        @JvmStatic
+        fun liveSuccessorTo(ending: Call): Call? {
+            val top = topLevelCalls().filter { it !== ending }
+            return top.firstOrNull { it.state == Call.STATE_ACTIVE }
+                ?: top.lastOrNull()
+        }
+
         /** Live calls that are not children of a conference — what the UI counts. */
         @JvmStatic
         fun topLevelCalls(): List<Call> =
@@ -398,7 +414,27 @@ class CallInCallService : InCallService() {
             // Only the foreground call drives the screen state — a background
             // call flipping to HOLDING while the second call dials must not
             // repaint the UI as "on hold".
-            if (call == currentCall) publishState(call, state)
+            //
+            // …and the call the UI is following ending is only the END of the
+            // call when nothing else is left. Call waiting makes the *second*
+            // (ringing) call `currentCall`, so the far more common case — the
+            // waiting caller gives up while the user keeps talking — arrived
+            // here as DISCONNECTED for `currentCall` and published "the call is
+            // over" while the user was still on the line. The survivor takes
+            // over instead; only an empty phone publishes DISCONNECTED.
+            if (call == currentCall) {
+                val survivor = if (state == Call.STATE_DISCONNECTED) {
+                    liveSuccessorTo(call)
+                } else {
+                    null
+                }
+                if (survivor != null) {
+                    currentCall = survivor
+                    publishState(survivor, survivor.state)
+                } else {
+                    publishState(call, state)
+                }
+            }
             // Mergeability depends on the active/held mix — keep Flutter posted.
             publishCallsChanged()
             // Answered / put on hold / ended — whether the ear may blank the
@@ -660,8 +696,11 @@ class CallInCallService : InCallService() {
             )
         } else {
             // Another call is still up (conference member ended, or one leg of
-            // a two-call session hung up) — keep the UI on the survivor.
-            val next = remaining.last()
+            // a two-call session hung up) — keep the UI on the survivor. An
+            // ACTIVE one is preferred over a held or ringing leg: it is the
+            // conversation the user is in the middle of. Same choice as
+            // [liveSuccessorTo], which the state callback makes a beat earlier.
+            val next = liveSuccessorTo(call) ?: remaining.last()
             currentCall = next
             // A surviving held call is resumed so the user isn't left in
             // silence wondering where the audio went.
@@ -955,7 +994,7 @@ class CallInCallService : InCallService() {
         // when the full-screen intent is throttled — the call stays answerable.
         val caller = Person.Builder().setName(name).setImportant(true).build()
         val notification = NotificationCompat.Builder(this, channelId)
-            .setSmallIcon(applicationInfo.icon)
+            .setSmallIcon(R.drawable.ic_stat_call)
             .setContentTitle(name)
             // «تماس ورودی · سیم ۲ · ایرانسل». On a locked phone this card is
             // often the only thing the user sees of the call, so the card the
@@ -1069,7 +1108,7 @@ class CallInCallService : InCallService() {
         val caller = Person.Builder().setName(name).setImportant(true).build()
         val connectedAt = call.details?.connectTimeMillis ?: 0L
         val builder = NotificationCompat.Builder(this, ONGOING_CHANNEL_ID)
-            .setSmallIcon(applicationInfo.icon)
+            .setSmallIcon(R.drawable.ic_stat_call)
             .setContentTitle(name)
             .setContentText("تماس در جریان")
             .setStyle(NotificationCompat.CallStyle.forOngoingCall(caller, hangUp))
@@ -1169,7 +1208,7 @@ class CallInCallService : InCallService() {
             "تماس بی‌پاسخ"
         }
         val builder = NotificationCompat.Builder(this, MISSED_CHANNEL_ID)
-            .setSmallIcon(applicationInfo.icon)
+            .setSmallIcon(R.drawable.ic_stat_call)
             .setContentTitle(title)
             .setContentText(name)
             // Which card was rung — the same subtext the SMS shade shows,

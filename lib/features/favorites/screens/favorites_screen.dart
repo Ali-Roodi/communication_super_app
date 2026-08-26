@@ -12,6 +12,7 @@ import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
+import 'package:communication_super_app/features/contacts/widgets/phone_number_picker.dart';
 import '../bloc/favorites_bloc.dart';
 import '../bloc/favorites_event.dart';
 import '../bloc/favorites_state.dart';
@@ -207,6 +208,24 @@ class _FavoriteCardState extends State<_FavoriteCard> {
     }
   }
 
+  /// Which of the person's numbers this action is for.
+  ///
+  /// **A favourite is a person, not a number** — that is the whole reason the
+  /// star does not ask which number to save — so the question belongs here, at
+  /// the moment there is actually something to do with one. Without it, the
+  /// sheet silently used the number the contact happened to be starred from:
+  /// somebody with a mobile and a work line could only ever be reached on the
+  /// first, from the one screen built for reaching them quickly.
+  ///
+  /// Nothing is asked when there is no choice — one number, or a number that
+  /// belongs to no saved contact — and the stored number is used then, since it
+  /// is the one the user starred. Null means the picker was dismissed.
+  Future<String?> _chooseNumber(String title) async {
+    final numbers = _contact?.phoneNumbers ?? const <String>[];
+    if (numbers.length < 2 || !mounted) return favorite.phoneNumber;
+    return pickContactNumber(context, numbers: numbers, title: title);
+  }
+
   /// Long-press: the quick-action sheet Google Phone puts behind a favourite —
   /// call, message, open the contact, and unstar.
   void _showOptions(BuildContext context) {
@@ -223,25 +242,30 @@ class _FavoriteCardState extends State<_FavoriteCard> {
               ListTile(
                 leading: const Icon(Icons.call_outlined),
                 title: const Text('تماس'),
-                onTap: () {
+                onTap: () async {
                   Navigator.of(sheetContext).pop();
-                  placeCall(context, favorite.phoneNumber);
+                  final number = await _chooseNumber('تماس با $_displayName');
+                  if (number == null || !context.mounted) return;
+                  await placeCall(context, number);
                 },
               ),
               ...simCallRows(
                 context,
                 favorite.phoneNumber,
                 onBeforeCall: () => Navigator.of(sheetContext).pop(),
+                resolveNumber: () => _chooseNumber('تماس با $_displayName'),
               ),
               ListTile(
                 leading: const Icon(Icons.message_outlined),
                 title: const Text('ارسال پیامک'),
-                onTap: () {
+                onTap: () async {
                   Navigator.of(sheetContext).pop();
+                  final number = await _chooseNumber('پیام به $_displayName');
+                  if (number == null || !context.mounted) return;
                   Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => ConversationScreen.forPhone(
-                        favorite.phoneNumber,
+                        number,
                         contactName: _contact?.name ?? favorite.name,
                       ),
                     ),
