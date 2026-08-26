@@ -105,10 +105,15 @@ Future<SimCard?> resolveVoiceSim(BuildContext context, String number) async {
 ///
 /// Google Phone puts exactly these in the call-log detail sheet; they are what
 /// makes the second card reachable without changing a system setting.
+/// [resolveNumber], when given, decides *which* number the call goes to at the
+/// moment the row is tapped — a favourite is a person, and a person may have
+/// several numbers. It runs after [onBeforeCall] (so the picker is not stacked
+/// on the sheet it came from) and returning null cancels the call.
 List<Widget> simCallRows(
   BuildContext context,
   String number, {
   VoidCallback? onBeforeCall,
+  Future<String?> Function()? resolveNumber,
 }) {
   if (!SimService.isMultiSim) return const <Widget>[];
   return [
@@ -116,9 +121,11 @@ List<Widget> simCallRows(
       ListTile(
         leading: const Icon(Icons.sim_card_outlined),
         title: Text('تماس با ${sim.slotLabel} · ${sim.name}'),
-        onTap: () {
+        onTap: () async {
           onBeforeCall?.call();
-          placeCall(context, number, sim: sim);
+          final target = resolveNumber == null ? number : await resolveNumber();
+          if (target == null || target.isEmpty || !context.mounted) return;
+          await placeCall(context, target, sim: sim);
         },
       ),
   ];

@@ -236,18 +236,43 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
     _results = ContactRepository.matchContacts(source, _query);
 
     _resultNumbers = {};
+    _typedNumberOwner = null;
     final phoneQuery = PhoneQuery(_query);
     if (!phoneQuery.isEmpty) {
+      final typedForms = phoneQuery.needles;
       for (final contact in _results) {
         for (final phone in _numbersOf(contact)) {
           if (phoneQuery.contains(phone)) {
             _resultNumbers[contact.id] = phone;
+            if (_typedNumberOwner == null && _isSameNumber(phone, typedForms)) {
+              _typedNumberOwner = contact;
+            }
             break;
           }
         }
       }
     }
     return _results;
+  }
+
+  /// The contact the typed digits **are** — not merely one whose number
+  /// contains them.
+  ///
+  /// Set only when the query and one of the contact's numbers are two spellings
+  /// of the same number (`SearchText`'s own equivalence: raw digits, the
+  /// national `09…` form, and that form without the trunk `0`, on both sides).
+  /// A partial number — `88141859` typed for a landline saved as
+  /// `021-881-41859` — deliberately does not count: those digits are a fragment
+  /// of the number, not the number.
+  ContactModel? _typedNumberOwner;
+
+  /// Whether [stored] and a query already compiled into [typedForms] are the
+  /// same number written two ways.
+  static bool _isSameNumber(String stored, List<String> typedForms) {
+    for (final form in SearchText.phoneForms(stored)) {
+      if (typedForms.contains(form)) return true;
+    }
+    return false;
   }
 
   List<ContactSection> _getOrBuildSections(List<ContactModel> source) {
@@ -749,7 +774,14 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
 
   Widget _buildResultsList(List<ContactModel> source, ThemeData theme) {
     final results = _getOrBuildResults(source);
-    final sendTo = _sendToNumber();
+    // «ارسال به این شماره» is for a number that belongs to nobody. When the
+    // digits typed ARE a listed contact's number, that contact's own row —
+    // right below, named, with the photo — is the answer, and the anonymous row
+    // is a trap: it carried the digits exactly as typed, so texting a landline
+    // saved as «۰۲۱ ۸۸۱۴ ۱۸۵۹» by typing it without the trunk zero opened an
+    // untitled conversation on a *different* thread id than the one the person
+    // already has. Google Messages does not offer the row in this case either.
+    final sendTo = _typedNumberOwner == null ? _sendToNumber() : null;
     if (results.isEmpty && sendTo == null) {
       return Center(
         child: Padding(

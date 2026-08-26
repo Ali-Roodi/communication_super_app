@@ -51,6 +51,10 @@ class MainActivity : FlutterActivity() {
      */
     private var overLockScreen = false
 
+    /** Mirrors the last value handed to `setRecentsScreenshotEnabled`, so the
+     *  call is only made when it changes — see [setRecentsSnapshotEnabled]. */
+    private var recentsSnapshotEnabled = true
+
     companion object {
         /** The live activity, so the in-call service can flip its lock-screen
          *  window flags. Cleared in onDestroy. */
@@ -384,6 +388,42 @@ class MainActivity : FlutterActivity() {
         // Re-assert: a keyguard-driven resume can land after the card was
         // posted by an onStop that the call outlived.
         CallInCallService.instance?.onCallUiVisible(true)
+        // The call is over and the user is looking at the app again: whatever
+        // the system snapshots from here on is the truth, so let it. See
+        // [setRecentsSnapshotEnabled].
+        if (!CallInCallService.hasLiveCall()) setRecentsSnapshotEnabled(true)
+    }
+
+    /**
+     * Whether the system may keep a screenshot of this activity for the recent-
+     * apps switcher.
+     *
+     * It is switched **off for the whole of a call**, and that is a bug fix, not
+     * a privacy flourish. Android captures a task's thumbnail when the activity
+     * stops, and it never refreshes it while the app stays stopped — so both
+     * ways a call ends out of sight froze the in-call screen into the switcher:
+     *
+     *  * the call ends on a locked phone, [showOverLockScreen] hands the screen
+     *    back with `moveTaskToBack`, and the snapshot is taken **during** the
+     *    beat Flutter deliberately lingers on the ended call before popping it;
+     *  * the user goes to the home screen mid-call and the call ends behind
+     *    their back, leaving a thumbnail of a conversation that is long over.
+     *
+     * Either way the switcher then showed «هم‌رسان» apparently still in a call,
+     * and tapping it opened the ordinary app — the card was lying about the
+     * state of the phone. With no screenshot the system draws the task's own
+     * icon and label instead, which says nothing untrue. [onResume] turns it
+     * back on once no call is left, so ordinary recents behaviour returns the
+     * moment the user opens the app again.
+     */
+    private fun setRecentsSnapshotEnabled(enabled: Boolean) {
+        if (recentsSnapshotEnabled == enabled) return
+        recentsSnapshotEnabled = enabled
+        try {
+            setRecentsScreenshotEnabled(enabled)
+        } catch (e: Throwable) {
+            android.util.Log.w("CallUi", "setRecentsScreenshotEnabled failed: ${e.message}")
+        }
     }
 
     override fun onPause() {
@@ -408,6 +448,14 @@ class MainActivity : FlutterActivity() {
         runOnUiThread {
             val keyguard =
                 getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+            // A call is up: stop the recent-apps switcher from keeping a
+            // picture of it. Done here — before `moveTaskToBack` below can ever
+            // run for this call — because that is one of the two moments the
+            // stale thumbnail is captured, and deliberately NOT undone when the
+            // call ends, since turning it back on there would let exactly that
+            // capture happen. [onResume] restores it. See
+            // [setRecentsSnapshotEnabled].
+            if (show) setRecentsSnapshotEnabled(false)
             // Call ended while the phone is still locked: hand the screen back
             // to the keyguard *first*. Only clearing the flags leaves this
             // activity on top for a frame or two, which showed a flash of the
