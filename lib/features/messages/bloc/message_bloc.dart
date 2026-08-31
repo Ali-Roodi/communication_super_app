@@ -129,11 +129,25 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   /// whether there is a list to keep must ask this, not `state`.
   MessageState? _lastDurable;
 
+  /// The last **inbox** this bloc emitted, kept apart from [_lastDurable].
+  ///
+  /// One bloc holds one state, so opening a conversation parks it on
+  /// `MessagesLoaded` and the inbox is gone from `state` — which is why the
+  /// forward picker, opened *from* a conversation, listed no «گفتگوهای اخیر»
+  /// at all: it asked `state`, found a conversation, and answered with an empty
+  /// list. This is the rows the inbox last had, so any screen that wants "who
+  /// has this user been talking to" can ask without a query of its own.
+  ThreadsLoaded? _lastInbox;
+
+  /// See [_lastInbox]. Null before the inbox has ever been loaded.
+  ThreadsLoaded? get lastInbox => _lastInbox;
+
   @override
   void onChange(Change<MessageState> change) {
     super.onChange(change);
     final next = change.nextState;
     if (next is ThreadsLoaded || next is MessagesLoaded) _lastDurable = next;
+    if (next is ThreadsLoaded && !next.archived) _lastInbox = next;
   }
 
   /// Emits [notification] and then puts the bloc straight back on the state the

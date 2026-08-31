@@ -21,20 +21,56 @@ import 'package:communication_super_app/features/contacts/widgets/save_number_ac
 import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
 
+/// What the readout's long-press menu offers — Google Phone's own three.
+enum _NumberMenuAction { copy, cut, paste }
+
+/// One row of that menu: icon then label.
+class _NumberMenuRow extends StatelessWidget {
+  const _NumberMenuRow({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 18),
+        const SizedBox(width: 12),
+        Text(label),
+      ],
+    );
+  }
+}
+
 // ── Number display + caret + backspace ───────────────────────────────────────
 
 /// The dialed-number readout that sits at the top of the keypad panel, with the
 /// backspace tucked into the panel's leading corner — Google Phone's layout.
 /// Tap deletes one digit; long-press clears the whole field.
 ///
-/// **Long-pressing the readout pastes**, exactly as it does in Google Phone. A
-/// number copied from a browser, a messenger or a note is the ordinary way one
-/// arrives on a phone, and without this the only way in was to retype it digit
-/// by digit — the keypad has no text field, so the platform's own paste gesture
-/// has nothing to attach to.
-class DialerNumberDisplay extends StatelessWidget {
+/// **Long-pressing the readout selects the number and offers کپی / برش /
+/// چسباندن**, exactly as it does in Google Phone. There the readout is an
+/// `EditText`, so a long-press highlights the digits and raises the platform's
+/// cut/copy/paste toolbar; this keypad has no text field for that toolbar to
+/// attach to, so the highlight and the three items are drawn by hand — and the
+/// highlight is not decoration: it is what says *what* the کپی is about to
+/// take, and it is the state every phone user expects a long-press on text to
+/// produce.
+class DialerNumberDisplay extends StatefulWidget {
   final DialerState state;
   const DialerNumberDisplay({super.key, required this.state});
+
+  @override
+  State<DialerNumberDisplay> createState() => _DialerNumberDisplayState();
+}
+
+class _DialerNumberDisplayState extends State<DialerNumberDisplay> {
+  /// True while the long-press menu is open: the digits are drawn on a
+  /// selection highlight, the way selected text is.
+  bool _selected = false;
+
+  DialerState get state => widget.state;
 
   /// The dialable part of whatever is on the clipboard, or empty.
   static Future<String> _clipboardNumber() async {
@@ -58,28 +94,55 @@ class DialerNumberDisplay extends StatelessWidget {
     );
   }
 
-  /// The one-item «چسباندن» menu the long-press opens, over the readout.
+  /// Puts the typed number on the clipboard.
+  ///
+  /// **ASCII digits**, never the Persian ones the readout draws: the string is
+  /// going into another app's field — a browser, a note, another dialer — and
+  /// «۰۹۱۲…» is not a number anywhere outside this app.
+  ///
+  /// No confirmation is shown: a snack bar cannot be seen from inside the modal
+  /// keypad sheet (it renders behind it), and from Android 13 on the platform
+  /// posts its own «Copied» chip for every clipboard write anyway.
+  static void _copy(String number) {
+    Clipboard.setData(ClipboardData(text: number));
+    HapticFeedback.mediumImpact();
+  }
+
+  /// Selects the number and opens the کپی / برش / چسباندن menu over it.
   ///
   /// A menu rather than pasting straight away: a long-press that silently
   /// rewrites the number under the thumb is not undoable, and Google Phone asks
   /// in the same place.
   ///
+  /// The digits are highlighted **for as long as the menu is up** and the
+  /// highlight is dropped however the menu closes — a pick, a tap outside, the
+  /// back gesture — so the selection can never be left behind on a number the
+  /// user has moved on from.
+  ///
   /// The clipboard is read *before* the menu is built, so an empty one shows a
   /// disabled row that says so. The alternative — a snack bar afterwards — is
   /// invisible here: the keypad lives in a modal sheet that covers the bottom
   /// of the screen, which is exactly where the snack bar appears.
-  Future<void> _showPasteMenu(BuildContext context) async {
+  Future<void> _showNumberMenu(BuildContext context) async {
     HapticFeedback.mediumImpact();
     // Resolved before the clipboard read, so nothing looks up an ancestor
     // across the await.
     final box = context.findRenderObject() as RenderBox?;
     final overlay =
         Overlay.of(context).context.findRenderObject() as RenderBox?;
+    final typed = state.dialedNumber;
+    if (typed.isNotEmpty) setState(() => _selected = true);
     final number = await _clipboardNumber();
-    if (!context.mounted) return;
-    if (box == null || overlay == null || !box.hasSize) return;
+    if (!context.mounted) {
+      _selected = false;
+      return;
+    }
+    if (box == null || overlay == null || !box.hasSize) {
+      setState(() => _selected = false);
+      return;
+    }
     final origin = box.localToGlobal(Offset.zero, ancestor: overlay);
-    final picked = await showMenu<bool>(
+    final picked = await showMenu<_NumberMenuAction>(
       context: context,
       position: RelativeRect.fromLTRB(
         origin.dx,
@@ -88,21 +151,39 @@ class DialerNumberDisplay extends StatelessWidget {
         0,
       ),
       items: [
-        PopupMenuItem<bool>(
-          value: true,
+        // Only while something is typed: an empty field has nothing to take.
+        if (typed.isNotEmpty) ...[
+          const PopupMenuItem<_NumberMenuAction>(
+            value: _NumberMenuAction.copy,
+            child: _NumberMenuRow(icon: Icons.content_copy, label: 'کپی'),
+          ),
+          const PopupMenuItem<_NumberMenuAction>(
+            value: _NumberMenuAction.cut,
+            child: _NumberMenuRow(icon: Icons.content_cut, label: 'برش'),
+          ),
+        ],
+        PopupMenuItem<_NumberMenuAction>(
+          value: _NumberMenuAction.paste,
           enabled: number.isNotEmpty,
-          child: Row(
-            children: [
-              const Icon(Icons.content_paste, size: 18),
-              const SizedBox(width: 12),
-              Text(number.isEmpty ? 'چیزی برای چسباندن نیست' : 'چسباندن'),
-            ],
+          child: _NumberMenuRow(
+            icon: Icons.content_paste,
+            label: number.isEmpty ? 'چیزی برای چسباندن نیست' : 'چسباندن',
           ),
         ),
       ],
     );
-    if (picked != true || !context.mounted || number.isEmpty) return;
-    _paste(context, number);
+    if (mounted) setState(() => _selected = false);
+    if (picked == null || !context.mounted) return;
+    switch (picked) {
+      case _NumberMenuAction.copy:
+        _copy(typed);
+      case _NumberMenuAction.cut:
+        _copy(typed);
+        context.read<DialerBloc>().add(const DialerNumberCleared());
+      case _NumberMenuAction.paste:
+        if (number.isEmpty) return;
+        _paste(context, number);
+    }
   }
 
   @override
@@ -126,7 +207,7 @@ class DialerNumberDisplay extends StatelessWidget {
               // target.
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onLongPress: () => _showPasteMenu(context),
+                onLongPress: () => _showNumberMenu(context),
                 child: Center(
                   child: hasNumber
                       ? Directionality(
@@ -135,22 +216,38 @@ class DialerNumberDisplay extends StatelessWidget {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Flexible(
-                                child: Text(
-                                  PersianUtils.toPersianNumber(
-                                    state.dialedNumber,
+                                child: DecoratedBox(
+                                  // The selection highlight, drawn behind the
+                                  // digits while the long-press menu is up —
+                                  // the platform's own selection colour, so it
+                                  // reads as selected text and not as a chip.
+                                  decoration: BoxDecoration(
+                                    color: _selected
+                                        ? scheme.primary.withValues(alpha: 0.28)
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(6),
                                   ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontSize: fontSize,
-                                    fontWeight: FontWeight.w400,
-                                    letterSpacing: 1.5,
-                                    color: scheme.onSurface,
+                                  child: Text(
+                                    PersianUtils.toPersianNumber(
+                                      state.dialedNumber,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: fontSize,
+                                      fontWeight: FontWeight.w400,
+                                      letterSpacing: 1.5,
+                                      color: scheme.onSurface,
+                                    ),
                                   ),
                                 ),
                               ),
-                              _BlinkingCaret(height: fontSize),
+                              // Hidden while the number is selected: a caret
+                              // and a selection are two different states, and
+                              // every text field drops the caret for the
+                              // duration of the selection.
+                              if (!_selected) _BlinkingCaret(height: fontSize),
                             ],
                           ),
                         )

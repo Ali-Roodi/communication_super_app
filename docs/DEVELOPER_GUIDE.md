@@ -380,6 +380,30 @@ Every contact filter — the contacts tab, the dialer suggestions, `searchContac
 - `searchThreads` renders its hits *through* `getAllThreads(restrictToThreadIds:)` rather than a second query, so the last-message pick and the unread count cannot drift.
 - The inbox search field is debounced and token-guarded, and while a query is live the list is **not** paged (`_onScroll` bails): search results are one answered query, not a page of the inbox.
 
+### A sender that cannot be answered
+
+`SmsAddress.canReceive` (`core/utils/sms_address.dart`) is the one test for
+"can an SMS go **to** this address". False for an **alphanumeric** sender ID —
+«Snapp», «DIGIPAY», «SoratHesab», «MissedCalls», every bank's signed sender —
+and for anything with fewer than three digits. This is the platform's own rule
+(`PhoneNumberUtils.isWellFormedSmsAddress`), which is also what Google Messages
+disables its composer on.
+
+- A conversation that fails it draws «امکان پاسخ به این گفتگو وجود ندارد» where
+  the composer would be (`ConversationScreen._canReply` / `_buildNoReplyNotice`),
+  not an empty strip — the sentence is the only place the reason can be given.
+  A **group** always passes: its thread id is `g:…`, not an address, and the
+  send fans out to the members' real numbers.
+- `ContactSelectorScreen._toggle` refuses such an address as a group member or
+  a forward target, so a fan-out can never post one permanently-failed message
+  per send. The lists themselves already keep alphanumeric senders out; that
+  guard is for a *contact* somebody saved with letters in the number field.
+- **Numeric service numbers stay answerable on purpose** (`5000301630`,
+  `+9890009659`, `100010`). Iranian carriers and services ask for replies to
+  them constantly («برای لغو عدد ۱۱ را به همین شماره ارسال کنید»), so treating a
+  short code as unreachable would break a common, working case. Pinned by
+  `test/unit/sms_address_test.dart` with real senders from the test device.
+
 ### Block & report («هرزنامه و مسدودشده»)
 
 Blocking was already enforced in four receive paths and still felt broken, for two independent reasons: the key never matched (see the `blocked_numbers.normalized` invariant above), and **nothing visible changed**. Both are fixed:
@@ -398,6 +422,8 @@ Blocking was already enforced in four receive paths and still felt broken, for t
 ### The keypad's number actions
 
 `DialerNumberActions` sits under «پیشنهادی» for **every** number typed and whether or not a contact matched: «ایجاد مخاطب جدید» (spelling the number out) · «افزودن به مخاطب موجود» · «ارسال پیامک». Google Phone lists all three from the first digit. This app showed only the first, and only while *nothing* matched — so a second number for somebody already saved, and texting a number you had just typed, were both unreachable from the keypad. Dropped only in «افزودن تماس» mode, where the keypad is picking the second leg of a conference and nothing else. The first two go through `save_number_actions.dart`, the same pair «اخیر» and the tapped-number sheet use.
+
+**Long-pressing the readout selects the number and offers کپی / برش / چسباندن.** In Google Phone that readout is an `EditText`, so a long-press highlights the digits and raises the platform's cut/copy/paste toolbar; this keypad has no text field for that toolbar to attach to, so the highlight and the three items are drawn by hand (`DialerNumberDisplay`, now stateful for the `_selected` flag). The highlight lives exactly as long as the menu — a pick, a tap outside and the back gesture all drop it — and the blinking caret is hidden while it is up, because a caret and a selection are different states. کپی / برش are offered only while something is typed; چسباندن renders disabled as «چیزی برای چسباندن نیست» when the clipboard holds no dialable text (a snack bar cannot be seen from inside the modal keypad sheet). The clipboard is written with **ASCII** digits, never the Persian ones on screen: the string is going into another app's field.
 
 ### Keypad touch
 
@@ -523,7 +549,11 @@ ALL incoming-SMS notifications are posted natively by `SmsNotifier` — from the
 
 ### «گفتگوی جدید» — the recipient picker
 
-`ContactSelectorScreen` is Google Messages' *New conversation* page, top to bottom: a «به:» field that collects the picked people as **chips inside the input**, one row to turn the list into a group selection, «گفتگوهای اخیر», then the whole address book in A–Z sections under a fast-scroll bar. Three modes, one screen — default (tapping a row opens that chat), `pickOnly` (pops a `PickedRecipient`, for «هدایت»), `pickMembers` (multi-select that pops `List<GroupMember>`, for «افزودن اعضا»).
+`ContactSelectorScreen` is Google Messages' *New conversation* page, top to bottom: a «به:» field that collects the picked people as **chips inside the input**, one row to turn the list into a group selection, «گفتگوهای اخیر», then the whole address book in A–Z sections under a fast-scroll bar. Three modes, one screen — default (tapping a row opens that chat), `pickOnly` (pops a `List<PickedRecipient>`, for «هدایت»), `pickMembers` (multi-select that pops `List<GroupMember>`, for «افزودن اعضا»).
+
+- **«هدایت» is one tap for one person and a long-press for several.** A tap pops that recipient and opens the chat with the text ready to edit — Google Messages' flow, unchanged. A **long-press** starts a multi-select (the app's one gesture for it: inbox, contacts, drafts, categories), and «هدایت (۳)» pops all of them; `ConversationScreen._forwardToMany` then confirms once and sends **one SMS per person**, each on that conversation's own SIM (`ThreadSimRepository.initialSimFor`). Never a group: forwarding to three people is not "put these three in a room together". Unpicking the last person leaves the mode, the way every selection bar in the app disappears at zero.
+- **The tick goes in the trailing circle; the avatar never leaves.** A row that swaps its face for a checkmark the moment it is picked stops saying *who* it is.
+- **«گفتگوهای اخیر» is read from `MessageBloc.lastInbox`, never from `state`.** This screen is opened from the inbox *and* from inside a conversation («هدایت»), and in the second case the bloc is parked on that conversation's `MessagesLoaded` — asking `state` answered "no inbox" and the whole section vanished from the forward picker, which is where it is most useful. `lastInbox` is kept beside `_lastDurable` and only ever holds a non-archived `ThreadsLoaded`.
 
 - **It filters through the app's one matcher and orders by the app's one alphabet.** It used to carry a private `toLowerCase().contains` and a private `sortedKeys..sort()`, which is exactly why a contact saved as «+98 912…» could not be found by typing «0912…», «علي» did not find «علی», and پ چ ژ ک گ were scattered through the letters. It now goes through `ContactRepository.matchContacts` (→ `SearchText`) and `core/widgets/contact_index_list.dart`.
 - **`core/widgets/contact_index_list.dart` is shared with the contacts tab** — sections, the header delegate, the alphabet bar, the row/header extents and the jump-offset maths. A second copy would be a fast-scroll that drifts: the jump only lands on the right name while the list's order, the bar's ranks and the row height agree. Anything drawn *above* the sections (the group row, «گفتگوهای اخیر») must be counted into `leadingOffset`, and must therefore have a fixed extent.
@@ -578,6 +608,14 @@ ever do, and three dead entries are worse than a shorter menu.
 
 ### Composer growth
 
+**A forwarded body is APPENDED to the conversation's draft, never dropped and
+never overwritten** (`ConversationScreen._restoreComposerDraft`). The saved
+draft used to win outright, so forwarding a message into a conversation the user
+had half-written a reply in did nothing at all — the composer kept the draft and
+the forwarded text vanished with nothing on screen to say so. Overwriting is the
+other way to lose text, so the forwarded body goes on its own line with the
+caret after it and the draft stays above it.
+
 The composer's field grows with the message and then scrolls inside itself,
 measured against Google Messages on a real device: it stops at ~10 lines
 (~320 dp), keeps the «+» / emoji buttons pinned to the bottom line, and never
@@ -588,6 +626,41 @@ on screen (`size.height − padding.top − max(keyboard inset, emoji-panel heig
 − _kReservedForChat`), clamped to `_kMaxLines`. The cap must stay a **height**,
 not a plain `maxLines: 10`: with the emoji panel open a ten-line field plus the
 panel is taller than the screen and the composer's `Column` overflows.
+
+Two inputs of that height were wrong and together they are «متن میره زیر
+صفحه‌کلید»:
+
+- **The line height is the SCALED one** (`media.textScaler.scale(_kFontSize) *
+  _kLineHeight`). «اندازه متن پیام» and Android's own font size multiply this
+  field like everything else in the conversation, so at 200 % a line is twice
+  what the nominal 16 px says and ten of them are far more than the space above
+  the keyboard.
+- **The keyboard inset is passed IN (`keyboardInset`), not read here.** A
+  `Scaffold` removes the bottom view inset from its body — that is what
+  `resizeToAvoidBottomInset` does — so a `MediaQuery` lookup from inside the
+  composer reports `viewInsets.bottom == 0` with the keyboard fully up, and the
+  cap never knew about the keyboard at all. `ConversationScreen._buildComposer`
+  reads it from its own context, which is above the Scaffold.
+
+**The segment counter is «۴۶/۹», drawn left-to-right.** Characters left in the
+current segment over the number of SMS the message will be sent as — Google
+Messages' own counter. It used to read «۴۶ باقی‌مانده · ۹ پیامک», which put a
+bidi-neutral separator between Persian text and a Persian digit: the algorithm
+reordered the pieces and the middle dot came out looking like a Persian zero
+glued to the count, so the composer claimed «۹۰ پیامک» for a nine-part message.
+Wrap it in `Directionality(ltr)`; the numbers themselves were always right.
+
+**Selecting what has been typed** uses `selectionHeightStyle: BoxHeightStyle.max`
+(the highlight covers the whole line box, so a multi-line selection is one
+continuous band rather than a row of ragged strips — this field's line height is
+1.45) with `selectionWidthStyle: BoxWidthStyle.tight` (`max` is exactly the "it
+selects the blank part of the line too" behaviour and must not be used).
+
+**The two notice strips are outside `PinchTextScale`.** The scaler wraps the
+message list and the composer — the conversation's *text* — and nothing else.
+The spam prompt and the group notice are chrome: at 200 % the prompt's `Row`
+squeezed its sentence into a one-word-per-line column tall enough to push the
+composer off the bottom of the screen.
 
 ### Emoji panel
 
@@ -647,7 +720,8 @@ Everything that positions itself against a bubble follows the same rule and had 
 
 Long-press is the *same gesture everywhere*, matching Google Messages / Phone / Contacts:
 
-- **Chat bubble → lift, zoom, select text.** `MessageBubble` (stateful, holds a `GlobalKey` on its box) measures the bubble's global rect *and* where inside it the finger landed, then hands both to `showMessageActionOverlay` (`widgets/message_action_overlay.dart`). The overlay is a `PopupRoute` that blurs the backdrop, animates the bubble from its list position to a lifted one at `_kZoom`, and makes the body selectable — the Telegram flow. The action card (ستاره / کپی / هدایت / اطلاعات / انتخاب / حذف) hangs off the bubble's own edge.
+- **Chat bubble → lift, select text.** `MessageBubble` (stateful, holds a `GlobalKey` on its box) measures the bubble's global rect *and* where inside it the finger landed, then hands both to `showMessageActionOverlay` (`widgets/message_action_overlay.dart`). The overlay is a `PopupRoute` that blurs the backdrop, animates the bubble from its list position to a lifted one, and makes the body selectable — the Telegram flow. The action card (ستاره / کپی / هدایت / اطلاعات / انتخاب / حذف) hangs off the bubble's own edge.
+  - **The lifted bubble is NOT scaled, and that is a selection fix.** It used to be drawn 6 % larger through a `Transform.scale` around the whole copy. `SelectableRegion` positions the **magnifier** from `getTransformTo(null).getTranslation()` — the translation only — so under any scale the glass focuses `(scale − 1) × offset-inside-the-bubble` away from the handle, which on a long message is a different line; the same mismatch runs through the handle drag, which subtracts a *local* half-line-height from a *global* drag position. The lift is carried by the movement, the shadow and the blur instead. Do not put a scale back.
   - There is deliberately **no «انتخاب متن» menu row and no select-text dialog** any more; selection happens on the lifted bubble itself.
   - Nothing is selected when the overlay opens — the lift is **only** a zoom. A long-press *inside* the lifted bubble then selects the word under the finger and the handles widen it.
   - The lifted body is `SelectableBubbleText`, which wraps the **same `LinkifiedText` widget** the flat bubble renders in a `SelectionArea`. Do not swap that for a `TextField`/`SelectableText` copy: those lay out through `RenderEditable`, which reserves a caret margin, so the text re-wrapped one line longer than the original and the lifted bubble collided with the action menu. Same widget in, same wrapping out — which is also what lets the overlay position the menu from `anchor.height`.
