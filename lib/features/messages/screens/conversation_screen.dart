@@ -20,6 +20,7 @@ import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
+import 'package:communication_super_app/core/utils/sms_address.dart';
 import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
 import 'package:communication_super_app/features/settings/models/blocked_number_model.dart';
 import 'package:communication_super_app/features/settings/screens/widgets/block_number_dialog.dart';
@@ -412,20 +413,30 @@ class _ConversationScreenState extends State<ConversationScreen>
     setState(() {});
   }
 
-  /// Restores any unsent text saved for this thread when re-entering the chat,
-  /// falling back to [ConversationScreen.initialText] (a forwarded body).
+  /// Restores any unsent text saved for this thread when re-entering the chat
+  /// and seeds [ConversationScreen.initialText] (a forwarded body, a share).
+  ///
+  /// **Both, not one or the other.** The saved draft used to win outright, so
+  /// forwarding a message into a conversation the user had half-written a reply
+  /// in did nothing at all — the composer kept the draft and the forwarded text
+  /// was dropped on the floor with nothing on screen to say so. Overwriting the
+  /// draft instead is the other way to lose text. So the forwarded body is
+  /// appended on its own line and the caret is left after it, which is what the
+  /// user is about to send; the draft above it is still there to edit or clear.
   Future<void> _restoreComposerDraft() async {
     final saved = await _draftStore.loadText(widget.threadId);
     if (!mounted) return;
-    final text = (saved != null && saved.isNotEmpty)
-        ? saved
-        : (widget.initialText ?? '');
-    if (text.isNotEmpty && _messageController.text.isEmpty) {
-      _messageController.text = text;
-      _messageController.selection = TextSelection.collapsed(
-        offset: text.length,
-      );
-    }
+    if (_messageController.text.isNotEmpty) return;
+    final draft = saved ?? '';
+    final seeded = widget.initialText ?? '';
+    final text = draft.isEmpty
+        ? seeded
+        : (seeded.isEmpty ? draft : '$draft\n$seeded');
+    if (text.isEmpty) return;
+    _messageController.text = text;
+    _messageController.selection = TextSelection.collapsed(
+      offset: text.length,
+    );
   }
 
   /// Persists (or clears) the unsent composer text for this thread.
@@ -661,37 +672,48 @@ class _ConversationScreenState extends State<ConversationScreen>
                 );
               }
             },
-            // «اندازه متن پیام»: pinch the thread to resize it, persisted and
-            // shared with the Settings row. Wrapped around the thread and the
-            // composer but NOT the app bar — a title at 200% breaks the header's
-            // layout, and Google Messages does not scale its chrome either.
-            child: PinchTextScale(
-              scale: context.select<SettingsBloc, double>(
-                (b) => b.state.messageTextScale,
-              ),
-              onScaleChanged: (scale) =>
-                  context.read<SettingsBloc>().add(SetMessageTextScale(scale)),
-              child: Column(
-                children: [
-                  _buildGroupNotice(context),
-                  _buildSpamPrompt(context),
-                  // The thread sits on its own rounded sheet, one plane above the
-                  // page the header shares — Google Messages' conversation
-                  // surface.
-                  Expanded(
-                    child: ClipRRect(
-                      borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(28),
-                      ),
-                      child: ColoredBox(
-                        color: Theme.of(context).colorScheme.cardSurface,
-                        child: _buildMessageList(),
-                      ),
+            // «اندازه متن پیام» scales the **messages and the composer** — the
+            // text of the conversation — and nothing else. The app bar is
+            // outside it because a title at 200 % breaks the header's layout,
+            // and the two notice strips are outside it for the same reason:
+            // they are chrome, and at 200 % the spam prompt's Row squeezed its
+            // sentence into a one-word-per-line column tall enough to push the
+            // composer off the bottom of the screen. Google Messages does not
+            // scale its chrome either.
+            child: Column(
+              children: [
+                _buildGroupNotice(context),
+                _buildSpamPrompt(context),
+                Expanded(
+                  child: PinchTextScale(
+                    scale: context.select<SettingsBloc, double>(
+                      (b) => b.state.messageTextScale,
+                    ),
+                    onScaleChanged: (scale) => context
+                        .read<SettingsBloc>()
+                        .add(SetMessageTextScale(scale)),
+                    child: Column(
+                      children: [
+                        // The thread sits on its own rounded sheet, one plane
+                        // above the page the header shares — Google Messages'
+                        // conversation surface.
+                        Expanded(
+                          child: ClipRRect(
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(28),
+                            ),
+                            child: ColoredBox(
+                              color: Theme.of(context).colorScheme.cardSurface,
+                              child: _buildMessageList(),
+                            ),
+                          ),
+                        ),
+                        _buildComposer(),
+                      ],
                     ),
                   ),
-                  _buildComposer(),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
           floatingActionButton: _showScrollToBottom && !_selectionMode
@@ -1336,23 +1358,107 @@ class _ConversationScreenState extends State<ConversationScreen>
   /// the composer so the user can edit before sending — Google Messages'
   /// forward flow.
   Future<void> _forwardMessage(MessageModel msg) async {
-    final picked = await Navigator.of(context).push<PickedRecipient>(
+    final picked = await Navigator.of(context).push<List<PickedRecipient>>(
       MaterialPageRoute(
         builder: (_) => const ContactSelectorScreen(pickOnly: true),
       ),
     );
-    if (picked == null || !mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ConversationScreen(
-          threadId: PhoneNormalizer.toThreadId(picked.phoneNumber),
-          phoneNumber: picked.phoneNumber,
-          contactName: picked.name,
-          // Forwarding carries the readable message, never the payload: the new
-          // recipient's copy is composed from scratch.
-          initialText: TemplateWire.displayText(msg.body),
+    if (picked == null || picked.isEmpty || !mounted) return;
+    // Forwarding carries the readable message, never the payload: the new
+    // recipient's copy is composed from scratch.
+    final body = TemplateWire.displayText(msg.body);
+    if (picked.length == 1) {
+      final one = picked.first;
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ConversationScreen(
+            threadId: PhoneNormalizer.toThreadId(one.phoneNumber),
+            phoneNumber: one.phoneNumber,
+            contactName: one.name,
+            initialText: body,
+          ),
+        ),
+      );
+      return;
+    }
+    await _forwardToMany(picked, body);
+  }
+
+  /// «هدایت» to several people at once (the picker's long-press multi-select).
+  ///
+  /// One SMS **per person**, never a group: forwarding is not "start a group
+  /// conversation with these three", and a group thread would put the three of
+  /// them in one room they never asked to share. There is no conversation to
+  /// open either — five of them would be five pushed routes — so the text is
+  /// confirmed once, sent, and the user stays where they were.
+  ///
+  /// Each message goes out on **that conversation's** SIM
+  /// ([ThreadSimRepository.initialSimFor]), the same card the conversation
+  /// itself would have used, rather than on the platform default.
+  Future<void> _forwardToMany(
+    List<PickedRecipient> recipients,
+    String body,
+  ) async {
+    final count = PersianUtils.toPersianNumber('${recipients.length}');
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: Text('هدایت به $count مخاطب'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                recipients
+                    .map((r) => r.name?.trim().isNotEmpty == true
+                        ? r.name!.trim()
+                        : PersianUtils.displayPhone(
+                            PhoneNormalizer.toNational(r.phoneNumber),
+                          ))
+                    .join('، '),
+                style: Theme.of(dialogContext).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                body,
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(dialogContext).textTheme.bodySmall,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('انصراف'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('ارسال'),
+            ),
+          ],
         ),
       ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    for (final recipient in recipients) {
+      final threadId = PhoneNormalizer.toThreadId(recipient.phoneNumber);
+      final sim = await _threadSim.initialSimFor(threadId);
+      if (!mounted) return;
+      _messageBloc.add(
+        SendMessage(
+          phoneNumber: recipient.phoneNumber,
+          body: body,
+          subscriptionId: sim?.subscriptionId,
+        ),
+      );
+    }
+    messenger.showSnackBar(
+      SnackBar(content: Text('به $count مخاطب هدایت شد')),
     );
   }
 
@@ -1567,7 +1673,50 @@ class _ConversationScreenState extends State<ConversationScreen>
 
   // ── Composer ────────────────────────────────────────────────────────────────
 
+  /// Whether this conversation can be written to at all.
+  ///
+  /// A group always can — its thread id is `g:…`, not an address, and the send
+  /// fans out to the members' real numbers. A 1:1 thread can only be answered
+  /// when its address is a possible SMS destination: «Snapp», «DIGIPAY» and
+  /// every bank's alphanumeric sender ID are not (see [SmsAddress]).
+  bool get _canReply => _isGroup || SmsAddress.canReceive(widget.phoneNumber);
+
+  /// What stands where the composer would be on a conversation nobody can
+  /// answer — Google Messages' own «You can't reply to this conversation».
+  ///
+  /// A disabled composer rather than nothing at all: an empty space at the
+  /// bottom of a thread reads as a broken screen, and the sentence is the only
+  /// place the reason can be given.
+  Widget _buildNoReplyNotice() {
+    final theme = Theme.of(context);
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+        child: Row(
+          children: [
+            Icon(
+              Icons.block,
+              size: 18,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'امکان پاسخ به این گفتگو وجود ندارد',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildComposer() {
+    if (!_canReply) return _buildNoReplyNotice();
     // The panel sits inside the composer's SafeArea, which adds the navigation
     // bar inset back underneath it — while the keyboard covers that area. Draw
     // the panel that much shorter so panel + inset lands on exactly the height
@@ -1595,6 +1744,9 @@ class _ConversationScreenState extends State<ConversationScreen>
       focusNode: _composerFocus,
       showStickers: _showStickers,
       stickerPanelHeight: panelHeight,
+      // Read here, above the Scaffold: it removes the bottom inset from its own
+      // body, so the composer cannot see the keyboard from where it is built.
+      keyboardInset: liveInset,
       onToggleStickers: _toggleStickers,
       onAttach: _showAttachmentSheet,
       onSend: _sendMessage,

@@ -635,7 +635,9 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
   Widget _buildPhoneRow(int i, ThemeData theme) {
     final entry = _phones[i];
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      // Same vertical rhythm as [ContactFormField] — without it two phone rows
+      // sit flush against each other and read as one control.
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
@@ -699,7 +701,7 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
   Widget _buildEmailRow(int i, ThemeData theme) {
     final entry = _emails[i];
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [

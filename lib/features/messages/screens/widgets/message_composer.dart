@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'emoji_panel.dart';
@@ -22,6 +24,7 @@ class MessageComposer extends StatelessWidget {
     this.focusNode,
     this.onStickerBackspace,
     this.stickerPanelHeight = 280,
+    this.keyboardInset = 0,
     this.onSchedule,
     this.scheduledAt,
     this.scheduleSummary,
@@ -48,6 +51,19 @@ class MessageComposer extends StatelessWidget {
   /// keyboard height so the panel occupies exactly the keyboard's space and the
   /// chat does not jump when the two swap.
   final double stickerPanelHeight;
+
+  /// How much of the screen the system keyboard is covering right now.
+  ///
+  /// Passed in rather than read here, and that is not a style choice: a
+  /// `Scaffold` **removes the bottom view inset from its body** (that is what
+  /// `resizeToAvoidBottomInset` does), so a `MediaQuery` lookup from inside the
+  /// composer reports `viewInsets.bottom == 0` with the keyboard fully up. The
+  /// growth cap below is a height measured against the free screen, so reading
+  /// it here meant the cap never knew about the keyboard at all — the field
+  /// grew its full ten lines and, at a raised «اندازه متن پیام», the line being
+  /// typed ended up underneath the keyboard. The parent reads the inset from
+  /// its own context, which is above the Scaffold.
+  final double keyboardInset;
 
   /// Long-press on the send button → the «زمان‌بندی ارسال» sheet.
   final VoidCallback? onSchedule;
@@ -135,16 +151,28 @@ class MessageComposer extends StatelessWidget {
   /// The cap is a *height*, not a line count, so the field can never grow into
   /// the panel; on a tall screen with the keyboard down it resolves to the full
   /// [_kMaxLines].
-  static int _maxLinesFor(BuildContext context, double panelHeight) {
+  static int _maxLinesFor(
+    BuildContext context,
+    double panelHeight,
+    double keyboardInset,
+  ) {
     final media = MediaQuery.of(context);
     // The keyboard and the emoji panel never occupy the screen at once — the
     // panel is only drawn while the keyboard is down.
-    final occupied = media.viewInsets.bottom > panelHeight
-        ? media.viewInsets.bottom
-        : panelHeight;
+    final occupied = keyboardInset > panelHeight ? keyboardInset : panelHeight;
     final free =
         media.size.height - media.padding.top - occupied - _kReservedForChat;
-    final lines = (free / (_kFontSize * _kLineHeight)).floor();
+    // The **scaled** line height, never the nominal one. «اندازه متن پیام»
+    // (and Android's own font size) multiply this field's text like everything
+    // else in the conversation, so a line is `textScaler.scale(16) * 1.45` tall
+    // — at 200 % that is twice what this used to assume, and ten of them are
+    // far more than the space above the keyboard. The field went on growing
+    // past the screen and the line being typed slid underneath the keyboard,
+    // which is exactly the report. Measuring in scaled pixels caps the growth
+    // where it actually fits, and the field scrolls inside itself from there
+    // with the caret's line kept in view.
+    final lineHeight = media.textScaler.scale(_kFontSize) * _kLineHeight;
+    final lines = (free / lineHeight).floor();
     return lines.clamp(1, _kMaxLines);
   }
 
@@ -185,12 +213,22 @@ class MessageComposer extends StatelessWidget {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    Text(
-                      // «۱۲ باقی‌مانده · ۲ پیامک» — remaining chars in the
-                      // current segment and the total segment count.
-                      '${PersianUtils.toPersianNumber('$remaining')} باقی‌مانده'
-                      ' · ${PersianUtils.toPersianNumber('$segments')} پیامک',
-                      style: theme.textTheme.bodySmall,
+                    // «۴۶/۹» — characters left in the current segment over the
+                    // number of SMS the message will be sent as. Google
+                    // Messages' own counter, verbatim, and it has to be drawn
+                    // **left to right**: the words it used to carry («۴۶
+                    // باقی‌مانده · ۹ پیامک») put a bidi-neutral separator
+                    // between Persian text and a Persian digit, so the
+                    // algorithm reordered the pieces and the middle dot came
+                    // out looking like a Persian zero glued to the count —
+                    // «۴۶ باقی‌مانده ۹۰ پیامک», a number the message never had.
+                    Directionality(
+                      textDirection: TextDirection.ltr,
+                      child: Text(
+                        '${PersianUtils.toPersianNumber('$remaining')}'
+                        '/${PersianUtils.toPersianNumber('$segments')}',
+                        style: theme.textTheme.bodySmall,
+                      ),
                     ),
                   ],
                 ),
@@ -242,8 +280,23 @@ class MessageComposer extends StatelessWidget {
                               maxLines: _maxLinesFor(
                                 context,
                                 showStickers ? stickerPanelHeight : 0,
+                                keyboardInset,
                               ),
                               textInputAction: TextInputAction.newline,
+                              // Selecting what has been typed, at the same
+                              // quality as selecting a bubble: the highlight
+                              // covers the **whole line box** so a selection
+                              // running over several lines is one continuous
+                              // band instead of a row of ragged strips (this
+                              // field's line height is 1.45, so `tight` leaves
+                              // a visible gap between every pair of lines), and
+                              // it stays **tight horizontally** so the empty
+                              // part of a short line is never painted as
+                              // selected. `BoxWidthStyle.max` is exactly the
+                              // "it selects the blank space too" behaviour and
+                              // is deliberately not used.
+                              selectionHeightStyle: ui.BoxHeightStyle.max,
+                              selectionWidthStyle: ui.BoxWidthStyle.tight,
                               style: const TextStyle(
                                 fontSize: _kFontSize,
                                 height: _kLineHeight,

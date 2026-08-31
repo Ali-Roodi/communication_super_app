@@ -87,9 +87,9 @@ void main() {
           ),
         ),
       );
-      // GSM-7: 160 per single, 153 per part → 200 chars = 2 پیامک. Long SMS is
+      // GSM-7: 160 per single, 153 per part → 200 chars = «۱۰۶/۲». Long SMS is
       // multipart SMS, not MMS, so there is no "MMS" chip.
-      expect(find.textContaining('۲ پیامک'), findsOneWidget);
+      expect(find.textContaining('/۲'), findsOneWidget);
       expect(find.text('MMS'), findsNothing);
     });
 
@@ -108,8 +108,58 @@ void main() {
           ),
         ),
       );
-      // Unicode: 70 per single → 71 chars must already be 2 پیامک.
-      expect(find.textContaining('۲ پیامک'), findsOneWidget);
+      // Unicode: 70 per single → 71 chars are already two parts («۶۳/۲»).
+      expect(find.textContaining('/۲'), findsOneWidget);
+    });
+
+    testWidgets('the field stops growing sooner as the text is scaled up', (
+      tester,
+    ) async {
+      // The cap on the composer's growth is a HEIGHT, so it has to be measured
+      // in the size the text is actually drawn at. It was measured at the
+      // nominal 16 px, so at «اندازه متن پیام» 2× a ten-line field was twice as
+      // tall as the space above the keyboard and the line being typed slid
+      // underneath it.
+      Future<int> maxLinesAt(double scale) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Directionality(
+              textDirection: TextDirection.rtl,
+              child: Builder(
+                builder: (context) => MediaQuery(
+                  data: MediaQuery.of(context).copyWith(
+                    size: const Size(400, 800),
+                    textScaler: TextScaler.linear(scale),
+                  ),
+                  child: Scaffold(
+                    body: MessageComposer(
+                      controller: TextEditingController(),
+                      showStickers: false,
+                      // The Scaffold eats the bottom view inset, so the real
+                      // conversation passes the keyboard's height in.
+                      keyboardInset: 320,
+                      onToggleStickers: () {},
+                      onAttach: () {},
+                      onSend: () {},
+                      onStickerSelected: (_) {},
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        return tester.widget<TextField>(find.byType(TextField)).maxLines!;
+      }
+
+      final normal = await maxLinesAt(1);
+      final doubled = await maxLinesAt(2);
+      expect(normal, greaterThan(1));
+      expect(
+        doubled,
+        lessThan(normal),
+        reason: 'twice the line height must buy fewer lines, not the same ten',
+      );
     });
 
     testWidgets('the sticker panel is shown and taps fire onStickerSelected', (

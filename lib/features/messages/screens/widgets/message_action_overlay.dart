@@ -24,12 +24,12 @@ class MessageAction {
 }
 
 /// Long-press presentation for a chat bubble: the background blurs away, the
-/// bubble the finger was on lifts out of the list and zooms slightly, and the
-/// action menu opens next to it.
+/// bubble the finger was on lifts out of the list, and the action menu opens
+/// next to it.
 ///
 /// The lifted copy is **freely selectable text** — that is the point of the
 /// mode. There is deliberately no «انتخاب متن» menu row any more (and no
-/// select-text dialog): the user drags the handles right on the zoomed bubble
+/// select-text dialog): the user drags the handles right on the lifted bubble
 /// and copies from the selection toolbar, the way Telegram does it.
 ///
 /// [anchor] is the bubble box's rect in global coordinates — [MessageBubble]
@@ -58,9 +58,17 @@ Future<void> showMessageActionOverlay(
   );
 }
 
-/// How much the lifted bubble grows. Small on purpose: enough to read as
-/// "picked up", not so much that a long SMS reflows off the screen.
-const double _kZoom = 1.06;
+// The lifted bubble used to be drawn 6 % larger, through a `Transform.scale`
+// around the whole copy — and that scale is why selecting text on it was
+// imprecise. `SelectableRegion` positions the **magnifier** from
+// `getTransformTo(null).getTranslation()`, i.e. the translation only: under any
+// scale the focal point drifts by `(scale − 1) × offset-inside-the-bubble`, so
+// on a long message the glass showed a different line than the one the handle
+// was on — and the magnifier is the whole precision aid. The same mismatch runs
+// through the handle drag, which subtracts a *local* half-line-height from a
+// *global* drag position. The lift is carried by the movement, the shadow and
+// the blurred backdrop instead; nothing scales, so every coordinate the
+// selection machinery computes is exact.
 
 const double _kMenuWidth = 240;
 const double _kMenuRowHeight = 48;
@@ -151,28 +159,20 @@ class _MessageActionLayer extends StatelessWidget {
 
     // The bubble is capped so the menu always has room under it; anything
     // longer scrolls inside the lifted copy.
-    final maxUnscaled = math.max(
+    final maxBubbleHeight = math.max(
       120.0,
-      (size.height - safeTop - safeBottom - menuHeight - _kGap * 2) / _kZoom,
+      size.height - safeTop - safeBottom - menuHeight - _kGap * 2,
     );
-    final bubbleHeight = math.min(anchor.height, maxUnscaled);
-    final overflows = anchor.height > maxUnscaled;
-
-    // Growth happens away from the screen edge the bubble hugs, so the zoom
-    // never pushes it out of view. In this RTL layout sent bubbles sit at the
-    // left edge and received ones at the right.
-    final growth = bubbleHeight * (_kZoom - 1) / 2;
-
-    double bottomOf(double t) => t + bubbleHeight + growth;
+    final bubbleHeight = math.min(anchor.height, maxBubbleHeight);
+    final overflows = anchor.height > maxBubbleHeight;
 
     var top = anchor.top;
-    if (bottomOf(top) + _kGap + menuHeight > size.height - safeBottom) {
-      top =
-          size.height - safeBottom - menuHeight - _kGap - bubbleHeight - growth;
+    if (top + bubbleHeight + _kGap + menuHeight > size.height - safeBottom) {
+      top = size.height - safeBottom - menuHeight - _kGap - bubbleHeight;
     }
-    top = math.max(top, safeTop + growth);
+    top = math.max(top, safeTop);
 
-    final menuTop = bottomOf(top) + _kGap;
+    final menuTop = top + bubbleHeight + _kGap;
     // Menus in Google Messages hang from the bubble's own edge — and a sent
     // bubble hugs the RIGHT of the thread (see MessageBubble: the sides are
     // physical, not directional).
@@ -207,7 +207,6 @@ class _MessageActionLayer extends StatelessWidget {
             anchor: anchor,
             isLastInGroup: isLastInGroup,
             showLinkPreview: showLinkPreview,
-            isSent: isSent,
             top: top,
             height: bubbleHeight,
             scrollable: overflows,
@@ -225,7 +224,8 @@ class _MessageActionLayer extends StatelessWidget {
 }
 
 /// The bubble copy: slides from where it sat in the list to its lifted
-/// position, zooms, and hands its text over to the selection machinery.
+/// position and hands its text over to the selection machinery. It is drawn at
+/// its own size — see the note on the removed zoom above.
 class _LiftedBubble extends StatelessWidget {
   const _LiftedBubble({
     required this.animation,
@@ -233,7 +233,6 @@ class _LiftedBubble extends StatelessWidget {
     required this.anchor,
     required this.isLastInGroup,
     required this.showLinkPreview,
-    required this.isSent,
     required this.top,
     required this.height,
     required this.scrollable,
@@ -244,7 +243,6 @@ class _LiftedBubble extends StatelessWidget {
   final Rect anchor;
   final bool isLastInGroup;
   final bool showLinkPreview;
-  final bool isSent;
   final double top;
   final double height;
   final bool scrollable;
@@ -299,13 +297,7 @@ class _LiftedBubble extends StatelessWidget {
           top: ui.lerpDouble(anchor.top, top, t)!,
           left: anchor.left,
           width: anchor.width,
-          child: Transform.scale(
-            scale: 1 + (_kZoom - 1) * t,
-            // Anchored to the edge the bubble hugs so it grows inward: sent
-            // bubbles sit on the right, received ones on the left.
-            alignment: isSent ? Alignment.centerRight : Alignment.centerLeft,
-            child: child,
-          ),
+          child: child!,
         );
       },
       child: bubble,

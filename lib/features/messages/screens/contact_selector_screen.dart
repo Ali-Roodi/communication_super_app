@@ -8,6 +8,7 @@ import 'package:communication_super_app/core/utils/persian_alphabet.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:communication_super_app/core/utils/search_text.dart';
+import 'package:communication_super_app/core/utils/sms_address.dart';
 import 'package:communication_super_app/core/widgets/contact_index_list.dart';
 import 'package:communication_super_app/core/widgets/contact_numbers_line.dart';
 import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
@@ -21,7 +22,6 @@ import 'package:communication_super_app/features/contacts/services/contact_group
 import 'package:communication_super_app/features/contacts/widgets/phone_number_picker.dart';
 
 import '../bloc/message_bloc.dart';
-import '../bloc/message_state.dart';
 import '../models/message_group.dart';
 import '../models/message_model.dart';
 import '../repositories/group_repository.dart';
@@ -29,7 +29,7 @@ import 'conversation_screen.dart';
 
 /// One recipient handed back to a caller that only wanted to pick somebody —
 /// «هدایت» (forward), which then opens that chat with the forwarded text already
-/// in the composer.
+/// in the composer, or sends to each of several people at once.
 class PickedRecipient {
   final String phoneNumber;
   final String? name;
@@ -46,7 +46,9 @@ class PickedRecipient {
 ///
 /// Three modes, one screen:
 /// * default — tapping a row **opens** that conversation.
-/// * [pickOnly] — pops with a [PickedRecipient] (forward).
+/// * [pickOnly] — pops with a `List<PickedRecipient>` (forward). A tap picks one
+///   and pops immediately (Google's flow); a **long-press** starts a
+///   multi-select and «هدایت (۳)» pops all of them.
 /// * [pickMembers] — multi-select that pops with `List<GroupMember>` («افزودن
 ///   اعضا» on the group details page). [excludeNormalized] hides the people who
 ///   are already in.
@@ -96,6 +98,19 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
 
   /// Rows toggle instead of opening a chat.
   late bool _groupMode = widget.startInGroupMode || widget.pickMembers;
+
+  /// A forward that is going to more than one person.
+  ///
+  /// Entered by **long-pressing** a row, which is this app's one gesture for
+  /// starting a multi-select (the inbox, the contacts tab, the drafts board and
+  /// the categories list all use it). A plain tap stays what Google Messages'
+  /// forward is — one tap, straight into that conversation with the text ready
+  /// to edit — so the common case costs nothing and the several-recipient case
+  /// is reachable.
+  bool _forwardSelecting = false;
+
+  /// Rows are checkboxes right now, whichever mode put them there.
+  bool get _selecting => _groupMode || _forwardSelecting;
 
   /// True while the mode is a multi-select the user can leave («انصراف»).
   bool get _canLeaveGroupMode =>
@@ -167,8 +182,13 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
   ///   suggestion list full of them is a list of dead ends. Four digits is the
   ///   same floor the «ارسال به این شماره» row uses.
   List<MessageThread> _readSuggestions() {
-    final state = context.read<MessageBloc>().state;
-    if (state is! ThreadsLoaded || state.archived) return const [];
+    // `lastInbox`, never `state`: this screen is opened from the inbox *and*
+    // from inside a conversation («هدایت»), and in the second case the bloc is
+    // parked on that conversation's `MessagesLoaded` — asking `state` there
+    // answered "no inbox" and the whole «گفتگوهای اخیر» section vanished from
+    // the forward picker, which is where it is most useful.
+    final state = context.read<MessageBloc>().lastInbox;
+    if (state == null) return const [];
     final out = <MessageThread>[];
     for (final thread in state.threads) {
       if (thread.isGroup) continue;
@@ -338,7 +358,7 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
             ],
           ),
         ),
-        bottomNavigationBar: _groupMode && _picked.isNotEmpty
+        bottomNavigationBar: _selecting && _picked.isNotEmpty
             ? Directionality(
                 textDirection: TextDirection.rtl,
                 child: _buildConfirmBar(theme),
@@ -451,11 +471,13 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
               tooltip: 'پاک کردن',
               onPressed: _clearQuery,
             )
-          else if (_groupMode && _canLeaveGroupMode)
+          else if ((_groupMode && _canLeaveGroupMode) || _forwardSelecting)
             TextButton(
               onPressed: () => setState(() {
-                _groupMode = false;
+                _groupMode = widget.startInGroupMode || widget.pickMembers;
+                _forwardSelecting = false;
                 _picked.clear();
+                _appliedLabels.clear();
               }),
               child: const Text('انصراف'),
             ),
@@ -470,18 +492,30 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
   /// and the list keeps its full height.
   Widget _buildConfirmBar(ThemeData theme) {
     final count = PersianUtils.toPersianNumber('${_picked.length}');
+    final String label;
+    final IconData icon;
+    final VoidCallback onPressed;
+    if (widget.pickMembers) {
+      label = 'افزودن ($count)';
+      icon = Icons.person_add_alt;
+      onPressed = _returnMembers;
+    } else if (_forwardSelecting) {
+      label = 'هدایت ($count)';
+      icon = Icons.forward;
+      onPressed = _returnForwardRecipients;
+    } else {
+      label = 'ادامه ($count)';
+      icon = Icons.arrow_forward;
+      onPressed = _startGroup;
+    }
     return SafeArea(
       minimum: const EdgeInsets.fromLTRB(16, 8, 16, 12),
       child: SizedBox(
         width: double.infinity,
         child: FilledButton.icon(
-          onPressed: widget.pickMembers ? _returnMembers : _startGroup,
-          icon: Icon(
-            widget.pickMembers ? Icons.person_add_alt : Icons.arrow_forward,
-          ),
-          label: Text(
-            widget.pickMembers ? 'افزودن ($count)' : 'ادامه ($count)',
-          ),
+          onPressed: onPressed,
+          icon: Icon(icon),
+          label: Text(label),
         ),
       ),
     );
@@ -868,9 +902,12 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
     return SizedBox(
       height: kContactRowHeight,
       child: InkWell(
-        onTap: () => _groupMode
+        onTap: () => _selecting
             ? _toggle(GroupMember(phoneNumber: national))
             : _choose(phoneNumber: national),
+        onLongPress: widget.pickOnly && !_selecting
+            ? () => _startForwardSelection(GroupMember(phoneNumber: national))
+            : null,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Row(
@@ -935,13 +972,13 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
       name: name,
       numbers: [thread.phoneNumber],
       selected: _picked.containsKey(key),
-      selectionMode: _groupMode,
+      selectionMode: _selecting,
       leading: PhoneContactAvatar(
         phoneNumber: thread.phoneNumber,
         name: name,
         size: 44,
       ),
-      onTap: () => _groupMode
+      onTap: () => _selecting
           ? _toggle(
               GroupMember(
                 phoneNumber: thread.phoneNumber,
@@ -949,6 +986,14 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
               ),
             )
           : _choose(phoneNumber: thread.phoneNumber, name: thread.contactName),
+      onLongPress: widget.pickOnly && !_selecting
+          ? () => _startForwardSelection(
+              GroupMember(
+                phoneNumber: thread.phoneNumber,
+                displayName: thread.contactName,
+              ),
+            )
+          : null,
     );
   }
 
@@ -964,7 +1009,7 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
       numbers: numbers,
       matchedNumber: matchedNumber,
       selected: pickedKey.isNotEmpty,
-      selectionMode: _groupMode,
+      selectionMode: _selecting,
       leading: LazyContactAvatar(
         contactId: contact.id,
         name: contact.name,
@@ -972,7 +1017,28 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
       ),
       simContact: contact.isSimContact,
       onTap: () => _onContactTap(contact, numbers, pickedKey),
+      onLongPress: widget.pickOnly && !_selecting
+          ? () async {
+              setState(() => _forwardSelecting = true);
+              HapticFeedback.mediumImpact();
+              await _onContactTap(contact, numbers, '');
+              // Nobody ended up picked (the number sheet was dismissed): leave
+              // the mode as it was found rather than stranding an empty
+              // selection with no bar and no way back but «انصراف».
+              if (mounted && _picked.isEmpty) {
+                setState(() => _forwardSelecting = false);
+              }
+            }
+          : null,
     );
+  }
+
+  /// Long-press on a row of the forward picker: start selecting, with that row
+  /// as the first pick.
+  void _startForwardSelection(GroupMember member) {
+    HapticFeedback.mediumImpact();
+    setState(() => _forwardSelecting = true);
+    _toggle(member);
   }
 
   /// A message goes to **one** number, so a contact with several asks which — in
@@ -982,8 +1048,11 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
     List<String> numbers,
     String pickedKey,
   ) async {
-    if (_groupMode && pickedKey.isNotEmpty) {
-      setState(() => _picked.remove(pickedKey));
+    if (_selecting && pickedKey.isNotEmpty) {
+      setState(() {
+        _picked.remove(pickedKey);
+        if (_forwardSelecting && _picked.isEmpty) _forwardSelecting = false;
+      });
       return;
     }
     // Numbers already in the group are not offered again.
@@ -1005,7 +1074,7 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
             title: 'پیام به ${contact.name}',
           );
     if (chosen == null || !mounted) return;
-    if (_groupMode) {
+    if (_selecting) {
       _toggle(
         GroupMember(
           phoneNumber: chosen,
@@ -1021,6 +1090,14 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
   void _toggle(GroupMember member) {
     final key = member.normalized;
     if (key.isEmpty) return;
+    // An address nothing can be sent to must not become a group member or a
+    // forward target: the fan-out would post one permanently-failed message per
+    // send. The lists above already keep alphanumeric senders out; this is the
+    // guard for a *contact* somebody saved with letters in the number field.
+    if (!SmsAddress.canReceive(member.phoneNumber)) {
+      _toast('امکان ارسال پیامک به این فرستنده وجود ندارد');
+      return;
+    }
     HapticFeedback.selectionClick();
     final added = !_picked.containsKey(key);
     setState(() {
@@ -1028,6 +1105,9 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
       // A label chip stops reading as applied the moment its members no longer
       // all are — otherwise it looks selected while half the people are gone.
       _appliedLabels.clear();
+      // Unpicking the last person leaves the forward selection, the way every
+      // other selection bar in the app disappears at zero.
+      if (_forwardSelecting && _picked.isEmpty) _forwardSelecting = false;
     });
     // The query answered its question the moment the chip appeared: the person
     // it was looking for is now *in* the field. Leaving the text behind keeps
@@ -1055,10 +1135,12 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
   /// conversation in place of this screen.
   void _choose({required String phoneNumber, String? name}) {
     if (widget.pickOnly) {
-      Navigator.pop(
-        context,
+      // Always a list, even for the one-tap case: the caller has a single
+      // «هدایت» path to write and a one-element list is the ordinary shape of
+      // it. See [_returnForwardRecipients].
+      Navigator.pop(context, <PickedRecipient>[
         PickedRecipient(phoneNumber: phoneNumber, name: name),
-      );
+      ]);
       return;
     }
     // pushReplacement pops this screen off the stack so back returns straight to
@@ -1078,6 +1160,18 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
 
   void _returnMembers() =>
       Navigator.pop(context, _picked.values.toList(growable: false));
+
+  /// Hands every picked person back to «هدایت», in the order they were picked.
+  void _returnForwardRecipients() {
+    if (_picked.isEmpty) return;
+    Navigator.pop(context, [
+      for (final member in _picked.values)
+        PickedRecipient(
+          phoneNumber: member.phoneNumber,
+          name: member.displayName,
+        ),
+    ]);
+  }
 
   /// Opens the group conversation for the picked people.
   ///
@@ -1136,6 +1230,7 @@ class _PickerRow extends StatelessWidget {
     required this.numbers,
     required this.leading,
     required this.onTap,
+    this.onLongPress,
     this.query = '',
     this.matchedNumber,
     this.selected = false,
@@ -1148,6 +1243,10 @@ class _PickerRow extends StatelessWidget {
   final List<String> numbers;
   final Widget leading;
   final VoidCallback onTap;
+
+  /// Enters multi-select — the app's one gesture for it, in the inbox, the
+  /// contacts tab and here.
+  final VoidCallback? onLongPress;
 
   /// Active search text — the matching run of the name is highlighted the way
   /// Google bolds it, located through the same folding the filter used.
@@ -1166,18 +1265,16 @@ class _PickerRow extends StatelessWidget {
         color: selected ? scheme.secondaryContainer : Colors.transparent,
         child: InkWell(
           onTap: onTap,
+          onLongPress: onLongPress,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               children: [
-                if (selected)
-                  CircleAvatar(
-                    radius: 22,
-                    backgroundColor: scheme.primary,
-                    child: Icon(Icons.check, color: scheme.onPrimary),
-                  )
-                else
-                  leading,
+                // The avatar always stays: it is how a person is recognised in
+                // a list, and replacing it with a tick meant the row lost its
+                // face the moment it was picked. The tick belongs in the
+                // checkbox on the other end of the row.
+                leading,
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(
@@ -1207,12 +1304,18 @@ class _PickerRow extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (selectionMode && !selected)
-                  Icon(
-                    Icons.radio_button_unchecked,
-                    size: 20,
-                    color: scheme.outline,
-                  ),
+                if (selectionMode)
+                  selected
+                      ? Icon(
+                          Icons.check_circle,
+                          size: 22,
+                          color: scheme.primary,
+                        )
+                      : Icon(
+                          Icons.radio_button_unchecked,
+                          size: 22,
+                          color: scheme.outline,
+                        ),
               ],
             ),
           ),
