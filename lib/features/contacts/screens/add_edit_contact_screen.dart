@@ -664,19 +664,17 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
               ),
             ),
           ),
-          const SizedBox(width: 8),
-          DropdownButton<PhoneLabel>(
+          // Tight, so the number field keeps the width. See
+          // [CompactLabelDropdown] for why this row is measured rather than
+          // laid out with stock controls.
+          const SizedBox(width: 4),
+          CompactLabelDropdown<PhoneLabel>(
             value: entry.label,
-            underline: const SizedBox.shrink(),
-            items: kPhoneLabels.entries
-                .map(
-                  (e) => DropdownMenuItem(value: e.key, child: Text(e.value)),
-                )
-                .toList(),
-            onChanged: (v) => setState(() => entry.label = v ?? entry.label),
+            labels: kPhoneLabels,
+            onChanged: (v) => setState(() => entry.label = v),
           ),
-          IconButton(
-            icon: const Icon(Icons.close, size: 20),
+          RemoveFieldButton(
+            tooltip: 'حذف شماره',
             onPressed: _phones.length == 1
                 ? null
                 : () => setState(() => _phones.removeAt(i)),
@@ -714,19 +712,14 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
               decoration: const InputDecoration(labelText: 'ایمیل'),
             ),
           ),
-          const SizedBox(width: 8),
-          DropdownButton<EmailLabel>(
+          const SizedBox(width: 4),
+          CompactLabelDropdown<EmailLabel>(
             value: entry.label,
-            underline: const SizedBox.shrink(),
-            items: kEmailLabels.entries
-                .map(
-                  (e) => DropdownMenuItem(value: e.key, child: Text(e.value)),
-                )
-                .toList(),
-            onChanged: (v) => setState(() => entry.label = v ?? entry.label),
+            labels: kEmailLabels,
+            onChanged: (v) => setState(() => entry.label = v),
           ),
-          IconButton(
-            icon: const Icon(Icons.close, size: 20),
+          RemoveFieldButton(
+            tooltip: 'حذف ایمیل',
             onPressed: () => setState(() => _emails.removeAt(i)),
           ),
         ],

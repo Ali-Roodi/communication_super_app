@@ -3,7 +3,7 @@ class AppConstants {
 
   // Database
   static const String databaseName = 'communication_app.db';
-  static const int databaseVersion = 23;
+  static const int databaseVersion = 24;
 
   // Tables
   static const String contactsTable = 'contacts';
@@ -13,6 +13,14 @@ class AppConstants {
   static const String blockedNumbersTable = 'blocked_numbers';
   static const String archivedThreadsTable = 'archived_threads';
   static const String pinnedThreadsTable = 'pinned_threads';
+
+  /// Threads the user marked unread **by hand** (v24).
+  ///
+  /// A mark, not a count: it is what tells «علامت‌گذاری نخوانده» apart from a
+  /// message that genuinely arrived, so the inbox can draw a bare dot for the
+  /// first and the real number for the second. Nothing in the `messages` table
+  /// can express that difference — an unread row is an unread row.
+  static const String unreadMarksTable = 'unread_marks';
   static const String draftsTable = 'drafts';
   static const String messageCategoriesTable = 'message_categories';
   static const String messageTemplatesTable = 'message_templates';

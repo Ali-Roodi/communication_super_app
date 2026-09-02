@@ -592,8 +592,29 @@ class SmsService {
                   return;
                 }
 
-                final contact = await _contactRepository
-                    .getContactByPhoneNumber(phoneNumber);
+                // The address book is asked ONLY if it can answer from memory.
+                //
+                // This used to `await getContactByPhoneNumber`, and that is a
+                // real, measurable delay on **received** messages — the one
+                // the tester reported. A cold or invalidated contact cache
+                // makes that call read the *whole* address book over a
+                // platform channel, and `DeviceSyncQueue` serializes it behind
+                // whatever heavy device read is already running: on resume
+                // `MainNavigation` starts the SMS mirror-sync and the call-log
+                // import, so a message arriving in that window waited for a
+                // full provider walk before it was even written to SQLite,
+                // never mind shown. Sending has no such step, which is exactly
+                // why only received messages were late.
+                //
+                // Nothing is lost by skipping it. `contact_id` on a message row
+                // is a convenience: the inbox and the conversation title
+                // themselves from the device address book afterwards
+                // (`MessageBloc._applyNames`, `ContactNameCache`), which is
+                // also what lets a renamed or deleted contact reach a row that
+                // was written long ago. A null here costs nothing visible.
+                final contact = ContactRepository.cachedByPhoneNumber(
+                  phoneNumber,
+                );
 
                 final messageModel = MessageModel(
                   id: const Uuid().v4(),

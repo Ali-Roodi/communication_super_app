@@ -188,6 +188,21 @@
             </intent-filter>
         </service>
 
+        <!-- Default-dialer duty: telecom looks for a receiver of this action on
+             the default dialer's package and, finding one, sends the broadcast
+             INSTEAD of posting its own missed-call notification. Without it the
+             platform («Call Management») posts a second card next to this app's
+             own «تماس بی‌پاسخ» — the duplicate the tester photographed. Must be
+             exported: the sender is the system. See
+             MissedCallNotificationReceiver. -->
+        <receiver
+            android:name=".call.MissedCallNotificationReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.telecom.action.SHOW_MISSED_CALLS_NOTIFICATION"/>
+            </intent-filter>
+        </receiver>
+
         <!-- Answer/decline actions on the incoming-call notification -->
         <receiver
             android:name=".call.CallActionReceiver"

@@ -164,6 +164,32 @@ class CallInCallService : InCallService() {
         @JvmStatic
         fun clearMissedCallNotifications(context: Context) {
             try {
+                cancelMissedCallCards(context)
+                val tm = context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
+                tm.cancelMissedCallsNotification()
+                // Telecom now hands the notification duty to this app (see
+                // MissedCallNotificationReceiver), and with it a "these have
+                // been seen" intent. Firing it is what clears the platform's
+                // own unread-missed-call count — the launcher badge and the
+                // call log's NEW flag — which `cancelMissedCallsNotification`
+                // alone does not always reach on an OEM build.
+                MissedCallNotificationReceiver.clearPlatformMissedCalls()
+            } catch (e: Exception) {
+                Log.d(TAG, "clearMissedCallNotifications: ${e.message}")
+            }
+        }
+
+        /**
+         * Takes down this app's missed-call cards and **tells nobody**.
+         *
+         * The half of [clearMissedCallNotifications] that is safe to call from
+         * inside a `SHOW_MISSED_CALLS_NOTIFICATION` handler: telecom asking us
+         * to clear must not make us ask telecom to clear, or the two bounce the
+         * broadcast between them for ever.
+         */
+        @JvmStatic
+        fun cancelMissedCallCards(context: Context) {
+            try {
                 val nm = context.getSystemService(Context.NOTIFICATION_SERVICE)
                     as NotificationManager
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -172,10 +198,8 @@ class CallInCallService : InCallService() {
                         .forEach { nm.cancel(it.tag, it.id) }
                 }
                 missedCounts.clear()
-                val tm = context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
-                tm.cancelMissedCallsNotification()
             } catch (e: Exception) {
-                Log.d(TAG, "clearMissedCallNotifications: ${e.message}")
+                Log.d(TAG, "cancelMissedCallCards: ${e.message}")
             }
         }
 
@@ -1160,11 +1184,11 @@ class CallInCallService : InCallService() {
      * - **Actions.** Tapping only opened the app, which is not what anyone
      *   wants from a missed call — «تماس» dials straight back and «پیامک»
      *   opens the conversation.
-     * - **[cancelSystemMissedCallNotification].** The OEM dialer posts its own
-     *   missed-call notification (verified on the SM A336E: a second card from
-     *   `com.samsung.android.dialer`, channel `missedCall`, in English), and
-     *   the documented way for the default dialer to take that duty over is to
-     *   tell telecom it has done so. That is the second card the tester saw.
+     * - **A second card from somebody else.** The platform posts its own
+     *   missed-call notification unless the default dialer declares it will do
+     *   the job — that is [MissedCallNotificationReceiver], and it is why this
+     *   method no longer ends by telling telecom anything (see the note at the
+     *   bottom of it).
      */
     private fun postMissedCallNotification(phone: String, subscriptionId: Int) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -1201,14 +1225,33 @@ class CallInCallService : InCallService() {
             this, notifId + 2, smsIntent, piFlags,
         )
 
-        val name = lookupContactName(phone) ?: phone
+        // Resolved once: this is a contacts-provider query, and it was being
+        // run twice per missed call (for the title and again for the avatar).
+        val contactName = lookupContactName(phone)
+        val name = contactName ?: phone
         val title = if (count > 1) {
             "$count تماس بی‌پاسخ"
         } else {
             "تماس بی‌پاسخ"
         }
         val builder = NotificationCompat.Builder(this, MISSED_CHANNEL_ID)
+            // Two icons, and they say different things. The SMALL one is the
+            // handset silhouette the system tints into the status bar and
+            // badges onto the card — that is what tells «تماس بی‌پاسخ» apart
+            // from «پیامک» at a glance. The LARGE one is *who*: the caller's
+            // photo, or the app's letter avatar when they have none. Without a
+            // large icon most OEM shades fall back to the launcher icon, which
+            // is how a missed call and a message ended up looking identical
+            // next to each other on the tester's lock screen.
             .setSmallIcon(R.drawable.ic_stat_call)
+            .setLargeIcon(
+                lookupContactPhoto(phone)
+                    ?: com.example.communication_super_app.NotificationAvatars
+                        .letterAvatar(
+                            contactName,
+                            BlockedNumbers.normalizeToThreadId(phone),
+                        ),
+            )
             .setContentTitle(title)
             .setContentText(name)
             // Which card was rung — the same subtext the SMS shade shows,
@@ -1229,33 +1272,39 @@ class CallInCallService : InCallService() {
         nm.notify(notifId, builder.build())
 
         markMissedCall(applicationContext, phone)
-        cancelSystemMissedCallNotification()
+        // NOTE: `cancelSystemMissedCallNotification()` is deliberately NOT
+        // called here any more, and putting it back deletes this notification.
+        //
+        // It used to belong here: it told telecom "the default dialer has taken
+        // the missed-call duty over", so telecom dropped its own card. Since
+        // `MissedCallNotificationReceiver` exists telecom already knows that —
+        // it hands the duty over *before* posting anything — and the same call
+        // now means something else entirely. `cancelMissedCallsNotification()`
+        // reaches `MissedCallNotifierImpl.clearMissedCalls`, which, for a
+        // dialer that manages its own notifications, answers by broadcasting
+        // `SHOW_MISSED_CALLS_NOTIFICATION` back with `EXTRA_NOTIFICATION_COUNT
+        // = 0` — "there are no missed calls left, take your card down". Our
+        // receiver obeyed, one line after we posted it, and the app's own
+        // «تماس بی‌پاسخ» never appeared at all.
     }
 
-    /**
-     * Tells telecom the default dialer has taken the missed call over.
-     *
-     * See also [markMissedCall], which is what keeps the *carrier's* own
-     * missed-call SMS from becoming a second notification for the same event.
-     *
-     * `cancelMissedCallsNotification` cancels the platform's own card **and**
-     * marks the missed calls read in the call log, which is what makes the OEM
-     * dialer drop its duplicate. Google Phone does exactly this when it posts
-     * its own; without it the phone shows two missed-call notifications, and
-     * the OEM's one belongs to an app that is no longer the dialer.
-     *
-     * Only the default dialer may call it, and it throws otherwise — which is
-     * precisely the moment the platform's own notification is the right one to
-     * leave alone.
-     */
-    private fun cancelSystemMissedCallNotification() {
-        try {
-            val tm = getSystemService(Context.TELECOM_SERVICE) as TelecomManager
-            tm.cancelMissedCallsNotification()
-        } catch (e: SecurityException) {
-            Log.d(TAG, "not the default dialer; leaving the system notification")
+    /** The caller's photo thumbnail, for the missed-call card's large icon. */
+    private fun lookupContactPhoto(phone: String): android.graphics.Bitmap? {
+        if (phone.isEmpty()) return null
+        return try {
+            val uri = Uri.withAppendedPath(
+                ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(phone),
+            )
+            val photoUri = contentResolver.query(
+                uri,
+                arrayOf(ContactsContract.PhoneLookup.PHOTO_THUMBNAIL_URI),
+                null, null, null,
+            )?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: return null
+            contentResolver.openInputStream(Uri.parse(photoUri))?.use {
+                android.graphics.BitmapFactory.decodeStream(it)
+            }
         } catch (e: Exception) {
-            Log.w(TAG, "cancelMissedCallsNotification failed: ${e.message}")
+            null
         }
     }
 

@@ -332,6 +332,27 @@ class DatabaseHelper {
     if (oldVersion < 23) {
       await _createContactNameCacheTable(db);
     }
+
+    // v24: «علامت‌گذاری نخوانده» becomes a mark of its own. Starts empty, so an
+    // upgraded install simply has no hand-marked threads — which is true.
+    if (oldVersion < 24) {
+      await _createUnreadMarksTable(db);
+    }
+  }
+
+  /// Threads the user marked unread by hand (v24).
+  ///
+  /// See [AppConstants.unreadMarksTable]. A row here means "I have not dealt
+  /// with this yet"; it deliberately flags **no message**, because flagging one
+  /// is what made the mark indistinguishable from a message that had actually
+  /// arrived — and made the inbox draw a count for something nobody sent.
+  Future<void> _createUnreadMarksTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.unreadMarksTable} (
+        thread_id TEXT PRIMARY KEY,
+        marked_at INTEGER NOT NULL
+      )
+    ''');
   }
 
   /// Last known «normalized number → contact» of the device address book (v23).
@@ -1020,6 +1041,9 @@ class DatabaseHelper {
 
       // Persisted address-book name cache (v23)
       await _createContactNameCacheTable(db);
+
+      // Hand-marked unread threads (v24)
+      await _createUnreadMarksTable(db);
     } catch (e) {
       throw Exception('Failed to create database tables: $e');
     }

@@ -157,11 +157,17 @@ object SmsNotifier {
 
             // MessagingStyle + Person: the sender's name and contact photo
             // render in the notification exactly like Google Messages.
+            // The contact's photo when there is one, and the app's own letter
+            // avatar when there is not — never nothing. A card with no large
+            // icon falls back to the launcher icon on most OEM shades, which is
+            // exactly why a message and a missed call used to look identical
+            // there (see [NotificationAvatars]).
             val avatar = lookupContactPhoto(context, address)
+                ?: NotificationAvatars.letterAvatar(title, threadId)
             val sender = Person.Builder()
                 .setName(title)
                 .setKey(threadId)
-                .apply { if (avatar != null) setIcon(IconCompat.createWithBitmap(avatar)) }
+                .setIcon(IconCompat.createWithBitmap(avatar))
                 .build()
             // MessagingStyle needs a "me" even when nothing of the user's is
             // rendered — it is the identity the style is built around.
@@ -188,7 +194,7 @@ object SmsNotifier {
                 .setContentTitle(title)
                 .setContentText(text)
                 .setStyle(style)
-                .apply { if (avatar != null) setLargeIcon(avatar) }
+                .setLargeIcon(avatar)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setDefaults(NotificationCompat.DEFAULT_ALL)
                 .setCategory(Notification.CATEGORY_MESSAGE)

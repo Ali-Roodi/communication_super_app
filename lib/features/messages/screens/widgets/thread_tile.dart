@@ -118,24 +118,54 @@ class ThreadTile extends StatelessWidget {
                     ),
                     if (unread) ...[
                       const SizedBox(height: 8),
-                      Container(
-                        constraints: const BoxConstraints(minWidth: 22),
-                        height: 22,
-                        alignment: Alignment.center,
-                        padding: const EdgeInsets.symmetric(horizontal: 6),
-                        decoration: BoxDecoration(
-                          color: scheme.primary,
-                          borderRadius: BorderRadius.circular(11),
-                        ),
-                        child: Text(
-                          PersianUtils.toPersianNumber('${thread.unreadCount}'),
-                          style: TextStyle(
-                            color: scheme.onPrimary,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
+                      // A message that really arrived shows **how many**; a
+                      // conversation the user marked unread by hand shows a
+                      // bare dot.
+                      //
+                      // The two are different statements and the row says so.
+                      // «۳» means three people-sent messages are waiting — one
+                      // is «۱», and that is still a count, not noise. The dot
+                      // means "I have not dealt with this yet", which has no
+                      // number because nothing new happened. Telling them apart
+                      // takes a mark of its own (`unread_marks`, DB v24): while
+                      // the hand-mark was written as an unread message row it
+                      // could only ever be a fake count — «۴۷» when it flagged
+                      // the whole history, «۱» when it flagged the newest row —
+                      // and a real single message could not be told from it.
+                      if (thread.unreadCount > 0)
+                        Container(
+                          constraints: const BoxConstraints(minWidth: 22),
+                          height: 22,
+                          alignment: Alignment.center,
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          decoration: BoxDecoration(
+                            color: scheme.primary,
+                            borderRadius: BorderRadius.circular(11),
+                          ),
+                          child: Text(
+                            PersianUtils.toPersianNumber(
+                              '${thread.unreadCount}',
+                            ),
+                            style: TextStyle(
+                              color: scheme.onPrimary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        )
+                      else
+                        Container(
+                          width: 12,
+                          height: 12,
+                          // Vertically centred in the same 22 dp slot the
+                          // counted badge occupies, so a thread does not shift
+                          // when its count crosses 1.
+                          margin: const EdgeInsets.symmetric(vertical: 5),
+                          decoration: BoxDecoration(
+                            color: scheme.primary,
+                            shape: BoxShape.circle,
                           ),
                         ),
-                      ),
                     ],
                   ],
                 ),

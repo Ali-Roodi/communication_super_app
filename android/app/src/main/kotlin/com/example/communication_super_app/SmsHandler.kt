@@ -68,12 +68,45 @@ class SmsHandler(
     private val deliveredReceiver = SmsDeliveredReceiver()
 
     /**
-     * Inner class for receiving incoming SMS messages
+     * Inner class for receiving incoming SMS messages.
+     *
+     * **Everything here runs off the main thread**, and that is a latency fix,
+     * not tidiness. A *dynamic* receiver's `onReceive` is delivered on the
+     * app's main looper, and this one used to do the whole job there: a blocked
+     * -number lookup that opens the app's SQLite file, then
+     * [SmsNotifier.notifySms], which queries the contacts provider for a photo,
+     * reads the conversation back out of the database, pushes a shortcut and
+     * builds a notification. All of it before returning.
+     *
+     * The Flutter side pays for that twice over. `eventSink.success` is
+     * dispatched with `Dispatchers.Main`, so it is **posted to the very looper
+     * `onReceive` is occupying** — it cannot run until this method returns.
+     * The message therefore reached the UI only after every one of those reads
+     * had finished, and the whole app was frozen while they ran. That is the
+     * reported "received messages arrive late"; sending never goes near this
+     * path, which is why only the received ones were slow.
+     *
+     * `goAsync()` keeps the broadcast alive on a worker thread, so `onReceive`
+     * returns in microseconds and Flutter is handed the message immediately —
+     * the notification is then built in parallel instead of ahead of it.
      */
     inner class SmsBroadcastReceiver : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != "android.provider.Telephony.SMS_RECEIVED") return
+            val app = context.applicationContext
+            val pending = goAsync()
+            Thread {
+                try {
+                    handle(app, intent)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error receiving SMS: ${e.message}", e)
+                } finally {
+                    pending.finish()
+                }
+            }.start()
+        }
 
+        private fun handle(context: Context, intent: Intent) {
             try {
                 val bundle = intent.extras ?: return
                 @Suppress("DEPRECATION")
@@ -148,32 +181,217 @@ class SmsHandler(
      * in the PendingIntent extras; the outcome is streamed to Flutter as a
      * typed `status` event so the bubble's tick can advance (⏱ → ✓ → ✓✓) or
      * flip to failed.
+     *
+     * A multipart message broadcasts **once per part**. Only the last part to
+     * report decides, and any failed part fails the message: a five-part SMS
+     * whose third part the radio refused did not arrive, however cheerful the
+     * other four were. [PartTally] does that counting.
      */
     inner class SmsSentReceiver : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             val trackingId = intent.getStringExtra(EXTRA_TRACKING_ID) ?: return
-            val status = when (resultCode) {
-                Activity.RESULT_OK -> "sent"
-                else -> "failed"
+            val ok = resultCode == Activity.RESULT_OK
+            if (!ok) Log.e(TAG, "SMS send failed (resultCode=$resultCode)")
+            when (sentTally.report(trackingId, ok)) {
+                // Parts still outstanding. The tick advances anyway on the
+                // first accepted part: the radio has taken the message, the
+                // bubble should say so, and a broadcast that never arrives (a
+                // part the framework drops, the process restarting mid-send)
+                // must not strand the row at «در حال ارسال» for ever. A later
+                // part that fails still overrides it below.
+                PartTally.Outcome.PENDING -> if (ok) emitStatus(trackingId, "sent")
+                PartTally.Outcome.OK -> emitStatus(trackingId, "sent")
+                PartTally.Outcome.FAILED -> emitStatus(trackingId, "failed")
+                // Already called failed; its remaining parts say nothing.
+                PartTally.Outcome.SILENT -> Unit
             }
-            if (status == "failed") {
-                Log.e(TAG, "SMS send failed (resultCode=$resultCode)")
-            }
-            emitStatus(trackingId, status)
         }
     }
 
-    /** Delivery-report receiver — fires when the recipient's phone got it. */
+    /**
+     * Delivery-report receiver — the ✓✓ on a sent bubble.
+     *
+     * **The broadcast's `resultCode` says nothing about delivery.** The
+     * platform documents the delivery `PendingIntent` as carrying "the raw pdu
+     * of the status report" in the `"pdu"` extra, and that PDU's TP-Status is
+     * the only thing that knows whether the message arrived. On the RILs this
+     * app runs on the code is `RESULT_OK` for *every* status report the network
+     * sends — including «temporary error, still trying» and «permanent failure,
+     * gave up» — so trusting it is exactly the reported bug: the second tick
+     * appeared for messages that had not been delivered, and sometimes for
+     * messages that never would be.
+     *
+     * TP-Status is TS 23.040 §9.2.3.15, read the way AOSP Messaging reads it:
+     *
+     * * `0x00…0x1F` — delivered (0x00 is «received by the SME»),
+     * * `0x20…0x3F` — still trying; the network will send another report, so
+     *   the bubble stays at ✓ and says nothing yet,
+     * * anything else — failed, permanently.
+     *
+     * CDMA reports do not carry TP-Status at all; `SmsMessage.getStatus()`
+     * returns `STATUS_ON_ICC_*` there, which is not this field, so a CDMA
+     * report is treated as a plain delivery (the app's target networks are
+     * GSM/UMTS/LTE).
+     *
+     * A multipart message reports per part; ✓✓ needs **all** of them, which is
+     * the same [PartTally] the sent receiver uses.
+     */
     inner class SmsDeliveredReceiver : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             val trackingId = intent.getStringExtra(EXTRA_TRACKING_ID) ?: return
-            if (resultCode == Activity.RESULT_OK) {
-                emitStatus(trackingId, "delivered")
-            } else {
-                Log.e(TAG, "SMS delivery failed")
+            when (readDeliveryStatus(intent)) {
+                DeliveryOutcome.PENDING -> {
+                    Log.d(TAG, "status report: still trying, leaving the tick alone")
+                }
+                DeliveryOutcome.DELIVERED ->
+                    when (deliveredTally.report(trackingId, true)) {
+                        // ✓✓ only once EVERY part has been delivered.
+                        PartTally.Outcome.PENDING,
+                        PartTally.Outcome.SILENT -> Unit
+                        PartTally.Outcome.OK -> emitStatus(trackingId, "delivered")
+                        PartTally.Outcome.FAILED -> emitStatus(trackingId, "failed")
+                    }
+                DeliveryOutcome.FAILED -> {
+                    Log.e(TAG, "SMS delivery failed (status report)")
+                    // Through the tally, so a message already reported failed
+                    // does not say so again for each remaining part.
+                    when (deliveredTally.report(trackingId, false)) {
+                        PartTally.Outcome.FAILED -> emitStatus(trackingId, "failed")
+                        else -> Unit
+                    }
+                }
             }
         }
     }
+
+    private enum class DeliveryOutcome { DELIVERED, PENDING, FAILED }
+
+    /**
+     * Reads TP-Status out of a status-report broadcast.
+     *
+     * A PDU that cannot be parsed (an OEM that does not put one in the extras)
+     * falls back to [DeliveryOutcome.DELIVERED] — the report only exists
+     * because the network sent one, and the alternative is a tick that never
+     * advances on those phones.
+     */
+    private fun readDeliveryStatus(intent: Intent): DeliveryOutcome {
+        val pdu = intent.getByteArrayExtra("pdu") ?: return DeliveryOutcome.DELIVERED
+        val format = intent.getStringExtra("format")
+        val message = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && format != null) {
+                SmsMessage.createFromPdu(pdu, format)
+            } else {
+                @Suppress("DEPRECATION")
+                SmsMessage.createFromPdu(pdu)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "unreadable status report: ${e.message}")
+            null
+        } ?: return DeliveryOutcome.DELIVERED
+
+        // Not a GSM report: `getStatus()` is not TP-Status there.
+        if (format == "3gpp2") return DeliveryOutcome.DELIVERED
+        // `getStatus()` only carries TP-Status for an actual status report; on
+        // anything else it answers with the ICC storage status, which would be
+        // read here as a delivery verdict it is not.
+        if (!message.isStatusReportMessage) return DeliveryOutcome.DELIVERED
+
+        val status = message.status
+        return when {
+            status < 0x20 -> DeliveryOutcome.DELIVERED
+            status < 0x40 -> DeliveryOutcome.PENDING
+            else -> DeliveryOutcome.FAILED
+        }
+    }
+
+    /**
+     * Counts the parts of one multipart message so a per-part broadcast becomes
+     * one answer about the message.
+     *
+     * `sendMultipartTextMessage` fires the PendingIntent once per part, and the
+     * old code emitted a status on each — so a three-part SMS turned its bubble
+     * ✓✓ as soon as the *first* part was acknowledged, and a message whose
+     * later part failed had already claimed success.
+     *
+     * Entries are dropped as soon as they resolve, and stale ones (a report
+     * that never arrives — the network is not obliged to send one) are swept on
+     * insert, so this cannot grow without bound.
+     */
+    class PartTally {
+        enum class Outcome {
+            /** Parts still outstanding, none has failed. */
+            PENDING,
+
+            /** Every part reported, all of them accepted. */
+            OK,
+
+            /** The first failure of this message. */
+            FAILED,
+
+            /**
+             * Say nothing: this message has already been called failed.
+             *
+             * This case exists because of a bug in the first version, which
+             * dropped the entry on the first failure — so the *next* part's
+             * report found no entry, was treated as a message of its own, and
+             * flipped a message that had just been marked «ارسال نشد» back to
+             * ✓. A verdict of failure is final for the whole message; the
+             * remaining parts are counted only so the entry can be retired.
+             */
+            SILENT,
+        }
+
+        private class Entry(val total: Int, val at: Long) {
+            var seen = 0
+            var failed = false
+        }
+
+        private val entries = HashMap<String, Entry>()
+
+        /** How many parts [trackingId] was split into. */
+        @Synchronized
+        fun expect(trackingId: String, parts: Int) {
+            if (trackingId.isEmpty()) return
+            sweep()
+            entries[trackingId] = Entry(parts, System.currentTimeMillis())
+        }
+
+        /** Folds one part's outcome in and says whether the message is decided. */
+        @Synchronized
+        fun report(trackingId: String, ok: Boolean): Outcome {
+            // No entry: a report for a message this process did not send (the
+            // app was restarted), or one already retired. One report, one
+            // answer.
+            val entry = entries[trackingId] ?: return if (ok) Outcome.OK else Outcome.FAILED
+            val alreadyFailed = entry.failed
+            entry.seen++
+            if (!ok) entry.failed = true
+            // Retire the entry only once every part has spoken, so a message
+            // that failed cannot be mistaken for a fresh one by its own
+            // stragglers.
+            if (entry.seen >= entry.total) entries.remove(trackingId)
+            return when {
+                alreadyFailed -> Outcome.SILENT
+                entry.failed -> Outcome.FAILED
+                entry.seen >= entry.total -> Outcome.OK
+                else -> Outcome.PENDING
+            }
+        }
+
+        private fun sweep() {
+            if (entries.size < 64) return
+            val cutoff = System.currentTimeMillis() - STALE_MS
+            entries.entries.removeAll { it.value.at < cutoff }
+        }
+
+        private companion object {
+            /** A status report that has not arrived in an hour is not coming. */
+            const val STALE_MS = 60L * 60_000
+        }
+    }
+
+    private val sentTally = PartTally()
+    private val deliveredTally = PartTally()
 
     /** Streams a typed status event to Flutter over the SMS EventChannel. */
     private fun emitStatus(trackingId: String, status: String) {
@@ -207,13 +425,33 @@ class SmsHandler(
             // the dynamic receiver MUST be EXPORTED on Android 13+. Registering it
             // NOT_EXPORTED silently drops system broadcasts — the app would never
             // see incoming SMS (no persist, no notification, no UI refresh).
+            //
+            // Exported, but NOT open: the registration carries the
+            // `BROADCAST_SMS` permission, which only the system holds. Without
+            // it an exported receiver on this action accepts an
+            // `android.provider.Telephony.SMS_RECEIVED` broadcast from ANY app
+            // on the phone — a forged message, persisted into the inbox and
+            // posted as a notification from a sender the user has no reason to
+            // doubt. The manifest twin (`IncomingSmsReceiver`) has always been
+            // declared with this permission; the dynamic one had not.
             val smsFilter = IntentFilter("android.provider.Telephony.SMS_RECEIVED").apply {
                 priority = 999 // High priority
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.registerReceiver(smsReceiver, smsFilter, Context.RECEIVER_EXPORTED)
+                context.registerReceiver(
+                    smsReceiver,
+                    smsFilter,
+                    android.Manifest.permission.BROADCAST_SMS,
+                    null,
+                    Context.RECEIVER_EXPORTED,
+                )
             } else {
-                context.registerReceiver(smsReceiver, smsFilter)
+                context.registerReceiver(
+                    smsReceiver,
+                    smsFilter,
+                    android.Manifest.permission.BROADCAST_SMS,
+                    null,
+                )
             }
 
             // Register sent/delivered receivers
@@ -329,7 +567,13 @@ class SmsHandler(
 
             // Handle multipart messages
             val parts = smsManager.divideMessage(message)
-            
+
+            // Registered BEFORE the send: the radio can acknowledge a part
+            // before this coroutine gets another slice, and a report that
+            // arrives with no tally is treated as the whole message.
+            sentTally.expect(trackingId, parts.size)
+            if (requestDeliveryReport) deliveredTally.expect(trackingId, parts.size)
+
             if (parts.size == 1) {
                 // Single part message
                 smsManager.sendTextMessage(

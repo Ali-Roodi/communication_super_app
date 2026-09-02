@@ -2,6 +2,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
+import 'package:communication_super_app/core/widgets/caret_line_fix.dart';
 import 'emoji_panel.dart';
 import 'message_bubble.dart';
 import 'schedule_send_sheet.dart';
@@ -271,48 +272,56 @@ class MessageComposer extends StatelessWidget {
                         Expanded(
                           child: Padding(
                             padding: const EdgeInsets.symmetric(vertical: 12),
-                            child: TextField(
+                            // Tapping the visual start of a wrapped line used
+                            // to leave the caret at the end of the line above.
+                            // See [CaretLineFix] — the fix is a few pixels of
+                            // affinity, and it is only ever active at a soft
+                            // wrap.
+                            child: CaretLineFix(
                               controller: controller,
-                              focusNode: focusNode,
-                              minLines: 1,
-                              // Grows line by line and then scrolls inside
-                              // itself, exactly like Google Messages.
-                              maxLines: _maxLinesFor(
-                                context,
-                                showStickers ? stickerPanelHeight : 0,
-                                keyboardInset,
-                              ),
-                              textInputAction: TextInputAction.newline,
-                              // Selecting what has been typed, at the same
-                              // quality as selecting a bubble: the highlight
-                              // covers the **whole line box** so a selection
-                              // running over several lines is one continuous
-                              // band instead of a row of ragged strips (this
-                              // field's line height is 1.45, so `tight` leaves
-                              // a visible gap between every pair of lines), and
-                              // it stays **tight horizontally** so the empty
-                              // part of a short line is never painted as
-                              // selected. `BoxWidthStyle.max` is exactly the
-                              // "it selects the blank space too" behaviour and
-                              // is deliberately not used.
-                              selectionHeightStyle: ui.BoxHeightStyle.max,
-                              selectionWidthStyle: ui.BoxWidthStyle.tight,
-                              style: const TextStyle(
-                                fontSize: _kFontSize,
-                                height: _kLineHeight,
-                              ),
-                              decoration: const InputDecoration(
-                                // Just «پیامک». The SIM is already named by the
-                                // chip immediately to its right, and repeating
-                                // it in the hint made the empty composer read
-                                // as two competing labels.
-                                hintText: 'پیامک',
-                                isDense: true,
-                                filled: false,
-                                contentPadding: EdgeInsets.zero,
-                                border: InputBorder.none,
-                                enabledBorder: InputBorder.none,
-                                focusedBorder: InputBorder.none,
+                              child: TextField(
+                                controller: controller,
+                                focusNode: focusNode,
+                                minLines: 1,
+                                // Grows line by line and then scrolls inside
+                                // itself, exactly like Google Messages.
+                                maxLines: _maxLinesFor(
+                                  context,
+                                  showStickers ? stickerPanelHeight : 0,
+                                  keyboardInset,
+                                ),
+                                textInputAction: TextInputAction.newline,
+                                // Selecting what has been typed, at the same
+                                // quality as selecting a bubble: the highlight
+                                // covers the **whole line box** so a selection
+                                // running over several lines is one continuous
+                                // band instead of a row of ragged strips (this
+                                // field's line height is 1.45, so `tight` leaves
+                                // a visible gap between every pair of lines), and
+                                // it stays **tight horizontally** so the empty
+                                // part of a short line is never painted as
+                                // selected. `BoxWidthStyle.max` is exactly the
+                                // "it selects the blank space too" behaviour and
+                                // is deliberately not used.
+                                selectionHeightStyle: ui.BoxHeightStyle.max,
+                                selectionWidthStyle: ui.BoxWidthStyle.tight,
+                                style: const TextStyle(
+                                  fontSize: _kFontSize,
+                                  height: _kLineHeight,
+                                ),
+                                decoration: const InputDecoration(
+                                  // Just «پیامک». The SIM is already named by the
+                                  // chip immediately to its right, and repeating
+                                  // it in the hint made the empty composer read
+                                  // as two competing labels.
+                                  hintText: 'پیامک',
+                                  isDense: true,
+                                  filled: false,
+                                  contentPadding: EdgeInsets.zero,
+                                  border: InputBorder.none,
+                                  enabledBorder: InputBorder.none,
+                                  focusedBorder: InputBorder.none,
+                                ),
                               ),
                             ),
                           ),

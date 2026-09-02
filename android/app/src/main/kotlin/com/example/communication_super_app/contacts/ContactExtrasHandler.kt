@@ -14,6 +14,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.ContactsContract
 import androidx.core.content.ContextCompat
+import com.example.communication_super_app.sim.SimRegistry
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
@@ -82,6 +83,15 @@ class ContactExtrasHandler(
                 "clearRingtone" -> result.success(writeRingtone(id, null))
                 "shareContact" -> result.success(shareContact(id))
                 "pinToHome" -> result.success(pinToHome(id))
+                "getDefaultPhone" -> result.success(getDefaultPhone(id))
+                "setDefaultPhone" -> result.success(
+                    setDefaultPhone(id, call.argument<String>("number"))
+                )
+                "clearDefaultPhone" -> result.success(clearDefaultPhone(id))
+                "getCallingSim" -> result.success(getCallingSim(id))
+                "setCallingSim" -> result.success(
+                    setCallingSim(id, call.argument<Int>("subscriptionId") ?: -1)
+                )
                 "getConnectedApps" -> result.success(getConnectedApps(id))
                 "openConnectedAction" -> result.success(
                     openConnectedAction(
@@ -95,6 +105,227 @@ class ContactExtrasHandler(
         } catch (e: Exception) {
             result.error("CONTACT_EXTRAS_FAILED", e.message, null)
         }
+    }
+
+    // ── Default number («شماره پیش‌فرض») ─────────────────────────────────────
+    //
+    // The platform's own concept, `Data.IS_SUPER_PRIMARY` on the Phone row —
+    // the same flag Google Contacts sets from its «Set default» item, and the
+    // one every other app on the phone reads when it has to pick ONE number for
+    // a contact (a launcher shortcut, a share target, `PhoneLookup`). Storing a
+    // preference of our own here would have been invisible to all of them and
+    // would have disagreed with the address book the moment the number was
+    // edited elsewhere.
+    //
+    // Two flags, not one, and both matter: `IS_PRIMARY` is "preferred within
+    // this raw contact", `IS_SUPER_PRIMARY` is "preferred for the whole
+    // aggregate". Only the second answers "which number is *the* number" for a
+    // contact linked across two accounts.
+
+    /**
+     * The number currently flagged super-primary for [contactId], or null when
+     * the contact has never been given one.
+     */
+    private fun getDefaultPhone(contactId: String?): String? {
+        if (contactId.isNullOrEmpty()) return null
+        return context.contentResolver.query(
+            ContactsContract.Data.CONTENT_URI,
+            arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER),
+            "${ContactsContract.Data.CONTACT_ID} = ? AND " +
+                "${ContactsContract.Data.MIMETYPE} = ? AND " +
+                "${ContactsContract.Data.IS_SUPER_PRIMARY} = 1",
+            arrayOf(contactId, ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE),
+            null,
+        )?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+    }
+
+    /**
+     * Flags [number] as [contactId]'s default and clears the flag from its
+     * other numbers.
+     *
+     * Matched on **digits**, not on the string: the number reaching us is the
+     * one the UI is showing, which has been through the app's own formatting,
+     * while the provider holds whatever the user typed («0912-123-4567»,
+     * «+98 912 123 4567»). Comparing them literally found nothing and the item
+     * silently did nothing. `PHONE_NUMBERS_EQUAL` is not used for the same
+     * reason it is avoided elsewhere in this app — it is locale-dependent and
+     * disagrees with `PhoneNormalizer` on Iranian numbers.
+     *
+     * Returns true when a row was actually flagged.
+     */
+    private fun setDefaultPhone(contactId: String?, number: String?): Boolean {
+        if (number.isNullOrEmpty()) return false
+        return writeDefaultPhone(contactId, number)
+    }
+
+    /**
+     * Takes the default off **every** one of [contactId]'s numbers, putting the
+     * contact back to having none.
+     *
+     * The counterpart of [setDefaultPhone], and it has to exist: setting a
+     * default is a one-way door otherwise — the flag can be moved from number
+     * to number but never taken off, and a contact wrongly given one could not
+     * be put back. `IS_SUPER_PRIMARY = 0` on all rows is how the provider
+     * expresses "no preference"; the aggregate then falls back to its own
+     * ordering, which is what a contact that was never given a default does.
+     */
+    private fun clearDefaultPhone(contactId: String?): Boolean =
+        writeDefaultPhone(contactId, null)
+
+    /**
+     * Writes the super-primary flag across all of [contactId]'s phone rows:
+     * onto the row matching [number], or onto none of them when it is null.
+     *
+     * One batch, so the phone never has two defaults (or, between two writes,
+     * none) even for an instant.
+     */
+    private fun writeDefaultPhone(contactId: String?, number: String?): Boolean {
+        if (contactId.isNullOrEmpty()) return false
+        val wanted = number?.let(::tailDigits)
+        if (number != null && wanted.isNullOrEmpty()) return false
+
+        val ids = ArrayList<Pair<Long, String>>()
+        context.contentResolver.query(
+            ContactsContract.Data.CONTENT_URI,
+            arrayOf(
+                ContactsContract.Data._ID,
+                ContactsContract.CommonDataKinds.Phone.NUMBER,
+            ),
+            "${ContactsContract.Data.CONTACT_ID} = ? AND ${ContactsContract.Data.MIMETYPE} = ?",
+            arrayOf(contactId, ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE),
+            null,
+        )?.use { c ->
+            while (c.moveToNext()) ids.add(c.getLong(0) to (c.getString(1) ?: ""))
+        }
+        if (ids.isEmpty()) return false
+
+        val targetId = if (wanted == null) {
+            null
+        } else {
+            ids.firstOrNull { tailDigits(it.second) == wanted }?.first ?: return false
+        }
+
+        val ops = ArrayList<android.content.ContentProviderOperation>()
+        for ((dataId, _) in ids) {
+            val primary = if (dataId == targetId) 1 else 0
+            ops.add(
+                android.content.ContentProviderOperation
+                    .newUpdate(ContentUris.withAppendedId(ContactsContract.Data.CONTENT_URI, dataId))
+                    .withValue(ContactsContract.Data.IS_SUPER_PRIMARY, primary)
+                    .withValue(ContactsContract.Data.IS_PRIMARY, primary)
+                    .build(),
+            )
+        }
+        context.contentResolver.applyBatch(ContactsContract.AUTHORITY, ops)
+        return true
+    }
+
+    // ── Calling SIM («سیم‌کارت تماس») ────────────────────────────────────────
+    //
+    // Also the platform's own, and for the same reason as the default number:
+    // `Phone.PREFERRED_PHONE_ACCOUNT_COMPONENT_NAME` + `..._ID` are the columns
+    // Android added in Q for exactly this, they are what Google Contacts writes
+    // from its «Calling account» row, and they are what a dialer is expected to
+    // honour. A preference kept in this app's own database would be invisible
+    // to every other app and would not survive the contact being edited
+    // elsewhere.
+    //
+    // The pair identifies a `PhoneAccountHandle`, not a SIM: telecom's model
+    // allows call accounts that are not SIMs at all. `SimRegistry` owns the
+    // translation in both directions, and it is the same one
+    // `CallHandler.makeCall` already uses to place a call on a chosen card — so
+    // a preference stored here dials exactly the same way an explicit pick
+    // does.
+
+    /**
+     * The subscription id this contact's calls prefer, or null when it has no
+     * preference (or the preferred account is not one of this phone's SIMs any
+     * more — a card that was removed must not silently keep choosing).
+     */
+    private fun getCallingSim(contactId: String?): Int? {
+        if (contactId.isNullOrEmpty()) return null
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        val handle = context.contentResolver.query(
+            ContactsContract.Data.CONTENT_URI,
+            arrayOf(
+                ContactsContract.CommonDataKinds.Phone
+                    .PREFERRED_PHONE_ACCOUNT_COMPONENT_NAME,
+                ContactsContract.CommonDataKinds.Phone.PREFERRED_PHONE_ACCOUNT_ID,
+            ),
+            "${ContactsContract.Data.CONTACT_ID} = ? AND " +
+                "${ContactsContract.Data.MIMETYPE} = ? AND " +
+                "${ContactsContract.CommonDataKinds.Phone
+                    .PREFERRED_PHONE_ACCOUNT_COMPONENT_NAME} IS NOT NULL",
+            arrayOf(contactId, ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE),
+            null,
+        )?.use { c ->
+            if (!c.moveToFirst()) return@use null
+            val component = c.getString(0) ?: return@use null
+            val accountId = c.getString(1) ?: return@use null
+            val flat = android.content.ComponentName.unflattenFromString(component)
+                ?: return@use null
+            android.telecom.PhoneAccountHandle(flat, accountId)
+        } ?: return null
+        return SimRegistry.subscriptionFor(context, handle)
+    }
+
+    /**
+     * Pins [subscriptionId]'s SIM as this contact's calling account, on **every**
+     * one of its numbers; a negative id clears the preference.
+     *
+     * All numbers, not the default one: «سیم‌کارت تماس» is a fact about the
+     * person, and a contact whose second number rang out on the other card
+     * would be the same "why did it use that SIM?" the setting exists to
+     * answer.
+     */
+    private fun setCallingSim(contactId: String?, subscriptionId: Int): Boolean {
+        if (contactId.isNullOrEmpty()) return false
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
+        val handle = if (subscriptionId < 0) {
+            null
+        } else {
+            SimRegistry.phoneAccountFor(context, subscriptionId) ?: return false
+        }
+
+        val ids = ArrayList<Long>()
+        context.contentResolver.query(
+            ContactsContract.Data.CONTENT_URI,
+            arrayOf(ContactsContract.Data._ID),
+            "${ContactsContract.Data.CONTACT_ID} = ? AND ${ContactsContract.Data.MIMETYPE} = ?",
+            arrayOf(contactId, ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE),
+            null,
+        )?.use { c -> while (c.moveToNext()) ids.add(c.getLong(0)) }
+        if (ids.isEmpty()) return false
+
+        val ops = ArrayList<android.content.ContentProviderOperation>()
+        for (dataId in ids) {
+            ops.add(
+                android.content.ContentProviderOperation
+                    .newUpdate(ContentUris.withAppendedId(ContactsContract.Data.CONTENT_URI, dataId))
+                    .withValue(
+                        ContactsContract.CommonDataKinds.Phone
+                            .PREFERRED_PHONE_ACCOUNT_COMPONENT_NAME,
+                        handle?.componentName?.flattenToString(),
+                    )
+                    .withValue(
+                        ContactsContract.CommonDataKinds.Phone.PREFERRED_PHONE_ACCOUNT_ID,
+                        handle?.id,
+                    )
+                    .build(),
+            )
+        }
+        context.contentResolver.applyBatch(ContactsContract.AUTHORITY, ops)
+        return true
+    }
+
+    /**
+     * The last nine digits of [raw] — enough to identify a number regardless of
+     * the trunk «0», the «+98»/«0098» country prefix, or any punctuation, and
+     * short enough that a landline written with an area code still matches.
+     */
+    private fun tailDigits(raw: String): String {
+        val digits = raw.filter { it.isDigit() }
+        return if (digits.length <= 9) digits else digits.takeLast(9)
     }
 
     // ── Reads ────────────────────────────────────────────────────────────────

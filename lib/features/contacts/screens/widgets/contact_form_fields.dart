@@ -147,3 +147,106 @@ class AddMoreButton extends StatelessWidget {
     );
   }
 }
+
+/// The compact type selector («موبایل» / «منزل» / …) that sits at the trailing
+/// edge of a phone or email row in the contact form.
+///
+/// A plain [DropdownButton] is the wrong control *here* for one measurable
+/// reason: it sizes itself to its widest menu item («محل کار») and adds a
+/// 24 dp arrow and the button's own padding on top, so on a 360 dp phone the
+/// three trailing controls ate about 145 dp of a 288 dp row and the number
+/// field — the only field the user actually types into — was left narrower
+/// than the label floating above it. Google Contacts gives the value field the
+/// width and keeps the type a small, quiet affordance; so does this.
+///
+/// The compaction is honest, not a squeeze: the label is `bodyMedium`, the
+/// arrow is 18 dp, `isDense` removes the button's vertical padding, and the
+/// whole thing is capped by [maxWidth] with the text ellipsised rather than
+/// allowed to push the field. The menu itself is untouched — it still lists
+/// every label at full size.
+class CompactLabelDropdown<T> extends StatelessWidget {
+  const CompactLabelDropdown({
+    super.key,
+    required this.value,
+    required this.labels,
+    required this.onChanged,
+    this.maxWidth = 62,
+  });
+
+  final T value;
+  final Map<T, String> labels;
+  final ValueChanged<T> onChanged;
+  final double maxWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxWidth),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<T>(
+          value: value,
+          isDense: true,
+          isExpanded: true,
+          borderRadius: BorderRadius.circular(12),
+          icon: const Icon(Icons.arrow_drop_down, size: 16),
+          iconSize: 16,
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          // The *selected* value is drawn by this builder, so the row can show
+          // an ellipsised single line while the open menu keeps full labels.
+          selectedItemBuilder: (context) => [
+            for (final label in labels.values)
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+          ],
+          items: [
+            for (final entry in labels.entries)
+              DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+          ],
+          onChanged: (v) {
+            if (v != null) onChanged(v);
+          },
+        ),
+      ),
+    );
+  }
+}
+
+/// The ✕ that removes one phone/email row.
+///
+/// Sized down from the stock [IconButton]'s 48 dp square to 32 dp: two
+/// trailing controls plus a 48 dp button is what left the number field too
+/// narrow to read a full number in. 32 dp is the Material minimum for a
+/// secondary affordance inside a dense form row, and the row itself is 56 dp
+/// tall so the vertical target is unchanged.
+class RemoveFieldButton extends StatelessWidget {
+  const RemoveFieldButton({super.key, required this.onPressed, this.tooltip});
+
+  /// Null disables the button (the last remaining phone row).
+  final VoidCallback? onPressed;
+  final String? tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      icon: const Icon(Icons.close, size: 18),
+      tooltip: tooltip,
+      onPressed: onPressed,
+      padding: EdgeInsets.zero,
+      visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+      splashRadius: 18,
+    );
+  }
+}
