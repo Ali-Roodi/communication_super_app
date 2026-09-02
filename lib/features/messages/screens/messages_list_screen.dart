@@ -189,12 +189,23 @@ class _MessagesListScreenState extends State<MessagesListScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    if (state == AppLifecycleState.resumed && mounted && _hasLoadedInitially) {
-      context.read<MessageBloc>().add(const LoadThreads());
-      _loadDrafts();
-      // The user may have changed the default SMS app in system settings.
-      _checkDefaultSmsApp();
-    }
+    if (state != AppLifecycleState.resumed || !mounted) return;
+    if (!_hasLoadedInitially) return;
+    // The inbox is never unmounted — it is one page of `MainNavigation`'s
+    // IndexedStack — so it goes on hearing about resumes while the user is
+    // deep in a conversation. Refreshing from there is worse than useless:
+    // `MessageBloc` holds **one** state, so the `ThreadsLoaded` this emits
+    // replaces the `MessagesLoaded` the open chat is painting from, and the
+    // chat's `buildWhen` (rightly) ignores it — which is how messages that
+    // arrived while the phone was locked stayed invisible until the user
+    // backed out and opened the conversation again. Nothing is lost by
+    // skipping: [didPopNext] re-reads the inbox the moment the page above it
+    // closes, which is the first time the rows are on screen again.
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    context.read<MessageBloc>().add(const LoadThreads());
+    _loadDrafts();
+    // The user may have changed the default SMS app in system settings.
+    _checkDefaultSmsApp();
   }
 
   /// Overlays what a conversation still owes the user onto its row: an unsent

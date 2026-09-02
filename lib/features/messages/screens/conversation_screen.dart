@@ -102,7 +102,7 @@ class ConversationScreen extends StatefulWidget {
 }
 
 class _ConversationScreenState extends State<ConversationScreen>
-    with RouteAware {
+    with RouteAware, WidgetsBindingObserver {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
@@ -219,6 +219,7 @@ class _ConversationScreenState extends State<ConversationScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _messageBloc = context.read<MessageBloc>();
     if (_isGroup) {
       _group = widget.group;
@@ -413,30 +414,30 @@ class _ConversationScreenState extends State<ConversationScreen>
     setState(() {});
   }
 
-  /// Restores any unsent text saved for this thread when re-entering the chat
-  /// and seeds [ConversationScreen.initialText] (a forwarded body, a share).
+  /// Restores any unsent text saved for this thread when re-entering the chat,
+  /// or seeds [ConversationScreen.initialText] (a forwarded body, a share).
   ///
-  /// **Both, not one or the other.** The saved draft used to win outright, so
-  /// forwarding a message into a conversation the user had half-written a reply
-  /// in did nothing at all — the composer kept the draft and the forwarded text
-  /// was dropped on the floor with nothing on screen to say so. Overwriting the
-  /// draft instead is the other way to lose text. So the forwarded body is
-  /// appended on its own line and the caret is left after it, which is what the
-  /// user is about to send; the draft above it is still there to edit or clear.
+  /// **Seeded text REPLACES the draft, it is not appended to it.** The two
+  /// wrong answers here have both been shipped: the draft winning outright
+  /// dropped the forwarded body on the floor with nothing on screen to say so,
+  /// and concatenating them («draft\nforwarded») put the half-written reply in
+  /// front of the message being forwarded, so «ارسال» sent the two glued
+  /// together — which is what the tester saw. Google Messages replaces: a
+  /// forward opens the conversation with *the forwarded message* in the
+  /// composer, ready to send, and the draft is gone. The stored draft is
+  /// dropped in the same breath so the inbox row stops advertising text the
+  /// composer no longer holds.
   Future<void> _restoreComposerDraft() async {
+    // Read first even when it is about to be replaced: the await is also the
+    // async gap that keeps the controller write (and the `setState` its
+    // listener fires) out of `initState`.
     final saved = await _draftStore.loadText(widget.threadId);
-    if (!mounted) return;
-    if (_messageController.text.isNotEmpty) return;
-    final draft = saved ?? '';
+    if (!mounted || _messageController.text.isNotEmpty) return;
     final seeded = widget.initialText ?? '';
-    final text = draft.isEmpty
-        ? seeded
-        : (seeded.isEmpty ? draft : '$draft\n$seeded');
+    final text = seeded.isNotEmpty ? seeded : (saved ?? '');
     if (text.isEmpty) return;
     _messageController.text = text;
-    _messageController.selection = TextSelection.collapsed(
-      offset: text.length,
-    );
+    _messageController.selection = TextSelection.collapsed(offset: text.length);
   }
 
   /// Persists (or clears) the unsent composer text for this thread.
@@ -491,8 +492,43 @@ class _ConversationScreenState extends State<ConversationScreen>
     _messageBloc.add(LoadMessages(widget.threadId));
   }
 
+  /// Coming back to the foreground re-reads this thread — the same thing
+  /// [didPopNext] does when a page above it is closed, and for the same reason.
+  ///
+  /// This is the fix for "messages that arrived while the screen was locked do
+  /// not appear until I go back and open the chat again". `MessageBloc` is
+  /// global and holds **one** state, and every screen that is still mounted
+  /// behind this one reacts to a resume: the inbox dispatches `LoadThreads` and
+  /// `MainNavigation` dispatches `SyncDeviceMessages`, both of which emit
+  /// `ThreadsLoaded` — a state this conversation's `buildWhen` deliberately
+  /// ignores, so whatever landed in `MessagesLoaded` while the phone was locked
+  /// was painted over by a page the screen then refused to look at. Asking for
+  /// this thread again is cheap (one indexed query) and idempotent: when
+  /// nothing arrived the result is `==` to what is already shown and
+  /// `MessagesLoaded` being Equatable means nothing repaints.
+  ///
+  /// The visible-thread hand-back matters just as much: the native notifier
+  /// suppresses notifications for the thread on screen, and a resume is also
+  /// when a notification for THIS conversation would otherwise be posted while
+  /// the user is reading it.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state != AppLifecycleState.resumed || !mounted) return;
+    // Only the conversation the user is actually looking at: this screen stays
+    // mounted under a details page, a forward picker or a second chat, and
+    // re-parking the bloc on it from underneath would take the state away from
+    // whatever is on top.
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    DeepLinkService.instance
+      ..setVisibleThread(widget.threadId)
+      ..clearThreadNotifications(widget.threadId);
+    _messageBloc.add(LoadMessages(widget.threadId));
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     appRouteObserver.unsubscribe(this);
     DeepLinkService.instance.setVisibleThread(null);
     ContactRepository.revision.removeListener(_onAddressBookChanged);
@@ -704,7 +740,30 @@ class _ConversationScreenState extends State<ConversationScreen>
                             ),
                             child: ColoredBox(
                               color: Theme.of(context).colorScheme.cardSurface,
-                              child: _buildMessageList(),
+                              // The jump-to-bottom button belongs to the LIST,
+                              // not to the page. As a `Scaffold.floatingAction
+                              // Button` it was positioned against the page's
+                              // bottom edge — i.e. on top of the composer,
+                              // covering the emoji key and sitting next to
+                              // «ارسال» — because the composer lives inside the
+                              // body rather than in a bottom bar the scaffold
+                              // knows to sit above. Anchored inside the thread's
+                              // own sheet it floats over the last bubble and
+                              // clears the composer entirely, which is where
+                              // Google Messages puts it.
+                              child: Stack(
+                                children: [
+                                  Positioned.fill(child: _buildMessageList()),
+                                  if (_showScrollToBottom && !_selectionMode)
+                                    PositionedDirectional(
+                                      end: 12,
+                                      bottom: 12,
+                                      child: _ScrollToBottomButton(
+                                        onTap: _scrollToBottom,
+                                      ),
+                                    ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -716,13 +775,6 @@ class _ConversationScreenState extends State<ConversationScreen>
               ],
             ),
           ),
-          floatingActionButton: _showScrollToBottom && !_selectionMode
-              ? FloatingActionButton.small(
-                  heroTag: 'scroll_bottom',
-                  onPressed: _scrollToBottom,
-                  child: const Icon(Icons.keyboard_arrow_down),
-                )
-              : null,
         ),
       ),
     );
@@ -1913,6 +1965,42 @@ class _ConversationScreenState extends State<ConversationScreen>
     _messageController.text = existing.isEmpty ? text : '$existing\n$text';
     _messageController.selection = TextSelection.fromPosition(
       TextPosition(offset: _messageController.text.length),
+    );
+  }
+}
+
+/// «برو به آخرین پیام» — the small circular chevron that floats over the
+/// thread while the user is scrolled up.
+///
+/// Hand-built rather than a [FloatingActionButton] because it is anchored
+/// inside the message list's own sheet: a scaffold FAB is positioned against
+/// the *page*, which on this screen means over the composer.
+class _ScrollToBottomButton extends StatelessWidget {
+  const _ScrollToBottomButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.secondaryContainer,
+      shape: const CircleBorder(),
+      elevation: 3,
+      shadowColor: Colors.black26,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: SizedBox(
+          width: 40,
+          height: 40,
+          child: Icon(
+            Icons.keyboard_arrow_down,
+            size: 24,
+            color: scheme.onSecondaryContainer,
+          ),
+        ),
+      ),
     );
   }
 }

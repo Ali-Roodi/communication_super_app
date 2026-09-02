@@ -877,17 +877,28 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     Emitter<MessageState> emit,
   ) async {
     try {
+      var merged = message;
+      // The user is LOOKING at this conversation: an incoming message is
+      // read the moment it lands. Persist that too — without it the DB row
+      // keeps is_read=0 and leaving the chat shows a ghost unread badge.
+      //
+      // Done BEFORE `state` is read, and that ordering is the fix for "several
+      // messages arrive at once and only the last one shows up". A bloc's
+      // default transformer processes events **concurrently**, so two arrivals
+      // a few milliseconds apart both suspended on this `await` while holding
+      // the same pre-merge `current`, and the second emit rebuilt the list from
+      // it — dropping the first message on the floor. `state` is a getter, so
+      // reading it after every suspension point is always the live value.
+      if (state is MessagesLoaded &&
+          (state as MessagesLoaded).threadId == message.threadId &&
+          message.type == MessageType.received &&
+          !message.isRead) {
+        await _repository.markThreadAsRead(message.threadId);
+        merged = message.copyWith(isRead: true);
+      }
       final current = state;
       if (current is MessagesLoaded) {
         if (current.threadId == message.threadId) {
-          var merged = message;
-          // The user is LOOKING at this conversation: an incoming message is
-          // read the moment it lands. Persist that too — without it the DB row
-          // keeps is_read=0 and leaving the chat shows a ghost unread badge.
-          if (message.type == MessageType.received && !message.isRead) {
-            await _repository.markThreadAsRead(message.threadId);
-            merged = message.copyWith(isRead: true);
-          }
           // Dedupe: avoid appending if this message is already in the list (e.g. duplicate event).
           final alreadyPresent = current.messages.any(
             (m) =>

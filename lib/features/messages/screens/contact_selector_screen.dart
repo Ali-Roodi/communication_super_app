@@ -46,9 +46,9 @@ class PickedRecipient {
 ///
 /// Three modes, one screen:
 /// * default — tapping a row **opens** that conversation.
-/// * [pickOnly] — pops with a `List<PickedRecipient>` (forward). A tap picks one
-///   and pops immediately (Google's flow); a **long-press** starts a
-///   multi-select and «هدایت (۳)» pops all of them.
+/// * [pickOnly] — a multi-select from the first frame that pops with a
+///   `List<PickedRecipient>` (forward). A tap toggles a row and «هدایت (۳)»
+///   pops all of them; one recipient goes back as a one-element list.
 /// * [pickMembers] — multi-select that pops with `List<GroupMember>` («افزودن
 ///   اعضا» on the group details page). [excludeNormalized] hides the people who
 ///   are already in.
@@ -99,15 +99,20 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
   /// Rows toggle instead of opening a chat.
   late bool _groupMode = widget.startInGroupMode || widget.pickMembers;
 
-  /// A forward that is going to more than one person.
+  /// The forward picker is a **selection** from the first frame.
   ///
-  /// Entered by **long-pressing** a row, which is this app's one gesture for
-  /// starting a multi-select (the inbox, the contacts tab, the drafts board and
-  /// the categories list all use it). A plain tap stays what Google Messages'
-  /// forward is — one tap, straight into that conversation with the text ready
-  /// to edit — so the common case costs nothing and the several-recipient case
-  /// is reachable.
-  bool _forwardSelecting = false;
+  /// It used to open as a plain list where one tap chose one person and popped,
+  /// with a long-press needed to reach a second recipient — an affordance
+  /// nothing on screen advertised, so "forward to three people" looked
+  /// impossible. Google Messages' *Forward to* sheet shows the checkable rows
+  /// straight away and the send button appears with the first pick, whether the
+  /// user wants one recipient or five. That is what this is now: rows carry
+  /// their circles from the start, a tap toggles, and «هدایت (۱)» is the same
+  /// one button for one person as for five.
+  ///
+  /// Still a field rather than a getter because group mode ([_groupMode]) can
+  /// also be entered by hand from «گفتگوی جدید».
+  late bool _forwardSelecting = widget.pickOnly;
 
   /// Rows are checkboxes right now, whichever mode put them there.
   bool get _selecting => _groupMode || _forwardSelecting;
@@ -471,11 +476,14 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
               tooltip: 'پاک کردن',
               onPressed: _clearQuery,
             )
-          else if ((_groupMode && _canLeaveGroupMode) || _forwardSelecting)
+          // Not offered in the forward picker: selection is that screen's only
+          // mode, so «انصراف» would have nothing to return to — the back arrow
+          // beside it is the way out.
+          else if (_groupMode && _canLeaveGroupMode)
             TextButton(
               onPressed: () => setState(() {
                 _groupMode = widget.startInGroupMode || widget.pickMembers;
-                _forwardSelecting = false;
+                _forwardSelecting = widget.pickOnly;
                 _picked.clear();
                 _appliedLabels.clear();
               }),
@@ -905,9 +913,6 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
         onTap: () => _selecting
             ? _toggle(GroupMember(phoneNumber: national))
             : _choose(phoneNumber: national),
-        onLongPress: widget.pickOnly && !_selecting
-            ? () => _startForwardSelection(GroupMember(phoneNumber: national))
-            : null,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Row(
@@ -986,14 +991,6 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
               ),
             )
           : _choose(phoneNumber: thread.phoneNumber, name: thread.contactName),
-      onLongPress: widget.pickOnly && !_selecting
-          ? () => _startForwardSelection(
-              GroupMember(
-                phoneNumber: thread.phoneNumber,
-                displayName: thread.contactName,
-              ),
-            )
-          : null,
     );
   }
 
@@ -1017,28 +1014,7 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
       ),
       simContact: contact.isSimContact,
       onTap: () => _onContactTap(contact, numbers, pickedKey),
-      onLongPress: widget.pickOnly && !_selecting
-          ? () async {
-              setState(() => _forwardSelecting = true);
-              HapticFeedback.mediumImpact();
-              await _onContactTap(contact, numbers, '');
-              // Nobody ended up picked (the number sheet was dismissed): leave
-              // the mode as it was found rather than stranding an empty
-              // selection with no bar and no way back but «انصراف».
-              if (mounted && _picked.isEmpty) {
-                setState(() => _forwardSelecting = false);
-              }
-            }
-          : null,
     );
-  }
-
-  /// Long-press on a row of the forward picker: start selecting, with that row
-  /// as the first pick.
-  void _startForwardSelection(GroupMember member) {
-    HapticFeedback.mediumImpact();
-    setState(() => _forwardSelecting = true);
-    _toggle(member);
   }
 
   /// A message goes to **one** number, so a contact with several asks which — in
@@ -1051,7 +1027,6 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
     if (_selecting && pickedKey.isNotEmpty) {
       setState(() {
         _picked.remove(pickedKey);
-        if (_forwardSelecting && _picked.isEmpty) _forwardSelecting = false;
       });
       return;
     }
@@ -1105,9 +1080,6 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
       // A label chip stops reading as applied the moment its members no longer
       // all are — otherwise it looks selected while half the people are gone.
       _appliedLabels.clear();
-      // Unpicking the last person leaves the forward selection, the way every
-      // other selection bar in the app disappears at zero.
-      if (_forwardSelecting && _picked.isEmpty) _forwardSelecting = false;
     });
     // The query answered its question the moment the chip appeared: the person
     // it was looking for is now *in* the field. Leaving the text behind keeps
@@ -1230,7 +1202,6 @@ class _PickerRow extends StatelessWidget {
     required this.numbers,
     required this.leading,
     required this.onTap,
-    this.onLongPress,
     this.query = '',
     this.matchedNumber,
     this.selected = false,
@@ -1243,10 +1214,6 @@ class _PickerRow extends StatelessWidget {
   final List<String> numbers;
   final Widget leading;
   final VoidCallback onTap;
-
-  /// Enters multi-select — the app's one gesture for it, in the inbox, the
-  /// contacts tab and here.
-  final VoidCallback? onLongPress;
 
   /// Active search text — the matching run of the name is highlighted the way
   /// Google bolds it, located through the same folding the filter used.
@@ -1265,7 +1232,6 @@ class _PickerRow extends StatelessWidget {
         color: selected ? scheme.secondaryContainer : Colors.transparent,
         child: InkWell(
           onTap: onTap,
-          onLongPress: onLongPress,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(

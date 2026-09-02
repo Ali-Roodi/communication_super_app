@@ -188,7 +188,13 @@ class MessageRepository {
           SELECT COUNT(*) FROM ${AppConstants.messagesTable} mi
           WHERE mi.thread_id = page.thread_id
             AND mi.is_read = 0 AND mi.is_deleted = 0
-        ) AS unread_count
+        ) AS unread_count,
+        -- «علامت‌گذاری نخوانده», which is NOT a message and must never be
+        -- counted as one. See [AppConstants.unreadMarksTable].
+        EXISTS(
+          SELECT 1 FROM ${AppConstants.unreadMarksTable} um
+          WHERE um.thread_id = page.thread_id
+        ) AS manually_unread
       FROM page
       JOIN ${AppConstants.messagesTable} m ON m.rowid = (
         SELECT ml.rowid FROM ${AppConstants.messagesTable} ml
@@ -215,6 +221,7 @@ class MessageRepository {
             map['last_message_time'] as int,
           ),
           unreadCount: (map['unread_count'] as int?) ?? 0,
+          manuallyUnread: ((map['manually_unread'] as int?) ?? 0) == 1,
           isPinned: ((map['is_pinned'] as int?) ?? 0) == 1,
         ),
       );
@@ -852,10 +859,14 @@ class MessageRepository {
     );
   }
 
-  /// Clears the unread flag on every row of the thread — including the sent row
-  /// [markThreadAsUnread] may have flagged on a thread with no received message.
-  /// Filtering on `type = 'received'` here would leave such a thread bold for
-  /// ever, with no way back.
+  /// Clears the unread flag on every row of the thread — every *type* of row,
+  /// including a sent one an older build's `markThreadAsUnread` had flagged on
+  /// a thread with no received message. Filtering on `type = 'received'` here
+  /// would leave such a thread bold for ever, with no way back.
+  ///
+  /// It also drops the hand-mark ([markThreadAsUnread]): opening the
+  /// conversation is the user dealing with it, which is the one thing the mark
+  /// was waiting for.
   Future<void> markThreadAsRead(String threadId) async {
     final db = await _dbHelper.database;
     await db.update(
@@ -864,37 +875,52 @@ class MessageRepository {
       where: 'thread_id = ? AND is_read = 0',
       whereArgs: [threadId],
     );
+    await db.delete(
+      AppConstants.unreadMarksTable,
+      where: 'thread_id = ?',
+      whereArgs: [threadId],
+    );
   }
 
   /// Marks a thread unread again (swipe / selection bar).
   ///
-  /// Flags the received messages, but falls back to the newest row of any type
-  /// when the thread has none that still counts: a conversation the user only
-  /// ever *sent* to, or whose received messages were all deleted, has nothing
-  /// to flag — the swipe used to run and leave the row un-bolded, because
-  /// `unread_count` only ever sees non-deleted rows.
+  /// **Records a mark and flags no message at all.**
+  ///
+  /// This is the whole point of [AppConstants.unreadMarksTable]. Two shapes
+  /// were tried before it and both are wrong, because both express the mark by
+  /// setting `is_read = 0` on message rows — and once it is written that way it
+  /// is *indistinguishable from a message that actually arrived*:
+  ///
+  ///  * flagging every received row put «۴۷» on a conversation with a
+  ///    forty-seven-message history — a count of nothing new;
+  ///  * flagging just the newest row put «۱» there, which is no better: the
+  ///    inbox cannot then tell it from one genuinely new message, so either the
+  ///    hand-mark shows a fake count or a real message loses its real one.
+  ///
+  /// A row in `unread_marks` says "I have not dealt with this yet" and nothing
+  /// else. `unread_count` stays at whatever really arrived — zero, usually — so
+  /// [ThreadTile] draws a bare dot for the mark and the true number the moment
+  /// a message lands. Clearing is [markThreadAsRead], which drops the mark
+  /// along with the flags.
   Future<void> markThreadAsUnread(String threadId) async {
     final db = await _dbHelper.database;
-    final flagged = await db.update(
-      AppConstants.messagesTable,
-      {'is_read': 0},
-      where: 'thread_id = ? AND type = ? AND is_deleted = 0',
-      whereArgs: [threadId, 'received'],
+    await db.insert(AppConstants.unreadMarksTable, {
+      'thread_id': threadId,
+      'marked_at': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// Whether the user has hand-marked [threadId] unread.
+  Future<bool> isThreadMarkedUnread(String threadId) async {
+    final db = await _dbHelper.database;
+    final rows = await db.query(
+      AppConstants.unreadMarksTable,
+      columns: const ['thread_id'],
+      where: 'thread_id = ?',
+      whereArgs: [threadId],
+      limit: 1,
     );
-    if (flagged > 0) return;
-    await db.rawUpdate(
-      '''
-      UPDATE ${AppConstants.messagesTable}
-      SET is_read = 0
-      WHERE rowid = (
-        SELECT rowid FROM ${AppConstants.messagesTable}
-        WHERE thread_id = ? AND is_deleted = 0
-        ORDER BY timestamp DESC, rowid DESC
-        LIMIT 1
-      )
-      ''',
-      [threadId],
-    );
+    return rows.isNotEmpty;
   }
 
   Future<void> softDeleteMessages(List<String> messageIds) async {

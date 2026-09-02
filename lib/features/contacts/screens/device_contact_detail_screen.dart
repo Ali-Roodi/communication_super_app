@@ -7,7 +7,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
-import 'package:communication_super_app/core/theme/app_dimensions.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/utils/contact_name_style.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
@@ -31,9 +30,15 @@ import 'package:communication_super_app/features/favorites/bloc/favorites_bloc.d
 import 'package:communication_super_app/features/favorites/bloc/favorites_event.dart';
 import 'package:communication_super_app/features/favorites/bloc/favorites_state.dart';
 import 'package:communication_super_app/features/favorites/models/favorite_model.dart';
-import 'package:communication_super_app/features/messages/repositories/thread_sim_repository.dart';
 import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
 import 'package:communication_super_app/features/settings/screens/widgets/block_number_dialog.dart';
+
+/// What the «سیم‌کارت تماس» sheet pops with for «پیش‌فرض سیستم».
+///
+/// A sentinel rather than `null`, because `null` is already what a *dismissed*
+/// sheet returns — and clearing the preference must not be confused with
+/// backing out of the choice.
+const Object _kClearCallingSim = Object();
 
 /// Contact detail with a collapsing toolbar, action row, and PHONE / EMAIL /
 /// ADDRESS / NOTES sections. Header data comes from the [ContactModel]; full
@@ -63,18 +68,63 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
   /// thing that makes «جدا کردن» meaningful.
   int _rawCount = 1;
 
-  /// Which card each of this contact's numbers sends SMS on, keyed by thread
-  /// id. Read once the numbers are known; a miss falls back to the cache,
-  /// which answers the system default.
-  final Map<String, SimCard?> _numberSims = <String, SimCard?>{};
+  /// The contact's `IS_SUPER_PRIMARY` number, or null when it has none.
+  ///
+  /// Read from the platform rather than remembered here: it is the same flag
+  /// Google Contacts sets and every other app reads, so a default this page
+  /// shows is the one the whole phone uses. See
+  /// [ContactExtrasService.getDefaultPhone].
+  String? _defaultPhone;
+
+  /// Subscription id of the SIM this contact's calls go out on, or null for
+  /// «پیش‌فرض سیستم» — no card pinned for this person.
+  ///
+  /// Also the platform's own (`PREFERRED_PHONE_ACCOUNT_*`, Android 10+) — the
+  /// pair Google Contacts writes from its «Calling account» row — so the choice
+  /// is honoured by any dialer and one made elsewhere shows up here. Null also
+  /// means "the stored account is not a card in this phone any more".
+  int? _callingSim;
 
   @override
   void initState() {
     super.initState();
-    _load().then((_) {
-      if (mounted) _loadThreadSims();
-    });
+    _load();
     _loadExtras();
+  }
+
+  /// Whether [number] is this contact's default, compared on the last nine
+  /// digits — the provider stores the number as the user typed it and this page
+  /// shows it formatted, so a string comparison would never match.
+  bool _isDefaultNumber(String number) {
+    final def = _defaultPhone;
+    if (def == null) return false;
+    return _tailDigits(def) == _tailDigits(number) && _tailDigits(def).isNotEmpty;
+  }
+
+  static String _tailDigits(String raw) {
+    final digits = raw.replaceAll(RegExp(r'\D'), '');
+    return digits.length <= 9 ? digits : digits.substring(digits.length - 9);
+  }
+
+  /// This contact's numbers as picker rows: the saved label under each, and the
+  /// default flagged so the sheet lists it first with its chip.
+  List<PickablePhone> get _pickablePhones {
+    final phones = _full?.phones ?? const <Phone>[];
+    if (phones.isNotEmpty) {
+      return [
+        for (final p in phones)
+          if (p.number.trim().isNotEmpty)
+            PickablePhone(
+              number: p.number.trim(),
+              label: _phoneLabelFa(p),
+              isDefault: _isDefaultNumber(p.number),
+            ),
+      ];
+    }
+    return [
+      for (final n in _phoneNumbers)
+        PickablePhone(number: n, isDefault: _isDefaultNumber(n)),
+    ];
   }
 
   /// The numbers this page shows, in the order the «تلفن» section lists them.
@@ -95,22 +145,6 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
     ];
   }
 
-  Future<void> _loadThreadSims() async {
-    final repo = ThreadSimRepository();
-    final resolved = <String, SimCard?>{};
-    for (final number in _phoneNumbers) {
-      final threadId = PhoneNormalizer.toThreadId(number);
-      if (threadId.isEmpty || resolved.containsKey(threadId)) continue;
-      resolved[threadId] = await repo.initialSimFor(threadId);
-    }
-    if (!mounted) return;
-    setState(() {
-      _numberSims
-        ..clear()
-        ..addAll(resolved);
-    });
-  }
-
   Future<void> _loadExtras() async {
     // A SIM contact has no ContactsContract row, so there is nothing to read a
     // ringtone, a voicemail setting or a connected app from.
@@ -118,6 +152,8 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
     final service = ContactExtrasService.instance;
     final extras = await service.getSettings(widget.contact.id);
     final apps = await service.getConnectedApps(widget.contact.id);
+    final defaultPhone = await service.getDefaultPhone(widget.contact.id);
+    final callingSim = await service.getCallingSim(widget.contact.id);
     final rawCount = await ContactLinkService.instance.rawContactCount(
       widget.contact.id,
     );
@@ -125,8 +161,107 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
     setState(() {
       _extras = extras;
       _connectedApps = apps;
+      _defaultPhone = defaultPhone;
+      _callingSim = callingSim;
       _rawCount = rawCount;
     });
+  }
+
+  /// The SIM [_callingSim] names, or null when there is no preference (or the
+  /// roster has not been read yet).
+  SimCard? get _callingSimCard {
+    final id = _callingSim;
+    if (id == null) return null;
+    for (final sim in SimService.cached) {
+      if (sim.subscriptionId == id) return sim;
+    }
+    return null;
+  }
+
+  /// Asks which SIM this contact's calls should go out on, and stores it in the
+  /// address book.
+  ///
+  /// «پیش‌فرض سیستم» is a real answer and the sheet offers it, because a pinned
+  /// card is a decision the user must be able to take back — the same reason
+  /// «حذف شماره پیش‌فرض» exists.
+  Future<void> _pickCallingSim() async {
+    final sims = SimService.cached;
+    if (sims.length < 2) return;
+    final current = _callingSimCard;
+
+    final chosen = await showModalBottomSheet<Object?>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetCtx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
+                child: Text(
+                  'تماس با $_name از طریق',
+                  style: Theme.of(sheetCtx).textTheme.titleMedium,
+                ),
+              ),
+              for (final sim in sims)
+                ListTile(
+                  leading: SimBadge(sim: sim),
+                  title: Text('${sim.slotLabel} · ${sim.name}'),
+                  subtitle: sim.subtitle == null ? null : Text(sim.subtitle!),
+                  trailing: sim.subscriptionId == current?.subscriptionId
+                      ? Icon(
+                          Icons.check,
+                          color: Theme.of(sheetCtx).colorScheme.primary,
+                        )
+                      : null,
+                  onTap: () => Navigator.pop(sheetCtx, sim),
+                ),
+              const Divider(height: 1),
+              // NOT «هر بار بپرس», and the difference is not cosmetic: clearing
+              // the contact's preference hands the decision back to
+              // `resolveVoiceSim`, which honours the phone's own default voice
+              // SIM without asking — on a phone with one pinned, this row
+              // dialled that card silently while promising a question.
+              ListTile(
+                leading: const Icon(Icons.settings_outlined),
+                title: const Text('پیش‌فرض سیستم'),
+                subtitle: const Text(
+                  'بدون سیم‌کارت ثابت برای این مخاطب — طبق تنظیم گوشی',
+                ),
+                trailing: current == null
+                    ? Icon(
+                        Icons.check,
+                        color: Theme.of(sheetCtx).colorScheme.primary,
+                      )
+                    : null,
+                onTap: () => Navigator.pop(sheetCtx, _kClearCallingSim),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (chosen == null || !mounted) return;
+
+    final subscriptionId = chosen is SimCard ? chosen.subscriptionId : -1;
+    final ok = await ContactExtrasService.instance.setCallingSim(
+      widget.contact.id,
+      subscriptionId,
+    );
+    if (!mounted) return;
+    if (!ok) {
+      _snack('تنظیم سیم‌کارت تماس انجام نشد');
+      return;
+    }
+    setState(() => _callingSim = subscriptionId < 0 ? null : subscriptionId);
+    _snack(
+      subscriptionId < 0
+          ? 'به پیش‌فرض سیستم برگشت'
+          : 'تماس‌ها با ${(chosen as SimCard).slotLabel} گرفته می‌شود',
+    );
   }
 
   Future<void> _load() async {
@@ -429,32 +564,24 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
 
   // ── Action row ──────────────────────────────────────────────────────────
 
-  /// Every number this contact has, in address-book order.
-  List<String> get _allPhones {
-    final loaded = _full?.phones.map((p) => p.number).toList() ?? const [];
-    if (loaded.isNotEmpty) return loaded;
-    if (widget.contact.phoneNumbers.isNotEmpty) {
-      return widget.contact.phoneNumbers;
-    }
-    return [widget.contact.primaryPhone];
-  }
-
   /// Header call/message act on the contact as a whole, so a contact with more
-  /// than one number is asked which one — the same as Google Contacts.
+  /// than one number is asked which one — the same as Google Contacts, and with
+  /// the same information in the sheet: each number under the label it was
+  /// saved with, and the default first with its chip.
   Future<void> _callFromHeader() async {
     final number = await pickContactNumber(
       context,
-      numbers: _allPhones,
+      entries: _pickablePhones,
       title: 'تماس با $_name',
     );
     if (number == null || !mounted) return;
-    await placeCall(context, number);
+    await placeCall(context, number, sim: _callingSimCard);
   }
 
   Future<void> _messageFromHeader() async {
     final number = await pickContactNumber(
       context,
-      numbers: _allPhones,
+      entries: _pickablePhones,
       title: 'پیام به $_name',
     );
     if (number == null || !mounted) return;
@@ -465,7 +592,7 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
   Future<void> _callFromHeaderPickingSim() async {
     final number = await pickContactNumber(
       context,
-      numbers: _allPhones,
+      entries: _pickablePhones,
       title: 'تماس با $_name',
     );
     if (number == null || !mounted) return;
@@ -531,138 +658,6 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
     );
   }
 
-  // ── «ارسال با» ─────────────────────────────────────────────────────────
-
-  /// The card the conversation's details page carries, above this contact's
-  /// numbers: which SIM a message to them goes out on.
-  ///
-  /// One row per number, because the choice is per *conversation* and a
-  /// conversation is keyed on the number — two numbers on one contact are two
-  /// threads and may legitimately send on different cards. With a single
-  /// number the card is exactly the conversation's one, «تعویض» in the header.
-  /// Absent on a single-SIM phone, like every other SIM affordance here.
-  Widget? _sendingWithCard(BuildContext context) {
-    if (!SimService.isMultiSim) return null;
-
-    final entries = <({String number, String threadId, SimCard sim})>[];
-    final seen = <String>{};
-    for (final number in _phoneNumbers) {
-      final threadId = PhoneNormalizer.toThreadId(number);
-      if (threadId.isEmpty || !seen.add(threadId)) continue;
-      // The async read wins; the cache answers the system default while it is
-      // still in flight, which is what a number with no history gets anyway.
-      final sim =
-          _numberSims[threadId] ?? ThreadSimRepository.cachedSimFor(threadId);
-      if (sim == null) continue;
-      entries.add((number: number, threadId: threadId, sim: sim));
-    }
-    if (entries.isEmpty) return null;
-
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final single = entries.length == 1;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
-        decoration: BoxDecoration(
-          color: scheme.raisedSurface,
-          borderRadius: BorderRadius.circular(AppDimensions.radiusLg),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text('ارسال با', style: theme.textTheme.titleMedium),
-                ),
-                if (single)
-                  TextButton.icon(
-                    onPressed: () => _pickThreadSim(entries.first),
-                    icon: const Icon(Icons.swap_vert, size: 18),
-                    label: const Text('تعویض'),
-                  ),
-              ],
-            ),
-            for (final entry in entries) ...[
-              const SizedBox(height: 6),
-              _simRow(theme, entry, showNumber: !single),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _simRow(
-    ThemeData theme,
-    ({String number, String threadId, SimCard sim}) entry, {
-    required bool showNumber,
-  }) {
-    final scheme = theme.colorScheme;
-    final sim = entry.sim;
-    // With several numbers the second line has to say which one this row is
-    // about; with one, the SIM's own subtitle is the useful thing there.
-    final second = showNumber
-        ? PersianUtils.displayPhone(PhoneNormalizer.toNational(entry.number))
-        : sim.subtitle;
-    return Row(
-      children: [
-        SimBadge(sim: sim),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '${sim.slotLabel} · ${sim.name}',
-                style: theme.textTheme.bodyLarge,
-              ),
-              if (second != null)
-                Directionality(
-                  // A phone number is left-to-right content.
-                  textDirection: TextDirection.ltr,
-                  child: Text(
-                    second,
-                    textAlign: TextAlign.right,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-        if (showNumber)
-          TextButton.icon(
-            onPressed: () => _pickThreadSim(entry),
-            icon: const Icon(Icons.swap_vert, size: 18),
-            label: const Text('تعویض'),
-          ),
-      ],
-    );
-  }
-
-  /// Picks the card one of this contact's conversations sends on, and
-  /// **persists it here**. The details page inside a conversation hands its
-  /// pick back to the composer, which writes it on the next send; this page
-  /// has no composer behind it, so a choice made here would otherwise be lost
-  /// the moment the page pops.
-  Future<void> _pickThreadSim(
-    ({String number, String threadId, SimCard sim}) entry,
-  ) async {
-    final chosen = await showSimPicker(
-      context,
-      title: 'ارسال با کدام سیم‌کارت؟',
-      subtitle: _name,
-      selected: entry.sim,
-    );
-    if (chosen == null || !mounted) return;
-    await ThreadSimRepository().remember(entry.threadId, chosen.subscriptionId);
-    if (!mounted) return;
-    setState(() => _numberSims[entry.threadId] = chosen);
-  }
 
   // ── Sections ──────────────────────────────────────────────────────────────
 
@@ -673,14 +668,16 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
     final addresses = _full?.addresses ?? const <Address>[];
     final notes = _full?.notes ?? const <Note>[];
 
-    // «ارسال با», above the numbers. SimAware, so a card going into the phone
-    // brings the whole section in without a restart.
-    widgets.add(
-      SimAware(
-        builder: (context, _, _) =>
-            _sendingWithCard(context) ?? const SizedBox.shrink(),
-      ),
-    );
+    // NOTE: there is deliberately no «ارسال با» card here any more.
+    //
+    // It listed one row per number naming the SIM that number's conversation
+    // sends on, which is a property of a *conversation* being answered on a
+    // page about a *person* — and it sat above the numbers, so the first thing
+    // this page showed was a SIM table rather than the contact's phone numbers.
+    // Google Contacts has no such section. The choice itself is not lost: it
+    // belongs to the conversation and lives on the conversation's own details
+    // page (`ConversationDetailsScreen`), where the composer that uses it is,
+    // and a long-press on «تماس» here still asks which card to dial out on.
 
     void section(String title, List<Widget> rows) {
       if (rows.isEmpty) return;
@@ -837,6 +834,21 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
     final extras = _extras;
     final scheme = Theme.of(context).colorScheme;
     return [
+      // «سیم‌کارت تماس» — only where the question exists. On a single-SIM phone
+      // there is nothing to choose, and a row that opens a sheet with one
+      // option is worse than no row.
+      if (SimService.isMultiSim && !widget.contact.isSimContact)
+        ListTile(
+          contentPadding: const EdgeInsetsDirectional.only(start: 20, end: 20),
+          leading: const Icon(Icons.sim_card_outlined),
+          title: const Text('سیم‌کارت تماس'),
+          subtitle: Text(
+            _callingSimCard == null
+                ? 'پیش‌فرض سیستم'
+                : '${_callingSimCard!.slotLabel} · ${_callingSimCard!.name}',
+          ),
+          onTap: _pickCallingSim,
+        ),
       ListTile(
         contentPadding: const EdgeInsetsDirectional.only(start: 20, end: 20),
         leading: const Icon(Icons.music_note_outlined),
@@ -1034,6 +1046,7 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
   /// over its label in the middle, and the message shortcut trailing. Tapping
   /// the row itself dials.
   Widget _phoneTile(String number, String label) {
+    final isDefault = _isDefaultNumber(number);
     return ListTile(
       contentPadding: const EdgeInsetsDirectional.only(start: 20, end: 8),
       leading: const Icon(Icons.call_outlined),
@@ -1045,11 +1058,32 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
           style: const TextStyle(fontSize: 17),
         ),
       ),
-      subtitle: Text(label),
-      onTap: () => placeCall(context, number),
-      onLongPress: SimService.isMultiSim
-          ? () => placeCallPickingSim(context, number)
-          : null,
+      // The label, and «پیش‌فرض» beside it when this is the number every app on
+      // the phone reaches for. Google Contacts marks it the same way, on the
+      // same line, and without the mark the long-press below has no visible
+      // result at all.
+      subtitle: isDefault
+          ? Row(
+              children: [
+                Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
+                const SizedBox(width: 8),
+                Icon(
+                  Icons.star,
+                  size: 13,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 3),
+                Text(
+                  'پیش‌فرض',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ],
+            )
+          : Text(label),
+      onTap: () => placeCall(context, number, sim: _callingSimCard),
+      onLongPress: () => _showNumberActions(number, label),
       trailing: IconButton(
         icon: const Icon(Icons.chat_bubble_outline),
         tooltip: 'پیام',
@@ -1057,6 +1091,163 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
       ),
     );
   }
+
+  /// Long-press on one of the contact's numbers — Google Contacts' own menu.
+  ///
+  /// It replaces a long-press that silently meant "dial on the other SIM" and
+  /// existed only on a dual-SIM phone: an unlabelled gesture with a
+  /// device-dependent result. The SIM choice is still here, as a named row,
+  /// next to the two things this gesture is actually asked for — making a
+  /// number the contact's default, and copying it.
+  Future<void> _showNumberActions(String number, String label) async {
+    if (!mounted) return;
+    HapticFeedback.mediumImpact();
+    final isDefault = _isDefaultNumber(number);
+    // A SIM contact is an ADN record on the card, not a ContactsContract
+    // aggregate, so it has no data row to carry the flag.
+    final hasFlag = !widget.contact.isSimContact;
+    final canSetDefault = hasFlag && _phoneNumbers.length > 1 && !isDefault;
+    // Offered whenever this number IS the default, one number or several:
+    // setting a default must be undoable, and a contact can arrive with one
+    // another app set. See [_clearDefaultNumber].
+    final canClearDefault = hasFlag && isDefault;
+
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetCtx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
+                child: Directionality(
+                  textDirection: TextDirection.ltr,
+                  child: Text(
+                    PersianUtils.displayPhone(number),
+                    textAlign: TextAlign.right,
+                    style: Theme.of(sheetCtx).textTheme.titleMedium,
+                  ),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.call_outlined),
+                title: const Text('تماس'),
+                onTap: () => Navigator.pop(sheetCtx, 'call'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.chat_bubble_outline),
+                title: const Text('ارسال پیامک'),
+                onTap: () => Navigator.pop(sheetCtx, 'sms'),
+              ),
+              if (canSetDefault)
+                ListTile(
+                  leading: const Icon(Icons.star_outline),
+                  title: const Text('تنظیم به‌عنوان شماره پیش‌فرض'),
+                  onTap: () => Navigator.pop(sheetCtx, 'default'),
+                ),
+              if (canClearDefault)
+                ListTile(
+                  leading: Icon(
+                    Icons.star,
+                    color: Theme.of(sheetCtx).colorScheme.primary,
+                  ),
+                  title: const Text('حذف شماره پیش‌فرض'),
+                  onTap: () => Navigator.pop(sheetCtx, 'clear_default'),
+                ),
+              if (SimService.isMultiSim)
+                ListTile(
+                  leading: const Icon(Icons.sim_card_outlined),
+                  title: const Text('تماس با سیم‌کارت دیگر'),
+                  subtitle: const Text('فقط همین تماس'),
+                  onTap: () => Navigator.pop(sheetCtx, 'sim'),
+                ),
+              // The same setting as the «سیم‌کارت تماس» row further down the
+              // page, offered where the user is already thinking about calling
+              // this person. It is a property of the contact, not of the
+              // number, so it reads the same either way.
+              if (SimService.isMultiSim && !widget.contact.isSimContact)
+                ListTile(
+                  leading: const Icon(Icons.sim_card_download_outlined),
+                  title: const Text('سیم‌کارت همیشگی تماس'),
+                  subtitle: Text(
+                    _callingSimCard == null
+                        ? 'پیش‌فرض سیستم'
+                        : '${_callingSimCard!.slotLabel} · '
+                              '${_callingSimCard!.name}',
+                  ),
+                  onTap: () => Navigator.pop(sheetCtx, 'calling_sim'),
+                ),
+              ListTile(
+                leading: const Icon(Icons.copy_outlined),
+                title: const Text('کپی شماره'),
+                onTap: () => Navigator.pop(sheetCtx, 'copy'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (action == null || !mounted) return;
+    switch (action) {
+      case 'call':
+        await placeCall(context, number, sim: _callingSimCard);
+      case 'sms':
+        _openSms(number);
+      case 'sim':
+        await placeCallPickingSim(context, number);
+      case 'calling_sim':
+        await _pickCallingSim();
+      case 'copy':
+        await Clipboard.setData(ClipboardData(text: number));
+        _snack('شماره کپی شد');
+      case 'default':
+        await _setDefaultNumber(number);
+      case 'clear_default':
+        await _clearDefaultNumber();
+    }
+  }
+
+  Future<void> _setDefaultNumber(String number) async {
+    final ok = await ContactExtrasService.instance.setDefaultPhone(
+      widget.contact.id,
+      number,
+    );
+    if (!mounted) return;
+    if (!ok) {
+      _snack('تنظیم شماره پیش‌فرض انجام نشد');
+      return;
+    }
+    setState(() => _defaultPhone = number);
+    _afterDefaultChanged();
+    _snack('شماره پیش‌فرض تنظیم شد');
+  }
+
+  /// Puts the contact back to having no default number.
+  ///
+  /// Undoes [_setDefaultNumber] — and it is not only an undo: a contact can
+  /// arrive with a default another app set, and «پیش‌فرض» on a row the user
+  /// never chose is exactly the kind of thing that needs a way off.
+  Future<void> _clearDefaultNumber() async {
+    final ok = await ContactExtrasService.instance.clearDefaultPhone(
+      widget.contact.id,
+    );
+    if (!mounted) return;
+    if (!ok) {
+      _snack('حذف شماره پیش‌فرض انجام نشد');
+      return;
+    }
+    setState(() => _defaultPhone = null);
+    _afterDefaultChanged();
+    _snack('شماره پیش‌فرض حذف شد');
+  }
+
+  /// The address book changed under everyone: the flag decides which number the
+  /// dialer, the launcher shortcut and the share sheet reach for.
+  void _afterDefaultChanged() => ContactRepository().invalidateCache();
 
   Widget _emailTile(String address, String label) {
     return ListTile(

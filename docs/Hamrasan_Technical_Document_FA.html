@@ -128,7 +128,7 @@ figcaption{font-size:8.8pt; color:var(--ink-2); margin-top:2mm; text-align:cente
 <div class="cover">
   <div class="grid"></div><div class="glow"></div>
   <div class="cover-in">
-    <div class="kicker">مستند فنی پروژه · نسخه ۱٫۳</div>
+    <div class="kicker">مستند فنی پروژه · نسخه ۱٫۴</div>
     <h1>هم‌رسان</h1>
     <h2>‏Super App ارتباطی اندروید<br>پیامک، تماس، مخاطبین و شماره‌گیر</h2>
     <div class="rule"></div>
@@ -169,7 +169,7 @@ figcaption{font-size:8.8pt; color:var(--ink-2); margin-top:2mm; text-align:cente
   <a class="toc-row" href="#s6"><span class="n">۶</span><span class="t">جریان راه‌اندازی برنامه</span><span class="d">از main تا صفحه اصلی</span></a>
   <a class="toc-row" href="#s7"><span class="n">۷</span><span class="t">ساختار پوشه‌ها</span><span class="d">قرارداد نام‌گذاری و محل افزودن کد</span></a>
   <a class="toc-row" href="#s8"><span class="n">۸</span><span class="t">مدیریت وضعیت (BLoC)</span><span class="d">۱۴ بلاک سراسری و Guardهای وضعیت</span></a>
-  <a class="toc-row" href="#s9"><span class="n">۹</span><span class="t">لایه داده و پایگاه‌داده</span><span class="d">۱۷ جدول، نسخهٔ اسکیمای ۲۳، Invariantها</span></a>
+  <a class="toc-row" href="#s9"><span class="n">۹</span><span class="t">لایه داده و پایگاه‌داده</span><span class="d">۱۸ جدول، نسخهٔ اسکیمای ۲۴، Invariantها</span></a>
   <a class="toc-row" href="#s10"><span class="n">۱۰</span><span class="t">پل بومی اندروید</span><span class="d">۳۱ کلاس Kotlin و کانال‌های ارتباطی</span></a>
   <a class="toc-row" href="#s11"><span class="n">۱۱</span><span class="t">نقش Default SMS App و همگام‌سازی آینه‌ای</span><span class="d">Mirror Sync — سنگین‌ترین بخش فنی پروژه</span></a>
   <a class="toc-row" href="#s12"><span class="n">۱۲</span><span class="t">نقش Default Dialer و رابط تماس</span><span class="d">Telecom، صفحه تماس، قفل صفحه</span></a>
@@ -178,7 +178,7 @@ figcaption{font-size:8.8pt; color:var(--ink-2); margin-top:2mm; text-align:cente
   <a class="toc-row" href="#s15"><span class="n">۱۵</span><span class="t">پشتیبانی دو سیم‌کارت</span><span class="d">هویت اشتراک در برابر شماره شیار</span></a>
   <a class="toc-row" href="#s16"><span class="n">۱۶</span><span class="t">امنیت و حریم خصوصی</span><span class="d">قفل برنامه، رمزنگاری، گزارش خطا</span></a>
   <a class="toc-row" href="#s17"><span class="n">۱۷</span><span class="t">کارایی و بهینه‌سازی</span><span class="d">مشکلات واقعی و اندازه‌گیری‌ها</span></a>
-  <a class="toc-row" href="#s18"><span class="n">۱۸</span><span class="t">تست و تضمین کیفیت</span><span class="d">۳۸ فایل تست، ۳۹۲ تست</span></a>
+  <a class="toc-row" href="#s18"><span class="n">۱۸</span><span class="t">تست و تضمین کیفیت</span><span class="d">۴۱ فایل تست، ۴۰۸ تست</span></a>
   <a class="toc-row" href="#s19"><span class="n">۱۹</span><span class="t">دفترچه تصمیم‌های مهندسی</span><span class="d">چرا این‌طور و نه آن‌طور</span></a>
   <a class="toc-row" href="#s20"><span class="n">۲۰</span><span class="t">محدودیت‌های شناخته‌شده و نقشه راه</span><span class="d">آنچه هست، آنچه نیست</span></a>
   <a class="toc-row" href="#s21"><span class="n">۲۱</span><span class="t">پیوست — مجوزها و ساخت خروجی</span><span class="d">Manifest و فرایند Release</span></a>
@@ -218,7 +218,7 @@ figcaption{font-size:8.8pt; color:var(--ink-2); margin-top:2mm; text-align:cente
   <div class="tile"><div class="v">۵۷٬۹۴۸</div><div class="k">خط کد تولیدی<br>(Dart + Kotlin)</div></div>
   <div class="tile"><div class="v">۲۳۱</div><div class="k">فایل منبع</div></div>
   <div class="tile"><div class="v">۱۷</div><div class="k">جدول پایگاه‌داده</div></div>
-  <div class="tile"><div class="v">۳۸</div><div class="k">فایل تست خودکار</div></div>
+  <div class="tile"><div class="v">۴۱</div><div class="k">فایل تست خودکار</div></div>
   <div class="tile"><div class="v">۱۱۸</div><div class="k">کامیت در ۹ ماه</div></div>
 </div>
 
@@ -345,14 +345,14 @@ figcaption{font-size:8.8pt; color:var(--ink-2); margin-top:2mm; text-align:cente
 <table>
   <thead><tr><th>سنجه</th><th class="c">مقدار</th><th>توضیح</th></tr></thead>
   <tbody>
-    <tr><td>کد Dart (لایهٔ برنامه)</td><td class="c">۴۹٬۵۱۰ خط / ۲۰۰ فایل</td><td>رابط کاربری، منطق، BLoC، مخازن داده</td></tr>
-    <tr><td>کد Kotlin (لایهٔ بومی)</td><td class="c">۸٬۴۳۸ خط / ۳۱ فایل</td><td>سرویس‌ها، Receiverها، پل‌های پلتفرم</td></tr>
-    <tr><td>کد تست</td><td class="c">۶٬۸۲۰ خط / ۳۸ فایل</td><td>‏Unit، BLoC و Widget — ۳۹۲ تست، همه سبز</td></tr>
-    <tr><td>جدول‌های پایگاه‌داده</td><td class="c">۱۷</td><td>نسخهٔ اسکیما: ۲۳ (۲۲ بلوک Migration)</td></tr>
+    <tr><td>کد Dart (لایهٔ برنامه)</td><td class="c">۵۰٬۸۰۷ خط / ۲۰۲ فایل</td><td>رابط کاربری، منطق، BLoC، مخازن داده</td></tr>
+    <tr><td>کد Kotlin (لایهٔ بومی)</td><td class="c">۹٬۰۸۱ خط / ۳۳ فایل</td><td>سرویس‌ها، Receiverها، پل‌های پلتفرم</td></tr>
+    <tr><td>کد تست</td><td class="c">۷٬۲۹۴ خط / ۴۱ فایل</td><td>‏Unit، BLoC و Widget — ۴۰۸ تست، همه سبز</td></tr>
+    <tr><td>جدول‌های پایگاه‌داده</td><td class="c">۱۸</td><td>نسخهٔ اسکیما: ۲۴ (۲۳ بلوک Migration)</td></tr>
     <tr><td>بلاک‌های سراسری</td><td class="c">۱۴</td><td>همه در یک نقطه فراهم می‌شوند</td></tr>
     <tr><td>ماژول‌های ویژگی</td><td class="c">۸</td><td>ساختار یکسان در همه</td></tr>
     <tr><td>مجوزهای اندروید</td><td class="c">۲۵</td><td>هرکدام با کاربرد مشخص — بخش ۲۱</td></tr>
-    <tr><td>تاریخچه</td><td class="c">۱۱۸ کامیت</td><td>آذر ۱۴۰۴ تا شهریور ۱۴۰۵</td></tr>
+    <tr><td>تاریخچه</td><td class="c">۱۲۰ کامیت</td><td>آذر ۱۴۰۴ تا شهریور ۱۴۰۵</td></tr>
   </tbody>
 </table>
 
@@ -530,7 +530,7 @@ figcaption{font-size:8.8pt; color:var(--ink-2); margin-top:2mm; text-align:cente
   <!-- L4 -->
   <rect x="40" y="230" width="258" height="60" rx="8" fill="#f3f3f0" stroke="#898781" stroke-width="1.2"/>
   <text x="278" y="252" text-anchor="start" font-size="11.5" font-weight="600" fill="#0b0b0b">SQLite محلی</text>
-  <text x="278" y="270" text-anchor="start" font-size="9" fill="#52514e">۱۷ جدول · نسخهٔ ۲۳</text>
+  <text x="278" y="270" text-anchor="start" font-size="9" fill="#52514e">۱۸ جدول · نسخهٔ ۲۴</text>
   <text x="278" y="284" text-anchor="start" font-size="9" fill="#52514e">تنها فایل مشترک Dart و Kotlin</text>
 
   <rect x="322" y="230" width="258" height="60" rx="8" fill="#f3f3f0" stroke="#898781" stroke-width="1.2"/>
@@ -855,6 +855,7 @@ figcaption{font-size:8.8pt; color:var(--ink-2); margin-top:2mm; text-align:cente
     <tr><td><span class="mono">message_group_members</span></td><td class="c">۲۲</td><td>اعضا با شمارهٔ نرمال‌شده و نامِ غیرنرمال‌شدهٔ ذخیره‌شده</td></tr>
     <tr><td><span class="mono">message_group_targets</span></td><td class="c">۲۲</td><td>یک ردیف به‌ازای هر گیرنده در هر پیام گروهی — پایهٔ وضعیت تحویل و Tombstone همگام‌سازی</td></tr>
     <tr><td><span class="mono">contact_name_cache</span></td><td class="c">۲۳</td><td>‏Cache نام مخاطب برای فریم اول — «شمارهٔ نرمال‌شده ← نام + شناسهٔ مخاطب»</td></tr>
+    <tr><td><span class="mono">unread_marks</span></td><td class="c">۲۴</td><td>گفتگوهایی که کاربر <em>دستی</em> خوانده‌نشده علامت زده — یک نشانه، نه یک شمارش</td></tr>
   </tbody>
 </table>
 
@@ -875,7 +876,16 @@ figcaption{font-size:8.8pt; color:var(--ink-2); margin-top:2mm; text-align:cente
         یعنی <em>مسدودسازی اصلاً کار نمی‌کرد</em>. نسخهٔ ۱۶ ردیف‌های قدیمی را بازنویسی می‌کند.</td></tr>
     <tr><td>هر ردیف <em>ارسالی</em> با <span class="mono">is_read = 1</span> درج می‌شود؛ شمارش نخوانده‌ها
         نباید روی <span class="mono">type = 'received'</span> فیلتر شود</td>
-        <td>«علامت‌گذاری به‌عنوان نخوانده» روی گفتگویی که فقط پیام فرستاده‌ایم بی‌اثر می‌شد</td></tr>
+        <td>وگرنه گفتگویی که فقط پیام فرستاده‌ایم هرگز نمی‌تواند نخوانده نشان داده شود</td></tr>
+    <tr><td>«علامت‌گذاری نخوانده» در جدول <span class="mono">unread_marks</span> می‌نشیند و
+        <strong>هیچ پیامی را فلگ نمی‌کند</strong></td>
+        <td>نشانهٔ دستی و پیامی که واقعاً رسیده دو <em>حقیقت متفاوت</em>‌اند و صندوق آن‌ها را متفاوت رسم می‌کند
+        (نقطهٔ خالی در برابر شمارندهٔ واقعی). تا وقتی نشانه با <span class="mono">is_read = 0</span> روی یک ردیف
+        نوشته می‌شد، ذاتاً از یک پیام واقعی جدانشدنی بود: فلگ‌کردن همهٔ ردیف‌های دریافتی «۴۷» را روی گفتگویی با
+        ۴۷ پیام می‌گذاشت — شمارشی از هیچ‌چیز تازه — و فلگ‌کردن فقط تازه‌ترین ردیف «۱» می‌گذاشت که بهتر نیست،
+        چون آن‌وقت یک پیام واقعیِ تک از آن قابل تشخیص نیست. با نشانهٔ مستقل،
+        <span class="mono">unread_count</span> صادق می‌ماند و <span class="mono">markThreadAsRead</span>
+        هر دو را با هم پاک می‌کند.</td></tr>
     <tr><td>شناسهٔ گفتگوی گروهی <span class="mono">'g:' || group_id</span> است، نه یک شمارهٔ تلفن</td>
         <td>عمداً چنین انتخاب شد تا با هیچ شماره‌ای تصادم نکند و در عین حال یک <span class="mono">thread_id</span> معمولی
         بماند؛ به همین دلیل صفحه‌بندی، سنجاق، بایگانی، شمارش نخوانده و جستجو بدون هیچ شرط اضافه‌ای روی گروه هم کار می‌کنند.
@@ -1058,6 +1068,91 @@ figcaption{font-size:8.8pt; color:var(--ink-2); margin-top:2mm; text-align:cente
 نوتیفیکیشن‌ها با شناسهٔ گفتگو برچسب می‌خورند و باز کردن گفتگو، هم نوتیفیکیشن‌های آن را پاک می‌کند
 و هم «گفتگوی نمایان» را اعلام می‌کند تا تا وقتی صفحه باز است نوتیفیکیشنی ساخته نشود.
 </p>
+
+<h3>آیکون کوچک می‌گوید «چه چیزی»، آیکون بزرگ می‌گوید «چه کسی»</h3>
+<p>
+آیکون <strong>کوچک</strong> یک نوتیفیکیشن، تصویر نیست: سیستم همه‌چیز جز کانال آلفا را دور می‌ریزد و
+باقی‌مانده را رنگ می‌زند، پس باید طرحی تک‌رنگ روی شفافیت باشد
+(<span class="mono">ic_stat_message</span> و <span class="mono">ic_stat_call</span>).
+اما بیشتر پوسته‌های OEM خودِ کارت را با <em>آیکون لانچر برنامه</em> رسم می‌کنند مگر آنکه
+نوتیفیکیشن آیکون بزرگ داشته باشد — و دقیقاً به همین دلیل روی صفحهٔ قفل، یک پیامک و یک تماس
+بی‌پاسخ عین هم دیده می‌شدند.
+</p>
+<p>
+پس هر دو نوع همیشه آیکون بزرگ می‌گذارند: عکس مخاطب، و اگر نبود
+<span class="mono">NotificationAvatars.letterAvatar</span> — همان دایرهٔ رنگی با حرف اول که بقیهٔ
+برنامه هم برای مخاطب بدون عکس می‌کشد. رنگ روی <strong>شمارهٔ نرمال‌شده</strong> کلید می‌خورد نه روی
+نام نمایشی، چون نام در یک مسیر خودِ شماره می‌رسد و در مسیر دیگر نام مخاطب؛ دایره‌ای که بین دو
+نوتیفیکیشن رنگ عوض کند، دو نفر خوانده می‌شود.
+</p>
+
+<h2>۱۱٫۵ تیک دوم — چرا <span class="mono">resultCode</span> جواب نیست</h2>
+<p>
+<span class="mono">PendingIntent</span> تحویل، طبق مستندات پلتفرم «‏PDU خام گزارش وضعیت» را در
+<span class="mono">"pdu"</span> حمل می‌کند و دربارهٔ کد نتیجه چیزی نمی‌گوید. روی RILهایی که این برنامه
+اجرا می‌شود، آن کد برای <em>هر</em> گزارشی <span class="mono">RESULT_OK</span> است — از جمله
+«خطای موقت، هنوز تلاش می‌کنم» و «شکست دائمی، تسلیم شدم». اعتماد به آن دقیقاً همان باگی است که
+تیک دوم را روی پیام‌هایی می‌گذاشت که تحویل نشده بودند و بعضی‌شان هرگز نمی‌شدند.
+</p>
+<p>
+پس PDU خوانده می‌شود و ‏TP-Status طبق ‎TS 23.040 §9.2.3.15 تفسیر می‌گردد — همان‌طور که
+‏AOSP Messaging می‌خواند:
+</p>
+<table class="tight">
+  <thead><tr><th style="width:22%">‏TP-Status</th><th style="width:26%">معنا</th><th>رفتار حباب</th></tr></thead>
+  <tbody>
+    <tr><td><span class="mono">0x00–0x1F</span></td><td>تحویل شد</td><td>✓✓</td></tr>
+    <tr><td><span class="mono">0x20–0x3F</span></td><td>خطای موقت، مرکز هنوز تلاش می‌کند</td>
+        <td><strong>هیچ کاری</strong> — گزارش بعدی در راه است</td></tr>
+    <tr><td>هر چیز دیگر</td><td>شکست دائمی</td><td>«ارسال نشد»</td></tr>
+  </tbody>
+</table>
+<p>
+گزارش CDMA (<span class="mono">format == "3gpp2"</span>) اصلاً ‏TP-Status ندارد — آنجا
+<span class="mono">getStatus()</span> وضعیت ذخیره روی سیم را برمی‌گرداند که میدان دیگری است — پس
+تحویل ساده در نظر گرفته می‌شود؛ همین‌طور PDU ناخوانا یا غایب: گزارش فقط به این دلیل وجود دارد که
+شبکه یکی فرستاده، و جایگزینش تیکی است که روی آن گوشی‌ها هرگز جلو نمی‌رود.
+</p>
+<p>
+<strong>پیام چندبخشی به‌ازای هر بخش گزارش می‌دهد.</strong>
+<span class="mono">PartTally</span> آن‌ها را می‌شمارد: ✓ و ✓✓ نیازمند <em>همهٔ</em> بخش‌هاست، هر بخشِ
+شکست‌خورده کل پیام را شکست می‌کند، و شکست <strong>نهایی</strong> است — حالت
+<span class="mono">SILENT</span> دقیقاً برای همین است، چون در نسخهٔ اول ورودی با اولین شکست حذف می‌شد و
+بخش <em>بعدی</em> که موفق برمی‌گشت ورودی‌ای پیدا نمی‌کرد، پیام مستقلی حساب می‌شد و حبابِ
+«ارسال نشد» را دوباره ✓ می‌کرد. <span class="mono">expect()</span> هم <em>پیش از</em>
+<span class="mono">sendTextMessage</span> صدا زده می‌شود: رادیو می‌تواند یک بخش را زودتر از آنکه
+کوروتین نوبت بعدی‌اش را بگیرد تأیید کند.
+</p>
+
+<h2>۱۱٫۶ چرا پیام‌های دریافتی دیر می‌آمدند</h2>
+<p>
+دو نقطهٔ سریالیزه‌شدن، هر دو در کد و نه در شبکه — و هر دو فقط روی مسیر <em>دریافت</em>، که توضیح می‌دهد
+چرا ارسال هیچ‌وقت کند نبود:
+</p>
+<table class="tight">
+  <thead><tr><th style="width:16%">لایه</th><th>مسئله</th></tr></thead>
+  <tbody>
+    <tr><td>Kotlin</td>
+        <td><span class="mono">onReceive</span> یک Receiver <em>پویا</em> روی <strong>ترد اصلی</strong>
+        تحویل می‌شود، و همان‌جا کل کار انجام می‌شد: بازکردن فایل SQLite برای بررسی مسدودی، سپس
+        <span class="mono">SmsNotifier.notifySms</span> با کوئری پروایدر مخاطبین، خواندن گفتگو از
+        پایگاه‌داده، ‏Push کردن Shortcut و ساخت نوتیفیکیشن. بدتر آنکه
+        <span class="mono">eventSink.success</span> با <span class="mono">Dispatchers.Main</span>
+        ارسال می‌شود، یعنی روی <em>همان</em> Looperی صف می‌شود که <span class="mono">onReceive</span>
+        اشغالش کرده — پس پیام تنها بعد از پایان همهٔ آن خواندن‌ها به رابط کاربری می‌رسید و در تمام آن مدت
+        برنامه یخ‌زده بود. حالا <span class="mono">goAsync()</span> کار را به ترد کارگر می‌برد.</td></tr>
+    <tr><td>Dart</td>
+        <td>هر پیام ورودی منتظر <span class="mono">getContactByPhoneNumber</span> می‌ماند که با
+        ‏Cache سرد <strong>کل دفترچهٔ تلفن</strong> را از روی کانال پلتفرم می‌خواند — و
+        <span class="mono">DeviceSyncQueue</span> آن را <em>پشت</em> هر خواندن سنگین در جریان صف می‌کند.
+        روی Resume، <span class="mono">MainNavigation</span> همگام‌سازی آینه‌ای پیامک و ایمپورت
+        تاریخچهٔ تماس را شروع می‌کند، پس پیامی که در آن پنجره می‌رسید منتظر یک پیمایش کامل پروایدر
+        می‌ماند تا اصلاً در SQLite نوشته شود. حالا فقط <span class="mono">cachedByPhoneNumber</span>
+        پرسیده می‌شود — که اگر از حافظه جواب داشت می‌دهد و اگر نه هیچ.
+        <span class="mono">contact_id</span> روی ردیف پیام یک راحتی است، نه منبع نام: صندوق و
+        عنوان گفتگو بعداً خودشان را از دفترچهٔ تلفن نام‌گذاری می‌کنند.</td></tr>
+  </tbody>
+</table>
 </section>
 
 <!-- ══════════════════ 12 ══════════════════ -->
@@ -1167,8 +1262,49 @@ figcaption{font-size:8.8pt; color:var(--ink-2); margin-top:2mm; text-align:cente
         <span class="mono">onResume</span> هم فراخوانی می‌شود، پس <span class="mono">moveTaskToBack(true)</span>ِ
         بی‌قید هر بار که Activity با Keyguard بالا ساخته یا Resume می‌شد شلیک می‌کرد — برنامه خودش را به پس‌زمینه
         می‌انداخت. حالا یک Gate اجازه می‌دهد فقط پاک‌کردن پرچمی که <em>یک تماس واقعی</em> ست کرده Task را برگرداند.</td></tr>
+    <tr><td><strong>دو</strong> نوتیفیکیشن برای یک تماس بی‌پاسخ</td>
+        <td>‏<span class="mono">MissedCallNotifierImpl.shouldManageNotificationThroughDefaultDialer</span> از
+        ‏PackageManager می‌پرسد آیا <em>شماره‌گیر پیش‌فرض</em> Receiverی برای
+        <span class="mono">android.telecom.action.SHOW_MISSED_CALLS_NOTIFICATION</span> اعلام کرده یا نه. اگر بله،
+        ‏Telecom همان Broadcast را می‌فرستد و <strong>خودش هیچ کارتی نمی‌سازد</strong>؛ اگر نه، نتیجه می‌گیرد
+        شماره‌گیر از پس این کار برنمی‌آید و کارت خودش را می‌گذارد — همان کارت دومِ انگلیسی، در حالی که برنامه
+        نقش را داشت و نوتیفیکیشن کاملاً سالم خودش را هم می‌ساخت. پاسخ: اعلام
+        <span class="mono">MissedCallNotificationReceiver</span>، که عمداً <em>هیچ نوتیفیکیشنی نمی‌سازد</em>
+        (‏<span class="mono">onCallRemoved</span> از قبل ساخته؛ ساختن دوباره شناسه را همان و شمارنده را زیاد می‌کند و
+        یک تماس بی‌پاسخ را «۲ تماس بی‌پاسخ» برچسب می‌زند) و فقط دو چیزی را مصرف می‌کند که
+        <span class="mono">onCallRemoved</span> نمی‌داند: ‏Intent «دیده شدند» و
+        <span class="mono">EXTRA_NOTIFICATION_COUNT == 0</span>.</td></tr>
+    <tr><td>نوتیفیکیشن تماس بی‌پاسخِ <em>خود برنامه</em> هم دیگر نمی‌آمد</td>
+        <td>عارضهٔ جانبی همان اصلاح بالا، و نمونهٔ خوبی از اینکه یک API با گرفتن نقش معنایش عوض می‌شود.
+        <span class="mono">cancelMissedCallsNotification()</span> پیش‌تر یعنی «کارت پلتفرم را بردار»؛ اما برای
+        شماره‌گیری که خودش مدیر نوتیفیکیشن است، ‏Telecom در پاسخ همان Broadcast را با
+        <span class="mono">count = 0</span> به <strong>ما</strong> می‌فرستد: «کارتت را بردار».
+        <span class="mono">postMissedCallNotification</span> نوتیفیکیشن را می‌ساخت و یک خط بعد دستور حذف خودش را
+        صادر می‌کرد. آن فراخوانی حذف شد، و Receiver هم فقط کارت‌های خودمان را می‌بندد
+        (<span class="mono">cancelMissedCallCards</span>) تا Broadcast بین ما و Telecom بی‌نهایت بار برنگردد.</td></tr>
   </tbody>
 </table>
+
+<h2>۱۲٫۳ صفحه‌کلید حین تماس بخشی از خودِ صفحه است</h2>
+<p>
+‏<span class="mono">InCallScreen</span> صفحه‌کلید DTMF را از وضعیت خودش رسم می‌کند
+(<span class="mono">_showKeypad</span>) — همان کاری که Google Phone می‌کند: محتوای صفحه جایگزین می‌شود،
+نه اینکه چیزی رویش بیاید. پیش‌تر یک <span class="mono">showModalBottomSheet</span> بود، یعنی یک
+‏Route دوم <em>روی</em> Route تماس؛ و Route تماس را <span class="mono">CallUiCoordinator</span> پشت سر
+کاربر جابه‌جا می‌کند: برگشتن از طریق کارت «تماس در جریان» مسیر
+<span class="mono">_restore → _bringCallRouteToTop → popUntil</span> را اجرا می‌کند، و تماسی که وضعیتش عوض
+شود صفحه را دوباره Push و قبلی را <span class="mono">removeRoute</span> می‌کند. در هر دو حالت، Sheet از
+زیر پایش Routeی کشیده می‌شد که داشت بازچینی می‌شد — و چیزی که تستر دید نتیجهٔ همین بود:
+صفحه‌کلید باز می‌شد و کلیدهایش کار نمی‌کردند، چون ارقام به
+<span class="mono">StatefulBuilder</span>ی می‌رفتند که به یک Route مرده تعلق داشت.
+</p>
+<p>
+حالا که در وضعیت صفحه نگه داشته می‌شود، دقیقاً به اندازهٔ خود صفحهٔ تماس پایدار است: دکمهٔ بازگشت اول
+صفحه‌کلید را می‌بندد و بعد تماس را کوچک می‌کند، و اگر تماس در حالی که صفحه‌کلید باز است تمام شود
+خودش کنار می‌رود. چیدمانش با <span class="mono">test/widget/in_call_keypad_test.dart</span> روی سه اندازهٔ
+صفحه قفل شده است — هندسه، نه فقط حضور: یک <span class="mono">Column</span> از فرزندانِ اندازه‌طبیعی
+همه‌چیز را به بالای صفحه می‌چسباند و یک‌سوم پایین را سیاه می‌گذارد، بی‌آنکه هیچ خطایی بدهد.
+</p>
 
 <div class="note">
   <span class="t">یک قاعدهٔ ایمنی که در سند معماری ثبت شده است</span>
@@ -1520,6 +1656,12 @@ Jitter یک ویژگی تزئینی نیست: از سه‌گانهٔ (شناسه
     <tr><td>مختصات مکانی ذخیره یا ردیابی نمی‌شود</td><td>فقط داخل همان پیامکی که کاربر انتخاب می‌کند از دستگاه خارج می‌شود</td></tr>
     <tr><td>‏R8/کوچک‌سازی در خروجی Release</td><td>کاهش حجم و مبهم‌سازی پایه</td></tr>
     <tr><td>هیچ سرور، هیچ حساب کاربری، هیچ تله‌متری</td><td>پروژه لایهٔ شبکه ندارد — این را می‌شود با یک نگاه به وابستگی‌ها تأیید کرد</td></tr>
+    <tr><td>‏Receiver پویای پیامک با مجوز <span class="mono">BROADCAST_SMS</span> ثبت می‌شود</td>
+        <td>باید <span class="mono">RECEIVER_EXPORTED</span> بماند (Broadcast سیستمی از UID دیگری می‌آید و
+        اندروید ۱۳+ در غیر این صورت آن را دور می‌ریزد) — ولی Exported <em>بدون</em> آن مجوز یعنی هر برنامه‌ای
+        روی گوشی می‌تواند یک پیامک جعلی به این برنامه تزریق کند: نوشته‌شده در صندوق و نمایش‌داده‌شده به‌صورت
+        نوتیفیکیشنی از فرستنده‌ای که کاربر دلیلی برای شک به آن ندارد. همتای Manifest
+        (<span class="mono">IncomingSmsReceiver</span>) همیشه این مجوز را داشت؛ همتای پویا نداشت.</td></tr>
   </tbody>
 </table>
 </section>
@@ -1569,6 +1711,15 @@ Jitter یک ویژگی تزئینی نیست: از سه‌گانهٔ (شناسه
     <tr><td>مرتب‌سازی کند دفترچهٔ تلفن</td>
         <td>نرمال‌سازی نام داخل تابع مقایسه</td>
         <td>الگوی decorate–sort–undecorate — یک کلید به‌ازای هر مخاطب</td></tr>
+    <tr><td>پیام‌های <em>دریافتی</em> با تأخیر محسوس می‌آمدند (ارسال سالم بود)</td>
+        <td>دو نقطهٔ سریالیزه‌شدن روی همان مسیر: <span class="mono">onReceive</span> یک Receiver پویا روی
+        <strong>ترد اصلی</strong> اجرا می‌شود و کوئری پایگاه‌داده، کوئری پروایدر مخاطبین و ساخت نوتیفیکیشن را
+        همان‌جا انجام می‌داد — و <span class="mono">eventSink.success</span> چون با
+        <span class="mono">Dispatchers.Main</span> فرستاده می‌شود، روی همان Looper صف می‌شد و تا پایان آن کارها
+        اجرا نمی‌شد. سمت Dart هم هر پیام منتظر خواندن <em>کل</em> دفترچهٔ تلفن می‌ماند، که
+        <span class="mono">DeviceSyncQueue</span> آن را پشت همگام‌سازی آینه‌ای در جریان صف می‌کرد.</td>
+        <td><span class="mono">goAsync()</span> کار بومی را به ترد کارگر می‌برد، و سمت Dart فقط
+        <span class="mono">cachedByPhoneNumber</span> پرسیده می‌شود که هرگز منتظر نمی‌ماند</td></tr>
   </tbody>
 </table>
 
@@ -1591,18 +1742,21 @@ Jitter یک ویژگی تزئینی نیست: از سه‌گانهٔ (شناسه
 راهبرد تست پروژه روی <strong>منطق</strong> متمرکز است، نه روی پیکسل‌ها: بلاک‌ها، مدل‌های خالص
 و مخازن داده. برای مخازن، پایگاه‌دادهٔ واقعی SQLite در حافظه بالا می‌آید
 (<span class="mono">sqflite_common_ffi</span>)، پس تست‌ها روی همان SQL واقعی اجرا می‌شوند نه روی ماک.
-مجموعه در حال حاضر <strong>۳۹۲ تست</strong> در ۳۸ فایل است و در آخرین اجرا کاملاً سبز است
-(<span class="mono">flutter test</span> — ۳۹۲ passed).
+مجموعه در حال حاضر <strong>۴۰۸ تست</strong> در ۴۱ فایل است و در آخرین اجرا کاملاً سبز است
+(<span class="mono">flutter test</span> — ۴۰۸ passed).
 </p>
 
 <table class="tight">
   <thead><tr><th style="width:30%">دستهٔ تست</th><th style="width:14%" class="c">فایل</th><th>نمونه‌ها</th></tr></thead>
   <tbody>
     <tr><td>بلاک‌ها</td><td class="c">۱۰</td><td>پیام، تماس، مخاطب، شماره‌گیر، احراز هویت، پیش‌نویس، علاقه‌مندی، تنظیمات، مسدودی، زمان‌بندی</td></tr>
-    <tr><td>منطق خالص</td><td class="c">۱۳</td><td>نرمال‌ساز شماره، متن جستجو، الفبای فارسی، تاریخ جلالی، کد یکبارمصرف، قالب پیام، پروتکل فشرده، زمان‌بندی (شامل بردارهای مرجع بذر Jitter)، گفتگوی گروهی</td></tr>
-    <tr><td>مخازن و همگام‌سازی</td><td class="c">۴</td><td>مخازن روی SQLite واقعی، حذف تکراری پیامک، نمایهٔ جستجو، سرویس‌های بومی</td></tr>
-    <tr><td>ویجت</td><td class="c">۱۱</td><td>صفحهٔ گفتگو، رشد نویسندهٔ پیام، شیت زمان‌بندی، صفحه‌های قالب،
-        و <span class="mono">CallUiCoordinator</span> — که Teardown درست Routeهای تماس را در سناریوی Call Waiting قفل می‌کند</td></tr>
+    <tr><td>منطق خالص</td><td class="c">۱۴</td><td>نرمال‌ساز شماره، متن جستجو، الفبای فارسی، تاریخ جلالی، کد یکبارمصرف، قالب پیام، پروتکل فشرده، زمان‌بندی (شامل بردارهای مرجع بذر Jitter)، گفتگوی گروهی</td></tr>
+    <tr><td>مخازن و همگام‌سازی</td><td class="c">۵</td><td>مخازن روی SQLite واقعی، حذف تکراری پیامک، نمایهٔ جستجو، سرویس‌های بومی</td></tr>
+    <tr><td>ویجت</td><td class="c">۱۲</td><td>صفحهٔ گفتگو، رشد نویسندهٔ پیام، شیت زمان‌بندی، صفحه‌های قالب،
+        <span class="mono">CallUiCoordinator</span> (که Teardown درست Routeهای تماس را در سناریوی Call Waiting قفل می‌کند)،
+        <span class="mono">CaretLineFix</span> (که <em>بی‌اثربودنش</em> را قفل می‌کند — هر ضربه‌ای که از قبل درست بوده
+        باید دست‌نخورده بماند)، و صفحه‌کلید حین تماس که <strong>هندسه</strong> را روی سه اندازهٔ صفحه بررسی می‌کند،
+        نه فقط حضور اجزا</td></tr>
     <tr><td>ابزار (Instrumentation)</td><td class="c">۰</td><td><span class="badge b-no">وجود ندارد</span> — تأیید مسیرهای بومی هنوز دستی و روی دستگاه است</td></tr>
   </tbody>
 </table>
@@ -1694,6 +1848,34 @@ Jitter یک ویژگی تزئینی نیست: از سه‌گانهٔ (شناسه
     <tr><td>بازسازی رابط کاربری بر پایهٔ سامانهٔ طراحی مشترک</td>
         <td>استایل به‌ازای هر صفحه</td>
         <td>نقش سطوح و اجزای فهرست مشترک، تنها راه یکدست‌ماندن ۸ ماژول است.</td></tr>
+    <tr><td>«علامت‌گذاری نخوانده» جدول خودش را دارد و هیچ پیامی را فلگ نمی‌کند</td>
+        <td>‏<span class="mono">is_read = 0</span> روی یک (یا همهٔ) ردیف‌های گفتگو</td>
+        <td>نشانهٔ دستی و پیام واقعی دو حقیقت متفاوت‌اند و باید متفاوت دیده شوند — نقطهٔ خالی در برابر شمارنده.
+        هر پیاده‌سازی مبتنی بر فلگ‌کردن ردیف، این تفاوت را از بین می‌برد: «۴۷» یعنی شمارش کل تاریخچه و «۱» یعنی
+        قابل‌تفکیک‌نبودن از یک پیام واقعیِ تک. هزینه: یک جدول و یک مهاجرت (نسخهٔ ۲۴)، و اینکه نشانهٔ دستی روی
+        بج پایین صفحه و انتخاب تب فرود اثری ندارد — که درست هم هست، چون چیزی نرسیده.</td></tr>
+    <tr><td>شمارهٔ پیش‌فرض مخاطب = پرچم خودِ پلتفرم</td>
+        <td>یک ترجیح محلی داخل پایگاه‌دادهٔ برنامه</td>
+        <td>‏<span class="mono">Data.IS_SUPER_PRIMARY</span> همان چیزی است که Google Contacts می‌نویسد و هر برنامهٔ
+        دیگری می‌خواند وقتی باید <em>یک</em> شماره از یک مخاطب انتخاب کند (میان‌بر لانچر، مقصد اشتراک‌گذاری).
+        ترجیح محلی برای همهٔ آن‌ها نامرئی بود و لحظه‌ای که شماره جای دیگری ویرایش می‌شد با دفترچه اختلاف پیدا می‌کرد.
+        هزینه: تطبیق باید روی <em>ارقام</em> باشد نه رشته (پروایدر همان چیزی را نگه می‌دارد که کاربر تایپ کرده)،
+        و چون پلتفرم هم این پرچم را می‌نویسد، «حذف شماره پیش‌فرض» اختیاری نیست — وگرنه مخاطبی که پیش‌فرضش را
+        جای دیگری گرفته، راه برگشتی ندارد.</td></tr>
+    <tr><td>متن هدایت‌شده جایگزین پیش‌نویس می‌شود</td>
+        <td>الحاق به پیش‌نویس، یا برنده‌شدن پیش‌نویس</td>
+        <td>هر دو پاسخ دیگر شکست خورده‌اند: برنده‌شدن پیش‌نویس متن هدایت‌شده را بی‌صدا دور می‌ریخت، و الحاق
+        پاسخ نیمه‌نوشته را <em>جلوی</em> پیام هدایت‌شده می‌گذاشت، پس «ارسال» هر دو را به‌هم‌چسبیده می‌فرستاد.
+        هزینه: پیش‌نویس از دست می‌رود — همان کاری که Google Messages می‌کند.</td></tr>
+    <tr><td>انتخاب مکان‌نما بر اساس خطی که انگشت رویش بود</td>
+        <td>اعتماد به <span class="mono">Affinity</span>ای که موتور متن برمی‌گرداند</td>
+        <td>یک شکست نرم (Soft Wrap) به یک Offset دو مکان‌نمای مشروع می‌دهد، و Flutter تصمیم را از «نزدیک‌ترین
+        Glyph» می‌گیرد نه از مختصات <span class="mono">y</span> انگشت. در یک کادر راست‌به‌چپ، <em>شروع</em> خط
+        همان لبهٔ راست کادر است، پس دقیقاً همان حرکتی که کاربر برای رفتن به اول خط انجام می‌دهد، چند پیکسل
+        بیرون از متن می‌افتد و جواب یک خط بالاتر می‌شود. ‏<span class="mono">EditText</span> خود اندروید این
+        اشتباه را نمی‌کند چون اول <em>خط را از y</em> پیدا می‌کند و بعد x را داخل همان خط محدود می‌کند؛
+        <span class="mono">CaretLineFix</span> همان قاعده را برمی‌گرداند. هزینه: یک Widget که فقط وقتی
+        مکان‌نما اثباتاً روی خط انگشت نیست کاری می‌کند — بی‌اثربودنش با تست قفل شده است.</td></tr>
   </tbody>
 </table>
 </section>

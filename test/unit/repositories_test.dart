@@ -501,7 +501,7 @@ void main() {
     });
 
     test(
-      'markThreadAsUnread marks a thread whose messages are all sent',
+      'markThreadAsUnread marks the thread WITHOUT inventing a message',
       () async {
         final repo = MessageRepository();
         await repo.createMessage(
@@ -519,15 +519,45 @@ void main() {
 
         await repo.markThreadAsUnread('09120000000');
 
-        // Exactly one row flagged — the newest — so the badge reads «۱».
-        expect((await repo.getAllThreads()).single.unreadCount, 1);
+        // The row is bold and badged, but the badge is a DOT: nothing arrived,
+        // so there is nothing to count. Earlier versions expressed the mark by
+        // flagging message rows, which is how it ended up wearing a fake «۱»
+        // (or «۴۷») that a real message could not then be told apart from.
+        final marked = (await repo.getAllThreads()).single;
+        expect(marked.manuallyUnread, isTrue);
+        expect(marked.hasUnread, isTrue);
+        expect(marked.unreadCount, 0);
 
         await repo.markThreadAsRead('09120000000');
-        expect((await repo.getAllThreads()).single.unreadCount, 0);
+        final cleared = (await repo.getAllThreads()).single;
+        expect(cleared.manuallyUnread, isFalse);
+        expect(cleared.hasUnread, isFalse);
       },
     );
 
-    test('markThreadAsUnread ignores deleted received messages', () async {
+    test('a real message keeps its own count next to the mark', () async {
+      final repo = MessageRepository();
+      await repo.createMessage(_message('r1', minute: 0, isRead: true));
+      await repo.markThreadAsUnread('09120000000');
+      expect((await repo.getAllThreads()).single.unreadCount, 0);
+
+      // One message actually arrives: the row must now say «۱», not stay a dot.
+      await repo.createMessage(
+        _message('r2', minute: 1, body: 'تازه', isRead: false),
+      );
+      final withMessage = (await repo.getAllThreads()).single;
+      expect(withMessage.unreadCount, 1);
+      expect(withMessage.manuallyUnread, isTrue);
+
+      // Opening the conversation clears both.
+      await repo.markThreadAsRead('09120000000');
+      final read = (await repo.getAllThreads()).single;
+      expect(read.unreadCount, 0);
+      expect(read.manuallyUnread, isFalse);
+    });
+
+    test('markThreadAsUnread works on a thread with no live received '
+        'message', () async {
       final repo = MessageRepository();
       await repo.createMessage(_message('r1', minute: 0, isRead: true));
       await repo.createMessage(
@@ -543,7 +573,11 @@ void main() {
 
       await repo.markThreadAsUnread('09120000000');
 
-      expect((await repo.getAllThreads()).single.unreadCount, 1);
+      // The mark needs no message to hang off, which is exactly why the
+      // "flag a row" shapes kept needing fallbacks for threads like this one.
+      final thread = (await repo.getAllThreads()).single;
+      expect(thread.manuallyUnread, isTrue);
+      expect(thread.unreadCount, 0);
     });
 
     test('removeRowsMissingFromDevice drops rows whose provider id vanished '

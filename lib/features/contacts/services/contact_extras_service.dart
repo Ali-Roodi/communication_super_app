@@ -70,6 +70,83 @@ class ContactExtrasService {
     }
   }
 
+  /// The contact's default number («شماره پیش‌فرض»), or null when it has none.
+  ///
+  /// This is the platform's `IS_SUPER_PRIMARY` flag, not a preference of this
+  /// app's — the same one Google Contacts writes, so a default set here is the
+  /// number every other app on the phone picks too.
+  Future<String?> getDefaultPhone(String contactId) async {
+    try {
+      return await _channel.invokeMethod<String>('getDefaultPhone', {
+        'contactId': contactId,
+      });
+    } on PlatformException {
+      return null;
+    }
+  }
+
+  /// Makes [number] the contact's default, clearing the flag from the others.
+  /// False when the provider refused, or when the contact has no such number.
+  Future<bool> setDefaultPhone(String contactId, String number) async {
+    try {
+      return await _channel.invokeMethod<bool>('setDefaultPhone', {
+            'contactId': contactId,
+            'number': number,
+          }) ??
+          false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  /// Takes the default off every one of the contact's numbers.
+  ///
+  /// The counterpart of [setDefaultPhone]. Without it, setting a default is a
+  /// one-way door: the flag can be moved from number to number but never taken
+  /// off, so a contact given one by mistake could not be put back.
+  Future<bool> clearDefaultPhone(String contactId) async {
+    try {
+      return await _channel.invokeMethod<bool>('clearDefaultPhone', {
+            'contactId': contactId,
+          }) ??
+          false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  /// The SIM this contact's calls go out on, or null when it has no preference.
+  ///
+  /// The platform's `PREFERRED_PHONE_ACCOUNT_*` columns (Android 10+), the same
+  /// pair Google Contacts writes from its «Calling account» row — so a choice
+  /// made here is honoured by any dialer, and one made elsewhere shows up here.
+  /// Null also comes back when the stored account belongs to a card that is no
+  /// longer in the phone; a removed SIM must not go on choosing.
+  Future<int?> getCallingSim(String contactId) async {
+    try {
+      return await _channel.invokeMethod<int>('getCallingSim', {
+        'contactId': contactId,
+      });
+    } on PlatformException {
+      return null;
+    }
+  }
+
+  /// Pins [subscriptionId] as the contact's calling SIM on every one of its
+  /// numbers; a negative id clears the preference. False on Android 9 and
+  /// below, where the columns do not exist.
+  Future<bool> setCallingSim(String contactId, int subscriptionId) async {
+    try {
+      return await _channel.invokeMethod<bool>('setCallingSim', {
+            'contactId': contactId,
+            'subscriptionId': subscriptionId,
+          }) ??
+          false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
   Future<bool> shareContact(String contactId) async {
     try {
       return await _channel.invokeMethod<bool>('shareContact', {

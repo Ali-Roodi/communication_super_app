@@ -148,6 +148,17 @@ class MessageThread extends Equatable {
   final String lastMessage;
   final DateTime lastMessageTime;
   final int unreadCount;
+
+  /// The user marked this conversation unread **by hand** — a mark, not a
+  /// count.
+  ///
+  /// Kept apart from [unreadCount] because the two mean different things and
+  /// the row draws them differently: a message that really arrived gets its
+  /// number, a hand-mark gets a bare dot. Expressing the mark as an unread
+  /// message row is exactly what made the two indistinguishable — see
+  /// [MessageRepository.markThreadAsUnread].
+  final bool manuallyUnread;
+
   final bool isPinned;
 
   /// Unsent composer text for this thread (shown as a «پیش‌نویس» preview and
@@ -181,6 +192,7 @@ class MessageThread extends Equatable {
     required this.lastMessage,
     required this.lastMessageTime,
     this.unreadCount = 0,
+    this.manuallyUnread = false,
     this.isPinned = false,
     this.draftText,
     this.draftTime,
@@ -193,7 +205,8 @@ class MessageThread extends Equatable {
   /// is true even before [group] has been resolved.
   bool get isGroup => GroupThread.isGroup(threadId);
 
-  bool get hasUnread => unreadCount > 0;
+  /// Bold, and carrying a badge of some kind — either the count or the dot.
+  bool get hasUnread => unreadCount > 0 || manuallyUnread;
 
   bool get hasDraft => draftText != null && draftText!.trim().isNotEmpty;
 
@@ -218,6 +231,7 @@ class MessageThread extends Equatable {
     String? lastMessage,
     DateTime? lastMessageTime,
     int? unreadCount,
+    bool? manuallyUnread,
     bool? isPinned,
     String? draftText,
     DateTime? draftTime,
@@ -241,6 +255,7 @@ class MessageThread extends Equatable {
       lastMessage: lastMessage ?? this.lastMessage,
       lastMessageTime: lastMessageTime ?? this.lastMessageTime,
       unreadCount: unreadCount ?? this.unreadCount,
+      manuallyUnread: manuallyUnread ?? this.manuallyUnread,
       isPinned: isPinned ?? this.isPinned,
       draftText: draftText ?? this.draftText,
       draftTime: draftTime ?? this.draftTime,
@@ -259,6 +274,7 @@ class MessageThread extends Equatable {
     lastMessage,
     lastMessageTime,
     unreadCount,
+    manuallyUnread,
     isPinned,
     draftText,
     draftTime,

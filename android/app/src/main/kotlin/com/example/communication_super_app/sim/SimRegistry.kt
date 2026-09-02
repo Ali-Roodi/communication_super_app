@@ -274,6 +274,28 @@ object SimRegistry {
         }
     }
 
+    /**
+     * The inverse of [phoneAccountFor]: which SIM a stored `PhoneAccountHandle`
+     * belongs to, or null when it belongs to none of the cards in the phone now.
+     *
+     * Null is the important answer. A contact's «سیم‌کارت تماس» is written into
+     * the address book and outlives the SIM: the card can be pulled, swapped or
+     * re-provisioned with a new subscription id. Resolving through the *live*
+     * roster means a preference pointing at a card that is gone reads as "no
+     * preference" and the call falls back to the normal rules, instead of being
+     * placed on whatever now sits in that slot.
+     */
+    fun subscriptionFor(context: Context, handle: PhoneAccountHandle): Int? {
+        return try {
+            subscriptions(context)
+                .map { it.subscriptionId }
+                .firstOrNull { phoneAccountFor(context, it) == handle }
+        } catch (e: Exception) {
+            Log.e(TAG, "subscriptionFor failed: ${e.message}", e)
+            null
+        }
+    }
+
     @SuppressLint("MissingPermission")
     private fun matchesIccId(
         context: Context,
