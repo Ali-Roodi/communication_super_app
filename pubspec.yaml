@@ -16,6 +16,12 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
+# The build number after the `+` is a LOCAL DEVELOPMENT placeholder. A store
+# upload never uses it: `scripts/release_build.ps1` / `.sh` override both halves
+# with `--build-name` / `--build-number`, taking the name from the git tag and
+# the code from the commit count, so the versionCode can never repeat and can
+# never be forgotten. Bump the name here when cutting a release; leave the `+1`
+# alone. See docs/publishing/store-release.md.
 version: 1.0.0+1
 
 environment:

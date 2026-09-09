@@ -19,8 +19,19 @@
     <uses-permission android:name="android.permission.READ_CALL_LOG"/>
     <uses-permission android:name="android.permission.WRITE_CALL_LOG"/>
     <uses-permission android:name="android.permission.MANAGE_OWN_CALLS"/>
-    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-permission android:name="android.permission.PROCESS_OUTGOING_CALLS"/>
+    <!-- RECORD_AUDIO is deliberately NOT declared. Nothing in this app records
+         audio — there is no MediaRecorder, no AudioRecord, and no call
+         recording — and the in-call audio route is owned by the telecom stack
+         through CallInCallService, which needs no microphone permission of its
+         own. It was declared here unused until the store-submission review.
+         A default SMS/dialer app that asks for the microphone without using it
+         is the single most reliable way to fail that review: the reviewer
+         cannot find a reason for it and reads the app as an undisclosed call
+         recorder. Do not add it back for a feature that does not exist yet;
+         add it in the same commit as the recorder. See
+         docs/publishing/store-release.md. -->
+
     <!-- Dual SIM: the *own* number of each SIM, shown under the SIM name in the
          picker the way Google Messages/Phone do. From Android 13 it is no
          longer covered by READ_PHONE_STATE. Purely cosmetic — a refusal leaves

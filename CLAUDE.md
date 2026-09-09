@@ -9,7 +9,8 @@ flutter pub get          # Install dependencies
 flutter run              # Run on connected device/emulator
 flutter run --release    # Run in release mode
 flutter build apk        # Build Android APK (debug)
-flutter build apk --release  # Build release APK
+flutter build apk --release  # Build release APK (local only — see below)
+scripts/release_build.sh     # Build the APK a STORE gets: versionCode from git, signature verified
 flutter analyze          # Run linter (flutter_lints)
 flutter test             # Run all tests
 flutter test test/widget_test.dart  # Run a single test file
@@ -34,6 +35,7 @@ as the code.
 | `docs/architecture/dual-sim.md` | anything that names a SIM: `subscriptionId`, per-thread SIM memory, the pickers, SIM contacts |
 | `docs/architecture/drafts-and-templates.md` | drafts, categories, «قالب آماده» and the template SMS wire format |
 | `docs/architecture/settings.md` | the settings pages |
+| `docs/publishing/store-release.md` | anything about shipping the app to بازار / مایکت — the signing key, the store permission review, the store listing, the release pipeline. It carries the **live status** of the launch: update its status table and history in the same commit as the change. |
 
 Two rules from those files apply **everywhere** and are repeated here so they cannot be
 missed:
