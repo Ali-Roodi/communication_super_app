@@ -72,6 +72,17 @@ android {
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
+        // Both come from android/local.properties, which the Flutter tool
+        // rewrites on every build: `--build-number` sets flutter.versionCode
+        // and `--build-name` sets flutter.versionName, otherwise they fall
+        // back to the `version:` line in pubspec.yaml.
+        //
+        // A store upload must NEVER take the pubspec fallback: Bazaar and
+        // Myket both reject a package whose versionCode is not strictly
+        // greater than the last published one, and pubspec's `+1` never moves
+        // on its own. Build releases through scripts/release_build.ps1 / .sh,
+        // which pass the commit count as --build-number. See
+        // docs/publishing/store-release.md.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
 
