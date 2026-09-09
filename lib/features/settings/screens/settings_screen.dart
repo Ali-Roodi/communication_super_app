@@ -123,6 +123,8 @@ class _DefaultAppsGroupState extends State<_DefaultAppsGroup> {
   final NativeSmsService _sms = NativeSmsService();
   bool? _isDefaultSms;
   bool? _isDefaultDialer;
+  bool? _canFullScreen;
+  bool? _callNotifications;
 
   @override
   void initState() {
@@ -131,12 +133,18 @@ class _DefaultAppsGroupState extends State<_DefaultAppsGroup> {
   }
 
   Future<void> _refresh() async {
-    final sms = await _sms.isDefaultSmsApp();
-    final dialer = await NativeCallService.instance.isDefaultDialer();
+    final answers = await Future.wait<bool>([
+      _sms.isDefaultSmsApp(),
+      NativeCallService.instance.isDefaultDialer(),
+      NativeCallService.instance.canUseFullScreenIntent(),
+      NativeCallService.instance.areCallNotificationsEnabled(),
+    ]);
     if (mounted) {
       setState(() {
-        _isDefaultSms = sms;
-        _isDefaultDialer = dialer;
+        _isDefaultSms = answers[0];
+        _isDefaultDialer = answers[1];
+        _canFullScreen = answers[2];
+        _callNotifications = answers[3];
       });
     }
   }
@@ -144,6 +152,11 @@ class _DefaultAppsGroupState extends State<_DefaultAppsGroup> {
   String _summary(bool? value) {
     if (value == null) return '…';
     return value ? 'این برنامه پیش‌فرض است' : 'برنامه دیگری پیش‌فرض است';
+  }
+
+  String _grantSummary(bool? value) {
+    if (value == null) return '…';
+    return value ? 'اجازه داده شده' : 'اجازه داده نشده';
   }
 
   @override
@@ -173,6 +186,33 @@ class _DefaultAppsGroupState extends State<_DefaultAppsGroup> {
             } else {
               await NativeCallService.instance.requestDefaultDialerRole();
             }
+            await _refresh();
+          },
+        ),
+        // The two call grants that are settings pages rather than roles. They
+        // live here because the onboarding prompt for them stops asking after a
+        // few «فعلاً نه»s (see `DefaultAppGate`), and a grant the app needs for
+        // a locked-screen call must not become unreachable just because the
+        // user silenced the nagging.
+        SettingsRow(
+          icon: Icons.notifications_active_outlined,
+          title: 'اعلان‌های تماس',
+          summary: _callNotifications == null
+              ? '…'
+              : (_callNotifications!
+                    ? 'روشن'
+                    : 'خاموش — تماس ورودی نمایش داده نمی‌شود'),
+          onTap: () async {
+            await NativeCallService.instance.openNotificationSettings();
+            await _refresh();
+          },
+        ),
+        SettingsRow(
+          icon: Icons.fullscreen_rounded,
+          title: 'اعلان تمام‌صفحه تماس',
+          summary: _grantSummary(_canFullScreen),
+          onTap: () async {
+            await NativeCallService.instance.openFullScreenIntentSettings();
             await _refresh();
           },
         ),

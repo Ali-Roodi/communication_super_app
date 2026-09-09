@@ -56,9 +56,20 @@ class PersianUtils {
   static final Map<String, String> _displayCache = {};
   static const int _maxDisplayCache = 4096;
 
+  /// ASCII, Persian and Arabic-Indic digits — the same set `PhoneNormalizer`
+  /// accepts. Anything with none of them is not a number.
+  static final RegExp _hasDigit = RegExp(r'[\d۰-۹٠-٩]');
+
   static String displayPhone(String raw) {
     final cached = _displayCache[raw];
     if (cached != null) return cached;
+
+    // An **alphanumeric sender id** («همراه اول», `IRANCELL`) is an address too
+    // — it is what a carrier's own messages arrive from and what their thread is
+    // keyed by — and it is not a number. Forcing it into an LTR embedding below
+    // reorders a multi-word Persian name; there is also nothing to group or to
+    // convert. Returned untouched.
+    if (!_hasDigit.hasMatch(raw)) return raw.trim();
 
     final formatted = toPersianNumber(formatPhone(raw));
     if (formatted.isEmpty) return formatted;

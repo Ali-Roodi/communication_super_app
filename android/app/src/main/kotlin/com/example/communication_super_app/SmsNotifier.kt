@@ -214,6 +214,11 @@ object SmsNotifier {
                 .setOnlyAlertOnce(false)
                 .setWhen(timestamp)
                 .setShowWhen(true)
+                // What a launcher that draws a *number* on the icon should
+                // draw. `+ 1` because the message being announced is not
+                // persisted yet on the live receive path — the same reason
+                // [recentMessages] adds it by hand. See [unreadCount].
+                .setNumber(unreadCount(context, threadId, timestamp) + 1)
                 // «سیم ۲ · ایرانسل» under the sender on a dual-SIM phone —
                 // which card took the message is part of reading it. Null on a
                 // single-SIM phone (SimRegistry answers null for an unknown or
@@ -269,6 +274,132 @@ object SmsNotifier {
             }
         } catch (e: Exception) {
             Log.e(TAG, "cancelThread failed: ${e.message}")
+        }
+    }
+
+    /**
+     * Drops every SMS notification that no longer stands for anything unread.
+     *
+     * **This is what keeps the launcher badge honest.** A card is only ever
+     * cancelled where it was posted from — opening the conversation, or the
+     * «خواندم» action — and every other way a message stops being unread left
+     * the notification behind: marking a thread read from the inbox, deleting
+     * the conversation, blocking the sender, reading it on another device that
+     * writes into `content://sms`, or simply a card the shade kept across a
+     * reinstall of the row it referred to. The shade shows those, the launcher
+     * counts them, and a badge the user cannot make go away by *reading their
+     * messages* is exactly what was reported («یک عدد ۲ روی لوگوی برنامه … هرچی
+     * هم اپ رو می‌دیدم، اون عدد پاک نمی‌شد»). Blocking made it worse in the other
+     * direction: the sender's card stayed while the conversation left the inbox,
+     * so the badge outlived the only screen that could have cleared it.
+     *
+     * Two rules, both read straight from the app's SQLite file (the engine is
+     * usually alive here, but this must work either way):
+     *
+     *  * a thread with no unread *received* row left has nothing to announce;
+     *  * a thread whose sender is blocked has nothing to announce either,
+     *    whatever its rows say.
+     *
+     * Anything it cannot read (missing database, locked file) is left alone —
+     * dismissing a notification we are not sure about would silently swallow a
+     * message, which is far worse than a stale badge.
+     */
+    fun reconcile(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        try {
+            val nm =
+                context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            // Ours are the only *tagged* notifications this app posts — the
+            // call cards all use bare ids — and the tag is the thread id. The
+            // channel is checked too where the API allows it
+            // (`Notification.getChannelId` is O; calling it on 24/25 would
+            // throw a NoSuchMethodError, which is an Error and would sail past
+            // the catch below).
+            val active = nm.activeNotifications
+                .filter { sbn ->
+                    val tag = sbn.tag
+                    if (tag.isNullOrEmpty()) return@filter false
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        sbn.notification?.channelId == CHANNEL_ID
+                    } else {
+                        true
+                    }
+                }
+                .map { it.tag to it.id }
+            if (active.isEmpty()) return
+
+            val dbFile = context.getDatabasePath(DB_NAME)
+            if (!dbFile.exists()) return
+            android.database.sqlite.SQLiteDatabase.openDatabase(
+                dbFile.path,
+                null,
+                android.database.sqlite.SQLiteDatabase.OPEN_READONLY,
+            ).use { db ->
+                for ((tag, id) in active) {
+                    if (isStale(db, tag)) nm.cancel(tag, id)
+                }
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "reconcile skipped: ${e.message}")
+        }
+    }
+
+    /** See [reconcile]. */
+    private fun isStale(
+        db: android.database.sqlite.SQLiteDatabase,
+        threadId: String,
+    ): Boolean {
+        val blocked = db.rawQuery(
+            "SELECT 1 FROM blocked_numbers WHERE normalized = ? LIMIT 1",
+            arrayOf(threadId),
+        ).use { it.moveToFirst() }
+        if (blocked) return true
+        return db.rawQuery(
+            "SELECT 1 FROM messages WHERE thread_id = ? AND is_deleted = 0 " +
+                "AND type = 'received' AND is_read = 0 LIMIT 1",
+            arrayOf(threadId),
+        ).use { !it.moveToFirst() }
+    }
+
+    /**
+     * How many unread received messages [threadId] has, as the shade should
+     * report it — capped, because the number is a badge and not a statistic.
+     *
+     * Set on the notification as `Notification.number`, which is what OEM
+     * launchers that draw a *count* on the icon (Samsung's One UI among them)
+     * read. Without it they fall back to guessing — counting cards, or counting
+     * the messages inside a `MessagingStyle` — and the icon's number then drifts
+     * from anything the app believes.
+     */
+    /**
+     * [excludeTimestamp] drops the row for the message being announced, for
+     * exactly the reason [recentMessages] does: the live receive path posts
+     * before Dart has persisted it, the cold-start path after, and the caller
+     * adds it back by hand either way. Without this the number and the shade's
+     * own message list disagreed by one whenever Dart happened to win.
+     */
+    private fun unreadCount(
+        context: Context,
+        threadId: String,
+        excludeTimestamp: Long,
+    ): Int {
+        val dbFile = context.getDatabasePath(DB_NAME)
+        if (!dbFile.exists()) return 0
+        return try {
+            android.database.sqlite.SQLiteDatabase.openDatabase(
+                dbFile.path,
+                null,
+                android.database.sqlite.SQLiteDatabase.OPEN_READONLY,
+            ).use { db ->
+                db.rawQuery(
+                    "SELECT COUNT(*) FROM messages WHERE thread_id = ? " +
+                        "AND is_deleted = 0 AND timestamp <> ? " +
+                        "AND type = 'received' AND is_read = 0",
+                    arrayOf(threadId, excludeTimestamp.toString()),
+                ).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
+            }
+        } catch (e: Exception) {
+            0
         }
     }
 

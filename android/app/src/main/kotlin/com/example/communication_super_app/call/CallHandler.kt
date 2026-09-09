@@ -142,6 +142,20 @@ class CallHandler(
                         openSoundSettings()
                         result.success(true)
                     }
+                    // «مسدود کردن تماس‌های ناشناس». Mirrored into a native
+                    // preference file because the rule is applied inside
+                    // `CallInCallService.onCallAdded`, which routinely runs
+                    // with no Flutter engine at all. See [CallPrefs].
+                    "setBlockUnknownCallers" -> {
+                        CallPrefs.setBlockUnknownCallers(
+                            context,
+                            call.argument<Boolean>("value") ?: false,
+                        )
+                        result.success(true)
+                    }
+                    "getBlockUnknownCallers" -> result.success(
+                        CallPrefs.blockUnknownCallers(context),
+                    )
                     else              -> result.notImplemented()
                 }
             } catch (e: SecurityException) {

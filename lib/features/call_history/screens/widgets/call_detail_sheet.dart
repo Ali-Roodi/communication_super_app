@@ -297,9 +297,11 @@ class _ActionChips extends StatelessWidget {
             child: _ActionChip(
               icon: Icons.call,
               label: 'تماس',
+              // On the card this call used — see [CallLogTile]. Null falls
+              // through to the ordinary rules.
               onTap: () {
                 Navigator.of(context).pop();
-                placeCall(context, log.phoneNumber);
+                placeCall(context, log.phoneNumber, sim: log.sim);
               },
               onLongPress: SimService.isMultiSim
                   ? () {

@@ -219,9 +219,21 @@ void main() {
       expect(await repo.blockedKeys(), {'09121112233', '09120000000'});
     });
 
-    test('a number with no digits is not blocked', () async {
+    // The reported bug: «برای برخی دیگر از شماره‌ها یا لیبل‌ها مثلا همراه اول …
+    // اگه تیک مسدود رو بزنی و برگردی، اون پیامک هنوز دیده می‌شه». A carrier's
+    // messages arrive from an alphanumeric sender id, which `SmsService` stores
+    // as the thread id verbatim — so it is the key blocking has to use, and
+    // refusing it as "no digits" meant no row was written at all.
+    test('an alphanumeric sender id is blocked under its own thread id', () async {
       final repo = BlockedNumbersRepository();
-      expect(await repo.block('no-digits'), isNull);
+      expect(await repo.block('همراه اول'), 'همراه اول');
+      expect(await repo.blockedKeys(), {'همراه اول'});
+      expect(await repo.isBlocked('همراه اول'), isTrue);
+    });
+
+    test('an empty address is not blocked', () async {
+      final repo = BlockedNumbersRepository();
+      expect(await repo.block('   '), isNull);
       expect(await repo.getBlocked(), isEmpty);
     });
   });

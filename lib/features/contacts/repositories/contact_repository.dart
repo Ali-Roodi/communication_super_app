@@ -53,6 +53,7 @@ class ContactRepository {
     // renumbered until the next full read lands.
     _indexSource = null;
     _numberIndex = null;
+    _tailIndex = null;
   }
 
   Future<bool> _ensurePermission() async {
@@ -261,27 +262,64 @@ class ContactRepository {
   static List<ContactModel>? _indexSource;
   static Map<String, ContactModel>? _numberIndex;
 
+  /// The **loose** index: last-7-digits → the one contact owning that tail, or
+  /// null where two different contacts share it.
+  ///
+  /// It is the fallback the exact index needs to agree with the platform. The
+  /// incoming-call screen names a caller through `ContactsContract.PhoneLookup`,
+  /// which matches on the trailing digits; this index matched on
+  /// [PhoneNormalizer.toThreadId] equality alone, so a contact saved in a shape
+  /// the normalizer has no rule for rang with a **name** and then appeared in
+  /// «اخیر» and the inbox as a bare **number**. See [PhoneNormalizer.toTailKey].
+  ///
+  /// The null value is deliberate and is why this is safe: an ambiguous tail
+  /// resolves to nobody rather than to whichever contact happened to be indexed
+  /// first — a wrong name is worse than a number.
+  static Map<String, ContactModel?>? _tailIndex;
+
   Future<Map<String, ContactModel>> _numberLookup() async {
     final contacts = await getDeviceContacts();
     final cached = _numberIndex;
     if (cached != null && identical(_indexSource, contacts)) return cached;
 
     final index = <String, ContactModel>{};
+    final tails = <String, ContactModel?>{};
     for (final c in contacts) {
       for (final p in [...c.phoneNumbers, c.phoneNumber]) {
         final key = PhoneNormalizer.toThreadId(p);
-        if (key.isNotEmpty) index.putIfAbsent(key, () => c);
+        if (key.isEmpty) continue;
+        index.putIfAbsent(key, () => c);
+        final tail = PhoneNormalizer.toTailKey(p);
+        if (tail.isEmpty) continue;
+        // Same contact twice (two formats of one number) keeps the entry; two
+        // different people sharing a tail poison it to null.
+        tails.update(
+          tail,
+          (existing) => existing?.id == c.id ? existing : null,
+          ifAbsent: () => c,
+        );
       }
     }
     _indexSource = contacts;
     _numberIndex = index;
+    _tailIndex = tails;
     return index;
   }
 
   Future<ContactModel?> getContactByPhoneNumber(String phoneNumber) async {
     final target = PhoneNormalizer.toThreadId(phoneNumber);
     if (target.isEmpty) return null;
-    return (await _numberLookup())[target];
+    final exact = (await _numberLookup())[target];
+    if (exact != null) return exact;
+    return _looseMatch(phoneNumber);
+  }
+
+  /// The trailing-digits fallback, tried only after the exact key missed.
+  static ContactModel? _looseMatch(String phoneNumber) {
+    final tails = _tailIndex;
+    if (tails == null) return null;
+    final tail = PhoneNormalizer.toTailKey(phoneNumber);
+    return tail.isEmpty ? null : tails[tail];
   }
 
   /// Non-blocking [getContactByPhoneNumber]: answers from the memoized number
@@ -296,7 +334,8 @@ class ContactRepository {
     final index = _numberIndex;
     if (index == null) return null;
     final target = PhoneNormalizer.toThreadId(phoneNumber);
-    return target.isEmpty ? null : index[target];
+    if (target.isEmpty) return null;
+    return index[target] ?? _looseMatch(phoneNumber);
   }
 
   /// Whether [cachedByPhoneNumber] can answer authoritatively.

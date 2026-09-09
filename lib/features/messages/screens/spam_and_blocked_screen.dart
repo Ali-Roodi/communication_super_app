@@ -10,6 +10,9 @@ import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/core/widgets/undo_snack_bar.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
+import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
+import 'package:communication_super_app/features/settings/bloc/settings_event.dart';
+import 'package:communication_super_app/features/settings/bloc/settings_state.dart';
 import 'package:communication_super_app/features/settings/models/blocked_number_model.dart';
 import '../models/template_wire.dart';
 import '../repositories/message_repository.dart';
@@ -145,50 +148,65 @@ class _SpamAndBlockedScreenState extends State<SpamAndBlockedScreen> {
             ),
           ],
         ),
-        body: BlocBuilder<BlockedNumbersBloc, BlockedNumbersState>(
-          builder: (context, state) {
-            if (state is BlockedNumbersError) {
-              return Center(child: Text(state.message));
-            }
-            if (state is! BlockedNumbersLoaded) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (state.numbers.isEmpty) {
-              return const EmptyState(
-                icon: Icons.block,
-                title: 'چیزی مسدود نشده است',
-                subtitle:
-                    'شماره‌هایی که مسدود یا به‌عنوان هرزنامه گزارش کنید، '
-                    'همراه گفتگویشان اینجا نگه داشته می‌شوند',
-              );
-            }
-
-            final spam = state.spam;
-            final blocked = state.blockedOnly;
-            return ListView(
-              padding: const EdgeInsets.only(top: 4, bottom: 32),
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 12, 24, 4),
-                  child: Text(
-                    'تماس‌ها و پیامک‌های این شماره‌ها رد می‌شوند و گفتگویشان از '
-                    'صندوق پیام‌ها بیرون است.',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
-                if (spam.isNotEmpty) ...[
-                  const SectionLabel('هرزنامه'),
-                  GroupedList(children: [for (final n in spam) _row(n)]),
-                ],
-                if (blocked.isNotEmpty) ...[
-                  const SectionLabel('مسدودشده'),
-                  GroupedList(children: [for (final n in blocked) _row(n)]),
-                ],
-              ],
-            );
-          },
+        // The «تماس‌های ناشناس» rule sits above the list and outside the
+        // BlocBuilder on purpose: it is a rule rather than an entry — there is
+        // no number to list for a caller who withheld theirs — and it has to be
+        // reachable on the empty state, which is exactly when somebody comes
+        // here looking for it. Google Phone puts its «Unknown» switch in the
+        // same place, at the top of «Blocked numbers».
+        body: Column(
+          children: [
+            const _UnknownCallersSwitch(),
+            Expanded(child: _buildList(context)),
+          ],
         ),
       ),
+    );
+  }
+
+  Widget _buildList(BuildContext context) {
+    return BlocBuilder<BlockedNumbersBloc, BlockedNumbersState>(
+      builder: (context, state) {
+        if (state is BlockedNumbersError) {
+          return Center(child: Text(state.message));
+        }
+        if (state is! BlockedNumbersLoaded) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (state.numbers.isEmpty) {
+          return const EmptyState(
+            icon: Icons.block,
+            title: 'چیزی مسدود نشده است',
+            subtitle:
+                'شماره‌هایی که مسدود یا به‌عنوان هرزنامه گزارش کنید، '
+                'همراه گفتگویشان اینجا نگه داشته می‌شوند',
+          );
+        }
+
+        final spam = state.spam;
+        final blocked = state.blockedOnly;
+        return ListView(
+          padding: const EdgeInsets.only(top: 4, bottom: 32),
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 12, 24, 4),
+              child: Text(
+                'تماس‌ها و پیامک‌های این شماره‌ها رد می‌شوند و گفتگویشان از '
+                'صندوق پیام‌ها بیرون است.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+            if (spam.isNotEmpty) ...[
+              const SectionLabel('هرزنامه'),
+              GroupedList(children: [for (final n in spam) _row(n)]),
+            ],
+            if (blocked.isNotEmpty) ...[
+              const SectionLabel('مسدودشده'),
+              GroupedList(children: [for (final n in blocked) _row(n)]),
+            ],
+          ],
+        );
+      },
     );
   }
 
@@ -309,6 +327,42 @@ class _BlockedRow extends StatelessWidget {
             number.phoneNumber,
             contactName: name,
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// «تماس‌های ناشناس» — refuse calls that arrive with no number at all.
+///
+/// The one nuisance call this app had no answer for: a withheld or private
+/// caller id cannot be added to the list below, because there is nothing to
+/// add. Off by default, like Google Phone's «Unknown» switch — the caller is
+/// never told they were blocked, and a withheld number is not always a nuisance
+/// (hospitals, banks and delivery drivers routinely present none).
+class _UnknownCallersSwitch extends StatelessWidget {
+  const _UnknownCallersSwitch();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<SettingsBloc, SettingsState>(
+      buildWhen: (a, b) => a.blockUnknownCallers != b.blockUnknownCallers,
+      builder: (context, state) => Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: GroupedList(
+          children: [
+            SwitchListTile(
+              secondary: const Icon(Icons.phone_disabled_outlined),
+              title: const Text('مسدود کردن تماس‌های ناشناس'),
+              subtitle: const Text(
+                'تماس‌هایی که شماره‌ای نشان نمی‌دهند (خصوصی یا مخفی) رد می‌شوند',
+              ),
+              value: state.blockUnknownCallers,
+              onChanged: (value) => context.read<SettingsBloc>().add(
+                SetBoolSetting(BoolSetting.blockUnknownCallers, value),
+              ),
+            ),
+          ],
         ),
       ),
     );

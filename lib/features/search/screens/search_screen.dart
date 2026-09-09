@@ -192,8 +192,9 @@ class _ContactResult extends StatelessWidget {
     final matched = _matchedNumber;
     var number = matched ?? contact.primaryPhone;
     if (matched == null && contact.phoneNumbers.length > 1) {
-      final picked = await pickContactNumber(
+      final picked = await pickContactNumberFor(
         context,
+        contactId: contact.id,
         numbers: contact.phoneNumbers,
         title: 'تماس با ${contact.name}',
       );

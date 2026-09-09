@@ -55,6 +55,13 @@ class ContactNameCache {
   /// free and an unchanged address book costs no write.
   static Map<String, CachedContactName>? _memo;
 
+  /// Last-7-digits → the one remembered entry with that tail, null where two
+  /// different contacts share it. Derived from [_memo], never stored: it is the
+  /// same trailing-digit fallback `ContactRepository` and `CallLogService` use,
+  /// so the *first* paint agrees with the second instead of showing a number
+  /// that the authoritative pass a beat later replaces with a name.
+  static Map<String, CachedContactName?>? _tailMemo;
+
   /// The remembered index, empty on a first launch (and on any failure — a
   /// cache that cannot be read must degrade to "no names yet", never throw
   /// into the middle of a paint).
@@ -74,10 +81,42 @@ class ContactNameCache {
             row['contact_id'] as String?,
           ),
       };
-      return _memo = map;
+      return _memo = _withTails(map);
     } catch (_) {
-      return _memo = const {};
+      return _memo = _withTails(const {});
     }
+  }
+
+  /// Rebuilds [_tailMemo] alongside a new [_memo] and hands the map back, so
+  /// the two can never be set apart from one another.
+  static Map<String, CachedContactName> _withTails(
+    Map<String, CachedContactName> map,
+  ) {
+    final tails = <String, CachedContactName?>{};
+    map.forEach((normalized, entry) {
+      final tail = PhoneNormalizer.toTailKey(normalized);
+      if (tail.isEmpty) return;
+      tails.update(
+        tail,
+        (existing) => existing == entry ? existing : null,
+        ifAbsent: () => entry,
+      );
+    });
+    _tailMemo = tails;
+    return map;
+  }
+
+  /// The remembered name for [phone]: the exact key, else the unambiguous
+  /// trailing-digits match. Null means "not remembered".
+  static CachedContactName? lookup(String phone) {
+    final memo = _memo;
+    if (memo == null) return null;
+    final key = PhoneNormalizer.toThreadId(phone);
+    if (key.isEmpty) return null;
+    final exact = memo[key];
+    if (exact != null) return exact;
+    final tail = PhoneNormalizer.toTailKey(phone);
+    return tail.isEmpty ? null : _tailMemo?[tail];
   }
 
   /// Answers from the already-read map, or null when it has not been read yet.
@@ -110,7 +149,7 @@ class ContactNameCache {
       }
     }
     if (_mapEquals(_memo, next)) return;
-    _memo = next;
+    _memo = _withTails(next);
     try {
       final db = await _dbHelper.database;
       await db.transaction((txn) async {
@@ -143,5 +182,8 @@ class ContactNameCache {
   }
 
   /// Test seam: forget what this process has read.
-  static void resetForTest() => _memo = null;
+  static void resetForTest() {
+    _memo = null;
+    _tailMemo = null;
+  }
 }

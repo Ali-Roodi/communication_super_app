@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:communication_super_app/features/call_history/bloc/call_log_bloc.dart';
 import 'package:communication_super_app/features/call_history/bloc/call_log_event.dart';
@@ -26,6 +29,89 @@ import 'package:communication_super_app/features/messages/services/native_sms_se
 /// is worthless while the notification itself is blocked.
 enum DefaultRole { sms, dialer, callNotifications, fullScreenIntent }
 
+/// How long «فعلاً نه» silences a grant that the app can *run* without.
+///
+/// The two roles are not in here on purpose: without them this is not a
+/// messaging or phone app at all, and the request page is the app. The other
+/// two only degrade a call on a locked screen, and asking about them again the
+/// moment the user comes back is what was reported — «در بعضی گوشی‌ها در مدت‌های
+/// کوتاه هی دسترسی full screen می‌گیره و این خیلی رو مخه».
+///
+/// It was not merely frequent, it was **every resume**: the gate clears its
+/// dismissal on `AppLifecycleState.resumed` and re-pushes, so every return from
+/// the shade, from another app — and, worst of all, every incoming call, which
+/// resumes this activity to draw the call screen — put the page back on top.
+/// On the phones where `canUseFullScreenIntent()` keeps answering false (some
+/// OEM builds never grant it to an app that took the dialer role after install)
+/// there is no answer the user can give that ends it.
+///
+/// So each dismissal buys a longer silence, and the third one ends the
+/// automatic asking for good — the grant is still one tap away in
+/// «تنظیمات ← برنامه‌های پیش‌فرض», which is where Google keeps the equivalent.
+const List<Duration> _snoozeLadder = [Duration(days: 3), Duration(days: 14)];
+
+/// Remembers the «فعلاً نه» answers across launches. See [_snoozeLadder].
+class _GrantSnooze {
+  static const String _prefix = 'set_grant_snooze_';
+
+  static String _untilKey(DefaultRole role) => '$_prefix${role.name}_until';
+  static String _countKey(DefaultRole role) => '$_prefix${role.name}_count';
+
+  /// Roles currently silenced, read once per launch and kept up to date by
+  /// [record]. Empty until [load] answers, which is correct: the gate simply
+  /// asks a moment later.
+  static final Set<DefaultRole> silenced = <DefaultRole>{};
+
+  static Future<void> load() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      silenced.clear();
+      for (final role in DefaultRole.values) {
+        if (!_snoozable(role)) continue;
+        final until = prefs.getInt(_untilKey(role));
+        // -1 is "never again automatically" — the end of the ladder.
+        if (until != null && (until < 0 || until > now)) silenced.add(role);
+      }
+    } catch (e) {
+      debugPrint('DefaultAppGate: snooze read failed: $e');
+    }
+  }
+
+  static Future<void> record(DefaultRole role) async {
+    if (!_snoozable(role)) return;
+    silenced.add(role);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final count = (prefs.getInt(_countKey(role)) ?? 0) + 1;
+      await prefs.setInt(_countKey(role), count);
+      final until = count > _snoozeLadder.length
+          ? -1
+          : DateTime.now().add(_snoozeLadder[count - 1]).millisecondsSinceEpoch;
+      await prefs.setInt(_untilKey(role), until);
+    } catch (e) {
+      debugPrint('DefaultAppGate: snooze write failed: $e');
+    }
+  }
+
+  /// Forgets every dismissal for [role] — used when the user asks for the grant
+  /// themselves from Settings, so a later loss of it is announced again.
+  static Future<void> clear(DefaultRole role) async {
+    silenced.remove(role);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_untilKey(role));
+      await prefs.remove(_countKey(role));
+    } catch (e) {
+      debugPrint('DefaultAppGate: snooze clear failed: $e');
+    }
+  }
+
+  static bool _snoozable(DefaultRole role) =>
+      role == DefaultRole.callNotifications ||
+      role == DefaultRole.fullScreenIntent;
+}
+
 /// Google Messages / Google Phone style onboarding for the two default-app
 /// roles, shown between [PermissionGate] and the app itself.
 ///
@@ -36,8 +122,11 @@ enum DefaultRole { sms, dialer, callNotifications, fullScreenIntent }
 /// our own UI.
 ///
 /// It re-checks on every resume, so setting another app as default elsewhere
-/// and coming back lands straight on the request screen again. Dismissing with
-/// «فعلاً نه» only lasts until the next resume.
+/// and coming back lands straight on the request screen again. Dismissing a
+/// **role** with «فعلاً نه» lasts until the next resume; dismissing one of the
+/// two optional call grants is remembered across launches and gets quieter each
+/// time — see [_GrantSnooze], which is the whole of «هی دسترسی full screen
+/// می‌گیره».
 ///
 /// The moment both roles are held, the device data the app could not see while
 /// it was not the default (SMS mirror-sync, call log, contacts) is pulled in.
@@ -84,6 +173,13 @@ class _DefaultAppGateState extends State<DefaultAppGate>
     _check();
   }
 
+  /// The snooze read runs once, before the first check that could push a page.
+  Future<void> _ensureSnoozeLoaded() {
+    return _snoozeLoaded ??= _GrantSnooze.load();
+  }
+
+  Future<void>? _snoozeLoaded;
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -99,6 +195,7 @@ class _DefaultAppGateState extends State<DefaultAppGate>
   }
 
   Future<void> _check() async {
+    await _ensureSnoozeLoaded();
     // In parallel, not one after another: four platform round-trips run
     // back-to-back sat in front of the app's first frame on every single
     // launch. They are independent reads.
@@ -132,17 +229,31 @@ class _DefaultAppGateState extends State<DefaultAppGate>
       _closeRoute();
     } else {
       _syncedForRoles = false;
-      if (_appShown && !_skipped) _openRouteIfNeeded();
+      if (_appShown && !_skipped) unawaited(_openRouteIfNeeded());
     }
   }
 
   /// Puts the request page on top of whatever screen the user came back to.
-  void _openRouteIfNeeded() {
+  ///
+  /// **Never over a call.** An incoming call resumes this activity to draw the
+  /// call screen, which fires the resume re-check — so without this guard the
+  /// grant page landed on top of a ringing phone, which is both the most
+  /// annoying moment to ask and the one where the answer is needed least.
+  Future<void> _openRouteIfNeeded() async {
     if (_openRoute != null) return;
-    final navigator = Navigator.maybeOf(context, rootNavigator: true);
-    if (navigator == null) return;
     final role = _pendingRole;
     if (role == null) return;
+    // Never over a ringing or live call. Wrapped: this runs on a resume that
+    // can precede the channel being wired up, and a throw here would swallow
+    // the prompt for the whole session.
+    try {
+      if (await NativeCallService.instance.isInCall()) return;
+    } catch (e) {
+      debugPrint('DefaultAppGate: isInCall check failed: $e');
+    }
+    if (!mounted || _openRoute != null || _skipped) return;
+    final navigator = Navigator.maybeOf(context, rootNavigator: true);
+    if (navigator == null) return;
     final route = MaterialPageRoute<void>(
       fullscreenDialog: true,
       builder: (_) => _DefaultRoleScreen(
@@ -150,6 +261,9 @@ class _DefaultAppGateState extends State<DefaultAppGate>
         onRequest: () => _request(role),
         onSkip: () {
           _skipped = true;
+          // Persisted for the grants the app can run without — see
+          // [_GrantSnooze]. The two roles stay session-only.
+          unawaited(_GrantSnooze.record(role));
           _closeRoute();
         },
       ),
@@ -181,20 +295,32 @@ class _DefaultAppGateState extends State<DefaultAppGate>
     }
   }
 
-  /// The next grant still missing, in the order they are asked for.
+  /// The next grant still missing **and still worth asking about**, in the
+  /// order they are asked for. A grant the user has silenced with «فعلاً نه» is
+  /// skipped until its snooze runs out ([_GrantSnooze]).
   DefaultRole? get _pendingRole {
     if (!(_isDefaultSms ?? false)) return DefaultRole.sms;
     if (!(_isDefaultDialer ?? false)) return DefaultRole.dialer;
     // Before the full-screen grant: that grant only decides whether the card
     // opens the call screen by itself, and a blocked card opens nothing.
-    if (!(_callNotifications ?? true)) return DefaultRole.callNotifications;
-    if (!(_canFullScreen ?? true)) return DefaultRole.fullScreenIntent;
+    if (!(_callNotifications ?? true) &&
+        !_GrantSnooze.silenced.contains(DefaultRole.callNotifications)) {
+      return DefaultRole.callNotifications;
+    }
+    if (!(_canFullScreen ?? true) &&
+        !_GrantSnooze.silenced.contains(DefaultRole.fullScreenIntent)) {
+      return DefaultRole.fullScreenIntent;
+    }
     return null;
   }
 
   Future<void> _request(DefaultRole role) async {
     if (_requesting) return;
     _requesting = true;
+    // Acting on the prompt resets its snooze ladder: if the grant is lost again
+    // later (a settings reset, an OEM cleaner), the app may say so once more
+    // instead of being permanently silent from three old dismissals.
+    unawaited(_GrantSnooze.clear(role));
     try {
       switch (role) {
         case DefaultRole.sms:
@@ -234,7 +360,10 @@ class _DefaultAppGateState extends State<DefaultAppGate>
     return _DefaultRoleScreen(
       role: role,
       onRequest: () => _request(role),
-      onSkip: () => setState(() => _skipped = true),
+      onSkip: () {
+        unawaited(_GrantSnooze.record(role));
+        setState(() => _skipped = true);
+      },
     );
   }
 }

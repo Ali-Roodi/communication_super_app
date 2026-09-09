@@ -8,6 +8,7 @@ import '../repositories/message_repository.dart';
 import '../services/sms_service.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_name_cache.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
+import 'package:communication_super_app/core/services/deep_link_service.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import '../models/message_group.dart';
 import '../models/message_model.dart';
@@ -26,6 +27,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   /// Caching it here avoids re-fetching on every LoadThreads dispatch
   /// (e.g., on app resume, on tab switch, after sending a message).
   Map<String, String>? _cachedPhoneToName;
+
+  /// Trailing-digits fallback built alongside [_cachedPhoneToName]: last-7-digits
+  /// -> the one name owning that tail, null where two contacts share it. Dropped
+  /// with it, so the two can never disagree.
+  Map<String, String?>? _cachedTailToName;
 
   /// A device mirror-sync started by this bloc is still running. It runs OFF
   /// the event queue (see [_startBackgroundSync]), so this flag — not the queue
@@ -297,7 +303,13 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       // produces an identical `ThreadsLoaded` and nothing repaints at all.
       emit(
         ThreadsLoaded(
-          await _resolveGroups(_applyNames(rawThreads, await _rememberedNames())),
+          await _resolveGroups(
+            _applyNames(
+              rawThreads,
+              await _rememberedNames(),
+              await _rememberedTailNames(),
+            ),
+          ),
           hasMore: hasMore,
           archived: archived,
           syncing: syncing,
@@ -777,6 +789,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       if (_cachedPhoneToName == null) {
         final contacts = await _contactRepository.getAllContacts();
         final map = <String, String>{};
+        final tails = <String, String?>{};
         for (final c in contacts) {
           if (c.name.isEmpty) continue;
           for (final phone in [...c.phoneNumbers, c.phoneNumber]) {
@@ -785,12 +798,22 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
             // E.164 form (+98912…). Keying on raw digits missed those.
             final key = PhoneNormalizer.toThreadId(phone);
             if (key.isNotEmpty) map[key] = c.name;
+            // …and the trailing-digits fallback, for the shapes the normalizer
+            // has no rule for. See [PhoneNormalizer.toTailKey].
+            final tail = PhoneNormalizer.toTailKey(phone);
+            if (tail.isEmpty) continue;
+            tails.update(
+              tail,
+              (existing) => existing == c.name ? existing : null,
+              ifAbsent: () => c.name,
+            );
           }
         }
         _cachedPhoneToName = map;
+        _cachedTailToName = tails;
       }
 
-      return _applyNames(threads, _cachedPhoneToName!);
+      return _applyNames(threads, _cachedPhoneToName!, _cachedTailToName);
     } catch (_) {
       return threads;
     }
@@ -807,10 +830,16 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   ///
   /// Group rows are left exactly as they are: their title comes from the group,
   /// not from the address book (see [_resolveGroups]).
+  /// [tailToName] is the trailing-digits fallback, consulted only when the
+  /// exact key misses and only where the tail names exactly one person (a
+  /// shared tail is stored as null). Without it the inbox disagreed with the
+  /// ringing screen, which resolves through `PhoneLookup` — see
+  /// [PhoneNormalizer.toTailKey].
   static List<MessageThread> _applyNames(
     List<MessageThread> threads,
-    Map<String, String> phoneToName,
-  ) {
+    Map<String, String> phoneToName, [
+    Map<String, String?>? tailToName,
+  ]) {
     return [
       for (final thread in threads)
         if (thread.isGroup)
@@ -818,7 +847,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         else
           () {
             final key = PhoneNormalizer.toThreadId(thread.phoneNumber);
-            final name = key.isEmpty ? null : phoneToName[key];
+            var name = key.isEmpty ? null : phoneToName[key];
+            if (name == null && tailToName != null) {
+              final tail = PhoneNormalizer.toTailKey(thread.phoneNumber);
+              if (tail.isNotEmpty) name = tailToName[tail];
+            }
             final resolved = (name == null || name.isEmpty) ? null : name;
             if (resolved == thread.contactName) return thread;
             return thread.copyWith(
@@ -840,9 +873,27 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   /// reaches the screen.
   Future<Map<String, String>> _rememberedNames() async {
     final cached = await ContactNameCache.read();
-    return {
-      for (final entry in cached.entries) entry.key: entry.value.name,
-    };
+    return {for (final entry in cached.entries) entry.key: entry.value.name};
+  }
+
+  /// The trailing-digits half of [_rememberedNames], derived from the same
+  /// table, so the *first* paint of a launch resolves exactly what the
+  /// authoritative pass behind it will — otherwise a contact only the loose
+  /// match finds appeared as a number and was replaced by a name a beat later,
+  /// which is the flicker the cache exists to remove.
+  Future<Map<String, String?>> _rememberedTailNames() async {
+    final cached = await ContactNameCache.read();
+    final tails = <String, String?>{};
+    cached.forEach((normalized, entry) {
+      final tail = PhoneNormalizer.toTailKey(normalized);
+      if (tail.isEmpty) return;
+      tails.update(
+        tail,
+        (existing) => existing == entry.name ? existing : null,
+        ifAbsent: () => entry.name,
+      );
+    });
+    return tails;
   }
 
   /// Maps a native error code to a user-facing Persian string.
@@ -939,6 +990,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     // forcing a second read here meant marshalling the whole address book over
     // the platform channel twice per refresh.
     _cachedPhoneToName = null;
+    _cachedTailToName = null;
     final current = state;
     if (current is ThreadsLoaded && !current.archived) {
       final enriched = await _resolveContactNames(current.threads);
@@ -986,6 +1038,9 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   ) async {
     try {
       await _smsService.deleteThreadGlobally(event.threadId);
+      // The conversation is gone; its shade card must go with it or the
+      // launcher badge keeps counting a thread that no longer exists.
+      unawaited(DeepLinkService.instance.reconcileNotifications());
       add(const LoadThreads());
     } catch (e) {
       emit(MessageError(e.toString()));
@@ -1000,6 +1055,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       for (final id in event.threadIds) {
         await _smsService.deleteThreadGlobally(id);
       }
+      unawaited(DeepLinkService.instance.reconcileNotifications());
       final archived =
           state is ThreadsLoaded && (state as ThreadsLoaded).archived;
       add(LoadThreads(archived: archived));
@@ -1065,6 +1121,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         } else {
           await _repository.markThreadAsUnread(id);
         }
+      }
+      // A thread marked read from the inbox has to lose its shade card too, or
+      // the launcher badge goes on counting messages the user has answered for.
+      if (event.read) {
+        unawaited(DeepLinkService.instance.reconcileNotifications());
       }
       final archived =
           state is ThreadsLoaded && (state as ThreadsLoaded).archived;
