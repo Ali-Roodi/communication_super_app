@@ -1043,8 +1043,9 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
     if (offer.isEmpty) return;
     final chosen = offer.length == 1
         ? offer.first
-        : await pickContactNumber(
+        : await pickContactNumberFor(
             context,
+            contactId: contact.id,
             numbers: offer,
             title: 'پیام به ${contact.name}',
           );

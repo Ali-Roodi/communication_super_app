@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/core/utils/contact_name_style.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/message_text_scale.dart';
@@ -86,12 +89,23 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
         linkPreviews: b(BoolSetting.linkPreviews),
         swipeActions: b(BoolSetting.swipeActions),
         deliveryReports: b(BoolSetting.deliveryReports),
+        blockUnknownCallers: b(BoolSetting.blockUnknownCallers),
         calendarType: calendar,
         // Clamped on read: a preference written by a future build with a wider
         // range must not render a conversation at an unusable size here.
         messageTextScale: MessageTextScale.clamp(
           prefs.getDouble(_messageTextScaleKey) ?? MessageTextScale.normal,
         ),
+      ),
+    );
+
+    // Pushed to the native mirror on every load, not only on change: the rule
+    // is applied in `CallInCallService` with no Flutter engine, so its copy has
+    // to be re-asserted by the one process that can read this store. See
+    // [NativeCallService.setBlockUnknownCallers].
+    unawaited(
+      NativeCallService.instance.setBlockUnknownCallers(
+        b(BoolSetting.blockUnknownCallers),
       ),
     );
 
@@ -107,6 +121,9 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     final next = state.withBool(event.key, event.value);
     if (event.key == BoolSetting.deliveryReports) {
       SmsService.deliveryReports = event.value;
+    }
+    if (event.key == BoolSetting.blockUnknownCallers) {
+      unawaited(NativeCallService.instance.setBlockUnknownCallers(event.value));
     }
     // Applied before the state is emitted: `apply` invalidates the contact
     // cache and wakes ContactBloc, and a reload that started while the statics

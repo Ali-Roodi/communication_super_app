@@ -364,6 +364,20 @@ class NativeCallService {
     }
   }
 
+  /// Mirrors «مسدود کردن تماس‌های ناشناس» into a native preference file.
+  ///
+  /// The rule is applied in `CallInCallService.onCallAdded`, which runs before
+  /// — and usually without — a Flutter engine, so the value cannot be read from
+  /// this side when it matters. `SettingsBloc` pushes it on load and on every
+  /// change, so the mirror can be stale for at most one launch.
+  Future<void> setBlockUnknownCallers(bool value) async {
+    try {
+      await _method.invokeMethod('setBlockUnknownCallers', {'value': value});
+    } catch (e) {
+      debugPrint('setBlockUnknownCallers failed: $e');
+    }
+  }
+
   /// Opens the per-app settings screen where that is granted.
   Future<void> openFullScreenIntentSettings() async {
     try {

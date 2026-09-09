@@ -301,6 +301,29 @@ class CallInCallService : InCallService() {
             call.details?.handle?.schemeSpecificPart ?: ""
 
         /**
+         * Whether this call arrives with no usable caller id — «خصوصی»,
+         * «ناشناس», a payphone, or a number telecom simply could not present.
+         *
+         * Both halves are needed. `handlePresentation` is the authoritative
+         * answer and is what a withheld number sets, but some networks and OEM
+         * builds present `PRESENTATION_ALLOWED` with an empty handle instead,
+         * which reads to every other part of this app as "unknown caller" too.
+         * Anything with digits in it is left alone whatever the presentation
+         * says: refusing a call that *can* be identified is the blocked list's
+         * job, not this rule's.
+         */
+        private fun isUnidentified(call: Call): Boolean {
+            val details = call.details ?: return false
+            if (phoneOf(call).any { it.isDigit() }) return false
+            val presentation = runCatching { details.handlePresentation }
+                .getOrDefault(TelecomManager.PRESENTATION_ALLOWED)
+            return presentation == TelecomManager.PRESENTATION_RESTRICTED ||
+                presentation == TelecomManager.PRESENTATION_PAYPHONE ||
+                presentation == TelecomManager.PRESENTATION_UNKNOWN ||
+                phoneOf(call).isBlank()
+        }
+
+        /**
          * Creates the three call channels.
          *
          * Called from `MainActivity.onCreate` as well as from the post paths,
@@ -556,6 +579,21 @@ class CallInCallService : InCallService() {
             BlockedNumbers.isBlocked(applicationContext, phoneOf(call))
         ) {
             Log.d(TAG, "Rejecting call from blocked number")
+            call.reject(false, null)
+            return
+        }
+
+        // «تماس‌های ناشناس» — a caller who withheld their number cannot be put
+        // in the blocked list at all (there is nothing to put there), so the
+        // only way to refuse them is a rule. Off by default and read from a
+        // native mirror of the setting, because this runs with no Flutter
+        // engine as often as not. Google Phone's own «Unknown» switch, in the
+        // same place and with the same default.
+        if (call.state == Call.STATE_RINGING &&
+            CallPrefs.blockUnknownCallers(applicationContext) &&
+            isUnidentified(call)
+        ) {
+            Log.d(TAG, "Rejecting call from an unidentified caller")
             call.reject(false, null)
             return
         }

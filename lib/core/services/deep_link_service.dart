@@ -136,4 +136,22 @@ class DeepLinkService {
       debugPrint('clearThreadNotifications failed: $e');
     }
   }
+
+  /// Drops every SMS notification that no longer stands for something unread.
+  ///
+  /// The launcher badge is the count of the cards this app has posted, and a
+  /// card is only cancelled where it was posted from — the conversation screen
+  /// and the «خواندم» action. Everything else that ends an unread message
+  /// (marking the thread read from the inbox, deleting it, blocking the sender,
+  /// reading it on another device) used to leave the card and therefore the
+  /// badge behind, with no way for the user to clear it by reading anything.
+  /// Call after any of those, and on resume; it is a no-op when nothing is
+  /// posted. See `SmsNotifier.reconcile`.
+  Future<void> reconcileNotifications() async {
+    try {
+      await _channel.invokeMethod('reconcileNotifications');
+    } catch (e) {
+      debugPrint('reconcileNotifications failed: $e');
+    }
+  }
 }

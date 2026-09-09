@@ -221,9 +221,17 @@ class _FavoriteCardState extends State<_FavoriteCard> {
   /// belongs to no saved contact — and the stored number is used then, since it
   /// is the one the user starred. Null means the picker was dismissed.
   Future<String?> _chooseNumber(String title) async {
-    final numbers = _contact?.phoneNumbers ?? const <String>[];
+    final contact = _contact;
+    final numbers = contact?.phoneNumbers ?? const <String>[];
     if (numbers.length < 2 || !mounted) return favorite.phoneNumber;
-    return pickContactNumber(context, numbers: numbers, title: title);
+    // Through the contact-aware form: a person with a default line is not asked
+    // which one — the same rule the contact page follows.
+    return pickContactNumberFor(
+      context,
+      contactId: contact?.id,
+      numbers: numbers,
+      title: title,
+    );
   }
 
   /// Long-press: the quick-action sheet Google Phone puts behind a favourite —

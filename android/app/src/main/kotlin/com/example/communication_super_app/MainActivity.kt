@@ -238,6 +238,14 @@ class MainActivity : FlutterActivity() {
                         }
                         result.success(true)
                     }
+                    // Drop every SMS card that no longer stands for anything
+                    // unread — the launcher badge's only way back to zero after
+                    // a thread was read, deleted or blocked somewhere other
+                    // than its own conversation screen. See [SmsNotifier.reconcile].
+                    "reconcileNotifications" -> {
+                        SmsNotifier.reconcile(applicationContext)
+                        result.success(true)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -384,6 +392,12 @@ class MainActivity : FlutterActivity() {
         super.onResume()
         isResumed = true
         smsHandler?.registerReceiver()
+        // Belt and braces for the launcher badge: Dart asks for this too, but a
+        // resume that never reaches Dart (the engine still warming, a cold start
+        // straight into the call screen) would otherwise leave stale cards —
+        // and the badge — up. Cheap: one `activeNotifications` read, and it
+        // returns before touching the database when there is nothing posted.
+        SmsNotifier.reconcile(applicationContext)
         syncLockScreenVisibility()
         // Re-assert: a keyguard-driven resume can land after the card was
         // posted by an onStop that the call outlived.

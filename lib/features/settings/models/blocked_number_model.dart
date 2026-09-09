@@ -36,20 +36,30 @@ class BlockedNumberModel extends Equatable {
     this.reportedAt,
   });
 
-  /// The canonical key for [phone], or empty when [phone] holds no digits.
+  /// The canonical key for [phone] — **always the thread id that address would
+  /// produce** — or empty when there is nothing to key on.
   ///
-  /// The empty answer matters: `PhoneNormalizer.toThreadId` falls back to
-  /// returning the trimmed input for a string it cannot parse, so without this
-  /// guard «no-digits» would be stored as a blocked "number" that nothing can
-  /// ever match. Callers treat empty as "not a number, do nothing".
-  static String normalize(String phone) {
-    if (!phone.contains(_anyDigit)) return '';
-    return PhoneNormalizer.toThreadId(phone);
-  }
-
-  /// ASCII, Persian and Arabic-Indic digits — the same set `PhoneNormalizer`
-  /// accepts.
-  static final RegExp _anyDigit = RegExp(r'[\d۰-۹٠-٩]');
+  /// This used to answer empty for any address holding no digits, on the
+  /// reasoning that a digit-less string could never match a stored number. It
+  /// can, and it is a large part of this inbox: an SMS from an **alphanumeric
+  /// sender id** («همراه اول», `IRANCELL`, `Bank-Melli`) is delivered with that
+  /// string as its address and `SmsService` stores it as the thread id verbatim
+  /// — `PhoneNormalizer.toThreadId` returns the trimmed input for anything it
+  /// cannot parse. So blocking one of those wrote **no row at all**
+  /// ([BlockedNumbersRepository.block] returns null on an empty key) while the
+  /// user got the confirmation dialog, the «مسدود شد» snack and the report
+  /// checkbox for a block that had not happened: the conversation was still in
+  /// the inbox on the way back and the next message from that sender still
+  /// arrived. Plain numbers blocked correctly, which is exactly what made it
+  /// look random.
+  ///
+  /// The rule is now the one the rest of the app already follows: **the blocked
+  /// key is the thread id**, whatever shape the address has. The native
+  /// `BlockedNumbers.normalizeToThreadId` has always answered the same way for
+  /// these, so the receive-path check already matches what this now stores.
+  /// Only a genuinely empty address answers empty.
+  static String normalize(String phone) =>
+      PhoneNormalizer.toThreadId(phone).trim();
 
   Map<String, dynamic> toMap() => {
     'id': id,

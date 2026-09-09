@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -50,6 +52,7 @@ import 'widgets/message_composer.dart';
 import 'widgets/pinch_text_scale.dart';
 import 'widgets/schedule_send_sheet.dart';
 import 'widgets/scheduled_bubble.dart';
+import '../services/spam_prompt_store.dart';
 import 'package:communication_super_app/core/navigation/app_route_observer.dart';
 
 /// Google Messages style chat screen.
@@ -256,6 +259,23 @@ class _ConversationScreenState extends State<ConversationScreen>
     DeepLinkService.instance
       ..setVisibleThread(widget.threadId)
       ..clearThreadNotifications(widget.threadId);
+    _restoreSpamPromptDismissal();
+  }
+
+  /// «نه» is remembered across visits — see [SpamPromptStore].
+  ///
+  /// Read here rather than in the banner's `build`: the answer is already in
+  /// memory after the first conversation of the session, and on the very first
+  /// one the banner is withheld anyway until `_contactResolved`, so the store
+  /// lands well before anything could flash.
+  Future<void> _restoreSpamPromptDismissal() async {
+    if (_isGroup) return;
+    if (SpamPromptStore.cached == null) await SpamPromptStore.load();
+    if (!mounted) return;
+    final dismissed = SpamPromptStore.isDismissed(widget.threadId);
+    if (dismissed && !_spamPromptDismissed) {
+      setState(() => _spamPromptDismissed = true);
+    }
   }
 
   /// Re-reads the group behind this thread.
@@ -866,10 +886,19 @@ class _ConversationScreenState extends State<ConversationScreen>
   // junk is while they are looking at it.
   //
   // Shown only for an unsaved number that has actually written to us, and only
-  // until it is answered (either way) — a prompt that comes back after «این
-  // هرزنامه نیست» is nagging, so the dismissal lasts for this visit.
+  // until it is answered (either way) — a prompt that comes back after «نه» is
+  // nagging, so the dismissal is **persisted per conversation**
+  // ([SpamPromptStore]) rather than living for the lifetime of this State. It
+  // used to be the latter, which meant the banner returned on every single
+  // entry to the chat no matter how many times it had been answered.
 
   bool _spamPromptDismissed = false;
+
+  /// Answers «نه» — for good, not for this visit.
+  void _dismissSpamPrompt() {
+    setState(() => _spamPromptDismissed = true);
+    unawaited(SpamPromptStore.dismiss(widget.threadId));
+  }
 
   Widget _buildSpamPrompt(BuildContext context) {
     // A group has no sender to report and no number to block — the members are
@@ -918,12 +947,12 @@ class _ConversationScreenState extends State<ConversationScreen>
             ),
           ),
           TextButton(
-            onPressed: () => setState(() => _spamPromptDismissed = true),
+            onPressed: _dismissSpamPrompt,
             child: const Text('نه'),
           ),
           TextButton(
             onPressed: () {
-              setState(() => _spamPromptDismissed = true);
+              _dismissSpamPrompt();
               // Captured before the await: the pop happens after the dialog and
               // the snack bar, by which time `context` is a lint hazard even
               // though the State is still mounted.
@@ -1120,6 +1149,12 @@ class _ConversationScreenState extends State<ConversationScreen>
             return ListView.builder(
               controller: _scrollController,
               reverse: true,
+              // Frozen while two fingers are pinching the text size, so the
+              // second finger of the pinch does not also drag the thread. See
+              // [PinchScope].
+              physics: PinchScope.isPinching(context)
+                  ? const NeverScrollableScrollPhysics()
+                  : null,
               padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
               itemCount: total,
               itemBuilder: (context, i) {

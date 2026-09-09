@@ -1,4 +1,5 @@
-import 'package:flutter/gestures.dart';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -19,6 +20,35 @@ import 'package:communication_super_app/features/settings/bloc/settings_state.da
 /// The scale multiplies the platform's own scaling rather than replacing it
 /// (see [MessageTextScaler]) — a user who already raised Android's font size
 /// must not have it silently reset by opening a chat.
+///
+/// ## Why this is a raw [Listener] and not a `ScaleGestureRecognizer`
+///
+/// It was a recognizer, and the recognizer could only ever win the gesture
+/// arena when **both fingers landed in the same few milliseconds** — which is
+/// exactly how it was reported: «حتما باید انگشت‌ها همزمان روی صفحه باشه».
+///
+/// The reason is structural, not a tuning problem. The list's own
+/// `VerticalDragGestureRecognizer` sits *below* this widget in the hit-test
+/// path, so it is the first member of every pointer's arena; the moment one
+/// finger moves past touch slop it accepts and every other member is rejected.
+/// Rejection runs through `OneSequenceGestureRecognizer.rejectGesture`, which
+/// calls `stopTrackingPointer` — so by the time a second finger arrives the
+/// scale recognizer is no longer tracking the first one and can never see two.
+/// And it cannot win the *second* pointer's arena either: an accepted drag
+/// recognizer rejoins each new pointer's arena already accepted, while a scale
+/// recognizer needs movement before it may claim anything, so the sweep hands
+/// that arena to the drag as well. Nothing that lives in the arena can recover
+/// from this; the old `_PinchOnlyScaleRecognizer`, which swallowed its own
+/// *acceptance* for one finger, addressed a different half of the problem (not
+/// stealing the scroll) and never this one.
+///
+/// A [Listener] is outside the arena entirely: it is handed every pointer that
+/// hit-tests to it whatever any recognizer decides, so the second finger starts
+/// a pinch whenever it arrives — mid-scroll, a second later, either order. The
+/// scroll is then stopped by swapping the list's physics for
+/// [NeverScrollableScrollPhysics] through [PinchScope] for as long as two
+/// fingers are down (`Scrollable.setCanDrag(false)` cancels the live drag and
+/// the position is carried over, so nothing jumps).
 class PinchTextScale extends StatefulWidget {
   final Widget child;
 
@@ -48,22 +78,94 @@ class _PinchTextScaleState extends State<PinchTextScale> {
   /// Scale at the moment the pinch started, the factor is applied to this.
   double _startScale = MessageTextScale.normal;
 
+  /// Every finger currently on this subtree, by pointer id. Two of them is a
+  /// pinch; the map is what lets the second one arrive at any time.
+  final Map<int, Offset> _pointers = <int, Offset>{};
+
+  /// Distance between the two fingers when the pinch began.
+  double _baseSpan = 0;
+
+  /// Whether a pinch owns the screen right now. A [ValueNotifier] rather than
+  /// `setState` because its one consumer is the list's `physics`, reached
+  /// through [PinchScope] — see the class doc.
+  final ValueNotifier<bool> _pinching = ValueNotifier<bool>(false);
+
+  /// How much of a spread the gesture asks for.
+  ///
+  /// The raw finger ratio (a gain of 1.0) is what the recognizer used, and it
+  /// made even a successful pinch feel stiff: reaching the next step from
+  /// «۱۰۰٪» meant spreading the fingers a full 15 %, and the far ends of the
+  /// range needed most of the screen. At 1.6 one step is about a 9 % spread and
+  /// «۲۰۰٪» is reachable in one comfortable gesture, while the movement still
+  /// tracks the fingers closely enough to aim with.
+  static const double _gain = 1.6;
+
+  /// Below this the fingers are effectively together and the ratio is noise.
+  static const double _minSpan = 24.0;
+
   double get _effective => _live ?? widget.scale;
 
-  void _onStart(ScaleStartDetails details) {
-    _startScale = widget.scale;
+  @override
+  void dispose() {
+    _pinching.dispose();
+    super.dispose();
   }
 
-  void _onUpdate(ScaleUpdateDetails details) {
-    // One finger is the list's scroll, never a zoom. The recognizer below
-    // already refuses to claim the arena for it; this is the second guard.
-    if (details.pointerCount < 2) return;
-    final next = MessageTextScale.clamp(_startScale * details.scale);
+  static double _spanOf(Iterable<Offset> points) {
+    final list = points.toList(growable: false);
+    return (list[0] - list[1]).distance;
+  }
+
+  void _onPointerDown(PointerDownEvent event) {
+    // A third finger is ignored rather than tracked: the pinch keeps following
+    // the two it started with, which is what every zoomable surface does.
+    if (_pointers.length >= 2) return;
+    _pointers[event.pointer] = event.position;
+    if (_pointers.length == 2) _beginPinch();
+  }
+
+  void _beginPinch() {
+    final span = _spanOf(_pointers.values);
+    if (span < _minSpan) {
+      // Two fingers touching: wait for them to separate before taking a
+      // baseline, or the first movement divides by ~nothing.
+      _baseSpan = 0;
+      return;
+    }
+    _baseSpan = span;
+    _startScale = widget.scale;
+    _pinching.value = true;
+  }
+
+  void _onPointerMove(PointerMoveEvent event) {
+    if (!_pointers.containsKey(event.pointer)) return;
+    _pointers[event.pointer] = event.position;
+    if (_pointers.length < 2) return;
+    if (_baseSpan == 0) {
+      _beginPinch();
+      return;
+    }
+    final span = _spanOf(_pointers.values);
+    if (span <= 0) return;
+    final next = MessageTextScale.clamp(
+      _startScale * math.pow(span / _baseSpan, _gain).toDouble(),
+    );
     if (next == _live) return;
     setState(() => _live = next);
   }
 
-  void _onEnd(ScaleEndDetails details) {
+  void _onPointerUp(PointerEvent event) {
+    if (_pointers.remove(event.pointer) == null) return;
+    if (_pointers.length >= 2) return;
+    _endPinch();
+  }
+
+  void _endPinch() {
+    _baseSpan = 0;
+    // The list can scroll again. The finger still on screen does not carry the
+    // pinch's movement into a fling: the drag recognizer was cancelled when the
+    // physics changed and only starts over from where that finger is now.
+    if (_pinching.value) _pinching.value = false;
     final live = _live;
     if (live == null) return;
     // Settled onto one of the offered sizes, so the gesture and the settings
@@ -77,69 +179,91 @@ class _PinchTextScaleState extends State<PinchTextScale> {
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
     final scale = _effective;
-    return RawGestureDetector(
-      gestures: {
-        _PinchOnlyScaleRecognizer:
-            GestureRecognizerFactoryWithHandlers<_PinchOnlyScaleRecognizer>(
-              () => _PinchOnlyScaleRecognizer(),
-              (instance) => instance
-                ..onStart = _onStart
-                ..onUpdate = _onUpdate
-                ..onEnd = _onEnd,
-            ),
-      },
-      // The list still owns every pointer it would have owned; this recognizer
-      // only ever joins in for a genuine two-finger pinch.
+    return Listener(
+      onPointerDown: _onPointerDown,
+      onPointerMove: _onPointerMove,
+      onPointerUp: _onPointerUp,
+      onPointerCancel: _onPointerUp,
+      // The list still owns every pointer it would have owned — a Listener
+      // takes part in no arena and steals nothing.
       behavior: HitTestBehavior.deferToChild,
-      child: Stack(
-        children: [
-          MediaQuery(
-            data: media.copyWith(
-              textScaler: scale == MessageTextScale.normal
-                  ? media.textScaler
-                  : MessageTextScaler(base: media.textScaler, factor: scale),
+      child: PinchScope(
+        notifier: _pinching,
+        child: Stack(
+          children: [
+            MediaQuery(
+              data: media.copyWith(
+                textScaler: scale == MessageTextScale.normal
+                    ? media.textScaler
+                    : MessageTextScaler(base: media.textScaler, factor: scale),
+              ),
+              child: widget.child,
             ),
-            child: widget.child,
-          ),
-          // Says what the pinch is doing while it happens, and disappears with
-          // it. Without it the only feedback is the text itself, which is hard
-          // to judge against a size you can no longer see.
-          if (_live != null)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: Center(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.inverseSurface.withValues(alpha: 0.85),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
+            // Says what the pinch is doing while it happens, and disappears with
+            // it. Without it the only feedback is the text itself, which is hard
+            // to judge against a size you can no longer see.
+            if (_live != null)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Center(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.inverseSurface.withValues(alpha: 0.85),
+                        borderRadius: BorderRadius.circular(20),
                       ),
-                      child: Text(
-                        MessageTextScale.label(_live!),
-                        // Deliberately outside the scaled subtree: a readout of
-                        // the text size must not itself change size with it.
-                        textScaler: TextScaler.noScaling,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onInverseSurface,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        child: Text(
+                          MessageTextScale.label(_live!),
+                          // Deliberately outside the scaled subtree: a readout of
+                          // the text size must not itself change size with it.
+                          textScaler: TextScaler.noScaling,
+                          style: TextStyle(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onInverseSurface,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
+}
+
+/// Whether a two-finger pinch is happening in the conversation right now.
+///
+/// The one consumer is the thread list's `physics`: while this is true it is
+/// [NeverScrollableScrollPhysics], so the second finger of a pinch does not
+/// also drag the list. It has to be an inherited value rather than a callback
+/// because the list is built deep inside [PinchTextScale]'s child, and an
+/// [InheritedNotifier] so that starting and ending a pinch rebuilds only the
+/// widgets that asked.
+class PinchScope extends InheritedNotifier<ValueNotifier<bool>> {
+  const PinchScope({
+    super.key,
+    required ValueNotifier<bool> notifier,
+    required super.child,
+  }) : super(notifier: notifier);
+
+  static bool isPinching(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<PinchScope>()
+          ?.notifier
+          ?.value ??
+      false;
 }
 
 /// «اندازه متن» from the conversation's overflow menu.
@@ -224,23 +348,5 @@ class _TextSizeSheet extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-/// A [ScaleGestureRecognizer] that refuses to win the gesture arena with a
-/// single finger.
-///
-/// This is the load-bearing part. `ScaleGestureRecognizer` treats a one-finger
-/// drag as a pan and claims the arena for it, which would take the conversation
-/// list's scroll away — the primary interaction on the screen — in exchange for
-/// a gesture nobody made. Swallowing the acceptance (rather than *rejecting*)
-/// keeps the recognizer alive, so a second finger arriving a moment later still
-/// starts a real pinch.
-class _PinchOnlyScaleRecognizer extends ScaleGestureRecognizer {
-  @override
-  // ignore: must_call_super
-  void resolve(GestureDisposition disposition) {
-    if (disposition == GestureDisposition.accepted && pointerCount < 2) return;
-    super.resolve(disposition);
   }
 }

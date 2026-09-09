@@ -66,6 +66,33 @@ class PhoneNormalizer {
     return toNational(a) == toNational(b);
   }
 
+  /// How many trailing digits a **loose** match compares. Android's own value
+  /// (`ContactsContract`'s `min_match`, 7 by default) — this is the rule
+  /// `PhoneLookup` matches by, and matching it is the whole point.
+  static const int tailMatchLength = 7;
+
+  /// The loose lookup key for [phone]: its last [tailMatchLength] digits, or
+  /// empty when it has fewer than that (a short code, a service address).
+  ///
+  /// This exists because [toThreadId] and `PhoneLookup` **do not agree**, and
+  /// the disagreement was visible: the incoming-call screen resolves a caller
+  /// natively through `ContactsContract.PhoneLookup`, which compares only the
+  /// trailing digits, while «اخیر» and the inbox resolve the same caller in Dart
+  /// through an exact-equality index on [toThreadId]. So a contact saved without
+  /// its area code (`۱۲۳۴۵۶۷۸` for a number that arrives as `۰۲۱۱۲۳۴۵۶۷۸`), or
+  /// with a foreign trunk prefix this normalizer has no rule for, showed its
+  /// **name** while the phone was ringing and its bare **number** in the call
+  /// list a second later — «انگار که چنین مخاطبی ذخیره نشده».
+  ///
+  /// It is only ever a *fallback*, tried after the exact key misses, and only
+  /// when the tail is unambiguous in the address book — which makes it strictly
+  /// more conservative than the platform lookup it is catching up with.
+  static String toTailKey(String phone) {
+    final digits = _digitsOnly(phone);
+    if (digits.length < tailMatchLength) return '';
+    return digits.substring(digits.length - tailMatchLength);
+  }
+
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------

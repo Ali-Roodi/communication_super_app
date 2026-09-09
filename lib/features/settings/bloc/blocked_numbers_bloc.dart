@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:communication_super_app/core/services/deep_link_service.dart';
 import '../models/blocked_number_model.dart';
 import '../repositories/blocked_numbers_repository.dart';
 
@@ -136,6 +139,11 @@ class BlockedNumbersBloc
         report: event.report,
       );
       if (key == null) return;
+      // The sender's card leaves the shade with them. Without this the
+      // conversation moved to «هرزنامه و مسدودشده» while its notification — and
+      // so the launcher badge — stayed behind, on a thread there is no longer
+      // any screen to open and clear it from.
+      unawaited(DeepLinkService.instance.clearThreadNotifications(key));
       emit(BlockedNumbersLoaded(await _repository.getBlocked()));
     } catch (e) {
       emit(BlockedNumbersError(e.toString()));

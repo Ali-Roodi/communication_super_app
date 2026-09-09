@@ -113,4 +113,43 @@ void main() {
       );
     });
   });
+
+  // ── loose (trailing-digit) matching ──────────────────────────────────────────
+  //
+  // The reported bug: a caller whose name the *ringing* screen shows appears in
+  // «اخیر» as a bare number. The ringing screen goes through
+  // `ContactsContract.PhoneLookup`, which matches on trailing digits; the lists
+  // matched on `toThreadId` equality, which a contact saved without its area
+  // code (or in any other shape this normalizer has no rule for) fails.
+  group('PhoneNormalizer.toTailKey', () {
+    test('the last seven digits, whatever the prefix', () {
+      expect(PhoneNormalizer.toTailKey('+989190961805'), '0961805');
+      expect(PhoneNormalizer.toTailKey('09190961805'), '0961805');
+      expect(PhoneNormalizer.toTailKey('0919 096 1805'), '0961805');
+    });
+
+    test('a landline saved without its area code matches the full number', () {
+      expect(
+        PhoneNormalizer.toTailKey('12345678'),
+        PhoneNormalizer.toTailKey('02112345678'),
+      );
+      // …and the exact key does NOT, which is exactly why the fallback exists.
+      expect(
+        PhoneNormalizer.toThreadId('12345678'),
+        isNot(PhoneNormalizer.toThreadId('02112345678')),
+      );
+    });
+
+    test('a short code has no tail — nothing to match loosely', () {
+      expect(PhoneNormalizer.toTailKey('10001'), isEmpty);
+      expect(PhoneNormalizer.toTailKey('همراه اول'), isEmpty);
+    });
+
+    test('different numbers keep different tails', () {
+      expect(
+        PhoneNormalizer.toTailKey('09121112233'),
+        isNot(PhoneNormalizer.toTailKey('09121112244')),
+      );
+    });
+  });
 }

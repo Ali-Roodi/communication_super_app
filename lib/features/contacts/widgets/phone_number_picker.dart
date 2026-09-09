@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:communication_super_app/core/utils/persian_utils.dart';
+import 'package:communication_super_app/features/contacts/services/contact_extras_service.dart';
 
 /// One row of the number picker: the number, the label it was saved under
 /// («موبایل» / «محل کار»), and whether it is the contact's default.
@@ -47,6 +48,24 @@ Future<String?> pickContactNumber(
   if (rows.isEmpty) return null;
   if (rows.length == 1) return rows.first.number;
 
+  // **A default number is an answer, not a hint.** Google Contacts asks which
+  // number only while the contact has no default; once «تنظیم به‌عنوان شماره
+  // پیش‌فرض» has been used, تماس/پیام go straight to that line and the sheet is
+  // not shown at all — the setting exists precisely to stop being asked.
+  //
+  // Showing it anyway (with the default merely sorted to the top and wearing a
+  // «پیش‌فرض» chip) is what the user reported: a line was pinned as the
+  // default and every call and message still opened the picker, so the setting
+  // read as decorative. The explicit override is unchanged — a long-press on
+  // the call button still asks, and the number rows further down a contact page
+  // still dial themselves.
+  //
+  // Exactly one, never "the first one flagged": `IS_SUPER_PRIMARY` is one row
+  // per contact, and a contact that somehow carries two has no default worth
+  // acting on, so that falls back to asking.
+  final defaults = rows.where((r) => r.isDefault);
+  if (defaults.length == 1) return defaults.first.number;
+
   // The default first: it is the answer the user gives most of the time, and
   // burying it under the order the address book happens to store makes the
   // "default" pointless at the exact moment it is being used.
@@ -92,8 +111,7 @@ Future<String?> pickContactNumber(
                           materialTapTargetSize:
                               MaterialTapTargetSize.shrinkWrap,
                           side: BorderSide.none,
-                          backgroundColor:
-                              theme.colorScheme.secondaryContainer,
+                          backgroundColor: theme.colorScheme.secondaryContainer,
                         )
                       : null,
                   onTap: () => Navigator.pop(sheetCtx, row.number),
@@ -104,4 +122,61 @@ Future<String?> pickContactNumber(
       );
     },
   );
+}
+
+/// [pickContactNumber] for a caller that holds a *contact* rather than a
+/// prepared list of rows: it reads the contact's default number first, so a
+/// person with a pinned line is never asked which one to use.
+///
+/// The read is the platform's own `IS_SUPER_PRIMARY`
+/// (`ContactExtrasService.getDefaultPhone`) — the same column Google Contacts
+/// writes from «تنظیم به‌عنوان شماره پیش‌فرض» and the same one the contact page
+/// already honours. Doing it here is what makes «موردعلاقه‌ها», «جستجو» and
+/// «گفتگوی جدید» agree with the contact page instead of each asking again for a
+/// question the user has already answered.
+///
+/// One platform call, made at gesture time on a contact with more than one
+/// number — never during a build and never for the common single-number case.
+/// A refusal (no permission, an older provider) simply falls back to asking.
+Future<String?> pickContactNumberFor(
+  BuildContext context, {
+  required String? contactId,
+  required List<String> numbers,
+  required String title,
+}) async {
+  final rows = [
+    for (final n in numbers)
+      if (n.trim().isNotEmpty) n.trim(),
+  ];
+  if (rows.isEmpty) return null;
+  if (rows.length == 1) return rows.first;
+
+  String? preferred;
+  if (contactId != null && contactId.isNotEmpty) {
+    preferred = await ContactExtrasService.instance.getDefaultPhone(contactId);
+  }
+  if (!context.mounted) return null;
+
+  return pickContactNumber(
+    context,
+    entries: [
+      for (final n in rows)
+        PickablePhone(number: n, isDefault: _sameNumber(preferred, n)),
+    ],
+    title: title,
+  );
+}
+
+/// Compared on the last nine digits, exactly as the contact page does: the
+/// provider hands the default back as the user typed it while the list here
+/// carries whatever formatting each row was saved with, so `==` never matches.
+bool _sameNumber(String? a, String b) {
+  if (a == null) return false;
+  final left = _tailDigits(a);
+  return left.isNotEmpty && left == _tailDigits(b);
+}
+
+String _tailDigits(String raw) {
+  final digits = raw.replaceAll(RegExp(r'\D'), '');
+  return digits.length <= 9 ? digits : digits.substring(digits.length - 9);
 }

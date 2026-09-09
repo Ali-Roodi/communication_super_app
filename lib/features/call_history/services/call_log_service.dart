@@ -230,7 +230,9 @@ class CallLogService {
     return [
       for (final log in logs)
         () {
-          final c = contactMap[_normalizePhoneNumber(log.phoneNumber)];
+          final c =
+              contactMap[_normalizePhoneNumber(log.phoneNumber)] ??
+              _looseMatch(log.phoneNumber);
           return c == null
               ? log
               : log.copyWith(contactId: c['id'], contactName: c['name']);
@@ -259,7 +261,11 @@ class CallLogService {
     return [
       for (final log in logs)
         () {
-          final c = remembered[_normalizePhoneNumber(log.phoneNumber)];
+          // Through [ContactNameCache.lookup], not a bare map read: it applies
+          // the same trailing-digits fallback the authoritative pass does, so
+          // the first paint and the second agree instead of a number being
+          // swapped for a name a beat later.
+          final c = ContactNameCache.lookup(log.phoneNumber);
           return c == null
               ? log
               : log.copyWith(contactId: c.contactId, contactName: c.name);
@@ -274,22 +280,50 @@ class CallLogService {
   static List<ContactModel>? _indexSource;
   static Map<String, Map<String, String>>? _phoneIndex;
 
+  /// Last-7-digits → the one contact owning that tail; null where two contacts
+  /// share it. The fallback that makes «اخیر» name a caller the *ringing*
+  /// screen already named: that one goes through `ContactsContract.PhoneLookup`
+  /// (trailing-digit matching) while this index is exact-equality on
+  /// [PhoneNormalizer.toThreadId], so a contact stored in a shape the
+  /// normalizer has no rule for came up as a bare number here and only here.
+  /// See [PhoneNormalizer.toTailKey].
+  static Map<String, Map<String, String>?>? _tailIndex;
+
   Future<Map<String, Map<String, String>>> _contactIndex() async {
     final contacts = await _contactRepository.getAllContacts();
     final cached = _phoneIndex;
     if (cached != null && identical(_indexSource, contacts)) return cached;
 
     final index = <String, Map<String, String>>{};
+    final tails = <String, Map<String, String>?>{};
     for (final c in contacts) {
+      final entry = {'id': c.id, 'name': c.name};
       for (final p in {...c.phoneNumbers, c.phoneNumber}) {
         final normalized = _normalizePhoneNumber(p);
         if (normalized.isEmpty) continue;
-        index.putIfAbsent(normalized, () => {'id': c.id, 'name': c.name});
+        index.putIfAbsent(normalized, () => entry);
+        final tail = PhoneNormalizer.toTailKey(p);
+        if (tail.isEmpty) continue;
+        tails.update(
+          tail,
+          (existing) => existing?['id'] == c.id ? existing : null,
+          ifAbsent: () => entry,
+        );
       }
     }
     _indexSource = contacts;
     _phoneIndex = index;
+    _tailIndex = tails;
     return index;
+  }
+
+  /// The trailing-digits fallback for [resolveContactNames], tried only after
+  /// the exact key missed and only when the tail names exactly one contact.
+  static Map<String, String>? _looseMatch(String phone) {
+    final tails = _tailIndex;
+    if (tails == null) return null;
+    final tail = PhoneNormalizer.toTailKey(phone);
+    return tail.isEmpty ? null : tails[tail];
   }
 
   /// Reads the device call log and maps it to models (contact fields left null;

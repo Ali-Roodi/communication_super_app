@@ -203,6 +203,12 @@ class _MainNavigationState extends State<MainNavigation>
       if (_currentIndex == _recentsTab) {
         DeepLinkService.instance.clearMissedCallNotifications();
       }
+      // And drop any SMS card that no longer stands for anything unread — a
+      // thread read, deleted or blocked anywhere other than its own screen used
+      // to leave its notification, and therefore the number on the launcher
+      // icon, behind for good. Runs after the mirror-sync above is dispatched
+      // so a message read on another device is already reflected.
+      DeepLinkService.instance.reconcileNotifications();
     }
   }
 

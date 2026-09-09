@@ -35,6 +35,17 @@ enum BoolSetting {
 
   /// Ask the carrier for an SMS delivery report (the ✓✓ tick).
   deliveryReports,
+
+  /// Reject incoming calls that arrive with no caller id at all — a withheld
+  /// («خصوصی») number, a payphone, or one telecom could not present.
+  ///
+  /// It has to be a rule rather than a list entry: there is no number to put in
+  /// «هرزنامه و مسدودشده» for a caller who withheld theirs, which is why they
+  /// were the one kind of nuisance call the app had no answer for. Off by
+  /// default, like Google Phone's «Unknown» switch — a blocked caller is never
+  /// told they were blocked, and a legitimate withheld call (a hospital, a
+  /// bank) is not rare. Mirrored natively; see `CallPrefs`.
+  blockUnknownCallers,
 }
 
 class SettingsState extends Equatable {
@@ -46,6 +57,7 @@ class SettingsState extends Equatable {
   final bool linkPreviews;
   final bool swipeActions;
   final bool deliveryReports;
+  final bool blockUnknownCallers;
   final CalendarType calendarType;
 
   /// «اندازه متن پیام» — multiplies the text size inside a conversation, on top
@@ -63,6 +75,7 @@ class SettingsState extends Equatable {
     this.linkPreviews = true,
     this.swipeActions = true,
     this.deliveryReports = true,
+    this.blockUnknownCallers = false,
     this.calendarType = CalendarType.jalali,
     this.messageTextScale = MessageTextScale.normal,
   });
@@ -85,6 +98,8 @@ class SettingsState extends Equatable {
         return swipeActions;
       case BoolSetting.deliveryReports:
         return deliveryReports;
+      case BoolSetting.blockUnknownCallers:
+        return blockUnknownCallers;
     }
   }
 
@@ -97,6 +112,7 @@ class SettingsState extends Equatable {
     bool? linkPreviews,
     bool? swipeActions,
     bool? deliveryReports,
+    bool? blockUnknownCallers,
     CalendarType? calendarType,
     double? messageTextScale,
   }) {
@@ -109,6 +125,7 @@ class SettingsState extends Equatable {
       linkPreviews: linkPreviews ?? this.linkPreviews,
       swipeActions: swipeActions ?? this.swipeActions,
       deliveryReports: deliveryReports ?? this.deliveryReports,
+      blockUnknownCallers: blockUnknownCallers ?? this.blockUnknownCallers,
       calendarType: calendarType ?? this.calendarType,
       messageTextScale: messageTextScale ?? this.messageTextScale,
     );
@@ -132,6 +149,8 @@ class SettingsState extends Equatable {
         return copyWith(swipeActions: value);
       case BoolSetting.deliveryReports:
         return copyWith(deliveryReports: value);
+      case BoolSetting.blockUnknownCallers:
+        return copyWith(blockUnknownCallers: value);
     }
   }
 
@@ -145,6 +164,7 @@ class SettingsState extends Equatable {
     linkPreviews,
     swipeActions,
     deliveryReports,
+    blockUnknownCallers,
     calendarType,
     messageTextScale,
   ];
