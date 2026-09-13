@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:communication_super_app/features/dialer/services/auto_redial_policy.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/core/utils/contact_name_style.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
@@ -16,6 +17,7 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
   static const _prefix = 'set_';
   static const _calendarKey = '${_prefix}calendar_type';
   static const _messageTextScaleKey = '${_prefix}message_text_scale';
+  static const _autoRedialAttemptsKey = '${_prefix}auto_redial_attempts';
 
   /// Preferences written by versions that had settings this app no longer has
   /// (the accessibility page, the quick replies, the caller-ID switches, the
@@ -37,6 +39,7 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     on<SetBoolSetting>(_onSetBool);
     on<SetCalendarType>(_onSetCalendar);
     on<SetMessageTextScale>(_onSetMessageTextScale);
+    on<SetAutoRedialAttempts>(_onSetAutoRedialAttempts);
   }
 
   static String _keyOf(BoolSetting k) => '$_prefix${k.name}';
@@ -78,6 +81,12 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
       lastNameFirst: b(BoolSetting.nameFormatLastFirst),
       sortByLastName: b(BoolSetting.sortByLastName),
     );
+    // And for «تماس مجدد خودکار», decided in DialerBloc on a call event.
+    final autoRedialAttempts = AutoRedialPolicy.clampAttempts(
+      prefs.getInt(_autoRedialAttemptsKey),
+    );
+    AutoRedialPolicy.enabled = b(BoolSetting.autoRedial);
+    AutoRedialPolicy.maxAttempts = autoRedialAttempts;
 
     emit(
       SettingsState(
@@ -90,6 +99,8 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
         swipeActions: b(BoolSetting.swipeActions),
         deliveryReports: b(BoolSetting.deliveryReports),
         blockUnknownCallers: b(BoolSetting.blockUnknownCallers),
+        autoRedial: b(BoolSetting.autoRedial),
+        autoRedialAttempts: autoRedialAttempts,
         calendarType: calendar,
         // Clamped on read: a preference written by a future build with a wider
         // range must not render a conversation at an unusable size here.
@@ -125,6 +136,9 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     if (event.key == BoolSetting.blockUnknownCallers) {
       unawaited(NativeCallService.instance.setBlockUnknownCallers(event.value));
     }
+    if (event.key == BoolSetting.autoRedial) {
+      AutoRedialPolicy.enabled = event.value;
+    }
     // Applied before the state is emitted: `apply` invalidates the contact
     // cache and wakes ContactBloc, and a reload that started while the statics
     // still said the old thing would re-cache the old names.
@@ -149,6 +163,17 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     emit(state.copyWith(messageTextScale: scale));
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_messageTextScaleKey, scale);
+  }
+
+  Future<void> _onSetAutoRedialAttempts(
+    SetAutoRedialAttempts event,
+    Emitter<SettingsState> emit,
+  ) async {
+    final attempts = AutoRedialPolicy.clampAttempts(event.attempts);
+    AutoRedialPolicy.maxAttempts = attempts;
+    emit(state.copyWith(autoRedialAttempts: attempts));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_autoRedialAttemptsKey, attempts);
   }
 
   Future<void> _onSetCalendar(

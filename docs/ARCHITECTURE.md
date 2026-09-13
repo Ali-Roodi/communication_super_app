@@ -92,10 +92,17 @@ BLoC event. A BLoC never builds UI. A repository never imports `flutter_bloc`.
 ### 5.2 Call bridge (`dialer/services`)
 - `NativeCallService` is a singleton wrapping a `MethodChannel` (`…/call`) and an
   `EventChannel` (`…/call_events`).
-- **Option A (current):** outgoing calls hand off to the **native system
-  dialer**; Android manages the in-call UI. `DialerBloc.callStatus` stays `idle`
-  for cellular calls, so the in-app `IncomingCallScreen`/`InCallScreen` are
-  effectively a **PHASE-2 VoIP path** that is wired but dormant.
+- **The app holds `ROLE_DIALER`** and `CallInCallService` (Kotlin) is the only
+  call UI on the device: telecom states are mirrored into `DialerBloc.callStatus`
+  and `CallUiCoordinator` pushes `IncomingCallScreen`/`InCallScreen`. The
+  «Option A» hand-off to the system dialer that this section used to describe is
+  gone; the `ConnectionService` VoIP path is the dormant one. Details and every
+  device-specific invariant: `docs/architecture/dialer-and-calls.md`.
+- **«تماس مجدد خودکار»** (auto redial, off by default) is decided in
+  `DialerBloc` on the `DISCONNECTED` event from the cause the native side now
+  ships with it (`CallInCallService.disconnectPayload`), and lives on
+  `DialerState.autoRedial` beside the call status while the ended-call screen
+  counts down. Settings mirror it into `AutoRedialPolicy`.
 
 ### 5.3 Android permissions & manifest
 

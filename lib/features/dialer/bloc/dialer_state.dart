@@ -5,6 +5,59 @@ import 'package:communication_super_app/features/dialer/services/native_call_ser
 /// وضعیت چرخه‌حیات تماس
 enum CallStatus { idle, connecting, ringing, active, incoming, onHold }
 
+/// «تماس مجدد خودکار» in progress: the number a failed outgoing call is going
+/// to be dialled again, and where in the series we are.
+///
+/// Lives on [DialerState] beside — not inside — [CallStatus]: while it counts
+/// down there is **no call** on the phone (`callStatus` is idle) and every
+/// teardown path may run; the series has to survive them all, which it does
+/// by never being touched by `copyWith` unless named.
+class AutoRedial extends Equatable {
+  /// Exactly the handle telecom reported for the failed call, redialled as is.
+  final String phone;
+
+  /// The SIM the failed call went out on, so the retry does not re-ask.
+  final int? subscriptionId;
+
+  /// 1-based: the attempt about to be made (or being made).
+  final int attempt;
+
+  /// «تعداد تلاش‌ها» as it was when the series started — a setting changed
+  /// mid-series does not stretch or cut it.
+  final int maxAttempts;
+
+  /// When the next attempt fires. Null once it has been placed and telecom is
+  /// yet to answer (the ended-call screen reads «در حال تماس مجدد…» then).
+  final DateTime? dueAt;
+
+  const AutoRedial({
+    required this.phone,
+    required this.subscriptionId,
+    required this.attempt,
+    required this.maxAttempts,
+    required this.dueAt,
+  });
+
+  bool get isCountingDown => dueAt != null;
+
+  AutoRedial placed() => AutoRedial(
+    phone: phone,
+    subscriptionId: subscriptionId,
+    attempt: attempt,
+    maxAttempts: maxAttempts,
+    dueAt: null,
+  );
+
+  @override
+  List<Object?> get props => [
+    phone,
+    subscriptionId,
+    attempt,
+    maxAttempts,
+    dueAt,
+  ];
+}
+
 /// Single-state class — شامل هم keypad و هم call state
 class DialerState extends Equatable {
   // ── Keypad ────────────────────────────────────────────────
@@ -56,6 +109,9 @@ class DialerState extends Equatable {
   /// into a call that had already been running for minutes.
   final DateTime? callConnectedAt;
 
+  /// A redial series in progress, or null. See [AutoRedial].
+  final AutoRedial? autoRedial;
+
   final String? error;
 
   const DialerState({
@@ -77,6 +133,7 @@ class DialerState extends Equatable {
     this.isConference = false,
     this.activeSubscriptionId,
     this.callConnectedAt,
+    this.autoRedial,
     this.error,
   });
 
@@ -105,8 +162,12 @@ class DialerState extends Equatable {
     bool? isConference,
     int? activeSubscriptionId,
     DateTime? callConnectedAt,
+    AutoRedial? autoRedial,
     String? error,
     bool clearError = false,
+
+    /// Ends the redial series — cancelled, exhausted, or the call connected.
+    bool clearAutoRedial = false,
 
     /// Drops the connect time — the call ended. A plain null cannot say this:
     /// every other field treats null as "leave it alone", and a stale connect
@@ -148,6 +209,7 @@ class DialerState extends Equatable {
       callConnectedAt: clearCallConnectedAt
           ? null
           : (callConnectedAt ?? this.callConnectedAt),
+      autoRedial: clearAutoRedial ? null : (autoRedial ?? this.autoRedial),
       error: clearError ? null : (error ?? this.error),
     );
   }
@@ -172,6 +234,7 @@ class DialerState extends Equatable {
     isConference,
     activeSubscriptionId,
     callConnectedAt,
+    autoRedial,
     error,
   ];
 }

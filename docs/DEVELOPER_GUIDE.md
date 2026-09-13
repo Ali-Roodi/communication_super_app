@@ -26,7 +26,7 @@ as the code.
 
 | File | Read it before touching |
 |---|---|
-| `docs/architecture/dialer-and-calls.md` | the keypad, «اخیر», the ROLE_DIALER / `CallInCallService` path, `CallUiCoordinator`, the incoming/in-call screens, lock-screen and recents behaviour, USSD/MMI dialling, speed dial, voicemail, the role-request gate |
+| `docs/architecture/dialer-and-calls.md` | the keypad, «اخیر», the ROLE_DIALER / `CallInCallService` path, `CallUiCoordinator`, the incoming/in-call screens, lock-screen and recents behaviour, USSD/MMI dialling, speed dial, voicemail, «تماس مجدد خودکار», the role-request gate |
 | `docs/architecture/sms-role-and-sync.md` | the SMS send/receive pipeline, ROLE_SMS, `content://sms` write-through, the mirror-sync and its soft deletes, call-log sync, and every incoming-SMS notification (all posted natively) |
 | `docs/architecture/contacts.md` | contact extras, merging/linking, labels («برچسب‌ها») and their account rules, the contact photo path, «قالب نام» / ordering, and the cache-revision signal that makes a rename reach every screen |
 | `docs/architecture/inbox-search-and-groups.md` | `MessageRepository.searchMessages` / `searchThreads`, blocking & spam, «گفتگوی جدید», group conversations (`g:` thread ids), and the `MessageBloc` state guards |

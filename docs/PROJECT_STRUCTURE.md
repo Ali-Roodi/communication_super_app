@@ -42,7 +42,8 @@ core/
     phone_normalizer.dart                  Canonical 09xxxxxxxxx normalization
   widgets/
     app_lock_wrapper.dart  avatar_widget.dart  lock_button.dart
-    permission_gate.dart   rtl_app_bar.dart
+    permission_gate.dart   rtl_app_bar.dart    caret_line_fix.dart (composer caret, see
+                                               conversation-and-composer.md)
 ```
 
 ## `lib/features/`
@@ -60,8 +61,8 @@ features/
                      messages_app_bars · thread_options_sheet ·
                      conversation_app_bars · message_composer · conversation_sheets
   contacts/          device-contact list, add/edit, detail screens
-  dialer/            keypad + call lifecycle
-    services/        native_call_service
+  dialer/            keypad + call lifecycle + «تماس مجدد خودکار»
+    services/        native_call_service · auto_redial_policy · speed_dial_service
     widgets/         dialer_widgets.dart (keypad keys, number display, rows…)
   call_history/      recents list (call_log plugin → SQLite cache)
     services/        call_log_service

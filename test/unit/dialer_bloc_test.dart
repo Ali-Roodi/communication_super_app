@@ -4,6 +4,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_bloc.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_event.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_state.dart';
+import 'package:communication_super_app/features/dialer/services/auto_redial_policy.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
@@ -114,7 +115,9 @@ void main() {
         expect(bloc.state.activeSubscriptionId, 2);
 
         bloc.add(
-          const CallEventReceived(CallInfo(event: NativeCallEvent.disconnected)),
+          const CallEventReceived(
+            CallInfo(event: NativeCallEvent.disconnected),
+          ),
         );
         await settle();
         expect(bloc.state.activeName, isNull);
@@ -183,9 +186,7 @@ void main() {
         // AUDIO_STATE and hold changes carry no number: they are about the
         // call, not about who is on it.
         bloc.add(
-          const CallEventReceived(
-            CallInfo(event: NativeCallEvent.onHold),
-          ),
+          const CallEventReceived(CallInfo(event: NativeCallEvent.onHold)),
         );
         await settle();
         expect(bloc.state.activeName, 'ایمان');
@@ -226,6 +227,390 @@ void main() {
         await settle();
         verify(() => callService.makeCall('9')).called(1);
         expect(bloc.state.dialedNumber, '');
+        await bloc.close();
+      },
+    );
+  });
+
+  /// «تماس مجدد خودکار». Every case here is a rule about when the phone may
+  /// dial by itself — the feature is only safe if it is narrow.
+  group('DialerBloc auto redial', () {
+    const dialling = CallInfo(
+      event: NativeCallEvent.ringing,
+      phone: '+989120000000',
+      subscriptionId: 2,
+    );
+    const busy = CallInfo(
+      event: NativeCallEvent.disconnected,
+      phone: '+989120000000',
+      disconnectCause: CallDisconnectCause.busy,
+    );
+
+    setUp(() {
+      AutoRedialPolicy.enabled = true;
+      AutoRedialPolicy.maxAttempts = 2;
+      AutoRedialPolicy.delay = const Duration(milliseconds: 40);
+      when(
+        () => callService.makeCall(
+          any(),
+          subscriptionId: any(named: 'subscriptionId'),
+        ),
+      ).thenAnswer((_) async {});
+    });
+
+    tearDown(() {
+      AutoRedialPolicy.enabled = false;
+      AutoRedialPolicy.maxAttempts = AutoRedialPolicy.defaultAttempts;
+      AutoRedialPolicy.delay = AutoRedialPolicy.defaultDelay;
+    });
+
+    Future<void> countdown() =>
+        Future<void>.delayed(const Duration(milliseconds: 80));
+
+    test('a busy outgoing call is dialled again on the same SIM', () async {
+      final bloc = makeBloc();
+      bloc.add(const CallEventReceived(dialling));
+      bloc.add(const CallEventReceived(busy));
+      await settle();
+
+      final redial = bloc.state.autoRedial;
+      expect(bloc.state.callStatus, CallStatus.idle);
+      expect(redial, isNotNull);
+      expect(redial!.attempt, 1);
+      expect(redial.maxAttempts, 2);
+      expect(redial.phone, '+989120000000');
+      expect(redial.subscriptionId, 2);
+      expect(redial.isCountingDown, isTrue);
+      verifyNever(
+        () => callService.makeCall(
+          any(),
+          subscriptionId: any(named: 'subscriptionId'),
+        ),
+      );
+
+      await countdown();
+      verify(
+        () => callService.makeCall('+989120000000', subscriptionId: 2),
+      ).called(1);
+      // Placed, telecom yet to answer.
+      expect(bloc.state.autoRedial?.isCountingDown, isFalse);
+      await bloc.close();
+    });
+
+    test('the series stops after «تعداد تلاش‌ها»', () async {
+      final bloc = makeBloc();
+      bloc.add(const CallEventReceived(dialling));
+      bloc.add(const CallEventReceived(busy));
+      await settle();
+      await countdown(); // attempt 1 placed
+      bloc.add(const CallEventReceived(dialling)); // our own attempt ringing
+      await settle();
+      expect(bloc.state.autoRedial?.attempt, 1);
+      bloc.add(const CallEventReceived(busy));
+      await settle();
+      expect(bloc.state.autoRedial?.attempt, 2);
+      await countdown(); // attempt 2 placed
+      bloc.add(const CallEventReceived(dialling));
+      bloc.add(const CallEventReceived(busy));
+      await settle();
+
+      expect(
+        bloc.state.autoRedial,
+        isNull,
+        reason: 'two attempts were allowed',
+      );
+      await countdown();
+      verify(
+        () => callService.makeCall(
+          any(),
+          subscriptionId: any(named: 'subscriptionId'),
+        ),
+      ).called(2);
+      await bloc.close();
+    });
+
+    test('off by default: nothing is redialled', () async {
+      AutoRedialPolicy.enabled = false;
+      final bloc = makeBloc();
+      bloc.add(const CallEventReceived(dialling));
+      bloc.add(const CallEventReceived(busy));
+      await settle();
+      expect(bloc.state.autoRedial, isNull);
+      await countdown();
+      verifyNever(
+        () => callService.makeCall(
+          any(),
+          subscriptionId: any(named: 'subscriptionId'),
+        ),
+      );
+      await bloc.close();
+    });
+
+    test(
+      'a call that connected is never redialled, however it ended',
+      () async {
+        final bloc = makeBloc();
+        bloc.add(const CallEventReceived(dialling));
+        bloc.add(
+          CallEventReceived(
+            CallInfo(
+              event: NativeCallEvent.active,
+              phone: '+989120000000',
+              connectedAt: DateTime.now(),
+            ),
+          ),
+        );
+        bloc.add(
+          CallEventReceived(
+            CallInfo(
+              event: NativeCallEvent.disconnected,
+              phone: '+989120000000',
+              disconnectCause: CallDisconnectCause.remote,
+              connectedAt: DateTime.now(),
+            ),
+          ),
+        );
+        await settle();
+        expect(bloc.state.autoRedial, isNull);
+        await bloc.close();
+      },
+    );
+
+    test('hanging up while dialling ends it — no redial', () async {
+      final bloc = makeBloc();
+      bloc.add(const CallEventReceived(dialling));
+      await settle();
+      when(() => callService.endCall()).thenAnswer((_) async {});
+      bloc.add(const EndCall());
+      bloc.add(
+        const CallEventReceived(
+          CallInfo(
+            event: NativeCallEvent.disconnected,
+            phone: '+989120000000',
+            disconnectCause: CallDisconnectCause.local,
+          ),
+        ),
+      );
+      await settle();
+      expect(bloc.state.autoRedial, isNull);
+      await countdown();
+      verifyNever(
+        () => callService.makeCall(
+          any(),
+          subscriptionId: any(named: 'subscriptionId'),
+        ),
+      );
+      await bloc.close();
+    });
+
+    test('a missed or rejected incoming call is not an attempt', () async {
+      final bloc = makeBloc();
+      bloc.add(
+        const CallEventReceived(
+          CallInfo(
+            event: NativeCallEvent.incoming,
+            phone: '+989120000000',
+            direction: 'incoming',
+          ),
+        ),
+      );
+      bloc.add(
+        const CallEventReceived(
+          CallInfo(
+            event: NativeCallEvent.disconnected,
+            phone: '+989120000000',
+            direction: 'incoming',
+            disconnectCause: CallDisconnectCause.missed,
+          ),
+        ),
+      );
+      await settle();
+      expect(bloc.state.autoRedial, isNull);
+      await bloc.close();
+    });
+
+    test('«لغو» stops the countdown before it dials', () async {
+      final bloc = makeBloc();
+      bloc.add(const CallEventReceived(dialling));
+      bloc.add(const CallEventReceived(busy));
+      await settle();
+      expect(bloc.state.autoRedial, isNotNull);
+      bloc.add(const CancelAutoRedial());
+      await settle();
+      expect(bloc.state.autoRedial, isNull);
+      await countdown();
+      verifyNever(
+        () => callService.makeCall(
+          any(),
+          subscriptionId: any(named: 'subscriptionId'),
+        ),
+      );
+      await bloc.close();
+    });
+
+    test('an incoming call during the countdown ends the series', () async {
+      final bloc = makeBloc();
+      bloc.add(const CallEventReceived(dialling));
+      bloc.add(const CallEventReceived(busy));
+      await settle();
+      bloc.add(
+        const CallEventReceived(
+          CallInfo(
+            event: NativeCallEvent.incoming,
+            phone: '+989120000001',
+            direction: 'incoming',
+          ),
+        ),
+      );
+      await settle();
+      expect(bloc.state.autoRedial, isNull);
+      expect(bloc.state.callStatus, CallStatus.incoming);
+      await countdown();
+      verifyNever(
+        () => callService.makeCall(
+          any(),
+          subscriptionId: any(named: 'subscriptionId'),
+        ),
+      );
+      await bloc.close();
+    });
+
+    test('a number dialled by hand during the countdown wins', () async {
+      final bloc = makeBloc();
+      bloc.add(const CallEventReceived(dialling));
+      bloc.add(const CallEventReceived(busy));
+      await settle();
+      // Every other screen dials through NativeCallService directly, so the
+      // bloc only learns about it from telecom's RINGING for another number.
+      bloc.add(
+        const CallEventReceived(
+          CallInfo(event: NativeCallEvent.ringing, phone: '+989120000009'),
+        ),
+      );
+      await settle();
+      expect(bloc.state.autoRedial, isNull);
+      await countdown();
+      verifyNever(
+        () => callService.makeCall(
+          any(),
+          subscriptionId: any(named: 'subscriptionId'),
+        ),
+      );
+      await bloc.close();
+    });
+
+    test('the teardown safety nets keep the series alive', () async {
+      // CALLS_CHANGED with zero calls and SyncCallState both wind the call
+      // state back to idle; neither is news about the redial.
+      final bloc = makeBloc();
+      bloc.add(const CallEventReceived(dialling));
+      bloc.add(const CallEventReceived(busy));
+      bloc.add(
+        const CallEventReceived(
+          CallInfo(event: NativeCallEvent.callsChanged, callCount: 0),
+        ),
+      );
+      await settle();
+      expect(bloc.state.autoRedial, isNotNull);
+      await countdown();
+      verify(
+        () => callService.makeCall('+989120000000', subscriptionId: 2),
+      ).called(1);
+      await bloc.close();
+    });
+
+    test('a first DISCONNECTED with no cause waits for the second', () async {
+      // Traced on the device: telecom's state change arrives with the cause
+      // still UNKNOWN, and the real one (busy / local) follows a beat later
+      // from onCallRemoved — after the first event has wound the status back
+      // to idle.
+      final bloc = makeBloc();
+      bloc.add(const CallEventReceived(dialling));
+      bloc.add(
+        const CallEventReceived(
+          CallInfo(
+            event: NativeCallEvent.disconnected,
+            phone: '+989120000000',
+            disconnectCause: CallDisconnectCause.unknown,
+          ),
+        ),
+      );
+      await settle();
+      expect(bloc.state.callStatus, CallStatus.idle);
+      expect(bloc.state.autoRedial, isNull);
+      bloc.add(const CallEventReceived(busy));
+      await settle();
+      expect(bloc.state.autoRedial?.attempt, 1);
+      await bloc.close();
+    });
+
+    test('a causeless DISCONNECTED followed by LOCAL is a hang-up', () async {
+      final bloc = makeBloc();
+      bloc.add(const CallEventReceived(dialling));
+      bloc.add(
+        const CallEventReceived(
+          CallInfo(
+            event: NativeCallEvent.disconnected,
+            phone: '+989120000000',
+            disconnectCause: CallDisconnectCause.unknown,
+          ),
+        ),
+      );
+      bloc.add(
+        const CallEventReceived(
+          CallInfo(
+            event: NativeCallEvent.disconnected,
+            phone: '+989120000000',
+            disconnectCause: CallDisconnectCause.local,
+          ),
+        ),
+      );
+      await settle();
+      expect(bloc.state.autoRedial, isNull);
+      // …and the undecided flag did not leak into a later, unrelated call.
+      bloc.add(
+        const CallEventReceived(
+          CallInfo(
+            event: NativeCallEvent.incoming,
+            phone: '+989120000001',
+            direction: 'incoming',
+          ),
+        ),
+      );
+      bloc.add(
+        const CallEventReceived(
+          CallInfo(
+            event: NativeCallEvent.disconnected,
+            phone: '+989120000001',
+            direction: 'incoming',
+            disconnectCause: CallDisconnectCause.missed,
+          ),
+        ),
+      );
+      await settle();
+      expect(bloc.state.autoRedial, isNull);
+      await bloc.close();
+    });
+
+    test(
+      'the duplicate DISCONNECTEDs of one teardown keep the series',
+      () async {
+        // The busy-line trace from the SM-A336E: one hang-up, three events —
+        // the state change (status ringing → «redial»), then onCallRemoved and
+        // republishCurrent with the status already idle. The second one used to
+        // wipe the countdown the first had started.
+        final bloc = makeBloc();
+        bloc.add(const CallEventReceived(dialling));
+        bloc.add(const CallEventReceived(busy));
+        bloc.add(const CallEventReceived(busy));
+        bloc.add(const CallEventReceived(busy));
+        await settle();
+        expect(bloc.state.autoRedial?.attempt, 1);
+        expect(bloc.state.autoRedial?.isCountingDown, isTrue);
+        await countdown();
+        verify(
+          () => callService.makeCall('+989120000000', subscriptionId: 2),
+        ).called(1);
         await bloc.close();
       },
     );

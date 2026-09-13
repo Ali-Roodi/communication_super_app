@@ -128,7 +128,7 @@ figcaption{font-size:8.8pt; color:var(--ink-2); margin-top:2mm; text-align:cente
 <div class="cover">
   <div class="grid"></div><div class="glow"></div>
   <div class="cover-in">
-    <div class="kicker">مستند فنی پروژه · نسخه ۱٫۵</div>
+    <div class="kicker">مستند فنی پروژه · نسخه ۱٫۶</div>
     <h1>هم‌رسان</h1>
     <h2>‏Super App ارتباطی اندروید<br>پیامک، تماس، مخاطبین و شماره‌گیر</h2>
     <div class="rule"></div>
@@ -172,13 +172,13 @@ figcaption{font-size:8.8pt; color:var(--ink-2); margin-top:2mm; text-align:cente
   <a class="toc-row" href="#s9"><span class="n">۹</span><span class="t">لایه داده و پایگاه‌داده</span><span class="d">۱۸ جدول، نسخهٔ اسکیمای ۲۴، Invariantها</span></a>
   <a class="toc-row" href="#s10"><span class="n">۱۰</span><span class="t">پل بومی اندروید</span><span class="d">۳۱ کلاس Kotlin و کانال‌های ارتباطی</span></a>
   <a class="toc-row" href="#s11"><span class="n">۱۱</span><span class="t">نقش Default SMS App و همگام‌سازی آینه‌ای</span><span class="d">Mirror Sync — سنگین‌ترین بخش فنی پروژه</span></a>
-  <a class="toc-row" href="#s12"><span class="n">۱۲</span><span class="t">نقش Default Dialer و رابط تماس</span><span class="d">Telecom، صفحه تماس، قفل صفحه</span></a>
+  <a class="toc-row" href="#s12"><span class="n">۱۲</span><span class="t">نقش Default Dialer و رابط تماس</span><span class="d">Telecom، صفحه تماس، قفل صفحه، تماس مجدد خودکار</span></a>
   <a class="toc-row" href="#s13"><span class="n">۱۳</span><span class="t">موتور جستجو و پردازش متن فارسی</span><span class="d">نرمال‌سازی، T9، مرتب‌سازی الفبایی</span></a>
   <a class="toc-row" href="#s14"><span class="n">۱۴</span><span class="t">پیام زمان‌بندی‌شده و قالب‌های آماده</span><span class="d">تحویل پس‌زمینه و پروتکل فشرده</span></a>
   <a class="toc-row" href="#s15"><span class="n">۱۵</span><span class="t">پشتیبانی دو سیم‌کارت</span><span class="d">هویت اشتراک در برابر شماره شیار</span></a>
   <a class="toc-row" href="#s16"><span class="n">۱۶</span><span class="t">امنیت و حریم خصوصی</span><span class="d">قفل برنامه، رمزنگاری، گزارش خطا</span></a>
   <a class="toc-row" href="#s17"><span class="n">۱۷</span><span class="t">کارایی و بهینه‌سازی</span><span class="d">مشکلات واقعی و اندازه‌گیری‌ها</span></a>
-  <a class="toc-row" href="#s18"><span class="n">۱۸</span><span class="t">تست و تضمین کیفیت</span><span class="d">۴۳ فایل تست، ۴۲۷ تست</span></a>
+  <a class="toc-row" href="#s18"><span class="n">۱۸</span><span class="t">تست و تضمین کیفیت</span><span class="d">۴۳ فایل تست، ۴۵۰ تست</span></a>
   <a class="toc-row" href="#s19"><span class="n">۱۹</span><span class="t">دفترچه تصمیم‌های مهندسی</span><span class="d">چرا این‌طور و نه آن‌طور</span></a>
   <a class="toc-row" href="#s20"><span class="n">۲۰</span><span class="t">محدودیت‌های شناخته‌شده و نقشه راه</span><span class="d">آنچه هست، آنچه نیست</span></a>
   <a class="toc-row" href="#s21"><span class="n">۲۱</span><span class="t">پیوست — مجوزها و ساخت خروجی</span><span class="d">Manifest و فرایند Release</span></a>
@@ -307,6 +307,7 @@ figcaption{font-size:8.8pt; color:var(--ink-2); margin-top:2mm; text-align:cente
     <tr><td>تاریخچهٔ تماس</td><td>همگام‌سازی دوطرفه با تاریخچهٔ سیستم، گروه‌بندی تماس‌های پیاپی، حذف سراسری</td></tr>
     <tr><td>تماس بی‌پاسخ</td><td>نوتیفیکیشن بومی (وظیفهٔ شماره‌گیر پیش‌فرض)</td></tr>
     <tr><td>تماس مجدد از «اخیر»</td><td>با <strong>همان سیم‌کارتی</strong> که تماس اصلی روی آن ثبت شده است؛ نگه‌داشتن دکمه همچنان انتخاب دستی سیم را می‌دهد</td></tr>
+    <tr><td>تماس مجدد خودکار</td><td>اگر شماره اشغال بود یا پیش از وصل شدن قطع شد، پس از شمارش معکوس ۵ ثانیه‌ای <em>روی صفحه</em> دوباره تماس می‌گیرد — با همان سیم‌کارت. تعداد تلاش‌ها (۱ تا ۱۰) قابل تنظیم، پیش‌فرض خاموش. تماسی که وصل شده — هرچند کوتاه — هرگز تکرار نمی‌شود (بخش ۱۲٫۵)</td></tr>
     <tr><td>مسدودسازی تماس ناشناس</td><td>رد کردن تماس‌هایی که هیچ شماره‌ای نشان نمی‌دهند (خصوصی، مخفی، تلفن عمومی) — یک قاعده، چون چنین تماسی شماره‌ای برای افزودن به فهرست ندارد. پیش‌فرض خاموش</td></tr>
   </tbody>
 </table>
@@ -354,14 +355,14 @@ figcaption{font-size:8.8pt; color:var(--ink-2); margin-top:2mm; text-align:cente
 <table>
   <thead><tr><th>سنجه</th><th class="c">مقدار</th><th>توضیح</th></tr></thead>
   <tbody>
-    <tr><td>کد Dart (لایهٔ برنامه)</td><td class="c">۵۲٬۰۷۸ خط / ۲۰۳ فایل</td><td>رابط کاربری، منطق، BLoC، مخازن داده</td></tr>
-    <tr><td>کد Kotlin (لایهٔ بومی)</td><td class="c">۹٬۴۴۸ خط / ۳۴ فایل</td><td>سرویس‌ها، Receiverها، پل‌های پلتفرم</td></tr>
-    <tr><td>کد تست</td><td class="c">۷٬۷۶۳ خط / ۴۳ فایل</td><td>‏Unit، BLoC و Widget — ۴۲۷ تست، همه سبز</td></tr>
+    <tr><td>کد Dart (لایهٔ برنامه)</td><td class="c">۵۲٬۸۵۴ خط / ۲۰۴ فایل</td><td>رابط کاربری، منطق، BLoC، مخازن داده</td></tr>
+    <tr><td>کد Kotlin (لایهٔ بومی)</td><td class="c">۹٬۴۸۲ خط / ۳۴ فایل</td><td>سرویس‌ها، Receiverها، پل‌های پلتفرم</td></tr>
+    <tr><td>کد تست</td><td class="c">۸٬۴۰۳ خط / ۴۳ فایل</td><td>‏Unit، BLoC و Widget — ۴۵۰ تست، همه سبز</td></tr>
     <tr><td>جدول‌های پایگاه‌داده</td><td class="c">۱۸</td><td>نسخهٔ اسکیما: ۲۴ (۲۳ بلوک Migration)</td></tr>
     <tr><td>بلاک‌های سراسری</td><td class="c">۱۴</td><td>همه در یک نقطه فراهم می‌شوند</td></tr>
     <tr><td>ماژول‌های ویژگی</td><td class="c">۸</td><td>ساختار یکسان در همه</td></tr>
     <tr><td>مجوزهای اندروید</td><td class="c">۲۵</td><td>هرکدام با کاربرد مشخص — بخش ۲۱</td></tr>
-    <tr><td>تاریخچه</td><td class="c">۱۲۲ کامیت</td><td>آذر ۱۴۰۴ تا شهریور ۱۴۰۵</td></tr>
+    <tr><td>تاریخچه</td><td class="c">۱۲۵ کامیت</td><td>آذر ۱۴۰۴ تا شهریور ۱۴۰۵</td></tr>
   </tbody>
 </table>
 
@@ -788,7 +789,7 @@ figcaption{font-size:8.8pt; color:var(--ink-2); margin-top:2mm; text-align:cente
     <tr><td>DialerBloc</td><td>صفحه‌کلید و تماس</td><td>در هر فیلتر، فهرست مخاطبین را بازمی‌خواند تا شمارهٔ تازه‌ذخیره‌شده دیده شود</td></tr>
     <tr><td>FavoritesBloc</td><td>علاقه‌مندی‌ها</td><td>کلید یکتای نرمال‌شده</td></tr>
     <tr><td>SearchBloc</td><td>جستجوی یکپارچه</td><td>از همان موتور تطبیق مخاطبین استفاده می‌کند، نه یک نسخهٔ موازی</td></tr>
-    <tr><td>SettingsBloc</td><td>تنظیمات</td><td>کلیدهای بازنشسته را در اولین بارگذاری از حافظه پاک می‌کند</td></tr>
+    <tr><td>SettingsBloc</td><td>تنظیمات</td><td>کلیدهای بازنشسته را در اولین بارگذاری از حافظه پاک می‌کند؛ «تماس مجدد خودکار» را در <span class="mono">AutoRedialPolicy</span> آینه می‌کند تا <span class="mono">DialerBloc</span> روی رویداد تماس بخواند</td></tr>
     <tr><td>BlockedNumbersBloc</td><td>مسدودی و هرزنامه</td><td>مسدودسازی مجدد، «گزارش» را ارتقا می‌دهد و پاک نمی‌کند</td></tr>
   </tbody>
 </table>
@@ -1407,6 +1408,63 @@ figcaption{font-size:8.8pt; color:var(--ink-2); margin-top:2mm; text-align:cente
 همه‌چیز را به بالای صفحه می‌چسباند و یک‌سوم پایین را سیاه می‌گذارد، بی‌آنکه هیچ خطایی بدهد.
 </p>
 
+<h2>۱۲٫۵ تماس مجدد خودکار — و سه چیزی که فقط روی دستگاه معلوم شد</h2>
+<p>
+«تکرار خودکار شماره‌گیری در صورت اشغال بودن یا برنداشتن، با تعداد تلاش قابل تنظیم» — همان
+<em>Auto redial</em> سامسونگ. تصمیم در <span class="mono">DialerBloc</span> روی رویداد
+<span class="mono">DISCONNECTED</span> گرفته می‌شود و عمداً <strong>تنگ</strong> است، چون گوشی‌ای که
+وقتی نباید، خودش شماره بگیرد به‌مراتب بدتر از گوشی‌ای است که وقتی می‌توانست، نگرفت:
+</p>
+<ul>
+  <li>بلاک داشت یک تماس <em>خروجی</em> را دنبال می‌کرد که هرگز <span class="mono">active</span> نشد
+      (وضعیت <span class="mono">ringing</span>/<span class="mono">connecting</span>). این هر تماس ورودی‌ای را
+      بدون اعتماد به جهتِ گزارش‌شدهٔ بومی کنار می‌گذارد — پیش از Android 10 آن جهت حدس زده می‌شود و در لحظهٔ
+      قطع، غلط — و «پایان» حین شماره‌گیری را هم، چون وضعیت را پیش از رسیدن رویداد به
+      <span class="mono">idle</span> برمی‌گرداند.</li>
+  <li>‏Telecom تأیید می‌کند وصل نشده (<span class="mono">connectTimeMillis == 0</span>) و علت را می‌گوید:
+      <span class="mono">busy</span>، <span class="mono">remote</span>، <span class="mono">error</span>.
+      قطع محلی، لغو، رد، و بی‌پاسخ هرگز تکرار نمی‌شوند. <strong>تماسی که وصل شده، هرچند کوتاه، تکرار نمی‌شود</strong>
+      — یک «بعداً زنگ می‌زنم» هشت‌ثانیه‌ای مکالمه است، نه تلاش ناموفق. علت با هر
+      <span class="mono">DISCONNECTED</span> از هر سه نقطهٔ انتشار بومی می‌آید
+      (<span class="mono">CallInCallService.disconnectPayload</span>).</li>
+  <li>سری روی <span class="mono">DialerState.autoRedial</span> زندگی می‌کند، <em>کنار</em> وضعیت تماس نه داخل آن:
+      در طول شمارش معکوس هیچ تماسی روی گوشی نیست و هر مسیر Teardown (<span class="mono">_idleState</span>،
+      <span class="mono">CALLS_CHANGED count=0</span>، <span class="mono">SyncCallState</span>) ممکن است اجرا شود؛
+      <span class="mono">copyWith</span> تا صریحاً گفته نشود به آن دست نمی‌زند. سیم‌کارت همان سیم تماس اول است و
+      مستقیم به <span class="mono">makeCall</span> داده می‌شود — نه دوباره می‌پرسد، نه بی‌صدا کارت عوض می‌کند.
+      <span class="mono">dueAt</span> <em>پیش از</em> شماره‌گیری پاک می‌شود؛ همین است که <span class="mono">RINGING</span>
+      خودِ تلاش را از تماسی که کاربر در همان لحظه دستی گرفته جدا می‌کند. تماس ورودی، وصل‌شدن، «پایان»، شماره‌گیری از
+      صفحه‌کلید و «لغو» همه سری را تمام می‌کنند.</li>
+  <li>صفحهٔ پایان تماس خودِ شمارش معکوس است: <span class="mono">CallUiCoordinator</span> تا وقتی سری زنده است
+      ‏Route را نگه می‌دارد (و اگر تماس با صفحهٔ کوچک‌شده تمام شده بود، آن را برمی‌گرداند — گوشی‌ای که قرار است
+      خودش شماره بگیرد باید بگوید)، «تماس مجدد خودکار تا ۴ ثانیه دیگر · تلاش ۱ از ۳» و یک دکمهٔ «لغو تماس مجدد»
+      جای «پایان». دکمهٔ بازگشت روی این صفحه <em>لغو</em> می‌کند نه کوچک‌کردن: شمارش معکوسی که دور از چشم ادامه
+      می‌داد تماسی را شروع می‌کرد که کاربر تازه از آن رفته بود.</li>
+</ul>
+<p>سه چیزی که هیچ تستی پیش از دستگاه نشان نمی‌داد — و هر سه با لاگ <span class="mono">[redial]</span> پیدا شدند:</p>
+<table class="tight">
+  <thead><tr><th style="width:30%">آنچه لاگ نشان داد</th><th>معنی و پاسخ</th></tr></thead>
+  <tbody>
+    <tr><td><span class="mono">cause=unknown</span> در اولین <span class="mono">DISCONNECTED</span>،
+        <span class="mono">cause=local</span> یک لحظه بعد</td>
+        <td>در SM-A336E رویداد تغییر وضعیت <em>پیش از</em> پرشدن علت می‌رسد و علت واقعی از
+        <span class="mono">onCallRemoved</span> می‌آید — بعد از آن‌که رویداد اول وضعیت را به idle برگردانده.
+        بدون پاسخ، تماس مجدد <em>هرگز</em> اجرا نمی‌شد. <span class="mono">_undecidedAttempt</span> به یاد می‌سپارد
+        که رویداد بی‌علت یک تماسِ در حال شماره‌گیری را تمام کرده، تا رویداد دوم تصمیم بگیرد؛ هر رویدادی که تماسی را
+        شروع می‌کند پرچم را پاک می‌کند.</td></tr>
+    <tr><td>سه <span class="mono">DISCONNECTED</span> برای یک قطع؛ دومی «not a failed attempt»</td>
+        <td>یک Teardown تا سه رویداد می‌فرستد (تغییر وضعیت، <span class="mono">onCallRemoved</span>،
+        <span class="mono">republishCurrent</span>). اولی شمارش معکوس را شروع کرد و دومی — با وضعیتِ دیگر idle —
+        ده میلی‌ثانیه بعد آن را پاک کرد؛ کاربر هیچ‌وقت شمارش را ندید. حالا فقط یک <em>حکم</em> روی تماسِ در حال
+        شماره‌گیری می‌تواند سری را پاک کند (<span class="mono">_RedialVerdict.decided</span>)؛ رویدادهای تکراری
+        به آن دست نمی‌زنند. همین ترتیب سه‌تایی در تست واحد بازتولید شده است.</td></tr>
+    <tr><td><span class="mono">cause=busy reason=486, BUSY</span>، بدون وصل شدن</td>
+        <td>ایرانسل «اشغال» را همان‌طور که باید گزارش می‌کند — نه به‌شکل اعلان صوتیِ وصل‌شده. با «۲ بار»، سری روی
+        دستگاه ۱ ← ۲ ← «give up» را با فاصلهٔ دقیق ۵ ثانیه طی کرد. اپراتوری که خط اشغال را به یک اعلان
+        <em>وصل‌شده</em> بفرستد تکرار نمی‌شود (بخش ۲۰٫۱).</td></tr>
+  </tbody>
+</table>
+
 <div class="note">
   <span class="t">یک قاعدهٔ ایمنی که در سند معماری ثبت شده است</span>
   هرگز نباید <span class="mono">ROLE_DIALER</span> درخواست شود مگر آن‌که <span class="mono">CallInCallService</span>
@@ -1877,7 +1935,7 @@ Jitter یک ویژگی تزئینی نیست: از سه‌گانهٔ (شناسه
 <table class="tight">
   <thead><tr><th style="width:30%">دستهٔ تست</th><th style="width:14%" class="c">فایل</th><th>نمونه‌ها</th></tr></thead>
   <tbody>
-    <tr><td>بلاک‌ها</td><td class="c">۱۰</td><td>پیام، تماس، مخاطب، شماره‌گیر، احراز هویت، پیش‌نویس، علاقه‌مندی، تنظیمات، مسدودی، زمان‌بندی</td></tr>
+    <tr><td>بلاک‌ها</td><td class="c">۱۰</td><td>پیام، تماس، مخاطب، شماره‌گیر (شامل دوازده قاعدهٔ «تماس مجدد خودکار» — از جمله ترتیب سه‌تایی <span class="mono">DISCONNECTED</span> و رویداد بی‌علت که فقط روی دستگاه دیده شدند)، احراز هویت، پیش‌نویس، علاقه‌مندی، تنظیمات (آینهٔ تماس مجدد و کلمپ تعداد تلاش‌ها)، مسدودی، زمان‌بندی</td></tr>
     <tr><td>منطق خالص</td><td class="c">۱۵</td><td>نرمال‌ساز شماره (شامل کلید «هفت رقم آخر»)، متن جستجو، الفبای فارسی، تاریخ جلالی، کد یکبارمصرف، قالب پیام، پروتکل فشرده، زمان‌بندی (شامل بردارهای مرجع بذر Jitter)، گفتگوی گروهی، ماندگاری پاسخ «هرزنامه نیست»</td></tr>
     <tr><td>مخازن و همگام‌سازی</td><td class="c">۵</td><td>مخازن روی SQLite واقعی (شامل مسدودسازی شناسهٔ حرفی فرستنده)، حذف تکراری پیامک، نمایهٔ جستجو، سرویس‌های بومی</td></tr>
     <tr><td>ویجت</td><td class="c">۱۳</td><td>صفحهٔ گفتگو، رشد نویسندهٔ پیام، شیت زمان‌بندی، صفحه‌های قالب،
@@ -1885,8 +1943,7 @@ Jitter یک ویژگی تزئینی نیست: از سه‌گانهٔ (شناسه
         زوم دو انگشتی — از جمله همان حالتی که پیش‌تر اصلاً کار نمی‌کرد: نشستن انگشت دوم وقتی فهرست
         <em>در حال اسکرول</em> است،
         <span class="mono">CallUiCoordinator</span> (که Teardown درست Routeهای تماس را در سناریوی Call Waiting قفل می‌کند)،
-        <span class="mono">CaretLineFix</span> (که <em>بی‌اثربودنش</em> را قفل می‌کند — هر ضربه‌ای که از قبل درست بوده
-        باید دست‌نخورده بماند)، و صفحه‌کلید حین تماس که <strong>هندسه</strong> را روی سه اندازهٔ صفحه بررسی می‌کند،
+        <span class="mono">CaretLineFix</span> (قاعدهٔ فاصلهٔ آویزان روی فونت تست که شکست خطش قطعی است، قواعد درگ با یک اشارهٔ واقعی، و <em>بی‌اثربودنش</em> — هر ضربه‌ای که از قبل درست بوده باید دست‌نخورده بماند و مکان‌نمایی که با کیبورد جابه‌جا می‌شود هرگز نگه داشته نشود)، و صفحه‌کلید حین تماس که <strong>هندسه</strong> را روی سه اندازهٔ صفحه بررسی می‌کند،
         نه فقط حضور اجزا</td></tr>
     <tr><td>ابزار (Instrumentation)</td><td class="c">۰</td><td><span class="badge b-no">وجود ندارد</span> — تأیید مسیرهای بومی هنوز دستی و روی دستگاه است</td></tr>
   </tbody>
@@ -1998,15 +2055,25 @@ Jitter یک ویژگی تزئینی نیست: از سه‌گانهٔ (شناسه
         <td>هر دو پاسخ دیگر شکست خورده‌اند: برنده‌شدن پیش‌نویس متن هدایت‌شده را بی‌صدا دور می‌ریخت، و الحاق
         پاسخ نیمه‌نوشته را <em>جلوی</em> پیام هدایت‌شده می‌گذاشت، پس «ارسال» هر دو را به‌هم‌چسبیده می‌فرستاد.
         هزینه: پیش‌نویس از دست می‌رود — همان کاری که Google Messages می‌کند.</td></tr>
-    <tr><td>انتخاب مکان‌نما بر اساس خطی که انگشت رویش بود</td>
-        <td>اعتماد به <span class="mono">Affinity</span>ای که موتور متن برمی‌گرداند</td>
+    <tr><td>مکان‌نما همان‌جایی که <span class="mono">EditText</span> اندروید می‌گذاشت</td>
+        <td>اعتماد به Offset و <span class="mono">Affinity</span>ای که موتور متن برمی‌گرداند</td>
         <td>یک شکست نرم (Soft Wrap) به یک Offset دو مکان‌نمای مشروع می‌دهد، و Flutter تصمیم را از «نزدیک‌ترین
-        Glyph» می‌گیرد نه از مختصات <span class="mono">y</span> انگشت. در یک کادر راست‌به‌چپ، <em>شروع</em> خط
-        همان لبهٔ راست کادر است، پس دقیقاً همان حرکتی که کاربر برای رفتن به اول خط انجام می‌دهد، چند پیکسل
-        بیرون از متن می‌افتد و جواب یک خط بالاتر می‌شود. ‏<span class="mono">EditText</span> خود اندروید این
-        اشتباه را نمی‌کند چون اول <em>خط را از y</em> پیدا می‌کند و بعد x را داخل همان خط محدود می‌کند؛
-        <span class="mono">CaretLineFix</span> همان قاعده را برمی‌گرداند. هزینه: یک Widget که فقط وقتی
-        مکان‌نما اثباتاً روی خط انگشت نیست کاری می‌کند — بی‌اثربودنش با تست قفل شده است.</td></tr>
+        Glyph» می‌گیرد نه از مختصات <span class="mono">y</span> انگشت. سه گزارش، هر سه با لاگ
+        <span class="mono">[caret]</span> روی دستگاه ردیابی شد: ضربه به <em>آخر</em> کلمهٔ آخر یک خط، یک
+        کاراکتر جلوتر می‌نشیند — بعد از فاصله‌ای که خط رویش شکسته یا بعد از Enter (<span class="mono">prev=U+000a</span>،
+        رسم‌شده اول خط بعد) — و Backspace به‌جای حرف، شکست خط را پاک می‌کند؛ ضربه به <em>اول</em> یک خط راست‌به‌چپ
+        روی لبهٔ کادر می‌افتد و یک خط بالاتر جواب می‌گیرد؛ و دستهٔ درگ با یک تکان افقی از اول خط ۲ به آخر خط ۱
+        می‌پرد. <span class="mono">EditText</span> هیچ‌کدام را نمی‌کند: هر خط جز آخری را روی
+        <span class="mono">lineEnd-1</span> می‌بندد و خط را <em>اول از y</em> پیدا می‌کند.
+        <span class="mono">CaretLineFix</span> همین سه قاعده را برمی‌گرداند — و به همان اندازه مهم، برای مکان‌نمایی
+        که <em>بدون اشاره‌گر</em> جابه‌جا می‌شود (کلیدهای کیبورد) هیچ کاری نمی‌کند؛ قاعدهٔ قبلیِ «روی همان خط بمان»
+        برای ضربه هم اجرا می‌شد و عملاً باگ اول را برمی‌گرداند.</td></tr>
+    <tr><td>تماس مجدد خودکار فقط برای تماسی که هرگز وصل نشده</td>
+        <td>تکرار تماس‌های کوتاه هم (اعلان‌های صوتی اپراتور)</td>
+        <td>از داخل برنامه، اعلانِ «مشترک مورد نظر پاسخگو نمی‌باشد» از یک نفر که گوشی را برداشته و گفته
+        «بعداً زنگ بزن» قابل تشخیص نیست؛ هر آستانهٔ زمانی، یک مکالمهٔ واقعی را دوباره می‌گیرد. پس قاعده تنگ است:
+        خروجی، هرگز <span class="mono">active</span> نشده، با علت <span class="mono">busy</span>/<span class="mono">remote</span>/<span class="mono">error</span>.
+        هزینه: اپراتوری که اشغال را وصل‌شده اعلام کند پوشش داده نمی‌شود — روی ایرانسل لازم نشد (بخش ۱۲٫۵).</td></tr>
     <tr><td>زوم دو انگشتی با <span class="mono">Listener</span> خام، بیرون از Gesture Arena</td>
         <td>‏<span class="mono">ScaleGestureRecognizer</span> (پاسخ متعارف)</td>
         <td>با Recognizer، زوم فقط وقتی کار می‌کرد که <em>هر دو انگشت در چند میلی‌ثانیه</em> روی صفحه بنشینند،
@@ -2061,6 +2128,10 @@ Jitter یک ویژگی تزئینی نیست: از سه‌گانهٔ (شناسه
         <td>‏<span class="mono">GlobalMaterialLocalizations</span> فارسی فیلد را با ارقام فارسی پر می‌کند و
         اعتبارسنجِ خودِ Flutter با <span class="mono">int.tryParse</span> ردش می‌کند — یعنی پنجره پیش از هر تایپی
         «زمان معتبری وارد کنید» می‌داد. از بیرون قابل رفع نیست، پس انتخابگر فقط حالت عقربه‌ای دارد.</td></tr>
+    <tr><td>تماس مجدد خودکار و اعلان صوتی اپراتور</td><td class="c"><span class="badge b-wip">به‌عمد</span></td>
+        <td>اپراتوری که خط اشغال یا بی‌پاسخ را به یک اعلانِ <em>وصل‌شده</em> بفرستد، از دید برنامه یک مکالمهٔ کوتاه
+        است و تکرار نمی‌شود (بخش ۱۲٫۵). ایرانسل اشغال را با علت <span class="mono">BUSY</span> و بدون وصل‌شدن گزارش می‌کند؛
+        سایر اپراتورها باید روی دستگاه بررسی شوند.</td></tr>
     <tr><td>‏iOS</td><td class="c"><span class="badge b-no">غیرممکن</span></td>
         <td>‏iOS جایگزینی برنامهٔ پیامک/تماس را در اختیار توسعه‌دهنده نمی‌گذارد.</td></tr>
   </tbody>

@@ -31,6 +31,15 @@ class SetCalendarType extends SettingsEvent {
   List<Object?> get props => [calendarType];
 }
 
+/// «تعداد تلاش‌ها» of «تماس مجدد خودکار».
+class SetAutoRedialAttempts extends SettingsEvent {
+  final int attempts;
+  const SetAutoRedialAttempts(this.attempts);
+
+  @override
+  List<Object?> get props => [attempts];
+}
+
 /// «اندازه متن پیام». Dispatched by the settings row and by the pinch gesture
 /// on a conversation — one value, so the two can never disagree.
 class SetMessageTextScale extends SettingsEvent {

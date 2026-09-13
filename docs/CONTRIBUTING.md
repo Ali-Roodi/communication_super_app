@@ -17,9 +17,12 @@ for SMS/call features.
 ```bash
 flutter analyze        # must be ZERO issues before committing
 dart format lib test   # format before committing
-flutter test           # run unit + widget tests (138 currently)
+flutter test           # run unit + widget tests (450 currently)
 flutter test test/unit/phone_normalizer_test.dart   # single file
 flutter build apk --release
+# Device diagnostics that are OFF in a store build:
+flutter build apk --release --dart-define=CARET_TRACE=true   # one `[caret]` logcat line per caret move
+adb logcat -s flutter | grep -E '\[caret\]|\[redial\]'      # `[redial]` prints every DISCONNECTED verdict
 ```
 
 ### Test layout & harness

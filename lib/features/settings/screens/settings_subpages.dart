@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/theme/theme_bloc.dart';
 import 'package:communication_super_app/core/utils/message_text_scale.dart';
+import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
+import 'package:communication_super_app/features/dialer/services/auto_redial_policy.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_event.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_state.dart';
@@ -335,6 +337,51 @@ class MessageTextScaleRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ── تماس مجدد خودکار ─────────────────────────────────────────────────────────
+
+/// «تماس مجدد خودکار» — Samsung's «Auto redial», with the attempt count the
+/// mentor asked for.
+///
+/// Two rows, because they are two questions: whether the phone may dial by
+/// itself at all, and how many times. The count is greyed rather than hidden
+/// while the switch is off, so the page reads the same both ways and the user
+/// can see what turning it on will do. What the countdown looks like and what
+/// counts as a failed call live on the ended-call screen and in `DialerBloc`
+/// (see `dialer-and-calls.md`).
+class AutoRedialPage extends StatelessWidget {
+  const AutoRedialPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.settings;
+    final bloc = context.settingsBloc;
+    return _SubPage(
+      title: 'تماس مجدد خودکار',
+      children: [
+        SettingsSwitch(
+          title: 'تماس مجدد خودکار',
+          summary:
+              'اگر شماره اشغال بود یا پیش از وصل شدن قطع شد، پس از چند ثانیه '
+              'دوباره تماس گرفته می‌شود. شمارش معکوس روی صفحه نمایش داده '
+              'می‌شود و قابل لغو است.',
+          value: s.autoRedial,
+          onChanged: (v) => bloc.add(SetBoolSetting(BoolSetting.autoRedial, v)),
+        ),
+        SettingsChoice<int>(
+          title: 'تعداد تلاش‌ها',
+          current: s.autoRedialAttempts,
+          options: {
+            for (final n in AutoRedialPolicy.attemptChoices)
+              n: '${PersianUtils.toPersianNumber('$n')} بار',
+          },
+          enabled: s.autoRedial,
+          onSelected: (n) => bloc.add(SetAutoRedialAttempts(n)),
+        ),
+      ],
     );
   }
 }

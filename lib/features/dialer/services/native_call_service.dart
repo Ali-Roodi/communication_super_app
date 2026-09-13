@@ -52,6 +52,63 @@ enum CallAudioRoute {
   String get wireName => name;
 }
 
+/// Why a call ended, as telecom reports it (`android.telecom.DisconnectCause`
+/// codes, named in `CallInCallService.causeName`).
+enum CallDisconnectCause {
+  /// The far end was engaged.
+  busy,
+
+  /// The far end (or the network on its behalf) ended it — for a call that
+  /// never connected, that is «برنداشتن».
+  remote,
+
+  /// This phone hung up.
+  local,
+
+  /// This phone gave up before the call was placed.
+  canceled,
+  missed,
+  rejected,
+
+  /// The network could not complete it (no service, congestion…).
+  error,
+
+  /// Barred — retrying cannot help.
+  restricted,
+  other,
+  answeredElsewhere,
+  callPulled,
+  unknown;
+
+  static CallDisconnectCause parse(String? name) => switch (name) {
+    'busy' => CallDisconnectCause.busy,
+    'remote' => CallDisconnectCause.remote,
+    'local' => CallDisconnectCause.local,
+    'canceled' => CallDisconnectCause.canceled,
+    'missed' => CallDisconnectCause.missed,
+    'rejected' => CallDisconnectCause.rejected,
+    'error' => CallDisconnectCause.error,
+    'restricted' => CallDisconnectCause.restricted,
+    'other' => CallDisconnectCause.other,
+    'answered_elsewhere' => CallDisconnectCause.answeredElsewhere,
+    'call_pulled' => CallDisconnectCause.callPulled,
+    _ => CallDisconnectCause.unknown,
+  };
+
+  /// Whether an outgoing call that ended this way, without ever connecting,
+  /// is worth dialling again.
+  ///
+  /// Busy and "the far end dropped it before answering" are the two the
+  /// feature exists for; a network error is included because «شبکه در دسترس
+  /// نیست» is exactly when a person keeps pressing redial by hand. Everything
+  /// this phone did itself (hung up, cancelled) and everything a retry cannot
+  /// change (barred, answered on another device) is out.
+  bool get isRetryable => switch (this) {
+    busy || remote || error || other => true,
+    _ => false,
+  };
+}
+
 /// اطلاعات یک رویداد تماس
 class CallInfo {
   final NativeCallEvent event;
@@ -94,6 +151,16 @@ class CallInfo {
   /// already been running for minutes.
   final DateTime? connectedAt;
 
+  /// Why the call ended — only meaningful for [NativeCallEvent.disconnected].
+  ///
+  /// This is what «تماس مجدد خودکار» is decided on, together with
+  /// [connectedAt]: an outgoing call that ended [CallDisconnectCause.busy] or
+  /// was dropped by the far end before it ever connected is a failed attempt;
+  /// one the user hung up on ([CallDisconnectCause.local]) is not.
+  /// [disconnectReason] is the carrier's own wording, kept for the log only.
+  final CallDisconnectCause disconnectCause;
+  final String? disconnectReason;
+
   const CallInfo({
     required this.event,
     this.phone = '',
@@ -110,6 +177,8 @@ class CallInfo {
     this.isConference,
     this.subscriptionId,
     this.connectedAt,
+    this.disconnectCause = CallDisconnectCause.unknown,
+    this.disconnectReason,
   });
 }
 
@@ -184,6 +253,8 @@ class NativeCallService {
           final int ms when ms > 0 => DateTime.fromMillisecondsSinceEpoch(ms),
           _ => null,
         },
+        disconnectCause: CallDisconnectCause.parse(map['cause'] as String?),
+        disconnectReason: map['reason'] as String?,
       );
     });
     return _stream!;
