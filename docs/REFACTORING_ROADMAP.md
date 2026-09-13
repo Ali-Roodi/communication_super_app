@@ -30,6 +30,9 @@ the near-zero automated test coverage.
 | `dart format` across `lib/` + `test/` | all | None | — |
 
 Result: **`flutter analyze` → No issues found.** · **`flutter test` → 138/138 passing** (was 22).
+Since this pass the suite has grown to **450** with every feature commit; the
+per-area invariants now live in `docs/architecture/*.md` (indexed from
+`CLAUDE.md`).
 
 ## 🔜 Backlog (prioritized)
 

@@ -752,10 +752,7 @@ class CallInCallService : InCallService() {
             currentCall = null
             stickyState = null
             lastStatePayload = null
-            CallEventStreamHandler.sendEvent(
-                CallEvent.DISCONNECTED,
-                mapOf("phone" to phoneOf(call), "direction" to directionOf(call)),
-            )
+            CallEventStreamHandler.sendEvent(CallEvent.DISCONNECTED, disconnectPayload(call))
         } else {
             // Another call is still up (conference member ended, or one leg of
             // a two-call session hung up) — keep the UI on the survivor. An
@@ -793,10 +790,7 @@ class CallInCallService : InCallService() {
         currentCall = null
         stickyState = null
         lastStatePayload = null
-        CallEventStreamHandler.sendEvent(
-            CallEvent.DISCONNECTED,
-            mapOf("phone" to phoneOf(call), "direction" to directionOf(call)),
-        )
+        CallEventStreamHandler.sendEvent(CallEvent.DISCONNECTED, disconnectPayload(call))
     }
 
     /** Pushes the number of top-level calls + mergeability to Flutter.
@@ -899,6 +893,45 @@ class CallInCallService : InCallService() {
         )
     }
 
+    /**
+     * What a DISCONNECTED event says about the call that ended, and why.
+     *
+     * The cause is what «تماس مجدد خودکار» is decided on, so it travels with
+     * every DISCONNECTED — all three of them ([callCallback]'s state change,
+     * [onCallRemoved], [republishCurrent]) build their payload here. Telecom's
+     * codes are mapped to names Dart can switch on; [DisconnectCause.reason] is
+     * the carrier's own text and goes along for the log only.
+     *
+     * `connectTimeMillis` is the other half of the decision: a call the far
+     * end never picked up has none, and only such a call is redialled — a
+     * conversation that ended is not a failed attempt, however short it was.
+     */
+    private fun disconnectPayload(call: Call): Map<String, Any?> {
+        val cause = call.details?.disconnectCause
+        return mapOf(
+            "phone" to phoneOf(call),
+            "direction" to directionOf(call),
+            "cause" to causeName(cause?.code),
+            "reason" to cause?.reason,
+            "connectTimeMillis" to (call.details?.connectTimeMillis ?: 0L),
+        )
+    }
+
+    private fun causeName(code: Int?): String = when (code) {
+        DisconnectCause.BUSY -> "busy"
+        DisconnectCause.REMOTE -> "remote"
+        DisconnectCause.LOCAL -> "local"
+        DisconnectCause.CANCELED -> "canceled"
+        DisconnectCause.MISSED -> "missed"
+        DisconnectCause.REJECTED -> "rejected"
+        DisconnectCause.ERROR -> "error"
+        DisconnectCause.RESTRICTED -> "restricted"
+        DisconnectCause.OTHER -> "other"
+        DisconnectCause.ANSWERED_ELSEWHERE -> "answered_elsewhere"
+        DisconnectCause.CALL_PULLED -> "call_pulled"
+        else -> "unknown"
+    }
+
     /** Maps a telecom call state onto the app's CallEvent vocabulary. */
     private fun publishState(call: Call, state: Int) {
         val data = mapOf(
@@ -950,7 +983,8 @@ class CallInCallService : InCallService() {
             // the same person is not mistaken for a repeat of this one.
             stickyState = null
             lastStatePayload = null
-            CallEventStreamHandler.sendEvent(event, data)
+            // With its cause — see [disconnectPayload].
+            CallEventStreamHandler.sendEvent(event, data + disconnectPayload(call))
             return
         }
         stickyState = payload

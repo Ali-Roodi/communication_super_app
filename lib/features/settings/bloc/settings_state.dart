@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 import 'package:communication_super_app/core/utils/calendar_type.dart';
 import 'package:communication_super_app/core/utils/message_text_scale.dart';
+import 'package:communication_super_app/features/dialer/services/auto_redial_policy.dart';
 
 export 'package:communication_super_app/core/utils/calendar_type.dart';
 
@@ -46,6 +47,12 @@ enum BoolSetting {
   /// told they were blocked, and a legitimate withheld call (a hospital, a
   /// bank) is not rare. Mirrored natively; see `CallPrefs`.
   blockUnknownCallers,
+
+  /// Dial a failed outgoing call again — busy, or dropped before it connected
+  /// — after a visible countdown, up to [SettingsState.autoRedialAttempts]
+  /// times. Off by default: a phone that dials by itself has to be asked for.
+  /// Mirrored into `AutoRedialPolicy`, where `DialerBloc` reads it.
+  autoRedial,
 }
 
 class SettingsState extends Equatable {
@@ -58,6 +65,11 @@ class SettingsState extends Equatable {
   final bool swipeActions;
   final bool deliveryReports;
   final bool blockUnknownCallers;
+  final bool autoRedial;
+
+  /// «تعداد تلاش‌ها» for [autoRedial] — one of
+  /// [AutoRedialPolicy.attemptChoices].
+  final int autoRedialAttempts;
   final CalendarType calendarType;
 
   /// «اندازه متن پیام» — multiplies the text size inside a conversation, on top
@@ -76,6 +88,8 @@ class SettingsState extends Equatable {
     this.swipeActions = true,
     this.deliveryReports = true,
     this.blockUnknownCallers = false,
+    this.autoRedial = false,
+    this.autoRedialAttempts = AutoRedialPolicy.defaultAttempts,
     this.calendarType = CalendarType.jalali,
     this.messageTextScale = MessageTextScale.normal,
   });
@@ -100,6 +114,8 @@ class SettingsState extends Equatable {
         return deliveryReports;
       case BoolSetting.blockUnknownCallers:
         return blockUnknownCallers;
+      case BoolSetting.autoRedial:
+        return autoRedial;
     }
   }
 
@@ -113,6 +129,8 @@ class SettingsState extends Equatable {
     bool? swipeActions,
     bool? deliveryReports,
     bool? blockUnknownCallers,
+    bool? autoRedial,
+    int? autoRedialAttempts,
     CalendarType? calendarType,
     double? messageTextScale,
   }) {
@@ -126,6 +144,8 @@ class SettingsState extends Equatable {
       swipeActions: swipeActions ?? this.swipeActions,
       deliveryReports: deliveryReports ?? this.deliveryReports,
       blockUnknownCallers: blockUnknownCallers ?? this.blockUnknownCallers,
+      autoRedial: autoRedial ?? this.autoRedial,
+      autoRedialAttempts: autoRedialAttempts ?? this.autoRedialAttempts,
       calendarType: calendarType ?? this.calendarType,
       messageTextScale: messageTextScale ?? this.messageTextScale,
     );
@@ -151,6 +171,8 @@ class SettingsState extends Equatable {
         return copyWith(deliveryReports: value);
       case BoolSetting.blockUnknownCallers:
         return copyWith(blockUnknownCallers: value);
+      case BoolSetting.autoRedial:
+        return copyWith(autoRedial: value);
     }
   }
 
@@ -165,6 +187,8 @@ class SettingsState extends Equatable {
     swipeActions,
     deliveryReports,
     blockUnknownCallers,
+    autoRedial,
+    autoRedialAttempts,
     calendarType,
     messageTextScale,
   ];

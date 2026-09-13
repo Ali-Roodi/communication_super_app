@@ -30,14 +30,34 @@ less precisely. See `KNOWN_ISSUES` K3.
 
 ---
 
-### D3 — Cellular calling via the native system dialer ("Option A")
-**Decision:** outgoing calls are handed to Android's system dialer; the in-app
-`IncomingCallScreen`/`InCallScreen` + `ConnectionService` stack are built but
-dormant.
-**Why:** a full self-managed `ConnectionService` call UI is complex and
-device-fragile. Handing off is reliable and ships now.
-**Trade-off:** no in-app call screen for cellular calls; `DialerBloc.callStatus`
-stays `idle`. The dormant VoIP path is intentional PHASE-2 scaffolding.
+### D3 — The app is the default dialer (supersedes the earlier "Option A")
+**Decision:** the app requests `ROLE_DIALER`; `CallInCallService` receives every
+cellular call from telecom and the Flutter `IncomingCallScreen`/`InCallScreen`
+are the only call UI. The self-managed `ConnectionService` path stays as dormant
+VoIP scaffolding.
+**Why:** the hand-off to the system dialer meant no lock-screen answer, no
+call-waiting UI and no per-call SIM choice of our own; the mentor's device tests
+needed all three. The invariants that keep it working on real phones (Samsung's
+STATE_NEW placeholders, the four teardown paths, the keyguard rules) are in
+`docs/architecture/dialer-and-calls.md`.
+**Trade-off:** the call path is the most device-fragile code in the app and is
+verified by hand on the device, not by instrumentation tests.
+
+---
+
+### D3a — Auto redial only for a call that never connected
+**Decision:** «تماس مجدد خودکار» retries an outgoing call only when telecom
+says it never connected and ended `busy`/`remote`/`error`; a call that went
+active — however short — is never redialled, and the count is a setting
+(default off, 3 attempts, 5 s visible countdown with «لغو»).
+**Why:** from inside the app a carrier's "subscriber not answering"
+announcement is indistinguishable from a person picking up and saying "call me
+later"; any duration threshold would redial real conversations. A phone that
+dials by itself when it should not is worse than one that does not when it
+could have.
+**Trade-off:** a carrier that answers a busy line with a *connected*
+announcement is not covered. Irancell reports busy as `DisconnectCause.BUSY`
+(486) without connecting, verified on the device.
 
 ---
 

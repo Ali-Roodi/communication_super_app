@@ -138,6 +138,18 @@ class SyncCallState extends DialerEvent {
   const SyncCallState();
 }
 
+/// «لغو» on the ended-call screen while «تماس مجدد خودکار» counts down, and
+/// the back gesture there: the series ends and the screen goes.
+class CancelAutoRedial extends DialerEvent {
+  const CancelAutoRedial();
+}
+
+/// The countdown ran out — place the next attempt. Fired by the bloc's own
+/// timer; nothing in the UI sends it.
+class AutoRedialDue extends DialerEvent {
+  const AutoRedialDue();
+}
+
 /// رویداد دریافتی از NativeCallService stream
 class CallEventReceived extends DialerEvent {
   final CallInfo callInfo;

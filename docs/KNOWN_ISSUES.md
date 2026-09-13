@@ -129,7 +129,10 @@ constructor-injection fix and the `DatabaseHelper` testing hooks. Now covers all
 stateful BLoCs and the favorites/blocked/messages/drafts repositories, plus the
 presentation widgets extracted from the messages screens (app bars, composer,
 option sheets), and the scheduled-send model/repository/bloc/list-screen. Total:
-**138 passing** — and the suite already paid for itself by surfacing K10. Still
+**450 passing** (was 138 at the review pass) — and the suite already paid for
+itself by surfacing K10; later it pinned the device-traced call teardown
+sequences (three `DISCONNECTED`s per hang-up, the first without a cause) that
+«تماس مجدد خودکار» depends on. Still
 missing: the SMS/call-log pipelines and full-shell widget tests
 (`MainNavigation`).
 **Fix:** continue Roadmap P4.

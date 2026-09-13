@@ -57,6 +57,12 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator>
   /// already up alone.
   CallStatus _lastCallStatus = CallStatus.idle;
 
+  /// Whether «تماس مجدد خودکار» was counting down (or placing its attempt)
+  /// the last time the listener ran. The listener needs the transition here
+  /// too: the series ending is what takes the ended-call screen down, and the
+  /// call status does not change when it ends.
+  bool _lastRedialPending = false;
+
   /// The number/name the minimized call was showing, so restoring re-opens the
   /// same screen without waiting for another telecom event.
   String _minimizedPhone = '';
@@ -227,10 +233,15 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator>
   @override
   Widget build(BuildContext context) {
     return BlocListener<DialerBloc, DialerState>(
-      listenWhen: (prev, curr) => prev.callStatus != curr.callStatus,
+      listenWhen: (prev, curr) =>
+          prev.callStatus != curr.callStatus ||
+          (prev.autoRedial == null) != (curr.autoRedial == null),
       listener: (context, state) {
         final prev = _lastCallStatus;
+        final redialWasPending = _lastRedialPending;
+        final redialPending = state.autoRedial != null;
         _lastCallStatus = state.callStatus;
+        _lastRedialPending = redialPending;
         final navigator = appNavigatorKey.currentState;
         if (navigator == null) return;
 
@@ -296,14 +307,31 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator>
             _minimizedPhone = '';
             _minimizedName = null;
             _reportCallScreenVisible(false);
+            // «تماس مجدد خودکار»: the ended-call screen stays up for the
+            // countdown — it is where the countdown and «لغو» are drawn. If
+            // the failed call ended with its screen put away, the screen is
+            // put back, because a phone that is about to dial by itself must
+            // say so. The retry's own RINGING arrives as an ordinary outgoing
+            // call and replaces this screen through the branch above.
+            if (redialPending) {
+              if (_callRoute?.isActive != true) {
+                _pushCall(
+                  context,
+                  InCallScreen(phone: state.autoRedial!.phone),
+                );
+              }
+              return;
+            }
             // Held for a beat instead of popping straight away. The native side
             // sends the activity behind the keyguard the moment the call ends,
             // and that transition takes a few hundred ms — popping immediately
             // paints the app's own UI over the lock screen while it runs.
-            // Google Phone lingers on the ended call for about as long.
-            if (prev != CallStatus.idle) {
+            // Google Phone lingers on the ended call for about as long. The
+            // series ending (cancelled, exhausted) takes the same way out.
+            if (prev != CallStatus.idle || redialWasPending) {
               Future<void>.delayed(const Duration(milliseconds: 600), () {
                 if (!mounted || _lastCallStatus != CallStatus.idle) return;
+                if (_lastRedialPending) return;
                 _dismissCallRoutes();
               });
             }

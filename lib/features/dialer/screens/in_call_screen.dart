@@ -91,9 +91,30 @@ class _InCallScreenState extends State<InCallScreen> {
     });
   }
 
+  /// Repaints the redial countdown. Separate from [_timer] — that one is the
+  /// call's own clock and is stopped the moment the call ends, which is
+  /// exactly when this one has to start. What it prints is derived from
+  /// `AutoRedial.dueAt`, so a late tick never shows a wrong number.
+  Timer? _countdown;
+
+  void _syncCountdown(DialerState state) {
+    final counting =
+        state.callStatus == CallStatus.idle &&
+        state.autoRedial?.isCountingDown == true;
+    if (counting) {
+      _countdown ??= Timer.periodic(const Duration(milliseconds: 250), (_) {
+        if (mounted) setState(() {});
+      });
+    } else {
+      _countdown?.cancel();
+      _countdown = null;
+    }
+  }
+
   @override
   void dispose() {
     _timer?.cancel();
+    _countdown?.cancel();
     super.dispose();
   }
 
@@ -129,6 +150,15 @@ class _InCallScreenState extends State<InCallScreen> {
         onPopInvokedWithResult: (didPop, _) {
           if (didPop) return;
           if (_handleBack()) return;
+          // Leaving the ended-call screen while «تماس مجدد خودکار» counts
+          // down is a decision about the redial, not about the screen: a
+          // countdown that kept running out of sight would start a call the
+          // user had just walked away from.
+          final bloc = context.read<DialerBloc>();
+          if (bloc.state.autoRedial != null) {
+            bloc.add(const CancelAutoRedial());
+            return;
+          }
           CallUiCoordinator.minimize();
         },
         child: _buildBody(context),
@@ -140,9 +170,11 @@ class _InCallScreenState extends State<InCallScreen> {
     return BlocConsumer<DialerBloc, DialerState>(
       listenWhen: (prev, curr) =>
           prev.callStatus != curr.callStatus ||
-          prev.activePhone != curr.activePhone,
+          prev.activePhone != curr.activePhone ||
+          prev.autoRedial != curr.autoRedial,
       listener: (context, state) {
         if (state.callStatus == CallStatus.active) _ensureTimerStarted();
+        _syncCountdown(state);
         // The call ended: stop counting immediately. The route lingers ~600 ms
         // so the keyguard handover doesn't flash the app's own UI, and a timer
         // still ticking through it reads as "the call is somehow still up".
@@ -163,6 +195,12 @@ class _InCallScreenState extends State<InCallScreen> {
         if (state.callStatus == CallStatus.active) _ensureTimerStarted();
 
         final phone = _currentPhone(state);
+        // «تماس مجدد خودکار» counting down (or being placed) after a failed
+        // attempt. Only ever while idle: once the retry is dialling this is
+        // an ordinary call screen again.
+        final redial = state.callStatus == CallStatus.idle
+            ? state.autoRedial
+            : null;
         // Merged conference: show the group title, not a single participant.
         final conference = state.isConference;
         // The passed-in contactName only applies to the number the screen
@@ -181,92 +219,107 @@ class _InCallScreenState extends State<InCallScreen> {
             child: _showKeypad
                 ? _buildKeypad(context, phone, name)
                 : Column(
-              children: [
-                // «کوچک کردن» — the discoverable half of the back gesture.
-                // Google Phone puts the same chevron here, and without it the
-                // only way to reach the app during a call is a gesture with
-                // nothing on screen to suggest it.
-                Align(
-                  alignment: AlignmentDirectional.centerStart,
-                  child: IconButton(
-                    icon: const Icon(
-                      Icons.keyboard_arrow_down,
-                      color: Colors.white70,
-                      size: 30,
-                    ),
-                    tooltip: 'کوچک کردن',
-                    onPressed: CallUiCoordinator.minimize,
-                  ),
-                ),
-                const Spacer(flex: 2),
-                // The SIM this call is on — Google Phone's carrier line.
-                // Absent unless it has something to say (see [_simLine]).
-                // Wrapped in [SimAware] because a call can mount this screen
-                // before the roster is readable — a call routinely wakes a
-                // dead process — and the line would then stay blank for the
-                // whole call.
-                SimAware(
-                  builder: (context, _, _) {
-                    final line = _simLine(state);
-                    if (line == null) return const SizedBox(height: 8);
-                    return Column(
-                      children: [
-                        Text(
-                          line,
-                          style: const TextStyle(
-                            color: Colors.white38,
-                            fontSize: 13,
+                    children: [
+                      // «کوچک کردن» — the discoverable half of the back gesture.
+                      // Google Phone puts the same chevron here, and without it the
+                      // only way to reach the app during a call is a gesture with
+                      // nothing on screen to suggest it.
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: IconButton(
+                          icon: const Icon(
+                            Icons.keyboard_arrow_down,
+                            color: Colors.white70,
+                            size: 30,
                           ),
-                        ),
-                        const SizedBox(height: 24),
-                      ],
-                    );
-                  },
-                ),
-                _buildAvatar(conference: conference),
-                const SizedBox(height: 20),
-                Text(
-                  name ?? PersianUtils.displayPhone(phone),
-                  // LTR keeps the grouped number order (0919 096 1805)
-                  // inside the RTL screen.
-                  textDirection: name == null ? TextDirection.ltr : null,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 30,
-                    fontWeight: FontWeight.w300,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                if (name != null && !conference) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    PersianUtils.displayPhone(phone),
-                    textDirection: TextDirection.ltr,
-                    style: const TextStyle(color: Colors.white54, fontSize: 15),
-                  ),
-                ],
-                const SizedBox(height: 10),
-                state.callStatus == CallStatus.idle
-                    ? const Text(
-                        'تماس پایان یافت',
-                        style: TextStyle(color: Colors.white54, fontSize: 16),
-                      )
-                    : onHold
-                    ? const _PulsingText('در انتظار')
-                    : dialing
-                    ? const _PulsingText('در حال برقراری تماس…')
-                    : Text(
-                        formatCallDuration(state.callConnectedAt),
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 16,
+                          tooltip: 'کوچک کردن',
+                          onPressed: CallUiCoordinator.minimize,
                         ),
                       ),
-                const Spacer(flex: 3),
-                _buildControlGrid(context, state),
-                const SizedBox(height: 32),
-              ],
-            ),
+                      const Spacer(flex: 2),
+                      // The SIM this call is on — Google Phone's carrier line.
+                      // Absent unless it has something to say (see [_simLine]).
+                      // Wrapped in [SimAware] because a call can mount this screen
+                      // before the roster is readable — a call routinely wakes a
+                      // dead process — and the line would then stay blank for the
+                      // whole call.
+                      SimAware(
+                        builder: (context, _, _) {
+                          final line = _simLine(state);
+                          if (line == null) return const SizedBox(height: 8);
+                          return Column(
+                            children: [
+                              Text(
+                                line,
+                                style: const TextStyle(
+                                  color: Colors.white38,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+                            ],
+                          );
+                        },
+                      ),
+                      _buildAvatar(conference: conference),
+                      const SizedBox(height: 20),
+                      Text(
+                        name ?? PersianUtils.displayPhone(phone),
+                        // LTR keeps the grouped number order (0919 096 1805)
+                        // inside the RTL screen.
+                        textDirection: name == null ? TextDirection.ltr : null,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 30,
+                          fontWeight: FontWeight.w300,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      if (name != null && !conference) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          PersianUtils.displayPhone(phone),
+                          textDirection: TextDirection.ltr,
+                          style: const TextStyle(
+                            color: Colors.white54,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 10),
+                      redial != null
+                          ? _RedialStatus(redial)
+                          : state.callStatus == CallStatus.idle
+                          ? const Text(
+                              'تماس پایان یافت',
+                              style: TextStyle(
+                                color: Colors.white54,
+                                fontSize: 16,
+                              ),
+                            )
+                          : onHold
+                          ? const _PulsingText('در انتظار')
+                          : dialing
+                          ? const _PulsingText('در حال برقراری تماس…')
+                          : Text(
+                              formatCallDuration(state.callConnectedAt),
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 16,
+                              ),
+                            ),
+                      const Spacer(flex: 3),
+                      if (redial != null)
+                        _CancelRedialButton(
+                          onTap: () => context.read<DialerBloc>().add(
+                            const CancelAutoRedial(),
+                          ),
+                        )
+                      else
+                        _buildControlGrid(context, state),
+                      const SizedBox(height: 32),
+                    ],
+                  ),
           ),
         );
       },
@@ -799,6 +852,96 @@ class _EndCallButton extends StatelessWidget {
           const Text(
             'پایان',
             style: TextStyle(color: Colors.white70, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── تماس مجدد خودکار ──────────────────────────────────────────────────────────
+
+/// «تماس مجدد خودکار تا ۴ ثانیه دیگر · تلاش ۱ از ۳» under the name, in place
+/// of the duration. The seconds come from `dueAt` and are rounded *up*: a
+/// countdown that reads «۰» while the phone has not dialled yet reads as
+/// stuck.
+class _RedialStatus extends StatelessWidget {
+  final AutoRedial redial;
+  const _RedialStatus(this.redial);
+
+  @override
+  Widget build(BuildContext context) {
+    final attempt = PersianUtils.toPersianNumber('${redial.attempt}');
+    final total = PersianUtils.toPersianNumber('${redial.maxAttempts}');
+    final due = redial.dueAt;
+    final String line;
+    if (due == null) {
+      line = 'در حال تماس مجدد…';
+    } else {
+      final left = due.difference(DateTime.now());
+      final seconds = (left.inMilliseconds / 1000).ceil().clamp(0, 99);
+      line =
+          'تماس مجدد خودکار تا ${PersianUtils.toPersianNumber('$seconds')} ثانیه دیگر';
+    }
+    return Column(
+      children: [
+        Text(
+          line,
+          style: const TextStyle(color: Colors.white70, fontSize: 16),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'تلاش $attempt از $total',
+          style: const TextStyle(color: Colors.white38, fontSize: 13),
+        ),
+      ],
+    );
+  }
+}
+
+/// The one control the countdown screen has, where «پایان» normally sits and
+/// in its colour: stopping the phone from dialling is the same gesture as
+/// hanging up, and the thumb is already there.
+class _CancelRedialButton extends StatelessWidget {
+  final VoidCallback onTap;
+  const _CancelRedialButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 84,
+            child: Column(
+              children: [
+                GestureDetector(
+                  onTap: onTap,
+                  child: Container(
+                    width: 64,
+                    height: 64,
+                    decoration: const BoxDecoration(
+                      color: AppColors.callRejectRed,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.phone_disabled,
+                      color: Colors.white,
+                      size: 30,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'لغو تماس مجدد',
+                  style: TextStyle(color: Colors.white70, fontSize: 12),
+                  maxLines: 1,
+                ),
+              ],
+            ),
           ),
         ],
       ),

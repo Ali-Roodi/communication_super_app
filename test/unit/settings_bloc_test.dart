@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:communication_super_app/core/utils/contact_name_style.dart';
+import 'package:communication_super_app/features/dialer/services/auto_redial_policy.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_event.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_state.dart';
@@ -82,4 +83,43 @@ void main() {
 
     expect(await SettingsBloc.readShowDialpadOnStart(), isTrue);
   });
+
+  // «تماس مجدد خودکار» is decided in DialerBloc on a call event, from a mirror
+  // this BLoC owns — the mirror has to follow every write and every load.
+  blocTest<SettingsBloc, SettingsState>(
+    'auto redial and its attempt count are mirrored onto AutoRedialPolicy',
+    build: SettingsBloc.new,
+    act: (bloc) => bloc
+      ..add(const SetBoolSetting(BoolSetting.autoRedial, true))
+      ..add(const SetAutoRedialAttempts(5)),
+    expect: () => [
+      const SettingsState(autoRedial: true),
+      const SettingsState(autoRedial: true, autoRedialAttempts: 5),
+    ],
+    verify: (_) {
+      expect(AutoRedialPolicy.enabled, isTrue);
+      expect(AutoRedialPolicy.maxAttempts, 5);
+    },
+    tearDown: () {
+      AutoRedialPolicy.enabled = false;
+      AutoRedialPolicy.maxAttempts = AutoRedialPolicy.defaultAttempts;
+    },
+  );
+
+  test(
+    'a stored attempt count outside the offered choices is not honoured',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        'set_autoRedial': true,
+        'set_auto_redial_attempts': 10000,
+      });
+      final bloc = SettingsBloc()..add(const LoadSettings());
+      final state = await bloc.stream.first;
+      await bloc.close();
+      expect(state.autoRedial, isTrue);
+      expect(state.autoRedialAttempts, AutoRedialPolicy.defaultAttempts);
+      expect(AutoRedialPolicy.maxAttempts, AutoRedialPolicy.defaultAttempts);
+      AutoRedialPolicy.enabled = false;
+    },
+  );
 }

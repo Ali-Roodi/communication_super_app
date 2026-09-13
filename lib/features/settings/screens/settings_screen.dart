@@ -46,6 +46,11 @@ class SettingsScreen extends StatelessWidget {
                   title: 'شماره‌گیری سریع',
                   onTap: () => _push(context, const SpeedDialScreen()),
                 ),
+                SettingsRow(
+                  icon: Icons.phone_callback_outlined,
+                  title: 'تماس مجدد خودکار',
+                  onTap: () => _push(context, const AutoRedialPage()),
+                ),
               ],
             ),
 
@@ -465,19 +470,24 @@ class SettingsChoice<T> extends StatelessWidget {
   final Map<T, String> options;
   final ValueChanged<T> onSelected;
 
+  /// Greyed and inert while false — a choice that depends on a switch above
+  /// it stays on the page, so the user can see what the switch will unlock.
+  final bool enabled;
+
   const SettingsChoice({
     super.key,
     required this.title,
     required this.current,
     required this.options,
     required this.onSelected,
+    this.enabled = true,
   });
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return InkWell(
-      onTap: () => _open(context),
+      onTap: enabled ? () => _open(context) : null,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
         child: Column(
@@ -485,12 +495,22 @@ class SettingsChoice<T> extends StatelessWidget {
           children: [
             Text(
               title,
-              style: TextStyle(fontSize: 17, color: scheme.onSurface),
+              style: TextStyle(
+                fontSize: 17,
+                color: enabled
+                    ? scheme.onSurface
+                    : scheme.onSurface.withValues(alpha: 0.38),
+              ),
             ),
             const SizedBox(height: 4),
             Text(
               options[current] ?? '',
-              style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant),
+              style: TextStyle(
+                fontSize: 14,
+                color: enabled
+                    ? scheme.onSurfaceVariant
+                    : scheme.onSurfaceVariant.withValues(alpha: 0.38),
+              ),
             ),
           ],
         ),

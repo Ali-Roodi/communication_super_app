@@ -65,7 +65,16 @@ These are **load-bearing** behaviours — do not "simplify" them away:
   `SettingsBloc` once (no rebuild on tone toggle).
 - **Optimistic call teardown** (`DialerBloc._onEndCall`): the call UI resets
   immediately and the native `endCall()` is fire-and-forget, so the in-call
-  screen dismisses without waiting for the platform round-trip.
+  screen dismisses without waiting for the platform round-trip. That early
+  reset is also what excludes a hand-hung-up call from «تماس مجدد خودکار»: the
+  `DISCONNECTED` that follows finds the status already idle.
+- **A redial series is state beside the call, not a call status**
+  (`DialerState.autoRedial`): while it counts down there is no call, and every
+  teardown path (`_idleState`, `CALLS_CHANGED count=0`, `SyncCallState`) may run
+  — `copyWith` never touches the field unless `clearAutoRedial` is named. One
+  native teardown can deliver up to three `DISCONNECTED`s, the first sometimes
+  without a cause; only a verdict on a dialling call (`_RedialVerdict.decided`)
+  may end the series.
 
 ## 4. Session-scoped caches (held inside BLoCs/services)
 
@@ -80,9 +89,9 @@ These are **load-bearing** behaviours — do not "simplify" them away:
 ## 5. Side effects
 
 - **Navigation and snackbars** belong in `BlocListener`, never in `builder`.
-- **`MainNavigation`** hosts a `BlocListener<DialerBloc>` that would push the
-  incoming/in-call screens — currently dormant under "Option A" cellular calling
-  (see `ARCHITECTURE.md` §5.2).
+- **`CallUiCoordinator`** (above the auth flow, see `ARCHITECTURE.md` §5.2)
+  hosts the `BlocListener<DialerBloc>` that pushes the incoming/in-call screens
+  and keeps the ended-call screen up while a redial counts down.
 
 ## 6. Testing the BLoC layer
 
@@ -93,4 +102,4 @@ implementations), so they can be unit-tested with mocks — e.g.
 `MessageBloc(repository: …, smsService: …, contactRepository: …)`. `SettingsBloc`
 is tested with `SharedPreferences.setMockInitialValues`. Repository tests run the
 real schema on an in-memory `sqflite_common_ffi` database (see
-`CONTRIBUTING.md`). Current suite: **138 tests**.
+`CONTRIBUTING.md`). Current suite: **450 tests**.

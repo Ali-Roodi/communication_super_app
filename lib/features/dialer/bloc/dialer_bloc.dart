@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../../../core/utils/persian_utils.dart';
 import '../../contacts/repositories/contact_repository.dart';
 import '../../contacts/models/contact_model.dart';
+import '../services/auto_redial_policy.dart';
 import '../services/native_call_service.dart';
 import '../services/speed_dial_service.dart';
 import 'dialer_event.dart';
@@ -14,6 +15,15 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
   final NativeCallService _callService;
 
   Timer? _debounceTimer;
+
+  /// «تماس مجدد خودکار»: the countdown to the next attempt, and a watchdog on
+  /// an attempt telecom never answered.
+  Timer? _redialTimer;
+  Timer? _redialWatchdog;
+
+  /// A dialling call ended, but telecom has not said why yet — see
+  /// [_redialAfter]. Cleared by every event that starts a call.
+  bool _undecidedAttempt = false;
   List<ContactModel> _allContacts = [];
   StreamSubscription<CallInfo>? _callSub;
 
@@ -42,6 +52,8 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     on<SwapCalls>(_onSwapCalls);
     on<CallEventReceived>(_onCallEvent);
     on<SyncCallState>(_onSyncCallState);
+    on<CancelAutoRedial>(_onCancelAutoRedial);
+    on<AutoRedialDue>(_onAutoRedialDue);
 
     add(const DialerLoadContacts());
     _listenCallEvents();
@@ -202,6 +214,8 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
   Future<void> _onMakeCall(MakeCall event, Emitter<DialerState> emit) async {
     if (state.dialedNumber.isEmpty) return;
     try {
+      // A number dialled by hand supersedes any redial still counting down.
+      _stopRedialTimers();
       // Option A: native system dialer opens and manages the full call lifecycle.
       // Clear the keypad so the dialer is ready when the user returns.
       await _callService.makeCall(
@@ -214,6 +228,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
           matchingNumbers: [],
           isNumberInContacts: false,
           clearError: true,
+          clearAutoRedial: true,
         ),
       );
     } catch (e) {
@@ -247,6 +262,10 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     final clearSim = identifies && info.subscriptionId == null;
     switch (info.event) {
       case NativeCallEvent.incoming:
+        // Somebody calling in ends any redial series — the phone is busy with
+        // something the user wants more.
+        _stopRedialTimers();
+        _undecidedAttempt = false;
         emit(
           state.copyWith(
             callStatus: CallStatus.incoming,
@@ -255,11 +274,20 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
             clearActiveName: clearName,
             activeSubscriptionId: info.subscriptionId,
             clearActiveSubscriptionId: clearSim,
+            clearAutoRedial: true,
           ),
         );
       case NativeCallEvent.ringing:
         // Outgoing dialing — carry the dialed number so the in-call screen
         // has something to display.
+        _redialWatchdog?.cancel();
+        _undecidedAttempt = false;
+        // A call dialling while the series is still counting down, or to
+        // somebody else, was placed by hand (every screen dials through
+        // `NativeCallService` directly): the series is over. Our own attempt
+        // has `dueAt` cleared before it is placed, so it passes.
+        final foreign = _redialSupersededBy(info.phone);
+        if (foreign) _stopRedialTimers();
         emit(
           state.copyWith(
             callStatus: CallStatus.ringing,
@@ -268,9 +296,16 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
             clearActiveName: clearName,
             activeSubscriptionId: info.subscriptionId,
             clearActiveSubscriptionId: clearSim,
+            clearAutoRedial: foreign,
           ),
         );
       case NativeCallEvent.active:
+        // Connected — whether to a person or to the carrier's announcement,
+        // the series has done its job. A call that connected is never
+        // redialled: an eight-second «بعداً زنگ می‌زنم» is a conversation, not
+        // a failed attempt.
+        _stopRedialTimers();
+        _undecidedAttempt = false;
         emit(
           state.copyWith(
             callStatus: CallStatus.active,
@@ -284,6 +319,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
             // duration survives minimizing the call screen and a cold start
             // into a call that was already running.
             callConnectedAt: info.connectedAt,
+            clearAutoRedial: true,
           ),
         );
       case NativeCallEvent.onHold:
@@ -295,12 +331,33 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
           ),
         );
       case NativeCallEvent.disconnected:
+        // Decided BEFORE the state is wound back: whether this was a failed
+        // outgoing attempt is written in the status the call had a moment ago.
+        final verdict = _redialAfter(info);
         // reset call state — keypad و dialedNumber را حفظ کن
-        emit(_idleState());
+        //
+        // The series is cleared only by a verdict against it. One teardown
+        // produces up to three DISCONNECTEDs (the state change, onCallRemoved,
+        // republishCurrent), and the device trace showed the second one —
+        // status already idle, so «not a failed attempt» — wiping the
+        // countdown the first had just started.
+        emit(
+          _idleState().copyWith(
+            autoRedial: verdict.next,
+            clearAutoRedial: verdict.decided && verdict.next == null,
+          ),
+        );
+        if (verdict.next != null) _scheduleRedial();
       case NativeCallEvent.callFailed:
         // Through `_idleState` like every other teardown: leaving the identity
         // fields behind is what let the next call inherit this one's name.
-        emit(_idleState().copyWith(error: 'تماس برقرار نشد'));
+        _stopRedialTimers();
+        emit(
+          _idleState().copyWith(
+            error: 'تماس برقرار نشد',
+            clearAutoRedial: true,
+          ),
+        );
       case NativeCallEvent.audioState:
         // Telecom changed the route/mute outside our toggles (e.g. a headset
         // connected mid-call). This is the ONLY source of truth for the live
@@ -377,6 +434,12 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     // Reset the call UI IMMEDIATELY so the in-call screen dismisses without
     // waiting for the native round-trip. The actual teardown is fired and
     // forgotten; the DISCONNECTED stream event will arrive as a no-op.
+    //
+    // Hanging up on a dialling attempt is also the end of a redial series:
+    // the DISCONNECTED that follows finds the status already idle, so it
+    // cannot schedule another one — and the user said stop.
+    _stopRedialTimers();
+    _undecidedAttempt = false;
     emit(
       state.copyWith(
         callStatus: CallStatus.idle,
@@ -390,6 +453,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
         isConference: false,
         clearError: true,
         clearCallConnectedAt: true,
+        clearAutoRedial: true,
       ),
     );
     unawaited(() async {
@@ -412,6 +476,8 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
   Future<void> _onReject(RejectCall event, Emitter<DialerState> emit) async {
     // Same pattern as EndCall: dismiss the incoming-call UI immediately, the
     // native teardown is fire-and-forget (DISCONNECTED arrives as a no-op).
+    _stopRedialTimers();
+    _undecidedAttempt = false;
     emit(
       state.copyWith(
         callStatus: CallStatus.idle,
@@ -425,6 +491,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
         isConference: false,
         clearError: true,
         clearCallConnectedAt: true,
+        clearAutoRedial: true,
       ),
     );
     try {
@@ -533,10 +600,179 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
 
   static String _digitsOnly(String s) => s.replaceAll(RegExp(r'[^\d]'), '');
 
+  // ── «تماس مجدد خودکار» ─────────────────────────────────────
+  //
+  // A failed outgoing call is dialled again, after a visible countdown, up to
+  // «تعداد تلاش‌ها» times. Off unless the user switched it on. What counts as
+  // *failed* is deliberately narrow — see [_redialAfter] — because a phone
+  // that dials by itself when it should not is far worse than one that does
+  // not dial when it could have.
+
+  /// Guards an attempt telecom never answered: `makeCall` returned, no call
+  /// was ever added, and nothing would otherwise take the series down.
+  static const Duration _redialWatchdogTimeout = Duration(seconds: 20);
+
+  /// What a DISCONNECTED event means for the series: [_RedialVerdict.next] is
+  /// the attempt to schedule, and [_RedialVerdict.decided] says whether the
+  /// event was a verdict on a dialling call at all — a duplicate DISCONNECTED
+  /// of the same teardown, arriving with the status already idle, is not,
+  /// and must leave a countdown the first one started alone.
+  ///
+  /// Read against the state *before* it is wound back to idle:
+  ///
+  /// * the bloc was following an outgoing call that never went active
+  ///   (`ringing`/`connecting`). This excludes incoming calls of every kind
+  ///   without trusting the native direction (pre-Q it is inferred, and wrongly
+  ///   so at DISCONNECTED), and it excludes «پایان» during dialling, which
+  ///   resets the status before this event arrives;
+  /// * telecom agrees it never connected, and says why — busy, dropped by the
+  ///   far end, or a network error. A carrier that connects the caller to an
+  ///   announcement («مشترک مورد نظر پاسخگو نمی‌باشد») makes the call ACTIVE
+  ///   first, and such a call is not retried: from here that is
+  ///   indistinguishable from a person picking up.
+  _RedialVerdict _redialAfter(CallInfo info) {
+    final prior = state.autoRedial;
+    // The status the call had a moment ago — or, when this is the second
+    // DISCONNECTED of the same teardown, the one it had before the first.
+    final wasDialling =
+        state.callStatus == CallStatus.ringing ||
+        state.callStatus == CallStatus.connecting ||
+        _undecidedAttempt;
+    final attempt = (prior?.attempt ?? 0) + 1;
+    final maxAttempts = prior?.maxAttempts ?? AutoRedialPolicy.maxAttempts;
+    final phone = info.phone.isNotEmpty ? info.phone : state.activePhone;
+    final candidate =
+        AutoRedialPolicy.enabled &&
+        info.direction == 'outgoing' &&
+        wasDialling &&
+        info.connectedAt == null &&
+        phone.isNotEmpty;
+    // Telecom's first DISCONNECTED can arrive before the cause is filled in
+    // (`code=UNKNOWN`; the device trace showed exactly that, with the real
+    // cause following from onCallRemoved a beat later). That event winds the
+    // status back to idle, so the *second* event would no longer look like a
+    // dialling call — remember that it was, and decide when the cause comes.
+    // Nothing else can be mistaken for it: a new call of any kind clears the
+    // flag before its own teardown.
+    if (candidate && info.disconnectCause == CallDisconnectCause.unknown) {
+      _undecidedAttempt = true;
+      debugPrint('[redial] disconnected with no cause yet — waiting for it');
+      return const _RedialVerdict(next: null, decided: false);
+    }
+    _undecidedAttempt = false;
+    final failed = candidate && info.disconnectCause.isRetryable;
+    final again = failed && attempt <= maxAttempts;
+    debugPrint(
+      '[redial] disconnected cause=${info.disconnectCause.name} '
+      'reason=${info.disconnectReason} direction=${info.direction} '
+      'connected=${info.connectedAt != null} status=${state.callStatus.name} '
+      'enabled=${AutoRedialPolicy.enabled} attempt=$attempt/$maxAttempts '
+      '-> ${again
+          ? 'redial'
+          : failed
+          ? 'give up'
+          : 'not a failed attempt'}',
+    );
+    if (!again) return _RedialVerdict(next: null, decided: wasDialling);
+    return _RedialVerdict(
+      decided: true,
+      next: AutoRedial(
+        phone: phone,
+        // The SIM the failed call went out on — the retry must not re-ask, and
+        // it must not silently switch cards either.
+        subscriptionId: prior?.subscriptionId ?? state.activeSubscriptionId,
+        attempt: attempt,
+        maxAttempts: maxAttempts,
+        dueAt: DateTime.now().add(AutoRedialPolicy.delay),
+      ),
+    );
+  }
+
+  /// Whether a call now dialling to [phone] is *not* our own attempt.
+  bool _redialSupersededBy(String phone) {
+    final redial = state.autoRedial;
+    if (redial == null) return false;
+    if (redial.isCountingDown) return true;
+    if (phone.isEmpty) return false;
+    return _digitsOnly(phone) != _digitsOnly(redial.phone);
+  }
+
+  void _scheduleRedial() {
+    _stopRedialTimers();
+    _redialTimer = Timer(
+      AutoRedialPolicy.delay,
+      () => add(const AutoRedialDue()),
+    );
+  }
+
+  void _stopRedialTimers() {
+    _redialTimer?.cancel();
+    _redialTimer = null;
+    _redialWatchdog?.cancel();
+    _redialWatchdog = null;
+  }
+
+  void _onCancelAutoRedial(CancelAutoRedial event, Emitter<DialerState> emit) {
+    _stopRedialTimers();
+    if (state.autoRedial == null) return;
+    emit(state.copyWith(clearAutoRedial: true));
+  }
+
+  Future<void> _onAutoRedialDue(
+    AutoRedialDue event,
+    Emitter<DialerState> emit,
+  ) async {
+    final redial = state.autoRedial;
+    // Cancelled, or already placed, since the timer was set.
+    if (redial == null || !redial.isCountingDown) return;
+    // Something else is on the phone (a call came in during the countdown and
+    // the event that should have cleared the series has not landed yet).
+    if (state.callStatus != CallStatus.idle) {
+      emit(state.copyWith(clearAutoRedial: true));
+      return;
+    }
+    // Marked as placed BEFORE the call goes out, so the RINGING it produces is
+    // recognised as ours.
+    emit(state.copyWith(autoRedial: redial.placed()));
+    try {
+      await _callService.makeCall(
+        redial.phone,
+        subscriptionId: redial.subscriptionId,
+      );
+    } catch (e) {
+      debugPrint('[redial] makeCall failed: $e');
+      emit(state.copyWith(clearAutoRedial: true, error: 'تماس برقرار نشد'));
+      return;
+    }
+    _redialWatchdog = Timer(_redialWatchdogTimeout, () {
+      final now = state.autoRedial;
+      if (now != null &&
+          !now.isCountingDown &&
+          state.callStatus == CallStatus.idle) {
+        debugPrint('[redial] telecom never answered the attempt — giving up');
+        add(const CancelAutoRedial());
+      }
+    });
+  }
+
   @override
   Future<void> close() {
     _debounceTimer?.cancel();
+    _stopRedialTimers();
     _callSub?.cancel();
     return super.close();
   }
+}
+
+/// What one DISCONNECTED event means for «تماس مجدد خودکار».
+class _RedialVerdict {
+  /// The attempt to schedule, or null.
+  final AutoRedial? next;
+
+  /// Whether the event was a verdict on a dialling call at all. False for the
+  /// duplicate DISCONNECTEDs a single teardown produces (status already idle)
+  /// and for a causeless first one — neither may touch a running series.
+  final bool decided;
+
+  const _RedialVerdict({required this.next, required this.decided});
 }
