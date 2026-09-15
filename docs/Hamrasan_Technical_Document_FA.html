@@ -1850,6 +1850,32 @@ Jitter یک ویژگی تزئینی نیست: از سه‌گانهٔ (شناسه
         (<span class="mono">IncomingSmsReceiver</span>) همیشه این مجوز را داشت؛ همتای پویا نداشت.</td></tr>
   </tbody>
 </table>
+
+<h2>۱۶٫۴ صفحهٔ «حریم خصوصی و دسترسی‌ها» — سیاست حریم خصوصی داخل خود برنامه</h2>
+<p>
+هر دو فروشگاه (بازار و مایکت) پیش از پذیرش یک برنامهٔ پیامک/شماره‌گیر، یک سیاست حریم خصوصی می‌خواهند —
+و پرسش واقعی بازبین هرگز «آیا سیاستی هست» نیست، بلکه «چرا این برنامه <span class="mono">READ_SMS</span> و
+<span class="mono">READ_CALL_LOG</span> دارد» است. به همین دلیل این صفحه
+(<span class="mono">PrivacyPolicyPage</span>، تنظیمات ← درباره برنامه) نه یک متن حقوقی عمومی، بلکه
+<strong>از روی Manifest</strong> نوشته شده است:
+</p>
+<ul>
+  <li><strong>یک کارت به‌ازای هر گروه مجوز</strong> — مخاطبین، تماس‌ها، پیامک‌ها، اعلان‌ها، موقعیت مکانی، اینترنت —
+      که می‌گوید برنامه با آن مجوز چه می‌کند و، مهم‌تر، چه <em>نمی‌کند</em> (ضبط تماس نه، میکروفون نه، سرور نه).</li>
+  <li>کارت هر مجوز <em>runtime</em> وضعیت فعلی اعطا را هم نشان می‌دهد. این وضعیت فقط <strong>خوانده</strong> می‌شود و
+      هرگز درخواست نمی‌شود — همان قاعدهٔ <span class="mono">PermissionGate</span> (بخش ۸) که می‌گوید تنها یک
+      نقطهٔ برنامه حق باز کردن دیالوگ مجوز دارد. کارتِ ردشده به صفحهٔ app-info سیستم می‌رود و پس از بازگشت
+      دوباره خوانده می‌شود، چون آن‌جا تنها جایی است که یک رد قبلی می‌تواند تغییر کند.</li>
+  <li>چهار جملهٔ لازم برای فرم فروشگاه (ذخیره فقط روی دستگاه · هیچ سروری · پشتیبان‌گیری خاموش · گزارش خطای
+      اختیاری و پالایش‌شده) زیر عنوان «داده‌های شما» می‌آیند.</li>
+</ul>
+<div class="note">
+  <span class="t">یک منبع حقیقت، دو خروجی</span>
+  نسخهٔ عمومی همین متن (<span class="mono">docs/privacy/index.html</span>، منتشرشده در <span class="mono">ali-roodi.github.io/communication_super_app/privacy/</span>) که URL آن به فروشگاه داده می‌شود،
+  از روی صفحهٔ داخل برنامه نوشته می‌شود — نه برعکس — تا چیزی که بازبین می‌خواند و چیزی که کاربر می‌خواند یکی باشد.
+  قاعدهٔ نگهداری: مجوزی که به Manifest اضافه می‌شود در همان commit یک کارت این‌جا می‌گیرد؛ سیاستی که یک مجوز
+  اعلام‌شده را جا بیندازد اولین چیزی است که بازبین می‌بیند.
+</div>
 </section>
 
 <!-- ══════════════════ 17 ══════════════════ -->
@@ -2179,10 +2205,9 @@ Jitter یک ویژگی تزئینی نیست: از سه‌گانهٔ (شناسه
     <tr><td><span class="mono">RECEIVE_SMS</span> · <span class="mono">READ_SMS</span></td><td>دریافت زنده و همگام‌سازی آینه‌ای</td></tr>
     <tr><td><span class="mono">RECEIVE_MMS</span> · <span class="mono">RECEIVE_WAP_PUSH</span></td><td>اجباری برای نقش پیامک — پیام رها می‌شود</td></tr>
 
-    <tr><td rowspan="4">تماس</td><td><span class="mono">CALL_PHONE</span> · <span class="mono">MANAGE_OWN_CALLS</span></td><td>برقراری تماس و نقش شماره‌گیر</td></tr>
+    <tr><td rowspan="3">تماس</td><td><span class="mono">CALL_PHONE</span> · <span class="mono">MANAGE_OWN_CALLS</span></td><td>برقراری تماس و نقش شماره‌گیر</td></tr>
     <tr><td><span class="mono">READ_CALL_LOG</span> · <span class="mono">WRITE_CALL_LOG</span></td><td>همگام‌سازی و حذف سراسری تاریخچه</td></tr>
     <tr><td><span class="mono">READ_PHONE_STATE</span> · <span class="mono">READ_PHONE_NUMBERS</span></td><td>فهرست سیم‌کارت‌ها و وضعیت شبکه به‌ازای هر سیم</td></tr>
-    <tr><td><span class="mono">RECORD_AUDIO</span></td><td>مسیر VoIP (فعلاً خفته)</td></tr>
 
     <tr><td>مخاطبین</td><td><span class="mono">READ_CONTACTS</span> · <span class="mono">WRITE_CONTACTS</span></td><td>دفترچهٔ تلفن، برچسب‌ها، ادغام تکراری‌ها</td></tr>
 
@@ -2191,6 +2216,8 @@ Jitter یک ویژگی تزئینی نیست: از سه‌گانهٔ (شناسه
     <tr><td><span class="mono">WAKE_LOCK</span> · <span class="mono">VIBRATE</span></td><td>قفل حسگر نزدیکی و بازخورد لمسی</td></tr>
 
     <tr><td>موقعیت</td><td><span class="mono">ACCESS_FINE_LOCATION</span> · <span class="mono">ACCESS_COARSE_LOCATION</span></td><td>فقط برای درج مختصات در متن پیام؛ ذخیره یا ردیابی نمی‌شود</td></tr>
+
+    <tr><td>شبکه</td><td><span class="mono">INTERNET</span></td><td>فقط پیش‌نمایش لینک (متادیتای <span class="mono">og:</span>) و گزارش خطای اختیاری؛ برنامه سرور ندارد</td></tr>
   </tbody>
 </table>
 

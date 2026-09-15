@@ -18,6 +18,7 @@ import 'package:communication_super_app/features/messages/services/native_sms_se
 import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_state.dart';
 import 'package:communication_super_app/features/messages/screens/spam_and_blocked_screen.dart';
+import 'package:communication_super_app/features/settings/screens/privacy_policy_page.dart';
 import 'package:communication_super_app/features/settings/screens/settings_subpages.dart';
 
 /// The settings hub, laid out the way Google Phone's is: tinted section labels
@@ -266,6 +267,13 @@ class _AboutGroupState extends State<_AboutGroup> {
           summary: 'هم‌رسان',
         ),
         SettingsRow(icon: Icons.tag, title: 'نسخه', summary: _version ?? '…'),
+        SettingsRow(
+          icon: Icons.privacy_tip_outlined,
+          // The store-facing policy, kept inside the app so the text a
+          // reviewer reads and the text a user reads are the same one.
+          title: 'حریم خصوصی و دسترسی‌ها',
+          onTap: () => SettingsScreen._push(context, const PrivacyPolicyPage()),
+        ),
       ],
     );
   }
