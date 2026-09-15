@@ -64,7 +64,7 @@ tr{break-inside:avoid}
 <div class="note">
   <strong>این سند زنده است.</strong> نسخه‌ی مرجع آن <code>docs/publishing/store-release.md</code> داخل repo است و
   هر تغییری در وضعیت انتشار باید در همان commit آنجا ثبت شود. این PDF فقط یک snapshot است.<br>
-  <strong>آخرین بروزرسانی:</strong> ۱۴۰۵/۰۶/۲۴ — privacy policy تمام شد: صفحه‌ی داخل برنامه + URL عمومی روی GitHub Pages (اقدام ۲). repo عمومی شد. هنوز هیچ‌چیز submit نشده.
+  <strong>آخرین بروزرسانی:</strong> ۱۴۰۵/۰۶/۲۴ — privacy policy تمام شد (اقدام ۲) و پشتیبان رمزگذاری‌شده‌ی keystore ساخته، تأیید و به گوشی و GitHub secrets منتقل شد (اقدام ۳). repo عمومی شد. هنوز هیچ‌چیز submit نشده.
 </div>
 
 <h2>وضعیت فعلی</h2>
@@ -72,7 +72,7 @@ tr{break-inside:avoid}
   <thead><tr><th style="width:60%">مرحله</th><th>وضعیت</th></tr></thead>
   <tbody>
     <tr><td>بررسی فنی build</td><td>✅ انجام شد</td></tr>
-    <tr><td>اقدامات پیش از submission</td><td>🟡 در جریان — ۳ از ۶ انجام شد</td></tr>
+    <tr><td>اقدامات پیش از submission</td><td>🟡 در جریان — ۴ از ۶ انجام شد</td></tr>
     <tr><td>حساب پیشخان بازار</td><td>⬜ ساخته نشده</td></tr>
     <tr><td>حساب مایکت</td><td>⬜ ساخته نشده</td></tr>
     <tr><td>اولین submission بازار</td><td>⬜ —</td></tr>
@@ -111,11 +111,23 @@ tr{break-inside:avoid}
   <p><strong>نیمه‌ی دوم — وضعیت URL:</strong> <a href="https://ali-roodi.github.io/communication_super_app/privacy/">https://ali-roodi.github.io/communication_super_app/privacy/</a> — GitHub Pages از شاخه‌ی <code>main</code>، پوشه‌ی <code>/docs</code>. فایل مرجع: <code>docs/privacy/index.html</code>.</p>
 </div>
 
-<div class="item important">
-  <h3>۳. پشتیبان آفلاین از <code>upload-keystore.jks</code> <span class="badge important">برگشت‌ناپذیر</span></h3>
+<div class="item done">
+  <h3>۳. پشتیبان آفلاین از <code>upload-keystore.jks</code> <span class="badge done">انجام شد ۱۴۰۵/۰۶/۲۴</span></h3>
   <p>در بازار و مایکت معادلی برای <span class="en">Play App Signing</span> وجود ندارد. این فایل به‌علاوه‌ی سه رمز داخل <code>key.properties</code> تا همیشه هویت اپ است.</p>
   <div class="warn"><strong>پیامد از دست دادنش:</strong> هرگز نمی‌شود برای <code>ir.hamrasan.app</code> بروزرسانی داد؛ تنها راه انتشار مجدد با package name جدید است — یعنی از دست دادن تمام نصب‌ها و دیتای کاربران.</div>
-  <p><strong>اقدام:</strong> یک کپی رمزگذاری‌شده‌ی آفلاین خارج از دستگاه توسعه + نسخه‌ی <code>base64</code> به‌عنوان secret در CI.</p>
+  <p><strong>چه شد:</strong> <code>scripts/backup_keystore.ps1</code> و <code>scripts/backup_keystore.sh</code> اضافه شدند. خروجی یک آرشیو <code>hamrasan-keystore-backup-&lt;تاریخ&gt;.tar.enc</code> است (AES-256-CBC، PBKDF2 با ۶۰۰ هزار دور) که <code>.jks</code>، <code>key.properties</code>، نسخه‌ی base64 کلید، یک <code>RESTORE.md</code> با اثر انگشت گواهی و دستور بازیابی، و <code>SHA256SUMS</code> را در خود دارد. هیچ‌چیز بیرون آرشیو به شکل خام نوشته نمی‌شود.</p>
+  <p>دو چیز این را از «کپی» به «پشتیبان» تبدیل می‌کند: <strong>قبل از بسته‌بندی</strong> keystore با رمزهای داخل <code>key.properties</code> باز می‌شود (<code>keytool -list</code>) — پشتیبانی که رمزش غلط ثبت شده باشد بی‌ارزش است؛ و <strong>بعد از بسته‌بندی</strong> آرشیو دوباره باز می‌شود، <code>.jks</code> بایت‌به‌بایت مقایسه می‌شود و <code>keytool</code> روی نسخه‌ی بازیابی‌شده اجرا می‌شود.</p>
+  <p><strong>اثر انگشت SHA-256 گواهی:</strong> <span class="en">58:BC:0E:5F:2F:C3:B5:BE:6F:5E:5B:AF:F0:C5:B0:2F:E7:BD:9A:8E:CA:D0:6F:86:B4:E0:E1:74:B3:C3:97:0A</span> — همان چیزی که <code>apksigner verify --print-certs</code> روی هر APK فروشگاهی باید نشان بدهد.</p>
+  <table>
+    <thead><tr><th style="width:26%">کجا</th><th>چه</th><th style="width:30%">تأیید</th></tr></thead>
+    <tbody>
+      <tr><td>لپ‌تاپ توسعه</td><td><code>keystore-backup/hamrasan-keystore-backup-20260915.tar.enc</code> + <code>.sha256</code> (پوشه gitignore است)</td><td>بازگشایی و مقایسه در همان اجرا</td></tr>
+      <tr><td>گوشی تست</td><td><code>Download/hamrasan-keystore-backup/</code> همان دو فایل</td><td><code>sha256sum -c</code> روی خود گوشی: OK</td></tr>
+      <tr><td>GitHub Actions secrets</td><td><code>KEYSTORE_BASE64</code> <code>KEYSTORE_PASSWORD</code> <code>KEY_PASSWORD</code> <code>KEY_ALIAS</code></td><td><code>gh secret list</code> — همان نام‌های طرح CI</td></tr>
+    </tbody>
+  </table>
+  <p><strong>رمز آرشیو</strong> در repo، آرشیو و گوشی نیست و قابل بازیابی هم نیست؛ در password manager، جدا از آرشیو. تست بازیابی با <code>backup_keystore.sh --restore</code> انجام شد (آرشیوی که PowerShell ساخته بود با bash باز شد، <code>.jks</code> یکسان؛ رمز غلط رد می‌شود).</p>
+  <p><strong>هنوز باقی است:</strong> یک کپی روی USB یا دستگاهی که همیشه کنار لپ‌تاپ نباشد — گوشی تست و لپ‌تاپ معمولاً با هم‌اند. هر وقت USB وصل بود: <code>.\scripts\backup_keystore.ps1 -OutDir E:\</code>.</p>
 </div>
 
 <div class="item decision">
@@ -224,6 +236,7 @@ tr{break-inside:avoid}
     <tr><td>۱۴۰۵/۰۶/۱۸</td><td>بررسی اولیه‌ی build برای انتشار. ۵ اقدام باز شناسایی شد. هنوز هیچ حسابی ساخته نشده.</td></tr>
     <tr><td>۱۴۰۵/۰۶/۱۸</td><td><code>RECORD_AUDIO</code> از manifest حذف شد (اقدام ۱). نسخه‌گذاری از git راه افتاد با <code>scripts/release_build.{ps1,sh}</code> (اقدام ۵). <code>PROCESS_OUTGOING_CALLS</code> به‌عنوان اقدام ۶ باز شد.</td></tr>
     <tr><td>۱۴۰۵/۰۶/۲۴</td><td>صفحه‌ی داخل‌برنامه‌ای «حریم خصوصی و دسترسی‌ها» (<code>PrivacyPolicyPage</code>) نوشته و روی دستگاه تست شد؛ نسخه‌ی وب آن در <code>docs/privacy/index.html</code> ساخته شد (اقدام ۲). URL عمومی: <a href="https://ali-roodi.github.io/communication_super_app/privacy/">https://ali-roodi.github.io/communication_super_app/privacy/</a></td></tr>
+    <tr><td>۱۴۰۵/۰۶/۲۴</td><td>پشتیبان keystore (اقدام ۳): <code>scripts/backup_keystore.{ps1,sh}</code> نوشته شد؛ آرشیو AES-256 ساخته و با بازگشایی تأیید شد؛ کپی روی گوشی تست با <code>sha256sum</code> تأیید شد؛ چهار secret امضا با <code>gh secret set</code> روی repo نشست. کپی USB هنوز نه.</td></tr>
   </tbody>
 </table>
 
