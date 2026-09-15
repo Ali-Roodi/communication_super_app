@@ -125,3 +125,6 @@ app.*.symbols
 !**/ios/**/default.perspectivev3
 !/packages/flutter_tools/test/data/dart_dependencies_test/**/.packages
 !/dev/ci/**/Gemfile.lock
+# Encrypted keystore backups (scripts/backup_keystore.*). Encrypted or not,
+# the signing key never goes into the repo.
+keystore-backup/
