@@ -59,6 +59,20 @@ class DeviceSyncFinished extends MessageEvent {
   List<Object?> get props => [ok];
 }
 
+/// [threadId]'s rows were changed outside this bloc — a notification action
+/// («خواندم», «پاسخ», «مسدودسازی») wrote the database natively while the app
+/// was running. Refreshes whatever is on screen in place, with no loading
+/// state: without it the inbox went on showing a thread the user had just
+/// read from the shade as unread.
+class ThreadChangedExternally extends MessageEvent {
+  final String threadId;
+
+  const ThreadChangedExternally(this.threadId);
+
+  @override
+  List<Object?> get props => [threadId];
+}
+
 class LoadMessages extends MessageEvent {
   final String threadId;
   final int limit;

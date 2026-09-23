@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:communication_super_app/core/sim/widgets/sim_picker.dart';
@@ -204,13 +206,20 @@ class CallLogTile extends StatelessWidget {
             ),
             const SizedBox(width: 6),
             Flexible(
-              child: Text(
-                '${_callLabel(log.callType)} • ${_relativeTime(log.timestamp)}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: alert ?? scheme.onSurfaceVariant,
+              // Re-derived every minute, not only when the row is rebuilt:
+              // the list repaints when the call log changes, and nothing
+              // changes in it while time passes — a call placed at 11:24
+              // still read «هم‌اکنون» at 11:29.
+              child: ListenableBuilder(
+                listenable: _MinuteClock.instance,
+                builder: (context, _) => Text(
+                  '${_callLabel(log.callType)} • ${_relativeTime(log.timestamp)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: alert ?? scheme.onSurfaceVariant,
+                  ),
                 ),
               ),
             ),
@@ -572,6 +581,33 @@ String _callLabel(CallType type) {
       return 'رد شده';
     case CallType.blocked:
       return 'مسدود شده';
+  }
+}
+
+/// One timer for every row on screen, running only while at least one is
+/// listening — the list is lazy, so that is the handful of visible rows, and
+/// a tab nobody is looking at holds no timer at all once its rows are gone.
+class _MinuteClock extends ChangeNotifier {
+  _MinuteClock._();
+  static final _MinuteClock instance = _MinuteClock._();
+
+  Timer? _timer;
+
+  @override
+  void addListener(VoidCallback listener) {
+    super.addListener(listener);
+    _timer ??= Timer.periodic(const Duration(minutes: 1), (_) {
+      notifyListeners();
+    });
+  }
+
+  @override
+  void removeListener(VoidCallback listener) {
+    super.removeListener(listener);
+    if (!hasListeners) {
+      _timer?.cancel();
+      _timer = null;
+    }
   }
 }
 

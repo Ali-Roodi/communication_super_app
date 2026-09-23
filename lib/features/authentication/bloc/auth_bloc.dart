@@ -130,7 +130,10 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       await _repository.setAuthenticated(true);
       emit(const AuthAuthenticated());
     } else {
-      emit(const AuthValidationFailure('Invalid PIN'));
+      emit(const AuthValidationFailure('رمز عبور اشتباه است'));
+      // Back to the state the PIN screen is drawn for, as [RecoverWithCode]
+      // does — a failure is an event to react to, not a place to stay.
+      emit(AuthSet(await _repository.getAuthType()));
     }
   }
 
@@ -156,7 +159,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       await _repository.setAuthenticated(true);
       emit(const AuthAuthenticated());
     } else {
-      emit(const AuthValidationFailure('Invalid pattern'));
+      emit(const AuthValidationFailure('الگو اشتباه است'));
+      emit(AuthSet(await _repository.getAuthType()));
     }
   }
 

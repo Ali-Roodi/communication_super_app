@@ -102,14 +102,19 @@ void main() {
     );
 
     blocTest<AuthBloc, AuthState>(
-      'invalid PIN emits a validation failure',
-      setUp: () =>
-          when(() => repo.validatePin('0000')).thenAnswer((_) async => false),
+      'invalid PIN reports the failure in Persian and returns to AuthSet',
+      setUp: () {
+        when(() => repo.validatePin('0000')).thenAnswer((_) async => false);
+        when(() => repo.getAuthType()).thenAnswer((_) async => AuthType.pin);
+      },
       build: build,
       act: (bloc) => bloc.add(const ValidatePin('0000')),
+      // Ending on AuthSet is what keeps the PIN screen on screen; a bloc that
+      // stopped on the failure left the app on a blank page.
       expect: () => [
         const AuthLoading(),
-        const AuthValidationFailure('Invalid PIN'),
+        const AuthValidationFailure('رمز عبور اشتباه است'),
+        const AuthSet(AuthType.pin),
       ],
     );
   });

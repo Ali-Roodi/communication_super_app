@@ -100,12 +100,20 @@ class HoldCall extends DialerEvent {
   List<Object?> get props => [hold];
 }
 
-class SendDtmf extends DialerEvent {
+/// An in-call keypad key went down: start transmitting [digit] and add it to
+/// [DialerState.dtmfDigits]. Always followed by [DtmfKeyUp].
+class DtmfKeyDown extends DialerEvent {
   final String digit;
-  const SendDtmf(this.digit);
+  const DtmfKeyDown(this.digit);
 
   @override
   List<Object?> get props => [digit];
+}
+
+/// The in-call keypad key was released (or the press was cancelled): stop the
+/// tone [DtmfKeyDown] started.
+class DtmfKeyUp extends DialerEvent {
+  const DtmfKeyUp();
 }
 
 /// ادغام تماس فعال و تماس در انتظار در یک تماس کنفرانسی

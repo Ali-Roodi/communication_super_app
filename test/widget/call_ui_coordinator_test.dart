@@ -178,4 +178,159 @@ void main() {
     expect(find.byType(InCallScreen), findsNothing);
     expect(find.byKey(const Key('app-root')), findsOneWidget);
   });
+
+  // ── Heads-up card vs full screen ──────────────────────────────────────────
+  //
+  // A call that rings while the phone is in use is announced by the system's
+  // heads-up card alone (Google Phone); the native side says so with
+  // `showScreen: false`, and the full screen opens only when that flips.
+
+  const ringOnCard = CallInfo(
+    event: NativeCallEvent.incoming,
+    phone: '09122222222',
+    direction: 'incoming',
+    showScreen: false,
+  );
+
+  testWidgets('a ring on the heads-up card opens no screen until tapped', (
+    tester,
+  ) async {
+    final bloc = await pumpApp(tester);
+    addTearDown(bloc.close);
+
+    await emit(tester, ringOnCard);
+    expect(find.byType(IncomingCallScreen), findsNothing);
+    expect(find.byKey(const Key('app-root')), findsOneWidget);
+    expect(CallUiCoordinator.minimized.value, isFalse);
+
+    // The card was tapped: the same ring, now wanting the screen.
+    await emit(
+      tester,
+      const CallInfo(
+        event: NativeCallEvent.incoming,
+        phone: '09122222222',
+        direction: 'incoming',
+      ),
+    );
+    expect(find.byType(IncomingCallScreen), findsOneWidget);
+
+    // Asked again (SHOW_CALL_UI after the state already flipped) — still one.
+    CallUiCoordinator.restore();
+    await tester.pump();
+    expect(find.byType(IncomingCallScreen), findsOneWidget);
+  });
+
+  testWidgets('answering from the card opens the in-call screen', (
+    tester,
+  ) async {
+    final bloc = await pumpApp(tester);
+    addTearDown(bloc.close);
+
+    await emit(tester, ringOnCard);
+    await emit(
+      tester,
+      const CallInfo(
+        event: NativeCallEvent.active,
+        phone: '09122222222',
+        direction: 'incoming',
+      ),
+    );
+    expect(find.byType(InCallScreen), findsOneWidget);
+  });
+
+  testWidgets('declining from the card opens nothing and leaves nothing', (
+    tester,
+  ) async {
+    final bloc = await pumpApp(tester);
+    addTearDown(bloc.close);
+
+    await emit(tester, ringOnCard);
+    await emit(
+      tester,
+      const CallInfo(
+        event: NativeCallEvent.disconnected,
+        phone: '09122222222',
+        direction: 'incoming',
+      ),
+    );
+    await settleTeardown(tester);
+    expect(find.byType(IncomingCallScreen), findsNothing);
+    expect(find.byType(InCallScreen), findsNothing);
+    expect(find.byKey(const Key('app-root')), findsOneWidget);
+  });
+
+  testWidgets(
+    'a second call declined from the card leaves the first one put away',
+    (tester) async {
+      final bloc = await pumpApp(tester);
+      addTearDown(bloc.close);
+
+      // Call A is up, and the user put its screen away.
+      await emit(
+        tester,
+        const CallInfo(
+          event: NativeCallEvent.active,
+          phone: '09121111111',
+          direction: 'incoming',
+        ),
+      );
+      CallUiCoordinator.minimize();
+      await tester.pump();
+      expect(find.byType(InCallScreen), findsNothing);
+      expect(CallUiCoordinator.minimized.value, isTrue);
+
+      // B rings on the card and is declined; telecom hands back to A.
+      await emit(tester, ringOnCard);
+      await emit(
+        tester,
+        const CallInfo(
+          event: NativeCallEvent.active,
+          phone: '09121111111',
+          direction: 'incoming',
+        ),
+      );
+      expect(find.byType(InCallScreen), findsNothing,
+          reason: 'A was put away; B never had a screen to swap back from');
+      expect(CallUiCoordinator.minimized.value, isTrue);
+
+      await emit(
+        tester,
+        const CallInfo(
+          event: NativeCallEvent.disconnected,
+          phone: '09121111111',
+          direction: 'incoming',
+        ),
+      );
+      await settleTeardown(tester);
+    },
+  );
+
+  testWidgets('back on the incoming screen puts it away without a bar', (
+    tester,
+  ) async {
+    final bloc = await pumpApp(tester);
+    addTearDown(bloc.close);
+
+    await emit(
+      tester,
+      const CallInfo(
+        event: NativeCallEvent.incoming,
+        phone: '09121111111',
+        direction: 'incoming',
+      ),
+    );
+    expect(find.byType(IncomingCallScreen), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    expect(find.byType(IncomingCallScreen), findsNothing);
+    expect(find.byKey(const Key('app-root')), findsOneWidget);
+    // Not "a call in the background" — the heads-up card takes it over.
+    expect(CallUiCoordinator.minimized.value, isFalse);
+
+    // The card is tapped: the screen comes back.
+    CallUiCoordinator.restore();
+    await tester.pump();
+    expect(find.byType(IncomingCallScreen), findsOneWidget);
+  });
 }

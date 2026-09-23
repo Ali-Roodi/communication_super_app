@@ -30,6 +30,8 @@ import com.example.communication_super_app.sim.SimRegistry
  * - **پاسخ** — inline RemoteInput reply, sent by [SmsNotificationActionReceiver]
  *   with SmsManager directly (works with the app dead, backgrounded or open).
  * - **خواندم** — marks the thread read straight in the DB.
+ * - **مسدودسازی** — blocks the sender straight in the DB, with a short-lived
+ *   «لغو» card in the message's place ([notifyBlocked]).
  * - Tap — launches MainActivity with a `threadId` extra; the Dart side
  *   deep-links into the conversation.
  */
@@ -155,6 +157,21 @@ object SmsNotifier {
                 piFlags,
             )
 
+            // «مسدودسازی» — most of what lands in the shade unasked is
+            // advertising, and blocking it used to mean opening the app,
+            // finding the conversation and going through its menu. The request
+            // code is kept apart from the other two (+2) for readability; the
+            // distinct action is what actually keeps the PendingIntents apart.
+            val blockIntent = PendingIntent.getBroadcast(
+                context, notifId + 2,
+                Intent(SmsNotificationActionReceiver.ACTION_BLOCK)
+                    .setPackage(context.packageName)
+                    .putExtra(SmsNotificationActionReceiver.EXTRA_ADDRESS, address)
+                    .putExtra(SmsNotificationActionReceiver.EXTRA_THREAD_ID, threadId)
+                    .putExtra(SmsNotificationActionReceiver.EXTRA_NOTIF_ID, notifId),
+                piFlags,
+            )
+
             // MessagingStyle + Person: the sender's name and contact photo
             // render in the notification exactly like Google Messages.
             // The contact's photo when there is one, and the app's own letter
@@ -231,6 +248,7 @@ object SmsNotifier {
                 }
                 .addAction(replyAction)
                 .addAction(0, "خواندم", markReadIntent)
+                .addAction(0, "مسدودسازی", blockIntent)
                 .build()
 
             // Tagged with the threadId so opening the conversation can dismiss
@@ -260,6 +278,90 @@ object SmsNotifier {
     } catch (e: Exception) {
         Log.w(TAG, "isUserWatching failed: ${e.message}")
         false
+    }
+
+    /** How long the «… مسدود شد» card stays up to be undone. Long enough to
+     *  pull the shade down and expand the card: One UI shows a card collapsed,
+     *  with «لغو» hidden until it is opened, and 8 s was gone before that. */
+    private const val BLOCKED_CARD_TIMEOUT_MS = 30_000L
+
+    /**
+     * Replaces the sender's card with «… مسدود شد» and a «لغو» that removes
+     * exactly [insertedRowId] — null when the sender was already blocked, in
+     * which case there is nothing of ours to undo and no «لغو» is offered.
+     *
+     * Silent (no sound, no heads-up) and short-lived: it confirms a tap the
+     * user just made, it is not news. Posted under the thread's own tag and id,
+     * so it takes the message card's place instead of stacking under it, and
+     * [reconcile] drops it on the next resume like any card for a blocked
+     * sender.
+     */
+    fun notifyBlocked(
+        context: Context,
+        threadId: String,
+        address: String,
+        insertedRowId: String?,
+    ) {
+        try {
+            val nm =
+                context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            ensureChannel(nm)
+            val who = lookupContactName(context, address) ?: address
+            val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_stat_message)
+                .setContentTitle("$who مسدود شد")
+                .setContentText("پیامک‌ها و تماس‌های این فرستنده دیگر نمایش داده نمی‌شوند")
+                .setCategory(Notification.CATEGORY_STATUS)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setSilent(true)
+                .setAutoCancel(true)
+                .setTimeoutAfter(BLOCKED_CARD_TIMEOUT_MS)
+            if (insertedRowId != null) {
+                val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                } else {
+                    PendingIntent.FLAG_UPDATE_CURRENT
+                }
+                val undo = PendingIntent.getBroadcast(
+                    context, threadId.hashCode() + 3,
+                    Intent(SmsNotificationActionReceiver.ACTION_UNDO_BLOCK)
+                        .setPackage(context.packageName)
+                        .putExtra(SmsNotificationActionReceiver.EXTRA_THREAD_ID, threadId)
+                        .putExtra(
+                            SmsNotificationActionReceiver.EXTRA_BLOCKED_ROW_ID,
+                            insertedRowId,
+                        ),
+                    flags,
+                )
+                builder.addAction(0, "لغو", undo)
+            }
+            nm.notify(threadId, threadId.hashCode(), builder.build())
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to post blocked confirmation: ${e.message}")
+        }
+    }
+
+    /** The block could not be written — said once, silently, and briefly. */
+    fun notifyBlockFailed(context: Context, threadId: String, address: String) {
+        try {
+            val nm =
+                context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            ensureChannel(nm)
+            val who = lookupContactName(context, address) ?: address
+            val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_stat_message)
+                .setContentTitle("$who مسدود نشد")
+                .setContentText("دوباره از داخل گفتگو امتحان کنید")
+                .setCategory(Notification.CATEGORY_ERROR)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setSilent(true)
+                .setAutoCancel(true)
+                .setTimeoutAfter(BLOCKED_CARD_TIMEOUT_MS)
+                .build()
+            nm.notify(threadId, threadId.hashCode(), notification)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to post block failure: ${e.message}")
+        }
     }
 
     /** Dismisses every posted SMS notification tagged with [threadId]. */

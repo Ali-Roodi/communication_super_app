@@ -24,6 +24,7 @@ import 'package:communication_super_app/features/call_history/bloc/call_log_bloc
 import 'package:communication_super_app/features/call_history/bloc/call_log_event.dart';
 import 'package:communication_super_app/features/messages/screens/contact_selector_screen.dart';
 import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
+import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
 import 'package:communication_super_app/core/services/deep_link_service.dart';
 import 'widgets/message_nav_icon.dart';
@@ -78,6 +79,7 @@ class _MainNavigationState extends State<MainNavigation>
     // (post-auth) so nothing external can bypass the app lock.
     DeepLinkService.instance
       ..onAction = _handleLaunchAction
+      ..onThreadChanged = _onThreadChangedExternally
       ..registerHandler();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final action = await DeepLinkService.instance.consumeInitialAction();
@@ -137,6 +139,15 @@ class _MainNavigationState extends State<MainNavigation>
         // dialer with the number in it".
         showDialerBottomSheet(context, initialNumber: action.number);
     }
+  }
+
+  /// A notification action changed [threadId] in the database while the app
+  /// was running: refresh the inbox (or the open conversation), and the
+  /// blocked list, which «مسدودسازی» may just have added to.
+  void _onThreadChangedExternally(String threadId) {
+    if (!mounted) return;
+    context.read<MessageBloc>().add(ThreadChangedExternally(threadId));
+    context.read<BlockedNumbersBloc>().add(const LoadBlocked());
   }
 
   /// Switches tab, and clears the missed-call notifications when «اخیر» comes

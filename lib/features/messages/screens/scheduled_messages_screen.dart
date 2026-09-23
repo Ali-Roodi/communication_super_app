@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
+import 'package:communication_super_app/core/widgets/google_list.dart';
 import '../bloc/scheduled_bloc.dart';
 import '../bloc/scheduled_event.dart';
 import '../bloc/scheduled_state.dart';
@@ -223,28 +224,12 @@ class _ScheduledTile extends StatelessWidget {
 class _EmptyState extends StatelessWidget {
   const _EmptyState();
 
+  /// The shared [EmptyState], like every other list in the app — this one
+  /// alone was a bare grey icon over small print, and read as a different app.
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.schedule_send_outlined,
-            size: 64,
-            color: theme.colorScheme.outline,
-          ),
-          const SizedBox(height: 16),
-          const Text('پیام زمان‌بندی‌شده‌ای نیست'),
-          const SizedBox(height: 4),
-          Text(
-            'در گفتگو، دکمهٔ ارسال را نگه دارید تا پیام زمان‌بندی شود',
-            style: theme.textTheme.bodySmall,
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => const EmptyState(
+    icon: Icons.schedule_send_outlined,
+    title: 'پیام زمان‌بندی‌شده‌ای نیست',
+    subtitle: 'در گفتگو، دکمهٔ ارسال را نگه دارید تا پیام زمان‌بندی شود',
+  );
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:communication_super_app/core/navigation/call_ui_coordinator.dart';
 import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:communication_super_app/core/sim/widgets/sim_picker.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -81,117 +82,125 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     final name = widget.contactName ?? _resolvedName;
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: Scaffold(
-        body: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Color(0xFF2A2A3C), Color(0xFF1C1B1F)],
-            ),
+      // Back puts the ringing call away, it does not end it: the heads-up card
+      // takes it over (natively), as in Google Phone. A plain pop took the
+      // route down behind the coordinator's back, which went on reporting the
+      // call screen as up — so the card stayed cancelled and the phone rang
+      // with nothing on it to answer.
+      child: PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) CallUiCoordinator.minimize();
+        },
+        child: _buildScaffold(context, name),
+      ),
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context, String? name) {
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF2A2A3C), Color(0xFF1C1B1F)],
           ),
-          child: SafeArea(
-            child: Column(
-              children: [
-                const Spacer(flex: 2),
-                Container(
-                  width: 100,
-                  height: 100,
-                  decoration: BoxDecoration(
-                    color: AppColors.googleBlue.withValues(alpha: 0.2),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: AppColors.googleBlue, width: 2),
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: _avatar != null
-                      ? Image.memory(_avatar!, fit: BoxFit.cover)
-                      : const Icon(
-                          Icons.person,
-                          size: 56,
-                          color: Colors.white70,
-                        ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              const Spacer(flex: 2),
+              Container(
+                width: 100,
+                height: 100,
+                decoration: BoxDecoration(
+                  color: AppColors.googleBlue.withValues(alpha: 0.2),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: AppColors.googleBlue, width: 2),
                 ),
-                const SizedBox(height: 24),
-                // «تماس ورودی · سیم ۲ · ایرانسل» — on a dual-SIM phone the
-                // card that is ringing is the first thing worth knowing.
-                SimAware(
-                  builder: (context, _, _) => Text(
-                    _incomingLine(context),
-                    style: const TextStyle(
-                      color: Colors.white38,
-                      fontSize: 14,
-                    ),
-                  ),
+                clipBehavior: Clip.antiAlias,
+                child: _avatar != null
+                    ? Image.memory(_avatar!, fit: BoxFit.cover)
+                    : const Icon(Icons.person, size: 56, color: Colors.white70),
+              ),
+              const SizedBox(height: 24),
+              // «تماس ورودی · سیم ۲ · ایرانسل» — on a dual-SIM phone the
+              // card that is ringing is the first thing worth knowing.
+              SimAware(
+                builder: (context, _, _) => Text(
+                  _incomingLine(context),
+                  style: const TextStyle(color: Colors.white38, fontSize: 14),
                 ),
-                const SizedBox(height: 12),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                name ?? PersianUtils.displayPhone(phone),
+                // LTR so the grouped number reads 0919 096 1805, not with
+                // the groups flipped by the surrounding RTL direction.
+                textDirection: name == null ? TextDirection.ltr : null,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 30,
+                  fontWeight: FontWeight.w300,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              if (name != null) ...[
+                const SizedBox(height: 8),
                 Text(
-                  name ?? PersianUtils.displayPhone(phone),
-                  // LTR so the grouped number reads 0919 096 1805, not with
-                  // the groups flipped by the surrounding RTL direction.
-                  textDirection: name == null ? TextDirection.ltr : null,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 30,
-                    fontWeight: FontWeight.w300,
-                  ),
-                  textAlign: TextAlign.center,
+                  PersianUtils.displayPhone(phone),
+                  textDirection: TextDirection.ltr,
+                  style: const TextStyle(color: Colors.white54, fontSize: 16),
                 ),
-                if (name != null) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    PersianUtils.displayPhone(phone),
-                    textDirection: TextDirection.ltr,
-                    style: const TextStyle(color: Colors.white54, fontSize: 16),
-                  ),
-                ],
-                const Spacer(flex: 3),
-                // Secondary options: remind me · reply with message
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _TextOption(
-                      icon: Icons.schedule,
-                      label: 'یادآوری',
-                      onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('یادآوری به‌زودی فعال می‌شود'),
-                        ),
+              ],
+              const Spacer(flex: 3),
+              // Secondary options: remind me · reply with message
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _TextOption(
+                    icon: Icons.schedule,
+                    label: 'یادآوری',
+                    onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('یادآوری به‌زودی فعال می‌شود'),
                       ),
                     ),
-                    _TextOption(
-                      icon: Icons.message_outlined,
-                      label: 'پاسخ با پیام',
-                      onTap: () => _showReplySheet(context),
+                  ),
+                  _TextOption(
+                    icon: Icons.message_outlined,
+                    label: 'پاسخ با پیام',
+                    onTap: () => _showReplySheet(context),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 28),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 48),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    _CallCircleButton(
+                      icon: Icons.call_end,
+                      color: AppColors.callRejectRed,
+                      label: 'رد کردن',
+                      onPressed: () =>
+                          context.read<DialerBloc>().add(const RejectCall()),
+                    ),
+                    _CallCircleButton(
+                      icon: Icons.call,
+                      color: AppColors.callAnswerGreen,
+                      label: 'پاسخ',
+                      swipeUp: true,
+                      onPressed: () =>
+                          context.read<DialerBloc>().add(const AnswerCall()),
                     ),
                   ],
                 ),
-                const SizedBox(height: 28),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 48),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _CallCircleButton(
-                        icon: Icons.call_end,
-                        color: AppColors.callRejectRed,
-                        label: 'رد کردن',
-                        onPressed: () =>
-                            context.read<DialerBloc>().add(const RejectCall()),
-                      ),
-                      _CallCircleButton(
-                        icon: Icons.call,
-                        color: AppColors.callAnswerGreen,
-                        label: 'پاسخ',
-                        swipeUp: true,
-                        onPressed: () =>
-                            context.read<DialerBloc>().add(const AnswerCall()),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 40),
-              ],
-            ),
+              ),
+              const SizedBox(height: 40),
+            ],
           ),
         ),
       ),

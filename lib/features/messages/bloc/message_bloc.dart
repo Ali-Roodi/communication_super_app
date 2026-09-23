@@ -82,6 +82,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     on<LoadThreads>(_onLoadThreads);
     on<SyncDeviceMessages>(_onSyncDeviceMessages);
     on<DeviceSyncFinished>(_onDeviceSyncFinished);
+    on<ThreadChangedExternally>(_onThreadChangedExternally);
     on<LoadMoreThreads>(_onLoadMoreThreads);
     on<LoadMessages>(_onLoadMessages);
     on<LoadMoreMessages>(_onLoadMoreMessages);
@@ -477,6 +478,26 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       return;
     }
     _hasImported = true;
+    await _refreshInPlace(emit);
+  }
+
+  /// A notification action wrote [ThreadChangedExternally.threadId]'s rows
+  /// natively. An open conversation is refreshed only when it is that thread —
+  /// any other one is unaffected, and the inbox is reloaded on the way back to
+  /// it anyway.
+  Future<void> _onThreadChangedExternally(
+    ThreadChangedExternally event,
+    Emitter<MessageState> emit,
+  ) async {
+    final current = state;
+    if (current is MessagesLoaded && current.threadId != event.threadId) return;
+    await _refreshInPlace(emit);
+  }
+
+  /// Re-reads what is on screen — the open conversation's bubbles, or the
+  /// inbox page(s) already loaded — and emits it with no loading state.
+  Future<void> _refreshInPlace(Emitter<MessageState> emit) async {
+    final current = state;
     try {
       if (current is MessagesLoaded) {
         // A conversation is open: refresh its bubbles in place.

@@ -14,6 +14,17 @@ class AuthWrapperScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<AuthBloc, AuthState>(
+      // Transient states are for the screen on top to react to, never a
+      // reason to swap it out. Building on them unmounted the PIN screen the
+      // moment a PIN was checked — `AuthLoading`, then `AuthValidationFailure`,
+      // both of which render as the blank fallback below — so a single wrong
+      // PIN left a blank screen with no keypad and no way in short of killing
+      // the app. Keeping the screen mounted is also what lets its listener
+      // hear the failure and say so.
+      buildWhen: (_, next) =>
+          next is! AuthLoading &&
+          next is! AuthValidationFailure &&
+          next is! AuthRecoveryCodeIssued,
       builder: (context, state) {
         if (state is AuthLoading) {
           // Blank, not a spinner — this is a secure-storage read that resolves

@@ -68,6 +68,19 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator>
   String _minimizedPhone = '';
   String? _minimizedName;
 
+  /// Whether the call route on top is the INCOMING screen (not the in-call
+  /// one). A ringing call can now be on the heads-up card only, so "a call
+  /// route is up" no longer says which screen the user would be looking at.
+  bool _callRouteIsIncoming = false;
+
+  /// The number the current ring is for, and whether its full screen was
+  /// ever opened. Together they tell "the call the user just answered from
+  /// the card" (open the in-call screen, as Google Phone does) from "the
+  /// earlier call that is left after the ringing one went away" (the user had
+  /// put that call away; leave it put away).
+  String _ringingPhone = '';
+  bool _incomingShown = false;
+
   StreamSubscription<void>? _showCallUiSubscription;
 
   @override
@@ -106,7 +119,11 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator>
     _minimizedPhone = state.activePhone;
     _minimizedName = state.activeName;
     _dismissCallRoutes();
-    CallUiCoordinator.minimized.value = true;
+    // Backing out of a lone ringing call is not "a call in the background":
+    // the heads-up card takes it over (natively), and a «بازگشت به تماس» bar
+    // under it would be a second, stranger way to answer the same thing.
+    CallUiCoordinator.minimized.value =
+        state.callStatus != CallStatus.incoming || state.callCount > 1;
     _reportCallScreenVisible(false);
   }
 
@@ -119,7 +136,10 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator>
       CallUiCoordinator.minimized.value = false;
       return;
     }
-    if (_callRoute?.isActive == true) {
+    // A ring the user tapped from the card while an earlier call's screen sits
+    // in the stack wants the INCOMING screen, not that one raised.
+    final wantsIncoming = state.callStatus == CallStatus.incoming;
+    if (_callRoute?.isActive == true && _callRouteIsIncoming == wantsIncoming) {
       // Already up but buried under a conversation/contact page the user
       // opened during the call.
       _bringCallRouteToTop(context);
@@ -187,6 +207,8 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator>
       pageBuilder: (_, _, _) =>
           BlocProvider.value(value: context.read<DialerBloc>(), child: screen),
     );
+    _callRouteIsIncoming = screen is IncomingCallScreen;
+    if (_callRouteIsIncoming) _incomingShown = true;
     final stale = List<Route<void>>.of(_callRoutes);
     _callRoutes
       ..clear()
@@ -211,6 +233,7 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator>
     final navigator = appNavigatorKey.currentState;
     final routes = List<Route<void>>.of(_callRoutes);
     _callRoutes.clear();
+    _callRouteIsIncoming = false;
     if (navigator == null) return;
     for (final route in routes) {
       if (route.isActive) navigator.removeRoute(route);
@@ -235,6 +258,7 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator>
     return BlocListener<DialerBloc, DialerState>(
       listenWhen: (prev, curr) =>
           prev.callStatus != curr.callStatus ||
+          prev.showIncomingScreen != curr.showIncomingScreen ||
           (prev.autoRedial == null) != (curr.autoRedial == null),
       listener: (context, state) {
         final prev = _lastCallStatus;
@@ -247,6 +271,18 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator>
 
         switch (state.callStatus) {
           case CallStatus.incoming:
+            if (prev != CallStatus.incoming) {
+              _ringingPhone = state.activePhone;
+              _incomingShown = false;
+            }
+            // Rung while the phone was in use: the heads-up card is the whole
+            // of the incoming UI, exactly as in Google Phone. Tapping it (or
+            // the phone being locked) flips this and the listener runs again.
+            if (!state.showIncomingScreen) break;
+            if (_callRoute?.isActive == true && _callRouteIsIncoming) {
+              _bringCallRouteToTop(context);
+              break;
+            }
             _pushCall(
               context,
               IncomingCallScreen(
@@ -276,7 +312,16 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator>
             }
           case CallStatus.active:
             if (prev == CallStatus.incoming) {
-              // Answered: swap the incoming screen for the in-call screen.
+              // The ringing call went away and left an EARLIER call up — one
+              // the user had put away, with only the heads-up card ever shown
+              // for the second: leave things as they were rather than throw
+              // the in-call screen over whatever they are doing.
+              if (!_incomingShown &&
+                  state.activePhone != _ringingPhone &&
+                  _callRoute?.isActive != true) {
+                break;
+              }
+              // Answered (on the screen or from the card): the in-call screen.
               _pushCall(
                 context,
                 InCallScreen(

@@ -301,9 +301,70 @@ class _SecurityGroupState extends State<_SecurityGroup> {
     _load();
   }
 
+  /// «قفل خودکار» — seconds in the background before the PIN is asked again.
+  int _relockAfter = AuthRepository.defaultRelockAfterSeconds;
+
+  static const Map<int, String> _relockLabels = {
+    0: 'فوراً',
+    60: 'پس از ۱ دقیقه',
+    300: 'پس از ۵ دقیقه',
+    1800: 'پس از ۳۰ دقیقه',
+  };
+
   Future<void> _load() async {
     final type = await _repository.getAuthType();
-    if (mounted) setState(() => _authType = type);
+    final relock = await AuthRepository.relockAfterSeconds();
+    if (mounted) {
+      setState(() {
+        _authType = type;
+        _relockAfter = relock;
+      });
+    }
+  }
+
+  Future<void> _pickRelock(BuildContext context) async {
+    var pending = _relockAfter;
+    final selected = await showDialog<int>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: StatefulBuilder(
+          builder: (ctx, setLocal) => AlertDialog(
+            title: const Text('قفل خودکار'),
+            contentPadding: const EdgeInsets.only(top: 12),
+            content: RadioGroup<int>(
+              groupValue: pending,
+              onChanged: (v) {
+                if (v != null) setLocal(() => pending = v);
+              },
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final s in AuthRepository.relockChoices)
+                    RadioListTile<int>(
+                      value: s,
+                      title: Text(_relockLabels[s]!),
+                    ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('انصراف'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(pending),
+                child: const Text('تأیید'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (selected == null) return;
+    await AuthRepository.setRelockAfterSeconds(selected);
+    if (mounted) setState(() => _relockAfter = selected);
   }
 
   Future<void> _openPinSetup(BuildContext context) async {
@@ -386,6 +447,18 @@ class _SecurityGroupState extends State<_SecurityGroup> {
               : 'برنامه بدون قفل باز می‌شود',
           onTap: () => _openPinSetup(context),
         ),
+        if (hasPin)
+          SettingsRow(
+            icon: Icons.lock_clock_outlined,
+            title: 'قفل خودکار',
+            summary: switch (_relockAfter) {
+              0 => 'با هر بار خروج از برنامه',
+              60 => '۱ دقیقه پس از خروج از برنامه',
+              300 => '۵ دقیقه پس از خروج از برنامه',
+              _ => '۳۰ دقیقه پس از خروج از برنامه',
+            },
+            onTap: () => _pickRelock(context),
+          ),
         if (hasPin)
           SettingsRow(
             icon: Icons.key_outlined,

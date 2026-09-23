@@ -111,9 +111,14 @@ class ContactSectionHeaderDelegate extends SliverPersistentHeaderDelegate {
     );
   }
 
+  /// Always. [build] takes its colours from `Theme.of`, and a persistent
+  /// header is only rebuilt when this says so — comparing the letter alone
+  /// left every header painted in the *old* theme after «انتخاب پوسته»
+  /// switched it live: a white bar behind «A» on a dark page until the app
+  /// was restarted. The header is one `Container` and a `Text`, and only the
+  /// few on screen exist, so there is nothing worth saving by skipping it.
   @override
-  bool shouldRebuild(ContactSectionHeaderDelegate old) =>
-      old.letter != letter || old.background != background;
+  bool shouldRebuild(ContactSectionHeaderDelegate old) => true;
 }
 
 /// The fast-scroll alphabet bar.

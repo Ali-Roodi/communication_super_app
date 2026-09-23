@@ -78,6 +78,12 @@ class DeepLinkService {
   /// Called when an intent arrives while the app is alive.
   void Function(LaunchAction action)? onAction;
 
+  /// Called when a notification action («خواندم», «پاسخ», «مسدودسازی») has
+  /// written a thread's rows natively while the app is alive — whatever is on
+  /// screen was painted from the rows before it. See
+  /// `MainActivity.notifyThreadChanged`.
+  void Function(String threadId)? onThreadChanged;
+
   bool _handlerRegistered = false;
 
   /// Registers the warm-start handler. Idempotent.
@@ -88,6 +94,11 @@ class DeepLinkService {
       if (call.method == 'openAction') {
         final action = LaunchAction.fromMap(call.arguments);
         if (action != null) onAction?.call(action);
+      } else if (call.method == 'threadChanged') {
+        final threadId = call.arguments;
+        if (threadId is String && threadId.isNotEmpty) {
+          onThreadChanged?.call(threadId);
+        }
       }
     });
   }

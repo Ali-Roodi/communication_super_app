@@ -28,6 +28,9 @@ class CallHandler(
         const val EVENT_CHANNEL  = "com.example.communication_super_app/call_events"
         private const val TAG    = "CallHandler"
 
+        /** Longest a held key may transmit before the watchdog releases it. */
+        private const val DTMF_MAX_MS = 5_000L
+
         /** startActivityForResult code for the default-dialer role request. */
         const val REQUEST_DEFAULT_DIALER_ROLE = 9003
     }
@@ -90,8 +93,14 @@ class CallHandler(
                     "getAudioState"   -> result.success(
                         CallInCallService.instance?.currentAudioState(),
                     )
-                    "sendDtmf"        -> {
-                        sendDtmf(call.argument<String>("digit") ?: "")
+                    // A held key: the tone goes down the line from touch-down
+                    // to release, the way Google Phone's in-call pad sends it.
+                    "startDtmf"       -> {
+                        startDtmf(call.argument<String>("digit") ?: "")
+                        result.success(null)
+                    }
+                    "stopDtmf"        -> {
+                        stopDtmf()
                         result.success(null)
                     }
                     "playKeypadTone"  -> {
@@ -457,23 +466,61 @@ class CallHandler(
         audioManager.mode = if (on) AudioManager.MODE_NORMAL else AudioManager.MODE_IN_CALL
     }
 
-    private fun sendDtmf(digit: String) {
+    /** The call a tone is being held on, so the release stops it on the same
+     *  call even if the foreground call changed while the key was down. */
+    private var dtmfCall: android.telecom.Call? = null
+
+    private val dtmfHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    /** A release that never arrives (the engine torn down mid-press) must not
+     *  leave a tone going down the line for the rest of the call. */
+    private val dtmfWatchdog = Runnable { stopDtmf() }
+
+    /**
+     * Starts transmitting [digit] to the far end — the in-call keypad (IVR
+     * menus, the «امتیاز به اپراتور» survey at the end of a support call).
+     *
+     * The target is the call that is **ACTIVE** ([CallInCallService.dtmfTarget]),
+     * not blindly `currentCall`. That field follows what the screen shows, and
+     * around call waiting, a second leg or a leg that just dropped it can name
+     * a ringing, held or already-disconnected call — telecom silently drops a
+     * tone sent there, so the keypad looked alive while the IVR heard nothing.
+     *
+     * Held rather than fired: `playDtmfTone` immediately followed by
+     * `stopDtmfTone` asks the network for a zero-length digit, and whether that
+     * is stretched to something an IVR accepts is left to each modem.
+     */
+    private fun startDtmf(digit: String) {
         if (digit.isEmpty()) return
-        // Route the tone to the remote party through telecom when a real call
-        // is up (this is what IVR menus hear)…
-        CallInCallService.currentCall?.let { call ->
-            call.playDtmfTone(digit[0])
-            call.stopDtmfTone()
+        stopDtmf() // one tone at a time — a second finger replaces the first
+        val target = CallInCallService.dtmfTarget()
+        if (target != null) {
+            target.playDtmfTone(digit[0])
+            dtmfCall = target
+            dtmfHandler.postDelayed(dtmfWatchdog, DTMF_MAX_MS)
+        } else {
+            Log.w(TAG, "DTMF not sent: no active call")
         }
-        // …and always play local audible feedback.
+        // Local audible feedback either way.
         playLocalTone(digit)
+    }
+
+    private fun stopDtmf() {
+        dtmfHandler.removeCallbacks(dtmfWatchdog)
+        val call = dtmfCall ?: return
+        dtmfCall = null
+        try {
+            call.stopDtmfTone()
+        } catch (e: Exception) {
+            Log.e(TAG, "stopDtmfTone error: ${e.message}")
+        }
     }
 
     /**
      * Audible keypress feedback with nothing sent down the line — the dialer
      * keypad's tone.
      *
-     * It is a separate entry point on purpose: [sendDtmf] transmits whenever a
+     * It is a separate entry point on purpose: [startDtmf] transmits whenever a
      * call exists, and the keypad opened from «افزودن تماس» sits on top of a
      * live one, so sharing the method played the number being dialled into the
      * ear of the person already on the call.
