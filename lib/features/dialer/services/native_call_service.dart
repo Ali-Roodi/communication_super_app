@@ -161,6 +161,12 @@ class CallInfo {
   final CallDisconnectCause disconnectCause;
   final String? disconnectReason;
 
+  /// RINGING only: whether the full incoming screen should open, or the call
+  /// is left to the heads-up card (the phone was in use when it rang). The
+  /// native side decides — see `CallInCallService.incomingScreenCall`. True
+  /// when absent, which is the old behaviour.
+  final bool showScreen;
+
   const CallInfo({
     required this.event,
     this.phone = '',
@@ -179,6 +185,7 @@ class CallInfo {
     this.connectedAt,
     this.disconnectCause = CallDisconnectCause.unknown,
     this.disconnectReason,
+    this.showScreen = true,
   });
 }
 
@@ -255,6 +262,7 @@ class NativeCallService {
         },
         disconnectCause: CallDisconnectCause.parse(map['cause'] as String?),
         disconnectReason: map['reason'] as String?,
+        showScreen: map['showScreen'] as bool? ?? true,
       );
     });
     return _stream!;
@@ -333,15 +341,21 @@ class NativeCallService {
     }
   }
 
-  /// Plays the DTMF tone **and transmits it to the remote party** — the in-call
-  /// keypad (IVR menus).
-  Future<void> sendDtmf(String digit) =>
-      _method.invokeMethod('sendDtmf', {'digit': digit});
+  /// Starts the DTMF tone **and transmits it to the remote party** — the
+  /// in-call keypad (IVR menus). It keeps going until [stopDtmf], which the
+  /// key sends on release, so the digit lasts as long as the press does
+  /// (Google Phone's behaviour). The native side releases it by itself after a
+  /// few seconds should the release never arrive.
+  Future<void> startDtmf(String digit) =>
+      _method.invokeMethod('startDtmf', {'digit': digit});
+
+  /// Ends the tone [startDtmf] began. A no-op when none is playing.
+  Future<void> stopDtmf() => _method.invokeMethod('stopDtmf');
 
   /// Audible keypress feedback ONLY — never transmitted.
   ///
   /// The dialer keypad must use this. It shares the app with a live call
-  /// («افزودن تماس» opens the same keypad over one), and [sendDtmf] pushes the
+  /// («افزودن تماس» opens the same keypad over one), and [startDtmf] pushes the
   /// tone into `Call.playDtmfTone` whenever a call exists: typing the number of
   /// the person to add played every digit down the line to the person already
   /// on it.

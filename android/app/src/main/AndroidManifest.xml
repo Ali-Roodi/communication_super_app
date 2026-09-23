@@ -226,13 +226,15 @@
             </intent-filter>
         </receiver>
 
-        <!-- Inline-reply / mark-read actions on the cold-start SMS notification -->
+        <!-- Actions on every SMS notification: inline reply, mark-read, block (+ its undo) -->
         <receiver
             android:name=".SmsNotificationActionReceiver"
             android:exported="false">
             <intent-filter>
                 <action android:name="com.example.communication_super_app.SMS_REPLY"/>
                 <action android:name="com.example.communication_super_app.SMS_MARK_READ"/>
+                <action android:name="com.example.communication_super_app.SMS_BLOCK"/>
+                <action android:name="com.example.communication_super_app.SMS_UNDO_BLOCK"/>
             </intent-filter>
         </receiver>
 

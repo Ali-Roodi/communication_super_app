@@ -10,6 +10,7 @@ import 'package:communication_super_app/features/contacts/models/phone_match.dar
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_bloc.dart';
 import 'package:communication_super_app/features/dialer/screens/in_call_screen.dart';
+import 'package:communication_super_app/features/dialer/services/auto_redial_policy.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 
 class _MockContactRepository extends Mock implements ContactRepository {}
@@ -38,7 +39,8 @@ void main() {
     when(() => repo.matchPhoneDigits(any(), any())).thenReturn(<PhoneMatch>[]);
     when(() => repo.getContactByPhoneNumber(any())).thenAnswer((_) async => null);
     when(() => callService.callEvents).thenAnswer((_) => events.stream);
-    when(() => callService.sendDtmf(any())).thenAnswer((_) async {});
+    when(() => callService.startDtmf(any())).thenAnswer((_) async {});
+    when(() => callService.stopDtmf()).thenAnswer((_) async {});
     when(
       () => callService.setCallScreenVisible(visible: any(named: 'visible')),
     ).thenAnswer((_) async {});
@@ -129,11 +131,131 @@ void main() {
       await tester.tap(find.text(digit));
       await tester.pumpAndSettle();
     }
-    verify(() => callService.sendDtmf('1')).called(1);
-    verify(() => callService.sendDtmf('2')).called(1);
-    verify(() => callService.sendDtmf('3')).called(1);
+    verify(() => callService.startDtmf('1')).called(1);
+    verify(() => callService.startDtmf('2')).called(1);
+    verify(() => callService.startDtmf('3')).called(1);
+    // Every press is released.
+    verify(() => callService.stopDtmf()).called(3);
     // The readout shows the tones sent so far — «۱۲۳», not a key label.
     expect(find.text('۱۲۳'), findsOneWidget);
+  });
+
+  testWidgets('the tone is held while the key is down and stopped on release',
+      (tester) async {
+    final bloc = await pumpCall(tester, const Size(1080, 2400));
+    addTearDown(bloc.close);
+    await openKeypad(tester);
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('۵')),
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    verify(() => callService.startDtmf('5')).called(1);
+    verifyNever(() => callService.stopDtmf());
+
+    await gesture.up();
+    await tester.pump();
+    verify(() => callService.stopDtmf()).called(1);
+  });
+
+  testWidgets('a press that slides a little still types (no tap slop)',
+      (tester) async {
+    final bloc = await pumpCall(tester, const Size(1080, 2400));
+    addTearDown(bloc.close);
+    await openKeypad(tester);
+
+    // A thumb that travels 30 px during the press: an `InkWell.onTap` rejects
+    // this as a drag, which is how presses used to go missing.
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('۸')),
+    );
+    await gesture.moveBy(const Offset(0, 30));
+    await gesture.up();
+    await tester.pump();
+    verify(() => callService.startDtmf('8')).called(1);
+    expect(find.text('۸'), findsWidgets);
+    expect(bloc.state.dtmfDigits, '8');
+  });
+
+  testWidgets('typed tones survive closing and reopening the keypad',
+      (tester) async {
+    final bloc = await pumpCall(tester, const Size(1080, 2400));
+    addTearDown(bloc.close);
+    await openKeypad(tester);
+    for (final digit in const ['۴', '۲']) {
+      await tester.tap(find.text(digit));
+      await tester.pump();
+    }
+    await tester.tap(find.text('بستن'));
+    await tester.pumpAndSettle();
+    await openKeypad(tester);
+
+    expect(find.text('۴۲'), findsOneWidget);
+    await tester.tap(find.text('۱'));
+    await tester.pump();
+    expect(find.text('۴۲۱'), findsOneWidget);
+  });
+
+  testWidgets('typed tones survive the call screen being re-pushed',
+      (tester) async {
+    final bloc = await pumpCall(tester, const Size(1080, 2400));
+    addTearDown(bloc.close);
+    await openKeypad(tester);
+    await tester.tap(find.text('۷'));
+    await tester.pump();
+
+    // CallUiCoordinator minimizes / restores by building a NEW InCallScreen.
+    await tester.pumpWidget(
+      BlocProvider<DialerBloc>.value(
+        value: bloc,
+        child: const MaterialApp(
+          home: InCallScreen(
+            key: ValueKey('restored'),
+            phone: '09121234567',
+            contactName: 'علی رودی',
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await openKeypad(tester);
+    expect(find.text('۷'), findsWidgets);
+    expect(bloc.state.dtmfDigits, '7');
+  });
+
+  testWidgets('the caller stays on screen above the keypad', (tester) async {
+    final bloc = await pumpCall(tester, const Size(1080, 2400));
+    addTearDown(bloc.close);
+    await openKeypad(tester);
+
+    final name = tester.getRect(find.text('علی رودی'));
+    expect(name.bottom, lessThan(tester.getRect(find.text('۱')).top));
+  });
+
+  testWidgets('a key held when the call ends is released', (tester) async {
+    final bloc = await pumpCall(tester, const Size(1080, 2400));
+    addTearDown(bloc.close);
+    await openKeypad(tester);
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('۳')),
+    );
+    await tester.pump();
+    verify(() => callService.startDtmf('3')).called(1);
+
+    events.add(
+      const CallInfo(
+        event: NativeCallEvent.disconnected,
+        phone: '09121234567',
+        direction: 'outgoing',
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    verify(() => callService.stopDtmf()).called(1);
+    await gesture.up();
+    // Tones belong to the call that ended.
+    expect(bloc.state.dtmfDigits, isEmpty);
   });
 
   testWidgets('«بستن» returns to the call screen, and so does back',
@@ -153,6 +275,62 @@ void main() {
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
     expect(find.text('بی‌صدا'), findsOneWidget);
+  });
+
+  testWidgets('a busy call shows the redial countdown, and «لغو» stops it',
+      (tester) async {
+    AutoRedialPolicy.enabled = true;
+    AutoRedialPolicy.maxAttempts = 2;
+    addTearDown(() {
+      AutoRedialPolicy.enabled = false;
+      AutoRedialPolicy.maxAttempts = AutoRedialPolicy.defaultAttempts;
+    });
+    when(
+      () => callService.makeCall(
+        any(),
+        subscriptionId: any(named: 'subscriptionId'),
+      ),
+    ).thenAnswer((_) async {});
+
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    final bloc = DialerBloc(repo, callService: callService);
+    addTearDown(bloc.close);
+    await tester.pumpWidget(
+      BlocProvider<DialerBloc>.value(
+        value: bloc,
+        child: const MaterialApp(home: InCallScreen(phone: '09121234567')),
+      ),
+    );
+    events.add(
+      const CallInfo(event: NativeCallEvent.ringing, phone: '09121234567'),
+    );
+    await tester.pump();
+    events.add(
+      const CallInfo(
+        event: NativeCallEvent.disconnected,
+        phone: '09121234567',
+        disconnectCause: CallDisconnectCause.busy,
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.textContaining('تماس مجدد خودکار تا'), findsOneWidget);
+    expect(find.text('تلاش ۱ از ۲'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.phone_disabled));
+    await tester.pump();
+    expect(bloc.state.autoRedial, isNull);
+    // Well past the countdown: nothing may be dialled after «لغو».
+    await tester.pump(const Duration(seconds: 6));
+    verifyNever(
+      () => callService.makeCall(
+        any(),
+        subscriptionId: any(named: 'subscriptionId'),
+      ),
+    );
   });
 
   testWidgets('the keypad drops away when the call ends', (tester) async {

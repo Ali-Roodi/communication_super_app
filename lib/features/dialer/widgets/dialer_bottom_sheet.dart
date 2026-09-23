@@ -29,6 +29,10 @@ Future<void> showDialerBottomSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
+    // The sheet draws its own handle on its own rounded surface. The theme's
+    // (`showDragHandle: true` for every sheet) would be drawn as well — on the
+    // transparent strip above it, floating over the dimmed «جستجوی مخاطبین».
+    showDragHandle: false,
     builder: (_) =>
         BlocProvider.value(value: dialerBloc, child: const _DialerSheet()),
   );

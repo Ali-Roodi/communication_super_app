@@ -75,6 +75,25 @@ class MainActivity : FlutterActivity() {
         @Volatile
         var isResumed = false
 
+        /**
+         * Tells the running app that [threadId]'s rows changed underneath it —
+         * a notification action (read, reply, block) wrote the database
+         * directly, and the inbox on screen was painted from what was there
+         * before. Safe from any thread and with no app running: it is posted
+         * to the main looper and dropped when there is no Flutter side to
+         * hear it (a cold start reads the database fresh anyway).
+         */
+        @JvmStatic
+        fun notifyThreadChanged(threadId: String) {
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                try {
+                    instance?.intentsChannel?.invokeMethod("threadChanged", threadId)
+                } catch (e: Exception) {
+                    android.util.Log.w("MainActivity", "threadChanged not delivered: ${e.message}")
+                }
+            }
+        }
+
         private const val CHANNEL_SMS_METHOD = "com.example.communication_super_app/sms"
         private const val CHANNEL_SMS_EVENTS = "com.example.communication_super_app/sms_events"
         private const val CHANNEL_MEDIA = "com.example.communication_super_app/media"
@@ -255,9 +274,27 @@ class MainActivity : FlutterActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        consumeIncomingCallTap(intent)
         consumeLaunchAction(intent)?.let {
             intentsChannel?.invokeMethod("openAction", it)
         }
+    }
+
+    /**
+     * The incoming-call card was tapped (or its full-screen intent fired): ask
+     * for the full incoming screen. A card that rang as a heads-up leaves the
+     * app wherever the user was, so coming forward alone would show them the
+     * inbox with the phone still ringing.
+     *
+     * Handled here, not in [consumeLaunchAction]: that map is read by
+     * MainNavigation, which sits behind the app lock, and a call cannot wait
+     * for an unlock. Stripped from the intent so a later resume cannot re-open
+     * the screen for a call that is long gone.
+     */
+    private fun consumeIncomingCallTap(intent: Intent?) {
+        if (intent?.hasExtra(CallInCallService.EXTRA_INCOMING_CALL) != true) return
+        intent.removeExtra(CallInCallService.EXTRA_INCOMING_CALL)
+        CallInCallService.instance?.showIncomingScreen()
     }
 
     /**
@@ -363,6 +400,7 @@ class MainActivity : FlutterActivity() {
         // and the app can tell "switched off by the user" from "never created".
         CallInCallService.ensureChannels(applicationContext)
         smsHandler?.registerReceiver()
+        consumeIncomingCallTap(intent)
         // The full-screen intent of an incoming call cold-starts this activity;
         // without the flags below it lands *behind* the keyguard and the user
         // sees a black screen with the phone still ringing.
@@ -456,6 +494,24 @@ class MainActivity : FlutterActivity() {
      */
     fun syncLockScreenVisibility() {
         showOverLockScreen(CallInCallService.hasLiveCall())
+    }
+
+    /**
+     * The call screen was put away (back / «کوچک کردن») while this activity
+     * sits over a locked keyguard: go back to the lock screen.
+     *
+     * The window may show over the keyguard because a *call* is up, and only
+     * the call screens are meant to be seen there. With the call route gone,
+     * what is left on screen is the app itself — the inbox, on a locked phone.
+     * Google Phone returns to the lock screen at this point, and the call
+     * stays reachable from the lock-screen card.
+     */
+    fun yieldToKeyguard() {
+        runOnUiThread {
+            val keyguard =
+                getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+            if (overLockScreen && keyguard.isKeyguardLocked) moveTaskToBack(true)
+        }
     }
 
     fun showOverLockScreen(show: Boolean) {

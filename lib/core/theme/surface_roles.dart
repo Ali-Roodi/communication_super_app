@@ -38,8 +38,12 @@ extension SurfaceRoles on ColorScheme {
   /// apps — exposed as a colour so callers don't branch).
   Color get chipUnselected => Colors.transparent;
 
-  /// Received message bubble.
-  Color get bubbleIncoming => _light ? surfaceContainer : surfaceContainerHigh;
+  /// Received message bubble — always one step off [cardSurface], the sheet
+  /// the conversation is drawn on. In dark mode both used to be
+  /// `surfaceContainerHigh`, so a received message was bare text floating on
+  /// the page with no bubble at all.
+  Color get bubbleIncoming =>
+      _light ? surfaceContainer : surfaceContainerHighest;
 
   /// Sent message bubble — the tonal brand container, never a saturated fill.
   Color get bubbleOutgoing => primaryContainer;

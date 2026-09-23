@@ -163,4 +163,50 @@ void main() {
       ],
     );
   });
+
+  // A notification action («خواندم», «پاسخ», «مسدودسازی») wrote the rows
+  // natively while the app was running.
+  group('MessageBloc.ThreadChangedExternally', () {
+    blocTest<MessageBloc, MessageState>(
+      're-reads the open conversation when it is the thread that changed',
+      setUp: () {
+        when(
+          () => repo.getMessagesByThread(
+            't1',
+            limit: any(named: 'limit'),
+            offset: any(named: 'offset'),
+            orderDesc: any(named: 'orderDesc'),
+          ),
+        ).thenAnswer(
+          // DESC, as the repository returns it.
+          (_) async => [_msg('m2', 't1', isRead: true), _msg('m1', 't1')],
+        );
+      },
+      build: build,
+      seed: () => MessagesLoaded([_msg('m1', 't1')], threadId: 't1'),
+      act: (bloc) => bloc.add(const ThreadChangedExternally('t1')),
+      expect: () => [
+        MessagesLoaded([
+          _msg('m1', 't1'),
+          _msg('m2', 't1', isRead: true),
+        ], threadId: 't1'),
+      ],
+    );
+
+    blocTest<MessageBloc, MessageState>(
+      'leaves an open conversation of another thread alone',
+      build: build,
+      seed: () => MessagesLoaded([_msg('m1', 't1')], threadId: 't1'),
+      act: (bloc) => bloc.add(const ThreadChangedExternally('t2')),
+      expect: () => const <MessageState>[],
+      verify: (_) => verifyNever(
+        () => repo.getMessagesByThread(
+          any(),
+          limit: any(named: 'limit'),
+          offset: any(named: 'offset'),
+          orderDesc: any(named: 'orderDesc'),
+        ),
+      ),
+    );
+  });
 }

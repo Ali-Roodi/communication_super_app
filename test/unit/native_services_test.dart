@@ -46,12 +46,13 @@ void main() {
       });
     });
 
-    test('sendDtmf forwards the digit', () async {
+    test('startDtmf forwards the digit, stopDtmf ends it', () async {
       handleCall((_) async => null);
-      await NativeCallService.instance.sendDtmf('5');
+      await NativeCallService.instance.startDtmf('5');
+      await NativeCallService.instance.stopDtmf();
 
-      expect(calls.single.method, 'sendDtmf');
-      expect(calls.single.arguments, {'digit': '5'});
+      expect(calls.map((c) => c.method), ['startDtmf', 'stopDtmf']);
+      expect(calls.first.arguments, {'digit': '5'});
     });
 
     test('isInCall parses the native boolean result', () async {

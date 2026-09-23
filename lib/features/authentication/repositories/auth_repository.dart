@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/auth_type.dart';
 import 'package:communication_super_app/core/constants/app_constants.dart';
 
@@ -54,16 +56,55 @@ class AuthRepository {
     return pattern != null && pattern.isNotEmpty;
   }
 
-  Future<bool> isAuthenticated() async {
-    final value = await _storage.read(key: AppConstants.isAuthenticatedKey);
-    return value == 'true';
-  }
+  /// Whether the PIN has been entered **in this process**.
+  ///
+  /// Held in memory and never persisted, and that is a security fix. It used
+  /// to be written to secure storage, where nothing ever set it back to false:
+  /// once a PIN had been entered (or just set) the flag stayed true for good,
+  /// so every later launch — cold start included — walked straight past the
+  /// lock. A lock that has to be undone by hand is not a lock. Now a fresh
+  /// process is always locked, and `AppLockGate` re-locks a running one after
+  /// the chosen idle time in the background.
+  static bool _sessionUnlocked = false;
+
+  Future<bool> isAuthenticated() async => _sessionUnlocked;
 
   Future<void> setAuthenticated(bool value) async {
-    await _storage.write(
-      key: AppConstants.isAuthenticatedKey,
-      value: value.toString(),
-    );
+    _sessionUnlocked = value;
+    // The persisted flag older builds wrote is meaningless now and must not
+    // linger where something could read it back.
+    await _storage.delete(key: AppConstants.isAuthenticatedKey);
+  }
+
+  @visibleForTesting
+  static void resetSessionForTest() => _sessionUnlocked = false;
+
+  // ── «قفل خودکار» ──────────────────────────────────────────────────────
+
+  static const String _relockAfterKey = 'set_relockAfterSeconds';
+
+  /// The choices offered, in seconds. 0 is «فوراً».
+  static const List<int> relockChoices = [0, 60, 300, 1800];
+
+  /// One minute: long enough to pick a photo, copy a code from another app or
+  /// answer the phone without typing the PIN again, short enough that a phone
+  /// left on a desk is locked by the time someone else picks it up.
+  static const int defaultRelockAfterSeconds = 60;
+
+  /// How long the app may sit in the background before coming back to it
+  /// asks for the PIN again. A preference, not a secret, so it lives in
+  /// SharedPreferences beside the other settings.
+  static Future<int> relockAfterSeconds() async {
+    final prefs = await SharedPreferences.getInstance();
+    final v = prefs.getInt(_relockAfterKey);
+    return v != null && relockChoices.contains(v)
+        ? v
+        : defaultRelockAfterSeconds;
+  }
+
+  static Future<void> setRelockAfterSeconds(int seconds) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_relockAfterKey, seconds);
   }
 
   Future<void> clearAuth() async {

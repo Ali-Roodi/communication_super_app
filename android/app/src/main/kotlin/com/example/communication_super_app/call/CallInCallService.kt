@@ -67,6 +67,10 @@ class CallInCallService : InCallService() {
         @Volatile
         var callRouteUp = false
 
+        /** [callRouteUp] as it last was while a call was live. */
+        @Volatile
+        private var routeUpDuringCall = false
+
         /** Whether MainActivity is between onStart and onStop. */
         @JvmStatic
         @Volatile
@@ -86,8 +90,19 @@ class CallInCallService : InCallService() {
         @JvmStatic
         fun setCallScreenVisible(visible: Boolean) {
             callRouteUp = visible
+            // Only while a call is live: the report Dart sends as the call ends
+            // must not erase whether the screen was up when it ended.
+            if (hasLiveCall()) routeUpDuringCall = visible
+            if (!visible && hasLiveCall()) {
+                com.example.communication_super_app.MainActivity.instance
+                    ?.yieldToKeyguard()
+            }
             instance?.refreshOngoingNotification()
+            instance?.syncIncomingNotification()
         }
+
+        /** Extra on the incoming-call card's tap / full-screen intent. */
+        const val EXTRA_INCOMING_CALL = "incoming_call"
 
         /** Extra on the launcher intent the ongoing-call card taps into. */
         const val EXTRA_RETURN_TO_CALL = "return_to_call"
@@ -259,6 +274,26 @@ class CallInCallService : InCallService() {
             val top = topLevelCalls().filter { it !== ending }
             return top.firstOrNull { it.state == Call.STATE_ACTIVE }
                 ?: top.lastOrNull()
+        }
+
+        /**
+         * The call an in-call keypad press must reach: the one that is ACTIVE.
+         *
+         * [currentCall] first when it is active (the common case, and a
+         * conference host is top-level and active), then any active top-level
+         * call we track, then telecom's own list — the authoritative one, in
+         * case a call was ever bound without passing through [onCallAdded].
+         * Null when nothing is active: a held, ringing or dialling call cannot
+         * carry DTMF, and telecom drops a tone sent to one without a word.
+         */
+        @JvmStatic
+        fun dtmfTarget(): Call? {
+            currentCall?.takeIf { it.state == Call.STATE_ACTIVE }?.let { return it }
+            topLevelCalls().firstOrNull { it.state == Call.STATE_ACTIVE }
+                ?.let { return it }
+            return instance?.calls?.firstOrNull {
+                it.parent == null && it.state == Call.STATE_ACTIVE
+            }
         }
 
         /** Live calls that are not children of a conference — what the UI counts. */
@@ -443,6 +478,53 @@ class CallInCallService : InCallService() {
     @Volatile
     private var callUiShown = false
 
+    /**
+     * The ringing call that gets the **full incoming-call screen**; any other
+     * ringing call is announced by the heads-up card alone.
+     *
+     * This is Google Phone's split, and it is not a setting — it follows from
+     * what the user is doing when the call arrives:
+     *
+     *  * **the phone is in use** (screen on, unlocked) → the card drops in at
+     *    the top of whatever they are doing, with «پاسخ» / «رد» on it. Taking
+     *    over the screen in the middle of somebody's typing is the thing a
+     *    heads-up exists to avoid. It is the system that draws it: the card
+     *    carries a full-screen intent, and SystemUI shows a full-screen
+     *    intent as a heads-up while the device is in use.
+     *  * **the phone is not in use** (screen off, or locked) → the full
+     *    screen, which is also the only thing that can be answered from a
+     *    keyguard without hunting for a notification.
+     *  * **the call screen is already in front** (a second call ringing
+     *    during a call) → the incoming screen in place, as Google's in-call
+     *    activity does.
+     *
+     * A call announced by the card is promoted here when the user taps the
+     * card ([showIncomingScreen]) or the phone is locked while it rings
+     * ([onScreenOn]). Published with the RINGING state as `showScreen`, so a
+     * cold-started engine replays the decision rather than guessing it.
+     */
+    @Volatile
+    private var incomingScreenCall: Call? = null
+
+    /** Whether this app was on screen when the current call started ringing —
+     *  where «back» out of its incoming screen should return to. */
+    @Volatile
+    private var appInFrontAtRing = false
+
+    /**
+     * The session started with a call ringing in while this app was NOT on
+     * screen, so the app is only in front because of the call. When the last
+     * call ends with its screen still up, the user goes back to what they
+     * were doing — Google Phone's in-call activity simply finishes — rather
+     * than being left inside this app's tabs. See [onCallRemoved].
+     */
+    @Volatile
+    private var returnWhenOver = false
+
+    /** Watches the screen coming back on while a call rings on the card
+     *  only — see [onScreenOn]. Registered only while something rings. */
+    private var screenOnReceiver: android.content.BroadcastReceiver? = null
+
     /** Last CALLS_CHANGED / call-state payloads, so the burst of callbacks a
      *  merge produces collapses into the one event that actually changed
      *  something. */
@@ -457,6 +539,10 @@ class CallInCallService : InCallService() {
                 trackedCalls.none { it.state == Call.STATE_RINGING }
             ) {
                 cancelIncomingCallNotification()
+            }
+            if (state != Call.STATE_RINGING) {
+                if (incomingScreenCall === call) incomingScreenCall = null
+                if (!hasRingingCall()) unwatchScreenOn()
             }
             // Only the foreground call drives the screen state — a background
             // call flipping to HOLDING while the second call dials must not
@@ -553,6 +639,8 @@ class CallInCallService : InCallService() {
         // An ongoing-call card outliving the service would point at a call that
         // no longer exists, with a «پایان» button bound to nothing.
         cancelOngoingCallNotification()
+        unwatchScreenOn()
+        incomingScreenCall = null
         callRouteUp = false
         super.onDestroy()
     }
@@ -602,6 +690,18 @@ class CallInCallService : InCallService() {
         currentCall = call
         callUiShown = false
         lastStatePayload = null
+        // Decided BEFORE the first publish — it rides on the RINGING payload.
+        // See [incomingScreenCall].
+        if (call.state == Call.STATE_RINGING) appInFrontAtRing = callUiForeground
+        // The first call of a session decides where the phone goes when it is
+        // all over — see [returnWhenOver].
+        if (topLevelCalls().size <= 1) {
+            returnWhenOver = call.state == Call.STATE_RINGING && !callUiForeground
+        }
+        if (call.state == Call.STATE_RINGING) {
+            incomingScreenCall =
+                if (callScreenShowing() || !deviceInUse()) call else null
+        }
         call.registerCallback(callCallback)
         publishState(call, call.state)
         publishCallsChanged()
@@ -623,23 +723,27 @@ class CallInCallService : InCallService() {
         }
 
         if (call.state == Call.STATE_RINGING) {
-            // App on screen → the Flutter IncomingCallScreen is already being
-            // pushed by the INCOMING event; post only a silent shade entry (no
-            // heads-up popup over the in-app UI). Backgrounded/dead → the
-            // high-priority notification (with its fullScreenIntent) IS the
-            // incoming-call UI.
-            val backgrounded =
-                !com.example.communication_super_app.MainActivity.isResumed
+            // Call screen already in front (call waiting): Flutter swaps in
+            // the incoming screen itself, so the card is a silent shade entry.
+            // Anything else gets the loud card — which the system shows as a
+            // heads-up while the phone is in use and turns into the full
+            // screen (its full-screen intent) while it is not.
+            val inFront = callScreenShowing()
             postIncomingCallNotification(
                 phoneOf(call),
-                headsUp = backgrounded,
+                headsUp = !inFront,
                 subscriptionId = subscriptionOf(call),
             )
-            // Belt and braces: OEMs throttle full-screen intents, and a
-            // throttled one leaves the user staring at the lock screen. Ask for
-            // the activity ourselves too — it is singleTop, so the worst case is
-            // an extra onNewIntent.
-            if (backgrounded) bringActivityToFront()
+            if (incomingScreenCall === call && !inFront) {
+                // Belt and braces for the locked/asleep phone: OEMs throttle
+                // full-screen intents, and a throttled one leaves the user
+                // staring at the lock screen. It is singleTop, so the worst
+                // case is an extra onNewIntent. NEVER for a phone in use —
+                // that is exactly what used to force the full screen over
+                // whatever the user was doing instead of the heads-up.
+                bringActivityToFront()
+            }
+            if (incomingScreenCall !== call) watchScreenOn()
         } else {
             // Outgoing call: the default-dialer contract expects the UI dialer
             // to LAUNCH its in-call activity itself. Without a formal activity
@@ -676,22 +780,148 @@ class CallInCallService : InCallService() {
         // A live call the user has walked away from needs its way back,
         // whether or not anything is ringing.
         refreshOngoingNotification()
+        syncIncomingNotification()
+    }
+
+    /**
+     * Keeps the incoming card in step with whether the incoming *screen* is
+     * what the user is looking at.
+     *
+     * "The activity is in front" is no longer the same thing: a call rung on
+     * the heads-up card leaves the app open on whatever the user was doing,
+     * and the card is then the only way to answer — cancelling it on
+     * `onStart` would leave a ringing phone with nothing to press. So it keys
+     * on [callScreenShowing], which needs the Flutter call route up as well.
+     */
+    fun syncIncomingNotification() {
         val ringing = trackedCalls.firstOrNull { it.state == Call.STATE_RINGING }
             ?: return
-        if (visible) {
+        if (callScreenShowing()) {
             callUiShown = true
+            if (incomingScreenCall !== ringing) {
+                incomingScreenCall = ringing
+                if (ringing == currentCall) publishState(ringing, ringing.state)
+            }
             cancelIncomingCallNotification()
-        } else if (!callUiShown) {
-            // Only ever posted back BEFORE the call screen has been seen. The
-            // activity is started and stopped several times while coming up
-            // over a keyguard, and re-posting on each stop is what put the card
-            // back next to the call screen. Once the screen has been up for
-            // this call, the card stays gone.
+        } else if (callUiShown && !deviceInUse() && !callRouteUp) {
+            // Backed out of the incoming screen on a LOCKED phone (MainActivity
+            // then yields to the keyguard): the lock-screen card is the way to
+            // answer now. Silent — a loud one would fire its full-screen intent
+            // and throw the screen the user just left straight back at them.
+            callUiShown = false
             postIncomingCallNotification(
                 phoneOf(ringing),
                 headsUp = false,
                 subscriptionId = subscriptionOf(ringing),
             )
+        } else if (callUiShown && deviceInUse()) {
+            // The user saw the incoming screen and left it — Home, another
+            // app, or back out of it — with the phone unlocked in their hand.
+            // Google Phone hands the call back to the heads-up card at that
+            // point; with no card at all the call could only be answered by
+            // finding the app again. Gated on [deviceInUse] because over a
+            // keyguard the activity is started and stopped several times while
+            // staying perfectly visible, and re-posting on each of those stops
+            // is what once put the card on the lock screen next to the call
+            // screen. Reset so the next stop does not post it twice.
+            callUiShown = false
+            postIncomingCallNotification(
+                phoneOf(ringing),
+                headsUp = true,
+                subscriptionId = subscriptionOf(ringing),
+            )
+            watchScreenOn()
+            // Backed out (the route is gone, the activity is still in front) of
+            // a screen the card had opened over some OTHER app: back means back
+            // to that app, as in Google Phone — not to this app's own tabs,
+            // which the user never asked to see.
+            if (!callRouteUp && callUiForeground && !appInFrontAtRing) {
+                com.example.communication_super_app.MainActivity.instance
+                    ?.moveTaskToBack(true)
+            }
+        }
+    }
+
+    /**
+     * The incoming card was tapped (or its full-screen intent fired): the user
+     * wants the full incoming screen. Called by MainActivity for an intent
+     * carrying [EXTRA_INCOMING_CALL].
+     *
+     * Both halves are needed. The republished RINGING state (`showScreen`) is
+     * what a cold-started engine replays; the SHOW_CALL_UI request is what
+     * re-opens the screen when the decision had already been made and the user
+     * had merely backed out of it — a state that did not change is never
+     * re-sent.
+     */
+    fun showIncomingScreen() {
+        val ringing = trackedCalls.firstOrNull { it.state == Call.STATE_RINGING }
+            ?: return
+        if (incomingScreenCall !== ringing) {
+            incomingScreenCall = ringing
+            if (ringing == currentCall) publishState(ringing, ringing.state)
+        }
+        CallEventStreamHandler.sendRaw(mapOf("event" to "SHOW_CALL_UI"))
+    }
+
+    /**
+     * The phone is being used: screen on and not locked. What decides between
+     * the heads-up card and the full incoming screen — see [incomingScreenCall].
+     */
+    private fun deviceInUse(): Boolean {
+        val power = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        val keyguard =
+            getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
+        return power.isInteractive && !keyguard.isKeyguardLocked
+    }
+
+    /**
+     * The screen came back on while a call rings on the heads-up card alone.
+     *
+     * The card was shown because the phone was in use; if the user switched
+     * the screen off instead of answering (the power key also silences the
+     * ringer), the phone they wake is a *locked* phone, and a locked phone
+     * gets the full screen — the same one a call that arrived while it was
+     * locked gets. Promoted on SCREEN_ON rather than SCREEN_OFF: starting the
+     * activity while the screen is off would switch it straight back on
+     * (`setTurnScreenOn`), undoing the power press.
+     */
+    private fun onScreenOn() {
+        val ringing = trackedCalls.firstOrNull { it.state == Call.STATE_RINGING }
+        if (ringing == null) {
+            unwatchScreenOn()
+            return
+        }
+        if (callScreenShowing()) return
+        val keyguard =
+            getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
+        if (!keyguard.isKeyguardLocked) return
+        Log.d(TAG, "Screen on over a ringing call — showing the incoming screen")
+        showIncomingScreen()
+        bringActivityToFront()
+    }
+
+    private fun watchScreenOn() {
+        if (screenOnReceiver != null) return
+        val receiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) = onScreenOn()
+        }
+        try {
+            // A protected system broadcast: no export flag is needed, and
+            // passing one is refused on older releases.
+            registerReceiver(receiver, android.content.IntentFilter(Intent.ACTION_SCREEN_ON))
+            screenOnReceiver = receiver
+        } catch (e: Exception) {
+            Log.w(TAG, "screen-on watch not registered: ${e.message}")
+        }
+    }
+
+    private fun unwatchScreenOn() {
+        val receiver = screenOnReceiver ?: return
+        screenOnReceiver = null
+        try {
+            unregisterReceiver(receiver)
+        } catch (e: Exception) {
+            Log.w(TAG, "screen-on watch not unregistered: ${e.message}")
         }
     }
 
@@ -753,6 +983,18 @@ class CallInCallService : InCallService() {
             stickyState = null
             lastStatePayload = null
             CallEventStreamHandler.sendEvent(CallEvent.DISCONNECTED, disconnectPayload(call))
+            if (returnWhenOver && routeUpDuringCall && callUiForeground && deviceInUse()) {
+                // After the beat Flutter lingers on the ended call (600 ms), and
+                // only if nothing has started since and the user is still
+                // looking at the call screen rather than something they opened.
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    if (topLevelCalls().isEmpty() && callUiForeground) {
+                        com.example.communication_super_app.MainActivity.instance
+                            ?.moveTaskToBack(true)
+                    }
+                }, 800)
+            }
+            returnWhenOver = false
         } else {
             // Another call is still up (conference member ended, or one leg of
             // a two-call session hung up) — keep the UI on the survivor. An
@@ -962,6 +1204,9 @@ class CallInCallService : InCallService() {
             // restarted at zero every time — as it also did on a cold start
             // into a call that was already minutes old.
             "connectTimeMillis" to (call.details?.connectTimeMillis ?: 0L),
+            // RINGING only: whether Flutter opens the full incoming screen, or
+            // leaves the call to the heads-up card. See [incomingScreenCall].
+            "showScreen" to (state != Call.STATE_RINGING || incomingScreenCall === call),
         )
         val event = when (state) {
             Call.STATE_RINGING -> CallEvent.INCOMING
@@ -1070,7 +1315,7 @@ class CallInCallService : InCallService() {
         val piFlags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         val launch = packageManager.getLaunchIntentForPackage(packageName)?.apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra("incoming_call", phone)
+            putExtra(EXTRA_INCOMING_CALL, phone)
         } ?: Intent()
         val fullScreen = PendingIntent.getActivity(this, 0, launch, piFlags)
 

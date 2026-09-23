@@ -47,7 +47,8 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     on<ToggleSpeaker>(_onToggleSpeaker);
     on<SelectAudioRoute>(_onSelectAudioRoute);
     on<HoldCall>(_onHold);
-    on<SendDtmf>(_onSendDtmf);
+    on<DtmfKeyDown>(_onDtmfKeyDown);
+    on<DtmfKeyUp>(_onDtmfKeyUp);
     on<MergeCalls>(_onMergeCalls);
     on<SwapCalls>(_onSwapCalls);
     on<CallEventReceived>(_onCallEvent);
@@ -270,6 +271,8 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
           state.copyWith(
             callStatus: CallStatus.incoming,
             activePhone: info.phone,
+            showIncomingScreen: info.showScreen,
+            dtmfDigits: _dtmfDigitsFor(info.phone),
             activeName: name,
             clearActiveName: clearName,
             activeSubscriptionId: info.subscriptionId,
@@ -292,6 +295,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
           state.copyWith(
             callStatus: CallStatus.ringing,
             activePhone: info.phone.isNotEmpty ? info.phone : null,
+            dtmfDigits: _dtmfDigitsFor(info.phone),
             activeName: name,
             clearActiveName: clearName,
             activeSubscriptionId: info.subscriptionId,
@@ -310,6 +314,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
           state.copyWith(
             callStatus: CallStatus.active,
             activePhone: info.phone.isNotEmpty ? info.phone : null,
+            dtmfDigits: _dtmfDigitsFor(info.phone),
             activeName: name,
             clearActiveName: clearName,
             isConference: info.isConference ?? state.isConference,
@@ -509,11 +514,26 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     }
   }
 
-  Future<void> _onSendDtmf(SendDtmf event, Emitter<DialerState> emit) async {
+  /// The digit is recorded in the state, not in the call screen: the screen is
+  /// torn down and re-pushed by `CallUiCoordinator` whenever the user leaves
+  /// and comes back, and Google Phone keeps what was typed for the whole call.
+  Future<void> _onDtmfKeyDown(
+    DtmfKeyDown event,
+    Emitter<DialerState> emit,
+  ) async {
+    emit(state.copyWith(dtmfDigits: state.dtmfDigits + event.digit));
     try {
-      await _callService.sendDtmf(event.digit);
+      await _callService.startDtmf(event.digit);
     } catch (e) {
-      debugPrint('DialerBloc: sendDtmf error: $e');
+      debugPrint('DialerBloc: startDtmf error: $e');
+    }
+  }
+
+  Future<void> _onDtmfKeyUp(DtmfKeyUp event, Emitter<DialerState> emit) async {
+    try {
+      await _callService.stopDtmf();
+    } catch (e) {
+      debugPrint('DialerBloc: stopDtmf error: $e');
     }
   }
 
@@ -540,9 +560,18 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
 
   /// The call half of the state, wound back to "no call" — the keypad and the
   /// dialled number are deliberately kept.
+  /// What [DialerState.dtmfDigits] becomes on a call event naming [phone]:
+  /// unchanged (null) while it is the same party, cleared when the event is
+  /// about somebody else — a new call, or the other leg after a swap. The
+  /// digits typed for one call must never show up on the next one's keypad.
+  String? _dtmfDigitsFor(String phone) =>
+      phone.isNotEmpty && phone != state.activePhone ? '' : null;
+
   DialerState _idleState() => state.copyWith(
     callStatus: CallStatus.idle,
+    showIncomingScreen: true,
     activePhone: '',
+    dtmfDigits: '',
     clearActiveName: true,
     clearActiveSubscriptionId: true,
     isMuted: false,

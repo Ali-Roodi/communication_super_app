@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:communication_super_app/core/navigation/call_ui_coordinator.dart';
 import 'package:communication_super_app/core/navigation/return_to_call_bar.dart';
 import 'package:communication_super_app/core/sim/sim_service.dart';
@@ -21,9 +21,10 @@ const Color _kBg = Color(0xFF1C1B1F);
 /// the edges of a large screen and stop reading as a keypad.
 const double _kKeypadMaxWidth = 320;
 
-/// Width of «بستن» under the in-call keypad, and of the empty box that
-/// balances it. Wide enough for the word on one line at 16 sp.
-const double _kCloseButtonWidth = 96;
+/// The in-call pad's panel — a step above the screen's own [_kBg], the way
+/// Google Phone lifts its dialpad off the call screen behind it.
+const Color _kPadSurface = Color(0xFF2B2930);
+
 const Color _kActiveTint = AppColors.googleBlueDark; // #8AB4F8
 
 class InCallScreen extends StatefulWidget {
@@ -217,7 +218,7 @@ class _InCallScreenState extends State<InCallScreen> {
           backgroundColor: _kBg,
           body: SafeArea(
             child: _showKeypad
-                ? _buildKeypad(context, phone, name)
+                ? _buildKeypad(context, state, phone, name)
                 : Column(
                     children: [
                       // «کوچک کردن» — the discoverable half of the back gesture.
@@ -479,150 +480,160 @@ class _InCallScreenState extends State<InCallScreen> {
   // and its keys did nothing — the digits were being typed into a
   // `StatefulBuilder` belonging to a dead route.
   //
-  // Held in the state instead, the pad is exactly as durable as the call
-  // screen: it survives every push/pop the coordinator performs, it is torn
-  // down with the call, and it is what Google Phone does — its in-call keypad
-  // replaces the screen's contents rather than sliding a sheet over them.
+  // It is laid out the way Google Phone's is: the caller and the call's clock
+  // stay at the top, the pad is a panel over the lower part of the screen with
+  // the typed tones on its top edge, and «پایان» sits under it beside the
+  // button that puts the pad away. The tones themselves live in the bloc
+  // (`DialerState.dtmfDigits`), so closing the pad — or the screen being
+  // re-pushed — does not lose them.
 
   /// Whether the keypad is showing instead of the avatar + control grid.
   bool _showKeypad = false;
 
-  /// Digits typed on the in-call keypad since it was opened. Display only —
-  /// each key is transmitted the moment it is pressed.
-  String _dtmfEntered = '';
-
-  void _openKeypad() => setState(() {
-    _showKeypad = true;
-    _dtmfEntered = '';
-  });
+  void _openKeypad() => setState(() => _showKeypad = true);
 
   void _closeKeypad() => setState(() => _showKeypad = false);
 
-  /// The in-call keypad, laid out like the call screen it replaces: header at
-  /// the top, the grid in the middle of what is left, «پایان» at the bottom.
+  /// The in-call keypad: a compact header (who, and for how long), then the
+  /// pad panel — readout, the 4 × 3 grid, and «پایان» beside «بستن».
   ///
-  /// The proportions matter and are the same `Spacer` flexes the call screen
-  /// itself uses. A plain `Column` of naturally-sized children (which is what
-  /// this was at first) stacks everything against the top of the screen and
-  /// leaves a black third underneath, and `spaceBetween` on a row of three
-  /// 64 dp keys spreads them to the screen edges — a keypad has to read as a
-  /// grid, so the columns are equal-width `Expanded` cells inside a box capped
-  /// at [_kKeypadMaxWidth] and centred.
-  Widget _buildKeypad(BuildContext context, String phone, String? name) {
+  /// The grid's columns are equal-width `Expanded` cells inside a box capped
+  /// at [_kKeypadMaxWidth] and centred: `spaceBetween` on a row of fixed-width
+  /// keys spreads them to the screen edges, and a keypad has to read as a grid.
+  Widget _buildKeypad(
+    BuildContext context,
+    DialerState state,
+    String phone,
+    String? name,
+  ) {
     final bloc = context.read<DialerBloc>();
+    final String status;
+    if (state.callStatus == CallStatus.onHold) {
+      status = 'در انتظار';
+    } else if (state.callStatus == CallStatus.active) {
+      status = formatCallDuration(state.callConnectedAt);
+    } else {
+      status = 'در حال برقراری تماس…';
+    }
     return Column(
       children: [
-        const SizedBox(height: 12),
         // Who is on the line stays on screen — Google Phone keeps the header
-        // above its keypad, and without it the user is typing into a black
-        // rectangle with no idea which call it reaches.
+        // above its pad, and without it the user is typing into a grid with
+        // no idea which call it reaches.
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: IconButton(
+            icon: const Icon(
+              Icons.keyboard_arrow_down,
+              color: Colors.white70,
+              size: 30,
+            ),
+            tooltip: 'کوچک کردن',
+            onPressed: CallUiCoordinator.minimize,
+          ),
+        ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
           child: Text(
             name ?? PersianUtils.displayPhone(phone),
             textDirection: name == null ? TextDirection.ltr : null,
-            style: const TextStyle(color: Colors.white70, fontSize: 17),
+            style: const TextStyle(color: Colors.white, fontSize: 22),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
         ),
-        const SizedBox(height: 20),
-        // The tones typed so far. Scrolls rather than ellipsises: an IVR menu
-        // can take a long string and the digit that matters is the last one,
-        // so the view is pinned to the end.
-        SizedBox(
-          height: 40,
-          child: Directionality(
-            // A number, not a sentence — left to right whatever the screen is.
-            textDirection: TextDirection.ltr,
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              reverse: true,
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Center(
-                child: Text(
-                  PersianUtils.toPersianNumber(_dtmfEntered),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 30,
-                    letterSpacing: 2,
+        const SizedBox(height: 4),
+        Text(
+          status,
+          style: const TextStyle(color: Colors.white70, fontSize: 14),
+        ),
+        const Spacer(),
+        Container(
+          decoration: const BoxDecoration(
+            color: _kPadSurface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // The tones typed during this call. Scrolls rather than
+              // ellipsises: an IVR menu can take a long string and the digit
+              // that matters is the last one, so the view is pinned to the end.
+              SizedBox(
+                height: 44,
+                child: Directionality(
+                  // A number, not a sentence — left to right whatever the
+                  // screen is.
+                  textDirection: TextDirection.ltr,
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    reverse: true,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Center(
+                      child: Text(
+                        PersianUtils.toPersianNumber(state.dtmfDigits),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 32,
+                          letterSpacing: 2,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
-          ),
-        ),
-        const Spacer(),
-        Directionality(
-          textDirection: TextDirection.ltr,
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: _kKeypadMaxWidth),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    for (final row in _dtmfRows)
-                      Row(
-                        children: [
-                          for (final k in row)
-                            Expanded(
-                              child: Center(
-                                child: _DtmfKey(
-                                  display: k[0],
-                                  onTap: () {
-                                    bloc.add(SendDtmf(k[1]));
-                                    setState(() => _dtmfEntered += k[1]);
-                                  },
+              const SizedBox(height: 12),
+              Directionality(
+                textDirection: TextDirection.ltr,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxWidth: _kKeypadMaxWidth,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (final row in _dtmfRows)
+                        Row(
+                          children: [
+                            for (final k in row)
+                              Expanded(
+                                child: Center(
+                                  child: _DtmfKey(
+                                    display: k[0],
+                                    letters: k[2],
+                                    onDown: () => bloc.add(DtmfKeyDown(k[1])),
+                                    onUp: () => bloc.add(const DtmfKeyUp()),
+                                  ),
                                 ),
                               ),
-                            ),
-                        ],
-                      ),
-                  ],
+                          ],
+                        ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ),
-        ),
-        const Spacer(),
-        // «بستن» sits opposite nothing, so «پایان» stays centred on the screen
-        // exactly where it is on the call screen behind this one.
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Row(
-            children: [
-              // Balances «بستن» so «پایان» stays centred on the screen, in the
-              // same place it occupies on the call screen behind this one.
-              const SizedBox(width: _kCloseButtonWidth),
-              const Spacer(),
-              _EndCallButton(onTap: () => bloc.add(const EndCall())),
-              const Spacer(),
-              SizedBox(
-                width: _kCloseButtonWidth,
-                child: TextButton(
-                  onPressed: _closeKeypad,
-                  // Zero padding, and that is not a style choice: a
-                  // `TextButton`'s default 16 dp each side left «بستن» 52 dp to
-                  // render four Persian characters in, and it wrapped onto a
-                  // second line under the button.
-                  style: TextButton.styleFrom(
-                    padding: EdgeInsets.zero,
-                    minimumSize: const Size(_kCloseButtonWidth, 48),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              const SizedBox(height: 16),
+              // «پایان» centred exactly where it is on the call screen, and
+              // the button that puts the pad away beside it — Google Phone's
+              // highlighted dialpad toggle. An empty cell of the same width
+              // on the other side keeps «پایان» centred.
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  const SizedBox(width: 84),
+                  _EndCallButton(onTap: () => bloc.add(const EndCall())),
+                  _ControlButton(
+                    icon: Icons.dialpad,
+                    label: 'بستن',
+                    active: true,
+                    onTap: _closeKeypad,
                   ),
-                  child: const Text(
-                    'بستن',
-                    maxLines: 1,
-                    style: TextStyle(color: Colors.white70, fontSize: 16),
-                  ),
-                ),
+                ],
               ),
             ],
           ),
         ),
-        const SizedBox(height: 32),
       ],
     );
   }
@@ -704,26 +715,29 @@ class _InCallScreenState extends State<InCallScreen> {
       ),
   ];
 
+  /// [shown digit, digit sent, letter group]. The letters are the dialer's own
+  /// (`DialerScreen._keyRows`, i.e. `SearchText`'s T9 table) — the same key
+  /// must not print a different alphabet mid-call.
   static const List<List<List<String>>> _dtmfRows = [
     [
-      ['۱', '1'],
-      ['۲', '2'],
-      ['۳', '3'],
+      ['۱', '1', ''],
+      ['۲', '2', 'ا ب پ ت ث'],
+      ['۳', '3', 'ج چ ح خ'],
     ],
     [
-      ['۴', '4'],
-      ['۵', '5'],
-      ['۶', '6'],
+      ['۴', '4', 'د ذ ر ز ژ'],
+      ['۵', '5', 'س ش ص ض'],
+      ['۶', '6', 'ط ظ ع غ'],
     ],
     [
-      ['۷', '7'],
-      ['۸', '8'],
-      ['۹', '9'],
+      ['۷', '7', 'ف ق ک گ'],
+      ['۸', '8', 'ل م ن و'],
+      ['۹', '9', 'ه ی'],
     ],
     [
-      ['*', '*'],
-      ['۰', '0'],
-      ['#', '#'],
+      ['*', '*', ''],
+      ['۰', '0', ''],
+      ['#', '#', ''],
     ],
   ];
 }
@@ -951,32 +965,108 @@ class _CancelRedialButton extends StatelessWidget {
 
 // ── DTMF key ──────────────────────────────────────────────────────────────────
 
-class _DtmfKey extends StatelessWidget {
+/// One key of the in-call pad: the digit with its letter group under it, like
+/// Google Phone's.
+///
+/// **The tone is held for as long as the finger is down** — [onDown] on touch,
+/// [onUp] on release — through a raw [Listener], exactly like the dialer's
+/// `DialKey`. It used to be an `InkWell.onTap`, which fires on *release* and
+/// only if the finger did not travel past the tap slop: a thumb pressing a
+/// digit mid-call, the phone just taken from the ear, could move that far and
+/// the press was silently dropped — nothing typed, nothing sent. A [Listener]
+/// is not a gesture-arena member, so a press always registers.
+///
+/// Exactly one [onUp] follows every [onDown], including when the key is torn
+/// down mid-press (the pad closed, the call ended): a tone left running would
+/// go down the line until the native watchdog stopped it.
+class _DtmfKey extends StatefulWidget {
   final String display;
-  final VoidCallback onTap;
+  final String letters;
+  final VoidCallback onDown;
+  final VoidCallback onUp;
 
-  const _DtmfKey({required this.display, required this.onTap});
+  const _DtmfKey({
+    required this.display,
+    required this.letters,
+    required this.onDown,
+    required this.onUp,
+  });
+
+  @override
+  State<_DtmfKey> createState() => _DtmfKeyState();
+}
+
+class _DtmfKeyState extends State<_DtmfKey> {
+  /// The pointer holding this key, so a second finger elsewhere never
+  /// releases it.
+  int? _pointer;
+
+  void _down(PointerDownEvent event) {
+    if (_pointer != null) return;
+    setState(() => _pointer = event.pointer);
+    HapticFeedback.selectionClick();
+    widget.onDown();
+  }
+
+  void _up(PointerEvent event) {
+    if (!mounted || event.pointer != _pointer) return;
+    setState(() => _pointer = null);
+    widget.onUp();
+  }
+
+  @override
+  void dispose() {
+    // The finger's lift is still routed here after the key is gone (the hit
+    // test was taken on touch-down), so the press is settled now and the late
+    // lift finds nothing held.
+    if (_pointer != null) {
+      _pointer = null;
+      widget.onUp();
+    }
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      shape: const CircleBorder(),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        // Round and 64 dp, so the ripple is a circle on a circle and the four
-        // rows fit above «پایان» on a short screen.
-        customBorder: const CircleBorder(),
-        child: SizedBox(
-          width: 64,
-          height: 64,
-          child: Center(
-            child: Text(
-              display,
-              style: const TextStyle(color: Colors.white, fontSize: 28),
+    return Listener(
+      behavior: HitTestBehavior.opaque,
+      onPointerDown: _down,
+      onPointerUp: _up,
+      onPointerCancel: _up,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 90),
+        width: 72,
+        height: 72,
+        decoration: BoxDecoration(
+          color: _pointer != null ? Colors.white24 : Colors.transparent,
+          shape: BoxShape.circle,
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              widget.display,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 28,
+                height: 1.1,
+              ),
             ),
-          ),
+            // Always the same height, so a key with no letters («۱», «*»)
+            // keeps its digit on the same line as its neighbours'.
+            SizedBox(
+              height: 14,
+              child: Text(
+                widget.letters,
+                textDirection: TextDirection.rtl,
+                style: const TextStyle(
+                  color: Colors.white54,
+                  fontSize: 9,
+                  height: 1.2,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

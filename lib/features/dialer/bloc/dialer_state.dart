@@ -63,6 +63,12 @@ class DialerState extends Equatable {
   // ── Keypad ────────────────────────────────────────────────
   final String dialedNumber;
 
+  /// Tones typed on the in-call keypad during the current call, oldest
+  /// first. Kept here, not in the call screen, so they survive closing the
+  /// keypad and the screen being re-pushed — Google Phone shows them again
+  /// every time its pad is reopened. Cleared when the call ends.
+  final String dtmfDigits;
+
   /// One entry per contact phone number matching [dialedNumber] — a contact
   /// with two matching numbers appears twice, each row showing its own number.
   final List<PhoneMatch> matchingNumbers;
@@ -109,6 +115,11 @@ class DialerState extends Equatable {
   /// into a call that had already been running for minutes.
   final DateTime? callConnectedAt;
 
+  /// Whether a ringing call gets the full incoming screen (true) or only the
+  /// heads-up card, because the phone was in use when it rang. Set by every
+  /// INCOMING event; meaningless in any other status.
+  final bool showIncomingScreen;
+
   /// A redial series in progress, or null. See [AutoRedial].
   final AutoRedial? autoRedial;
 
@@ -116,6 +127,7 @@ class DialerState extends Equatable {
 
   const DialerState({
     this.dialedNumber = '',
+    this.dtmfDigits = '',
     this.matchingNumbers = const [],
     this.isNumberInContacts = false,
     this.isLoadingContacts = false,
@@ -134,6 +146,7 @@ class DialerState extends Equatable {
     this.activeSubscriptionId,
     this.callConnectedAt,
     this.autoRedial,
+    this.showIncomingScreen = true,
     this.error,
   });
 
@@ -145,6 +158,7 @@ class DialerState extends Equatable {
 
   DialerState copyWith({
     String? dialedNumber,
+    String? dtmfDigits,
     List<PhoneMatch>? matchingNumbers,
     bool? isNumberInContacts,
     bool? isLoadingContacts,
@@ -163,6 +177,7 @@ class DialerState extends Equatable {
     int? activeSubscriptionId,
     DateTime? callConnectedAt,
     AutoRedial? autoRedial,
+    bool? showIncomingScreen,
     String? error,
     bool clearError = false,
 
@@ -188,6 +203,7 @@ class DialerState extends Equatable {
   }) {
     return DialerState(
       dialedNumber: dialedNumber ?? this.dialedNumber,
+      dtmfDigits: dtmfDigits ?? this.dtmfDigits,
       matchingNumbers: matchingNumbers ?? this.matchingNumbers,
       isNumberInContacts: isNumberInContacts ?? this.isNumberInContacts,
       isLoadingContacts: isLoadingContacts ?? this.isLoadingContacts,
@@ -210,6 +226,7 @@ class DialerState extends Equatable {
           ? null
           : (callConnectedAt ?? this.callConnectedAt),
       autoRedial: clearAutoRedial ? null : (autoRedial ?? this.autoRedial),
+      showIncomingScreen: showIncomingScreen ?? this.showIncomingScreen,
       error: clearError ? null : (error ?? this.error),
     );
   }
@@ -217,6 +234,7 @@ class DialerState extends Equatable {
   @override
   List<Object?> get props => [
     dialedNumber,
+    dtmfDigits,
     matchingNumbers,
     isNumberInContacts,
     isLoadingContacts,
@@ -235,6 +253,7 @@ class DialerState extends Equatable {
     activeSubscriptionId,
     callConnectedAt,
     autoRedial,
+    showIncomingScreen,
     error,
   ];
 }

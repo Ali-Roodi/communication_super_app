@@ -218,8 +218,8 @@ class _KeyGrid extends StatelessWidget {
       // Audible tone (honoring the setting, read per press so toggling it in
       // settings takes effect without rebuilding the grid) + light haptic.
       //
-      // playKeypadTone, NOT sendDtmf: this keypad is also the «افزودن تماس»
-      // one, and sendDtmf transmits the digit to whoever is already on the
+      // playKeypadTone, NOT startDtmf: this keypad is also the «افزودن تماس»
+      // one, and startDtmf transmits the digit to whoever is already on the
       // call.
       if (settings.state.dialpadTones) {
         NativeCallService.instance.playKeypadTone(value);
