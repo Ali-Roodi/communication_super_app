@@ -47,6 +47,23 @@ class SmsCryptoException(val code: Code, message: String) : Exception(message) {
 
         /** The send counter is exhausted; a new session is needed. */
         REKEY_REQUIRED,
+
+        // ── Key bank (keybank/) ──────────────────────────────────────────
+
+        /** Not a key file of ours (wrong magic, unknown format). */
+        NOT_A_KEY_FILE,
+
+        /** The password does not open the key file. */
+        WRONG_PASSWORD,
+
+        /** Signed by an authority this build does not trust. */
+        UNTRUSTED,
+
+        /** The authority's signature does not verify: altered or forged. */
+        BAD_SIGNATURE,
+
+        /** Opened and signed, but its contents contradict themselves. */
+        BAD_BUNDLE,
     }
 }
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:communication_super_app/core/services/app_handoff.dart';
 import 'package:communication_super_app/core/navigation/call_ui_coordinator.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_bloc.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_state.dart';
@@ -45,6 +46,10 @@ class _AppLockWrapperState extends State<AppLockWrapper>
   /// When the app last left the foreground; null while it is in front.
   DateTime? _backgroundedAt;
 
+  /// A trip out that the app started itself (the key-file picker) — see
+  /// [AppHandoff].
+  final HandoffPause _handoff = HandoffPause();
+
   /// The lock screen on the navigator, while it is up.
   Route<void>? _lockRoute;
 
@@ -68,10 +73,14 @@ class _AppLockWrapperState extends State<AppLockWrapper>
       case AppLifecycleState.hidden:
       case AppLifecycleState.paused:
         _backgroundedAt ??= DateTime.now();
+        _handoff.onPaused();
       case AppLifecycleState.resumed:
         final since = _backgroundedAt;
         _backgroundedAt = null;
-        if (since != null) _maybeLock(DateTime.now().difference(since));
+        final excused = _handoff.onResumed() == HandoffResume.excused;
+        if (since != null && !excused) {
+          _maybeLock(DateTime.now().difference(since));
+        }
       case AppLifecycleState.inactive:
       case AppLifecycleState.detached:
         break;

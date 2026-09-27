@@ -152,6 +152,27 @@ if [[ "$skip_verify" -eq 0 ]]; then
   echo "Manifest OK - $package_name, versionCode $version_code, versionName $apk_version_name."
 fi
 
+# --- trust anchor check -----------------------------------------------------
+# The DEVELOPMENT key-bank authority (tools/keybank/dev/, whose private key sits
+# on a developer's disk) is trusted only by a build made with
+# --dart-define=HAMRESAN_DEV_ANCHOR=true, which this script never passes.
+# Checked anyway, in the compiled Dart: an APK that trusted it would accept key
+# files anyone with that disk could sign. Not skippable. The marker is read
+# from trust_anchors.dart, so a new development authority needs no edit here.
+dev_anchor="$(sed -n '/_development =/,/;/p' "$repo/lib/features/keybank/services/trust_anchors.dart" | grep -o '[0-9a-f]\{64\}' | head -1 || true)"
+if [[ -z "$dev_anchor" ]]; then
+  echo "cannot read the development authority from trust_anchors.dart - trust anchors UNVERIFIED" >&2
+  exit 1
+fi
+# Counted rather than `grep -q`: -q stops reading early, unzip dies of SIGPIPE
+# and under pipefail the whole test reads as "not found".
+dev_hits="$(unzip -p "$apk" lib/arm64-v8a/libapp.so | grep -c -a "$dev_anchor" || true)"
+if [[ "$dev_hits" != "0" ]]; then
+  echo "REFUSING THIS APK: it trusts the DEVELOPMENT key-bank authority. Rebuild without HAMRESAN_DEV_ANCHOR." >&2
+  exit 1
+fi
+echo "Trust anchors OK - no development authority."
+
 # --- signature check --------------------------------------------------------
 # android/key.properties is gitignored, so a fresh clone (or CI without the
 # secret) signs the RELEASE build with the DEBUG key — see

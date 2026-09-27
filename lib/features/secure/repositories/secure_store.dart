@@ -41,7 +41,9 @@ class SecureStore {
   cipher.Database? _db;
 
   static const String fileName = 'secure.db';
-  static const int _schemaVersion = 1;
+
+  /// v1: `secure_meta` (phase C). v2: the key bank (phase E).
+  static const int _schemaVersion = 2;
 
   /// The open database, or null while locked.
   cipher.Database? get database => _db;
@@ -104,6 +106,16 @@ class SecureStore {
     );
   }
 
+  /// The schema on a database the tests open themselves (ffi, no SQLCipher).
+  @visibleForTesting
+  static Future<void> createSchemaForTest(cipher.Database db) =>
+      _onCreate(db, _schemaVersion);
+
+  /// Runs the migrations from [from] to the current version.
+  @visibleForTesting
+  static Future<void> upgradeSchemaForTest(cipher.Database db, int from) =>
+      _onUpgrade(db, from, _schemaVersion);
+
   static Future<void> _onCreate(cipher.Database db, int version) async {
     await db.execute('''
       CREATE TABLE secure_meta (
@@ -115,6 +127,73 @@ class SecureStore {
       'key': 'created_at',
       'value': DateTime.now().millisecondsSinceEpoch.toString(),
     });
+    await _createKeyBank(db);
+  }
+
+  /// «بانک کلید» (v2) — see `KeyBankRepository`, the only code that reads
+  /// or writes these tables.
+  ///
+  /// Every phone number here is canonical (`SmsCryptoService.canonicalPhone`
+  /// — the same spelling the keys are derived from), and every id is
+  /// lowercase hex.
+  static Future<void> _createKeyBank(cipher.DatabaseExecutor db) async {
+    // One row per organization directory; `signed` is the directory exactly
+    // as the authority signed it, so it can be verified again at any time.
+    await db.execute('''
+      CREATE TABLE kb_directories (
+        id TEXT PRIMARY KEY,
+        authority_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        serial INTEGER NOT NULL,
+        signed BLOB NOT NULL,
+        imported_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE kb_members (
+        directory_id TEXT NOT NULL,
+        key_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        public_key BLOB NOT NULL,
+        PRIMARY KEY (directory_id, key_id)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE kb_member_phones (
+        phone TEXT NOT NULL,
+        directory_id TEXT NOT NULL,
+        key_id TEXT NOT NULL,
+        PRIMARY KEY (phone, directory_id)
+      )
+    ''');
+    // This phone's own identity in a directory — the one private key a key
+    // file carries.
+    await db.execute('''
+      CREATE TABLE kb_own_keys (
+        directory_id TEXT PRIMARY KEY,
+        key_id TEXT NOT NULL,
+        secret BLOB NOT NULL,
+        public_key BLOB NOT NULL
+      )
+    ''');
+    // A passphrase group: `seed` is the Argon2id result, i.e. the group's
+    // secret; the passphrase itself is never stored.
+    await db.execute('''
+      CREATE TABLE kb_groups (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        seed BLOB NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+    // This phone's own numbers: in a passphrase group a member's key is
+    // derived from their number, so the app must know which numbers are ours.
+    await db.execute('''
+      CREATE TABLE kb_own_numbers (
+        phone TEXT PRIMARY KEY,
+        added_at INTEGER NOT NULL
+      )
+    ''');
   }
 
   static Future<void> _onUpgrade(
@@ -122,7 +201,7 @@ class SecureStore {
     int oldVersion,
     int newVersion,
   ) async {
-    // No migrations yet — v1 is the first schema.
+    if (oldVersion < 2) await _createKeyBank(db);
   }
 
   Future<String> _path() async =>

@@ -37,6 +37,23 @@ enum SmsCryptoFailure {
   /// The session's send counter is exhausted; start a new one.
   rekeyRequired,
 
+  // ── Key bank ──
+
+  /// Not a key file (wrong kind of file, or damaged beyond reading).
+  notAKeyFile,
+
+  /// The password does not open the key file.
+  wrongPassword,
+
+  /// Signed by an authority this build does not trust.
+  untrusted,
+
+  /// The authority's signature does not verify: the file was altered.
+  badSignature,
+
+  /// Signed, but its contents contradict themselves.
+  badBundle,
+
   /// Anything else — a bad argument, a platform error.
   failed,
 }
@@ -57,6 +74,11 @@ class SmsCryptoException implements Exception {
     'AUTH_FAILED' => SmsCryptoFailure.authFailed,
     'BAD_PAYLOAD' => SmsCryptoFailure.badPayload,
     'REKEY_REQUIRED' => SmsCryptoFailure.rekeyRequired,
+    'NOT_A_KEY_FILE' => SmsCryptoFailure.notAKeyFile,
+    'WRONG_PASSWORD' => SmsCryptoFailure.wrongPassword,
+    'UNTRUSTED' => SmsCryptoFailure.untrusted,
+    'BAD_SIGNATURE' => SmsCryptoFailure.badSignature,
+    'BAD_BUNDLE' => SmsCryptoFailure.badBundle,
     _ => SmsCryptoFailure.failed,
   };
 
@@ -119,6 +141,57 @@ class SmsSealed {
   /// How many SMS parts [wire] costs.
   final int parts;
   final int? sid;
+}
+
+/// One member of a [KeyDirectory].
+class DirectoryMember {
+  const DirectoryMember({
+    required this.name,
+    required this.phones,
+    required this.publicKey,
+    required this.keyId,
+  });
+  final String name;
+
+  /// Canonical (see `canonicalPhone`).
+  final List<String> phones;
+  final Uint8List publicKey;
+  final Uint8List keyId;
+}
+
+/// «دفترچهٔ کلید»: an organization's members, as its authority signed them.
+class KeyDirectory {
+  const KeyDirectory({
+    required this.authorityId,
+    required this.directoryId,
+    required this.serial,
+    required this.name,
+    required this.members,
+  });
+  final Uint8List authorityId;
+
+  /// Fixed for an organization; a newer copy replaces an older one.
+  final Uint8List directoryId;
+
+  /// Grows with every issue (the issue time, ms since epoch).
+  final int serial;
+  final String name;
+  final List<DirectoryMember> members;
+}
+
+/// A verified key file: the signed directory (kept as received, so it can
+/// be verified again) and, usually, the importing member's own key.
+class OpenedKeyFile {
+  const OpenedKeyFile({
+    required this.signed,
+    required this.directory,
+    this.memberIndex,
+    this.member,
+  });
+  final Uint8List signed;
+  final KeyDirectory directory;
+  final int? memberIndex;
+  final SmsIdentity? member;
 }
 
 class SmsOpened {
@@ -253,6 +326,90 @@ class SmsCryptoService {
       text: m['text'] as String,
     );
   }
+
+  // ── Key bank ──────────────────────────────────────────────────────────────
+
+  /// The spelling keys are derived from (`Canon.phone`): `09…` for Iranian
+  /// numbers. Null for anything that is not a phone number.
+  Future<String?> canonicalPhone(String phone) async {
+    try {
+      return await _channel.invokeMethod<String>('canonicalPhone', {
+        'phone': phone,
+      });
+    } on PlatformException {
+      return null;
+    }
+  }
+
+  /// A passphrase group. Runs Argon2id with 64 MiB — about a second; the
+  /// result ([group]) is the group's secret and belongs in the secure section.
+  Future<({Uint8List group, Uint8List groupId})> deriveGroup({
+    required String name,
+    required String passphrase,
+  }) async {
+    final m = await _call<Map>('deriveGroup', {
+      'name': name,
+      'passphrase': passphrase,
+    });
+    return (group: m['group'] as Uint8List, groupId: m['groupId'] as Uint8List);
+  }
+
+  /// The identity of the group member who owns [phone].
+  Future<SmsIdentity> groupMember({
+    required Uint8List group,
+    required String phone,
+  }) async => _identity(
+    await _call<Map>('groupMember', {'group': group, 'phone': phone}),
+  );
+
+  /// Opens and verifies a key file against [anchors] (trusted authority
+  /// public keys).
+  Future<OpenedKeyFile> openKeyFile({
+    required Uint8List file,
+    required String password,
+    required List<Uint8List> anchors,
+  }) async {
+    final m = await _call<Map>('openKeyFile', {
+      'file': file,
+      'password': password,
+      'anchors': anchors,
+    });
+    final member = m['member'] as Map?;
+    return OpenedKeyFile(
+      signed: m['signed'] as Uint8List,
+      directory: _directory(m['directory'] as Map),
+      memberIndex: member?['index'] as int?,
+      member: member == null ? null : _identity(member),
+    );
+  }
+
+  /// Verifies a stored signed directory again.
+  Future<KeyDirectory> verifyDirectory({
+    required Uint8List signed,
+    required List<Uint8List> anchors,
+  }) async => _directory(
+    await _call<Map>('verifyDirectory', {'signed': signed, 'anchors': anchors}),
+  );
+
+  /// The 8-byte id of an authority public key.
+  Future<Uint8List> authorityId(Uint8List publicKey) =>
+      _call<Uint8List>('authorityId', {'public': publicKey});
+
+  KeyDirectory _directory(Map m) => KeyDirectory(
+    authorityId: m['authorityId'] as Uint8List,
+    directoryId: m['directoryId'] as Uint8List,
+    serial: m['serial'] as int,
+    name: m['name'] as String,
+    members: [
+      for (final e in (m['members'] as List).cast<Map>())
+        DirectoryMember(
+          name: e['name'] as String,
+          phones: (e['phones'] as List).cast<String>(),
+          publicKey: e['public'] as Uint8List,
+          keyId: e['keyId'] as Uint8List,
+        ),
+    ],
+  );
 
   SmsIdentity _identity(Map m) => SmsIdentity(
     secret: m['secret'] as Uint8List,

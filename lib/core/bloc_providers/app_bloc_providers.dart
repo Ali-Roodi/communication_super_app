@@ -28,6 +28,7 @@ import 'package:communication_super_app/core/sim/sim_bloc.dart';
 import 'package:communication_super_app/features/edition/bloc/edition_bloc.dart';
 import 'package:communication_super_app/features/edition/repositories/activation_repository.dart';
 import 'package:communication_super_app/features/secure/bloc/secure_session_bloc.dart';
+import 'package:communication_super_app/features/keybank/bloc/key_bank_bloc.dart';
 import 'package:communication_super_app/features/secure/repositories/secure_store.dart';
 
 class AppBlocProviders extends StatelessWidget {
@@ -64,6 +65,13 @@ class AppBlocProviders extends StatelessWidget {
             edition: context.read<EditionBloc>(),
             authChanges: context.read<AuthBloc>().stream,
           )..add(const SecureSessionRefresh()),
+        ),
+        // «بانک کلید» — AFTER SecureSessionBloc, which it follows: it loads when
+        // the section opens and empties itself when it locks. Lazy: nothing
+        // reads it until the key bank screen (and, later, encrypted SMS).
+        BlocProvider(
+          create: (context) =>
+              KeyBankBloc(session: context.read<SecureSessionBloc>()),
         ),
         // Roster first: the contacts read merges the SIM address book, and the
         // composer/dialer decide whether to show a SIM affordance at all from

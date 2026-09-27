@@ -17,6 +17,7 @@ import 'package:communication_super_app/features/authentication/screens/pin_setu
 import 'package:communication_super_app/features/authentication/screens/recovery_code_screen.dart';
 import 'package:communication_super_app/features/authentication/screens/verify_pin_screen.dart';
 import 'package:communication_super_app/features/secure/bloc/secure_session_bloc.dart';
+import 'package:communication_super_app/features/keybank/screens/key_bank_screen.dart';
 import 'package:communication_super_app/core/services/crash_reporting.dart';
 import 'package:communication_super_app/features/dialer/screens/speed_dial_screen.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
@@ -544,6 +545,7 @@ class _SecurityGroupState extends State<_SecurityGroup> {
             onTap: () => _regenerateRecoveryCode(context),
           ),
         const _SecureSectionRow(),
+        const _KeyBankRow(),
         if (hasPin)
           SettingsRow(
             icon: Icons.no_encryption_outlined,
@@ -615,6 +617,28 @@ class _SecureSectionRow extends StatelessWidget {
     if (confirmed == true && context.mounted) {
       context.read<SecureSessionBloc>().add(const SecureResetRequested());
     }
+  }
+}
+
+/// «بانک کلید» — the keys encrypted SMS will use. Absent in the commercial
+/// edition; opens on a locked section too (the screen asks to unlock).
+class _KeyBankRow extends StatelessWidget {
+  const _KeyBankRow();
+
+  @override
+  Widget build(BuildContext context) {
+    final status = context.select<SecureSessionBloc, SecureStatus>(
+      (bloc) => bloc.state.status,
+    );
+    if (status == SecureStatus.unavailable) return const SizedBox.shrink();
+    return SettingsRow(
+      icon: Icons.key_outlined,
+      title: 'بانک کلید',
+      summary: 'فایل کلید سازمان، گروه‌های عبارت عبور و شماره‌های من',
+      onTap: () => Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const KeyBankScreen())),
+    );
   }
 }
 

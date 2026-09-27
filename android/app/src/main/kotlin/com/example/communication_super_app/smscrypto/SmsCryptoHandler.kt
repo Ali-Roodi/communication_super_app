@@ -1,6 +1,12 @@
 package com.example.communication_super_app.smscrypto
 
 import android.os.SystemClock
+import com.example.communication_super_app.smscrypto.keybank.AuthorityPublic
+import com.example.communication_super_app.smscrypto.keybank.Canon
+import com.example.communication_super_app.smscrypto.keybank.Directory
+import com.example.communication_super_app.smscrypto.keybank.KeyFile
+import com.example.communication_super_app.smscrypto.keybank.KeyGroup
+import com.example.communication_super_app.smscrypto.keybank.SignedDirectory
 import android.util.Log
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -31,6 +37,18 @@ import kotlinx.coroutines.withContext
  * - `ownInitWins {ownKid, peerKid}` → Boolean — crossed INITs
  * - `encryptText {session, text}` → `{session, wire, parts}`
  * - `decrypt {session, text}` → `{session, text}`
+ *
+ * Key bank (`keybank/`):
+ * - `canonicalPhone {phone}` → String? — the spelling keys are derived from
+ * - `deriveGroup {name, passphrase}` → `{group, groupId}` — Argon2id, ~1 s
+ * - `groupMember {group, phone}` → `{secret, public, keyId}`
+ * - `openKeyFile {file, password, anchors}` → `{signed, directory, member?}`
+ * - `verifyDirectory {signed, anchors}` → directory
+ * - `authorityId {public}` → Uint8List
+ *
+ * A directory is `{authorityId, directoryId, serial, name, members: [{name,
+ * phones, public, keyId}]}`; `member` is `{index, secret, public, keyId}`.
+ * `anchors` are the trusted authority public keys, passed in by Dart.
  *
  * Errors are the [SmsCryptoException.Code] names, plus `BAD_ARGS` and
  * `FAILED`. Nothing secret and no message text is ever logged.
@@ -69,6 +87,19 @@ class SmsCryptoHandler {
                 }
                 "encryptText" -> run(call, result) { encryptText(call) }
                 "decrypt" -> run(call, result) { decrypt(call) }
+                "canonicalPhone" -> run(call, result) { Canon.phone(call.string("phone")) }
+                "deriveGroup" -> run(call, result) {
+                    val group = KeyGroup.derive(call.string("name"), call.string("passphrase"))
+                    mapOf("group" to group.serialize(), "groupId" to group.groupId)
+                }
+                "groupMember" -> run(call, result) {
+                    identity(KeyGroup.parse(call.bytes("group")).member(call.string("phone")))
+                }
+                "openKeyFile" -> run(call, result) { openKeyFile(call) }
+                "verifyDirectory" -> run(call, result) {
+                    directory(SignedDirectory.decode(call.bytes("signed")).verify(anchors(call)))
+                }
+                "authorityId" -> run(call, result) { AuthorityPublic.parse(call.bytes("public")).authorityId }
                 else -> result.notImplemented()
             }
         }
@@ -160,6 +191,36 @@ class SmsCryptoHandler {
         )
     }
 
+    private fun openKeyFile(call: MethodCall): Map<String, Any?> {
+        val opened = KeyFile.open(call.bytes("file"), call.string("password"), anchors(call))
+        val member = opened.identity?.let {
+            identity(it) + ("index" to opened.memberIndex)
+        }
+        return mapOf(
+            "signed" to opened.signed.encode(),
+            "directory" to directory(opened.directory),
+            "member" to member,
+        )
+    }
+
+    private fun directory(d: Directory): Map<String, Any> = mapOf(
+        "authorityId" to d.authorityId,
+        "directoryId" to d.directoryId,
+        "serial" to d.serial,
+        "name" to d.name,
+        "members" to d.members.map { m ->
+            mapOf(
+                "name" to m.name,
+                "phones" to m.phones,
+                "public" to m.identity.encoded,
+                "keyId" to m.identity.keyId,
+            )
+        },
+    )
+
+    private fun anchors(call: MethodCall): List<AuthorityPublic> =
+        (call.argument<List<ByteArray>>("anchors") ?: emptyList()).map { AuthorityPublic.parse(it) }
+
     private fun own(call: MethodCall) = IdentityKeyPair.parse(call.bytes("secret"))
 
     private fun peer(call: MethodCall) = PublicIdentity.parse(call.bytes("peer"))
@@ -183,6 +244,10 @@ class SmsCryptoHandler {
                 result.error(e.code.name, e.message, null)
             } catch (e: IllegalArgumentException) {
                 result.error("BAD_ARGS", e.message, null)
+            } catch (e: OutOfMemoryError) {
+                // Argon2id's 64 MiB on a phone with a small heap.
+                Log.e(TAG, "${call.method} ran out of memory")
+                result.error("FAILED", "OutOfMemoryError", null)
             } catch (e: ClassCastException) {
                 result.error("BAD_ARGS", "argument of the wrong type", null)
             } catch (e: Exception) {
