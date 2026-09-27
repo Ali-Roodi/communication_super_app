@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
+import 'package:communication_super_app/features/authentication/models/pin_policy.dart';
+import 'package:communication_super_app/features/authentication/repositories/auth_repository.dart';
 import 'package:communication_super_app/features/authentication/screens/widgets/pin_pad.dart';
 import '../bloc/secure_session_bloc.dart';
 
@@ -16,15 +18,27 @@ class SecureUnlockScreen extends StatefulWidget {
 }
 
 class _SecureUnlockScreenState extends State<SecureUnlockScreen> {
-  static const int _pinLength = 4;
   String _pin = '';
+
+  /// Digits in the stored PIN, read when the screen opens; keys are ignored
+  /// until it is known, so a 6-digit PIN is never submitted at 4.
+  int? _pinLength;
+
+  @override
+  void initState() {
+    super.initState();
+    AuthRepository().pinLength().then((length) {
+      if (mounted) setState(() => _pinLength = length);
+    });
+  }
 
   void _onKey(String digit) {
     final state = context.read<SecureSessionBloc>().state;
-    if (state.busy || _pin.length >= _pinLength) return;
+    final length = _pinLength;
+    if (length == null || state.busy || _pin.length >= length) return;
     HapticFeedback.lightImpact();
     setState(() => _pin += digit);
-    if (_pin.length == _pinLength) {
+    if (_pin.length == length) {
       context.read<SecureSessionBloc>().add(SecureUnlockRequested(_pin));
     }
   }
@@ -94,7 +108,10 @@ class _SecureUnlockScreenState extends State<SecureUnlockScreen> {
                     ),
                   ),
                   const SizedBox(height: 24),
-                  PinDots(filled: _pin.length),
+                  PinDots(
+                    length: _pinLength ?? PinPolicy.standardLength,
+                    filled: _pin.length,
+                  ),
                   const SizedBox(height: 12),
                   // Said on the screen, like RelockScreen: a message somewhere
                   // else is a message nobody reads.

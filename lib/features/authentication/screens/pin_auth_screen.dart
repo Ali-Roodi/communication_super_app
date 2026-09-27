@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/auth_bloc.dart';
 import '../bloc/auth_event.dart';
 import '../bloc/auth_state.dart';
+import '../models/pin_policy.dart';
 import 'recovery_code_screen.dart';
 import 'widgets/pin_pad.dart';
 
@@ -17,12 +18,20 @@ class PinAuthScreen extends StatefulWidget {
 class _PinAuthScreenState extends State<PinAuthScreen> {
   String _pin = '';
 
+  /// Digits in the stored PIN (4, or 6 in the secure editions). This screen
+  /// is only shown for [AuthSet], which carries it.
+  int get _length {
+    final state = context.read<AuthBloc>().state;
+    return state is AuthSet ? state.pinLength : PinPolicy.standardLength;
+  }
+
   void _onNumberPressed(String number) {
     HapticFeedback.lightImpact();
+    final length = _length;
     setState(() {
-      if (_pin.length < 4) {
+      if (_pin.length < length) {
         _pin += number;
-        if (_pin.length == 4) {
+        if (_pin.length == length) {
           context.read<AuthBloc>().add(ValidatePin(_pin));
         }
       }
@@ -64,7 +73,11 @@ class _PinAuthScreenState extends State<PinAuthScreen> {
                   style: Theme.of(context).textTheme.headlineMedium,
                 ),
                 const SizedBox(height: 40),
-                PinDots(filled: _pin.length),
+                BlocBuilder<AuthBloc, AuthState>(
+                  buildWhen: (a, b) => b is AuthSet,
+                  builder: (context, _) =>
+                      PinDots(length: _length, filled: _pin.length),
+                ),
                 const SizedBox(height: 60),
                 PinKeypad(onKey: _onNumberPressed, onDelete: _onDelete),
                 const SizedBox(height: 8),

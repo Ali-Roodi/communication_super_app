@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
+import '../models/pin_policy.dart';
 import '../repositories/auth_repository.dart';
 import '../repositories/pin_attempt_limiter.dart';
 import 'widgets/pin_pad.dart';
@@ -22,20 +23,33 @@ class VerifyPinScreen extends StatefulWidget {
 }
 
 class _VerifyPinScreenState extends State<VerifyPinScreen> {
-  static const int _pinLength = 4;
   late final AuthRepository _repository = widget.repository ?? AuthRepository();
+
+  /// Digits in the stored PIN, read when the screen opens; keys are ignored
+  /// until it is known, so a 6-digit PIN is never submitted at 4.
+  int? _pinLength;
+
+  @override
+  void initState() {
+    super.initState();
+    _repository.pinLength().then((length) {
+      if (mounted) setState(() => _pinLength = length);
+    });
+  }
+
   String _pin = '';
   bool _checking = false;
   String? _error;
 
   void _onKey(String digit) {
-    if (_checking || _pin.length >= _pinLength) return;
+    final length = _pinLength;
+    if (length == null || _checking || _pin.length >= length) return;
     HapticFeedback.lightImpact();
     setState(() {
       _pin += digit;
       _error = null;
     });
-    if (_pin.length == _pinLength) _verify();
+    if (_pin.length == length) _verify();
   }
 
   void _onDelete() {
@@ -81,7 +95,10 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
                 style: theme.textTheme.headlineSmall,
               ),
               const SizedBox(height: 32),
-              PinDots(filled: _pin.length),
+              PinDots(
+                length: _pinLength ?? PinPolicy.standardLength,
+                filled: _pin.length,
+              ),
               const SizedBox(height: 12),
               SizedBox(
                 height: 48,

@@ -5,6 +5,9 @@ import '../bloc/auth_bloc.dart';
 import '../bloc/auth_event.dart';
 import '../bloc/auth_state.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
+import 'package:communication_super_app/core/utils/persian_utils.dart';
+import 'package:communication_super_app/features/edition/bloc/edition_bloc.dart';
+import '../models/pin_policy.dart';
 import 'recovery_code_screen.dart';
 import 'widgets/pin_pad.dart';
 
@@ -29,15 +32,21 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
   String _confirmPin = '';
   bool _isConfirming = false;
 
+  /// The length a new PIN must have in this edition — 6 digits wherever there
+  /// is a secure section, 4 in the commercial edition. See [PinPolicy].
+  late final int _length = PinPolicy.requiredFor(
+    context.read<EditionBloc>().state.edition,
+  );
+
   void _onNumberPressed(String number) {
     HapticFeedback.lightImpact();
     setState(() {
       if (!_isConfirming) {
-        if (_pin.length < 4) _pin += number;
-        if (_pin.length == 4) _isConfirming = true;
+        if (_pin.length < _length) _pin += number;
+        if (_pin.length == _length) _isConfirming = true;
       } else {
-        if (_confirmPin.length < 4) _confirmPin += number;
-        if (_confirmPin.length == 4) {
+        if (_confirmPin.length < _length) _confirmPin += number;
+        if (_confirmPin.length == _length) {
           if (_pin == _confirmPin) {
             context.read<AuthBloc>().add(
               SetPin(_pin, currentPin: widget.currentPin),
@@ -129,8 +138,18 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
                   _isConfirming ? 'تکرار رمز عبور' : 'رمز عبور را وارد کنید',
                   style: Theme.of(context).textTheme.headlineMedium,
                 ),
+                if (_length != PinPolicy.standardLength) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'رمز ${PersianUtils.toPersianNumber('$_length')} رقمی',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 40),
                 PinDots(
+                  length: _length,
                   filled: _isConfirming ? _confirmPin.length : _pin.length,
                 ),
                 const Spacer(),

@@ -10,6 +10,7 @@ import 'package:communication_super_app/core/widgets/google_list.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_bloc.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_event.dart';
+import 'package:communication_super_app/features/authentication/bloc/auth_state.dart';
 import 'package:communication_super_app/features/authentication/models/auth_type.dart';
 import 'package:communication_super_app/features/authentication/repositories/auth_repository.dart';
 import 'package:communication_super_app/features/authentication/screens/pin_setup_screen.dart';
@@ -492,9 +493,15 @@ class _SecurityGroupState extends State<_SecurityGroup> {
       if (confirmed == true && context.mounted) {
         // DisableAuth (NOT ClearAuth): keeps the user inside the app and
         // marks setup skipped so the next launch doesn't re-prompt.
-        context.read<AuthBloc>().add(const DisableAuth());
+        // Wait for the bloc to finish before re-reading: `_load` right after
+        // `add` read the storage before the PIN was cleared, and the rows
+        // kept saying «تغییر رمز عبور» until the page was reopened.
+        final bloc = context.read<AuthBloc>();
+        final done = bloc.stream.firstWhere((s) => s is AuthAuthenticated);
+        bloc.add(const DisableAuth());
+        await done;
         await _load();
-        if (context.mounted) {
+        if (context.mounted && _authType == AuthType.none) {
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(const SnackBar(content: Text('رمز عبور حذف شد')));
@@ -567,6 +574,8 @@ class _SecureSectionRow extends StatelessWidget {
       title: 'بخش امن',
       summary: switch (state.status) {
         SecureStatus.needsPin => 'برای استفاده، رمز برنامه را تعیین کنید',
+        SecureStatus.pinTooShort =>
+          'به رمز ۶ رقمی نیاز دارد؛ رمز برنامه را تغییر دهید',
         SecureStatus.notCreated => 'با اولین باز کردن قفل ساخته می‌شود',
         SecureStatus.locked => 'قفل است · برای حذف لمس کنید',
         SecureStatus.unlocked => 'باز است · برای حذف لمس کنید',

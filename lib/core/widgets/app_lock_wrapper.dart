@@ -5,6 +5,7 @@ import 'package:communication_super_app/core/navigation/call_ui_coordinator.dart
 import 'package:communication_super_app/features/authentication/bloc/auth_bloc.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_state.dart';
 import 'package:communication_super_app/features/authentication/models/auth_type.dart';
+import 'package:communication_super_app/features/authentication/models/pin_policy.dart';
 import 'package:communication_super_app/features/authentication/repositories/auth_repository.dart';
 import 'package:communication_super_app/features/authentication/repositories/pin_attempt_limiter.dart';
 import 'package:communication_super_app/features/authentication/screens/recovery_code_screen.dart';
@@ -125,6 +126,19 @@ class RelockScreen extends StatefulWidget {
 
 class _RelockScreenState extends State<RelockScreen> {
   final AuthRepository _repository = AuthRepository();
+
+  /// Digits in the stored PIN, read when the screen opens; keys are ignored
+  /// until it is known, so a 6-digit PIN is never submitted at 4.
+  int? _pinLength;
+
+  @override
+  void initState() {
+    super.initState();
+    _repository.pinLength().then((length) {
+      if (mounted) setState(() => _pinLength = length);
+    });
+  }
+
   String _pin = '';
   bool _checking = false;
 
@@ -132,13 +146,14 @@ class _RelockScreenState extends State<RelockScreen> {
   String? _error;
 
   void _onKey(String digit) {
-    if (_checking || _pin.length >= 4) return;
+    final length = _pinLength;
+    if (length == null || _checking || _pin.length >= length) return;
     HapticFeedback.lightImpact();
     setState(() {
       _pin += digit;
       _error = null;
     });
-    if (_pin.length == 4) _verify();
+    if (_pin.length == length) _verify();
   }
 
   void _onDelete() {
@@ -206,7 +221,10 @@ class _RelockScreenState extends State<RelockScreen> {
                       : null,
                 ),
                 const SizedBox(height: 24),
-                PinDots(filled: _pin.length),
+                PinDots(
+                  length: _pinLength ?? PinPolicy.standardLength,
+                  filled: _pin.length,
+                ),
                 const SizedBox(height: 48),
                 PinKeypad(
                   onKey: _onKey,
