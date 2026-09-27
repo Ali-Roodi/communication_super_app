@@ -10,7 +10,9 @@ flutter run              # Run on connected device/emulator
 flutter run --release    # Run in release mode
 flutter build apk        # Build Android APK (debug)
 flutter build apk --release  # Build release APK (local only — see below)
-scripts/release_build.sh     # Build the APK a STORE gets: versionCode from git, signature verified
+scripts/release_build.sh     # Build the APK a STORE gets: versionCode from git, manifest + signature verified
+scripts/release_build.sh --flavor organization   # The organization APK (direct distribution, never a store)
+flutter run --flavor organization                # Bare commands default to the commercial flavor (pubspec default-flavor)
 flutter analyze          # Run linter (flutter_lints)
 flutter test             # Run all tests
 flutter test test/widget_test.dart  # Run a single test file
@@ -35,6 +37,7 @@ as the code.
 | `docs/architecture/dual-sim.md` | anything that names a SIM: `subscriptionId`, per-thread SIM memory, the pickers, SIM contacts |
 | `docs/architecture/drafts-and-templates.md` | drafts, categories, «قالب آماده» and the template SMS wire format |
 | `docs/architecture/settings.md` | the settings pages |
+| `docs/architecture/editions.md` | anything edition-specific (تجاری / بین‌سازمانی / سازمانی): the two Gradle flavors, the shared applicationId and signing key, the organization versionCode band that keeps a store from replacing an organization install, `AppEdition`, and what each release script checks |
 | `docs/publishing/store-release.md` | anything about shipping the app to بازار / مایکت — the signing key, the store permission review, the store listing, the release pipeline. It carries the **live status** of the launch: update its status table and history in the same commit as the change. |
 
 Two rules from those files apply **everywhere** and are repeated here so they cannot be
@@ -53,7 +56,9 @@ missed:
 **Kotlin/Dart mirrors that must change together:** `ScheduledSmsWorker.kt` ↔
 `scheduled_message_model.dart`, `TemplateWire.kt` ↔ `message_template_model.dart`,
 `BlockedNumbers.kt` ↔ `PhoneNormalizer`. A mismatch does not fail loudly — it silently
-does something different.
+does something different. Same rule for the build: the flavor names and the organization
+versionCode base in `android/app/build.gradle.kts` ↔ `AppEdition` and
+`scripts/release_build.{sh,ps1}` (see `editions.md`).
 
 ## Architecture
 
@@ -156,6 +161,8 @@ Long-press is the *same gesture everywhere*, matching Google Messages / Phone / 
 **Tapping a phone number inside a message** opens `showPhoneActionSheet` (تماس / ارسال پیامک / مشاهده مخاطب or افزودن به مخاطبین / کپی شماره). It must NEVER launch a `tel:` intent: this app is the default dialer, so the intent resolves back into its own process — the UI froze for ~9 s, swallowed the gesture and could take the activity down. The contact lookup runs *after* the sheet is on screen (cold address book) and is wrapped in a try/catch so a missing permission still leaves call/SMS/save usable.
 
 ### Authentication & app lock
+
+- **The PIN dots fill left to right on every lock screen** (`PinDots` is forced LTR, like `PinKeypad`). A PIN is a number; in the inherited RTL direction the first digit lit the rightmost dot. All four PIN screens share the one widget.
 
 - Auth type (PIN or pattern) is stored in `flutter_secure_storage`; the credential itself is stored **salted and stretched** (`v2:<salt>:<hash>`, 60 k rounds of SHA-256), not in plaintext. Rows written by older versions are plaintext and are upgraded in place on the first *successful* validation — never on a wrong guess.
 - **A forgotten PIN is no longer a permanent lockout.** Setting a PIN mints a one-time recovery code (`AuthRepository.regenerateRecoveryCode`, hash-only storage, unambiguous alphabet with no O/0 or I/1) which `PinSetupScreen` shows once via `RecoveryCodeScreen`. `AuthBloc` emits `AuthRecoveryCodeIssued` **before** `AuthAuthenticated` for that reason — reorder them and the code is minted and lost in the same frame. «رمز را فراموش کرده‌ام» on both lock screens verifies it and drops to the set-a-PIN flow; it never unlocks the app directly, because a code written on paper must not become a second password. Settings → «کد بازیابی جدید» re-mints it from inside an unlocked app.

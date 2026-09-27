@@ -25,6 +25,13 @@ val keystoreProperties = Properties().apply {
     }
 }
 
+// versionCode band of the `organization` flavor — see the Editions block in
+// `android {}` below. The platform's ceiling is 2_100_000_000, which leaves the
+// organization edition 100 million releases of headroom above the base, and the
+// commercial edition (the plain commit count) everything below it.
+val ORGANIZATION_VERSION_CODE_BASE = 2_000_000_000
+val MAX_ANDROID_VERSION_CODE = 2_100_000_000
+
 android {
     // The Kotlin package (and therefore R.class / BuildConfig) is deliberately
     // still `com.example.communication_super_app` while `applicationId` is
@@ -91,6 +98,63 @@ android {
         ndk {
             abiFilters += "arm64-v8a"
         }
+    }
+
+    // ── Editions ─────────────────────────────────────────────────────────────
+    //
+    // Two APKs, ONE applicationId. Read docs/architecture/editions.md first.
+    //
+    //  * `commercial`   — the store build (Bazaar / Myket). The inter-
+    //                     organizational edition is not an APK of its own: it
+    //                     is this build after an in-app activation code.
+    //  * `organization` — distributed as a direct APK, never through a store.
+    //
+    // Both keep `ir.hamrasan.app` on purpose: a store decides "is this app
+    // installed" by package name, and it must say «نصب است» whichever edition
+    // is on the phone. Both are signed with the same key (signingConfigs below
+    // is shared), so the package manager treats them as one app.
+    //
+    // What keeps the store from ever replacing an organization install is the
+    // VERSION CODE, not the package name. The commercial build's versionCode is
+    // the git commit count (scripts/release_build.*); the organization build
+    // lives in a band above anything that count can reach. A store only offers
+    // an update whose versionCode is greater than the installed one, and the
+    // package manager refuses a lower one outright (INSTALL_FAILED_VERSION_
+    // DOWNGRADE) — so neither the store nor a sideloaded commercial APK can
+    // land on top of an organization install, while organization updates
+    // (base + a larger commit count) install over each other normally.
+    //
+    // The band is applied HERE, to every build type of the flavor, and not in
+    // the release script: a debug or ad-hoc organization APK built with a
+    // commit-count versionCode would be exactly the install a store could
+    // "update" into the commercial app.
+    //
+    // MIRRORED in scripts/release_build.sh and scripts/release_build.ps1,
+    // which check the built APK's versionCode against the same base.
+    flavorDimensions += "edition"
+    productFlavors {
+        create("commercial") {
+            dimension = "edition"
+        }
+        create("organization") {
+            dimension = "edition"
+            versionCode = ORGANIZATION_VERSION_CODE_BASE + flutter.versionCode
+            // Visible in the system's App info page, where nobody can tell the
+            // two editions apart otherwise; the Dart side shows the edition by
+            // name in «درباره برنامه».
+            versionNameSuffix = "-org"
+        }
+    }
+
+    // The two bands must never meet: a commercial versionCode at or above the
+    // base would read as an organization build to anything comparing them, and
+    // an organization one past the platform ceiling does not install at all.
+    // Fail the configuration here rather than an install on somebody's phone.
+    val maxBaseVersionCode = MAX_ANDROID_VERSION_CODE - ORGANIZATION_VERSION_CODE_BASE
+    check(flutter.versionCode in 1..maxBaseVersionCode) {
+        "versionCode ${flutter.versionCode} is outside 1..$maxBaseVersionCode — the " +
+            "organization edition adds $ORGANIZATION_VERSION_CODE_BASE to it. " +
+            "See docs/architecture/editions.md."
     }
 
     // Ship exactly ONE ABI directory.

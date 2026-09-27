@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:sentry/sentry.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../edition/app_edition.dart';
+
 /// Crash reporting, wired so that **nothing about a message ever leaves the
 /// device**.
 ///
@@ -39,11 +41,16 @@ class CrashReporting {
 
   static const String _dsn = String.fromEnvironment('SENTRY_DSN');
 
-  /// Whether a DSN was compiled into this build. False in every build that did
-  /// not pass `--dart-define=SENTRY_DSN=…`, which includes every debug run —
-  /// so the settings switch hides itself rather than promising something the
-  /// binary cannot do.
-  static bool get isAvailable => _dsn.isNotEmpty;
+  /// Whether this build can report at all. False in every build that did not
+  /// pass `--dart-define=SENTRY_DSN=…`, which includes every debug run — so the
+  /// settings switch hides itself rather than promising something the binary
+  /// cannot do.
+  ///
+  /// Always false in the organization edition, whatever was compiled in: that
+  /// build is handed to an organization on the promise that nothing on it
+  /// talks to a third-party server, and a DSN passed to the wrong build
+  /// command must not be able to break that promise.
+  static bool get isAvailable => !kOrganizationBuild && _dsn.isNotEmpty;
 
   static bool _enabled = false;
 

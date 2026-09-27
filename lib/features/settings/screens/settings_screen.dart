@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:communication_super_app/core/edition/app_edition.dart';
 import 'package:communication_super_app/core/theme/theme_bloc.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
@@ -249,10 +250,13 @@ class _AboutGroupState extends State<_AboutGroup> {
     super.initState();
     PackageInfo.fromPlatform().then((info) {
       if (!mounted) return;
+      // An LTR isolate (LRI … PDI): a version is left-to-right content, and in
+      // this RTL row the bidi algorithm reordered its pieces — the
+      // organization build's «1.0.0-org (2000000127)» came out as
+      // «org (2000000127)-1.0.0».
       setState(
-        () => _version = PersianUtils.toPersianNumber(
-          '${info.version} (${info.buildNumber})',
-        ),
+        () => _version =
+            '\u2066${PersianUtils.toPersianNumber('${info.version} (${info.buildNumber})')}\u2069',
       );
     });
   }
@@ -267,6 +271,13 @@ class _AboutGroupState extends State<_AboutGroup> {
           summary: 'هم‌رسان',
         ),
         SettingsRow(icon: Icons.tag, title: 'نسخه', summary: _version ?? '…'),
+        // Both editions install as the same package and look identical, so a
+        // support call has no other way to learn which one is on the phone.
+        SettingsRow(
+          icon: Icons.verified_outlined,
+          title: 'نوع نسخه',
+          summary: AppEdition.current.label,
+        ),
         SettingsRow(
           icon: Icons.privacy_tip_outlined,
           // The store-facing policy, kept inside the app so the text a

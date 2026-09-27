@@ -130,6 +130,13 @@ dev_dependencies:
 # The following section is specific to Flutter packages.
 flutter:
 
+  # The Android build has two product flavors (see android/app/build.gradle.kts
+  # and docs/architecture/editions.md). Without a default, every bare
+  # `flutter run` / `flutter build apk` would have to name one or fail to find
+  # its APK. The default is the store build; the organization APK is always
+  # asked for explicitly: `--flavor organization`.
+  default-flavor: commercial
+
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.

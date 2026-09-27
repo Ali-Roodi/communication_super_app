@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'core/edition/app_edition.dart';
 import 'core/navigation/app_route_observer.dart';
 import 'core/services/crash_reporting.dart';
 import 'core/navigation/call_ui_coordinator.dart';
@@ -16,6 +17,10 @@ import 'features/settings/bloc/settings_bloc.dart';
 import 'features/settings/bloc/settings_state.dart';
 
 void main() async {
+  // Before anything else: a binary built from a flavor this code does not know
+  // must not start with a guessed feature set. See [AppEdition].
+  AppEdition.verifyBuildFlavor();
+
   WidgetsFlutterBinding.ensureInitialized();
 
   // Crash reporting wraps everything below so a crash during startup is
