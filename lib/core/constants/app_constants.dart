@@ -90,6 +90,11 @@ class AppConstants {
   /// down at setup is the only way back in — see `AuthRepository`.
   static const String recoveryCodeKey = 'auth_recovery_code';
 
+  /// The inter-organizational activation code (secure storage). The code
+  /// itself, re-verified against the device on every read — never a flag.
+  /// See `ActivationRepository`.
+  static const String interOrgActivationKey = 'inter_org_activation_code';
+
   // Auth Types
   static const String authTypePin = 'pin';
   static const String authTypePattern = 'pattern';

@@ -1,29 +1,34 @@
 import 'package:flutter/services.dart' show appFlavor;
 
-/// Which APK this is — decided at BUILD time by the Android product flavor.
+/// The three editions of هم‌رسان.
 ///
-/// هم‌رسان ships as two APKs from one codebase, both with the same
-/// applicationId and the same signing key (see `docs/architecture/editions.md`
-/// and the Editions block in `android/app/build.gradle.kts`):
+/// They ship as two APKs from one codebase, both with the same applicationId
+/// and the same signing key (see `docs/architecture/editions.md` and the
+/// Editions block in `android/app/build.gradle.kts`):
 ///
-/// * [commercial] — the store build. The inter-organizational edition is not
-///   a third APK: it is this build after an in-app activation, a *runtime*
-///   state layered on top of this enum, not a value of it.
+/// * [commercial] — the store build.
+/// * [interOrganization] — NOT an APK: the commercial build after the in-app
+///   activation code has been entered. It has no Gradle flavor, [current] is
+///   never this value, and the edition a running app is actually in comes from
+///   `EditionBloc`.
 /// * [organization] — distributed as a direct APK, never through a store.
 enum AppEdition {
   commercial(flavor: 'commercial', label: 'تجاری'),
+  interOrganization(flavor: null, label: 'بین‌سازمانی'),
   organization(flavor: 'organization', label: 'سازمانی');
 
   const AppEdition({required this.flavor, required this.label});
 
   /// The Gradle product-flavor name, byte-identical to
   /// `android/app/build.gradle.kts` and to `default-flavor` in pubspec.yaml.
-  final String flavor;
+  /// Null for [interOrganization], which is a runtime state, not a build.
+  final String? flavor;
 
   /// What the user sees in «درباره برنامه».
   final String label;
 
-  /// The edition this binary was built as.
+  /// The edition this binary was BUILT as — [commercial] or [organization],
+  /// never [interOrganization].
   ///
   /// A `const`, so a branch on it is decided by the compiler: code behind
   /// `if (AppEdition.current == AppEdition.organization)` is not merely
@@ -34,7 +39,7 @@ enum AppEdition {
       ? AppEdition.organization
       : AppEdition.commercial;
 
-  /// Maps a flavor name to its edition.
+  /// Maps a flavor name to the edition it builds.
   ///
   /// `null` is the commercial edition: that is what a flavor-less run is
   /// (`flutter test`, which is not an Android build at all). An unknown name

@@ -25,6 +25,8 @@ import 'package:communication_super_app/features/settings/bloc/blocked_numbers_b
 import 'package:communication_super_app/features/settings/repositories/blocked_numbers_repository.dart';
 import 'package:communication_super_app/core/theme/theme_bloc.dart';
 import 'package:communication_super_app/core/sim/sim_bloc.dart';
+import 'package:communication_super_app/features/edition/bloc/edition_bloc.dart';
+import 'package:communication_super_app/features/edition/repositories/activation_repository.dart';
 
 class AppBlocProviders extends StatelessWidget {
   final Widget child;
@@ -36,6 +38,15 @@ class AppBlocProviders extends StatelessWidget {
     return MultiBlocProvider(
       providers: [
         BlocProvider(create: (context) => ThemeBloc()..add(const LoadTheme())),
+        // Eager: which edition the app is in decides what later screens offer
+        // (the lock icon, encrypted SMS), so it is answered at startup rather
+        // than on the first screen that happens to ask. One secure-storage
+        // read and one channel call, and none at all in an organization build.
+        BlocProvider(
+          lazy: false,
+          create: (context) =>
+              EditionBloc(ActivationRepository())..add(const LoadEdition()),
+        ),
         BlocProvider(
           create: (context) =>
               AuthBloc(AuthRepository())..add(const CheckAuthStatus()),
