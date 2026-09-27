@@ -250,6 +250,10 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
+
+    // JVM unit tests for the pure-Kotlin crypto (src/test). Run with
+    // `./gradlew :app:testCommercialDebugUnitTest` from android/.
+    testImplementation("junit:junit:4.13.2")
 }
 
 // Replaces the `android { kotlinOptions { jvmTarget = … } }` block AGP 9 removed

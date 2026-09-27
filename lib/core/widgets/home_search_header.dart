@@ -1,3 +1,4 @@
+import 'package:communication_super_app/features/secure/widgets/secure_lock_button.dart';
 import 'package:flutter/material.dart';
 import '../theme/surface_roles.dart';
 import '../../features/search/screens/search_screen.dart';
@@ -72,6 +73,8 @@ class HomeSearchHeader extends StatelessWidget {
                       ),
                     ),
                   ),
+                  // Absent in the commercial edition (matrix row 3).
+                  SecureLockButton(color: scheme.onSurfaceVariant),
                   Icon(Icons.search, color: scheme.onSurfaceVariant),
                   const SizedBox(width: 16),
                 ],

@@ -22,6 +22,7 @@ void main() {
     when(() => repo.getAuthType()).thenAnswer((_) async => AuthType.pin);
     when(() => repo.isAuthenticated()).thenAnswer((_) async => false);
     when(() => repo.validatePin(any())).thenAnswer((_) async => false);
+    when(() => repo.pinRetryAfter()).thenAnswer((_) async => null);
   });
 
   Future<AuthBloc> pump(WidgetTester tester) async {

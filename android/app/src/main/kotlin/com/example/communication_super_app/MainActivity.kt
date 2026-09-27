@@ -17,6 +17,7 @@ import com.example.communication_super_app.contacts.ContactGroupsHandler
 import com.example.communication_super_app.contacts.ContactLinkHandler
 import com.example.communication_super_app.contacts.SimContactsHandler
 import com.example.communication_super_app.edition.DeviceIdentityHandler
+import com.example.communication_super_app.secure.SecureVaultHandler
 import com.example.communication_super_app.media.PhotoHandler
 import com.example.communication_super_app.scheduled.ScheduledSmsChannel
 import com.example.communication_super_app.scheduled.ScheduledSmsScheduler
@@ -43,6 +44,9 @@ class MainActivity : FlutterActivity() {
     /// Contact photos: gallery / camera pick plus the crop, rotate and resize
     /// the editor asks for. Owns its own activity-result plumbing.
     private var photoHandler: PhotoHandler? = null
+
+    /// The secure section's key vault and its FLAG_SECURE switch.
+    private var secureVaultHandler: SecureVaultHandler? = null
 
     /**
      * Whether this activity is currently asking to be shown over the keyguard.
@@ -204,6 +208,16 @@ class MainActivity : FlutterActivity() {
                 DeviceIdentityHandler.CHANNEL,
             )
         )
+
+        // ── Secure section (بخش امن — کلید پایگاه‌داده رمزشده) ─────────────
+        secureVaultHandler = SecureVaultHandler(applicationContext) { this }.also {
+            it.setup(
+                MethodChannel(
+                    flutterEngine.dartExecutor.binaryMessenger,
+                    SecureVaultHandler.CHANNEL,
+                )
+            )
+        }
 
         // ── Contact photo (دوربین / گالری + برش و چرخش) ──────────────────
         photoHandler = PhotoHandler(this)
@@ -598,6 +612,8 @@ class MainActivity : FlutterActivity() {
         simHandler = null
         simContactsHandler = null
         locationHandler = null
+        secureVaultHandler?.dispose()
+        secureVaultHandler = null
         // The engine is going away: the alarm receiver must go back to delivering
         // scheduled messages natively.
         ScheduledSmsChannel.channel = null

@@ -37,10 +37,10 @@ as the code.
 | `docs/architecture/dual-sim.md` | anything that names a SIM: `subscriptionId`, per-thread SIM memory, the pickers, SIM contacts |
 | `docs/architecture/drafts-and-templates.md` | drafts, categories, «قالب آماده» and the template SMS wire format |
 | `docs/architecture/settings.md` | the settings pages |
-| `docs/architecture/editions.md` | anything edition-specific (تجاری / بین‌سازمانی / سازمانی): the two Gradle flavors, the shared applicationId and signing key, the organization versionCode band that keeps a store from replacing an organization install, `AppEdition` / `EditionBloc`, the inter-organizational activation code (`ActivationCode`, BLAKE3), and what each release script checks |
+| `docs/architecture/editions.md` | anything edition-specific (تجاری / بین‌سازمانی / سازمانی): the two Gradle flavors, the shared applicationId and signing key, the organization versionCode band that keeps a store from replacing an organization install, `AppEdition` / `EditionBloc`, the inter-organizational activation code (`ActivationCode`, BLAKE3), the secure section (Keystore vault, SQLCipher `secure.db`, `SecureSessionBloc`, lock icon, FLAG_SECURE, the PIN attempt limiter), and what each release script checks |
 | `docs/publishing/store-release.md` | anything about shipping the app to بازار / مایکت — the signing key, the store permission review, the store listing, the release pipeline. It carries the **live status** of the launch: update its status table and history in the same commit as the change. |
 
-Two rules from those files apply **everywhere** and are repeated here so they cannot be
+These rules from those files apply **everywhere** and are repeated here so they cannot be
 missed:
 
 - **No plugin in this app may request a runtime permission.** Every grant goes through
@@ -49,6 +49,10 @@ missed:
   (`IllegalStateException: Reply already submitted`, an uncatchable crash on the main
   looper). This is why `call_log`, `another_telephony`, `image_picker` and `image_cropper`
   are not used; see `sms-role-and-sync.md` and `contacts.md`.
+- **Nothing secret is ever written to the main database.** Kotlin opens it while the app is
+  dead, with no key; secure data lives only in the SQLCipher `secure.db` of the secure
+  section (`lib/features/secure/`, the only importer of `sqflite_sqlcipher`). See
+  `editions.md`.
 - **Any batch handed to the contacts provider is chunked below 500 operations.** A batch
   that crosses `ContactsProvider2`'s ceiling writes nothing at all, and through
   `flutter_contacts` it takes the process with it. See `contacts.md`.
@@ -163,6 +167,7 @@ Long-press is the *same gesture everywhere*, matching Google Messages / Phone / 
 ### Authentication & app lock
 
 - **The PIN dots fill left to right on every lock screen** (`PinDots` is forced LTR, like `PinKeypad`). A PIN is a number; in the inherited RTL direction the first digit lit the rightmost dot. All four PIN screens share the one widget.
+- **Every PIN check goes through one attempt budget** (`PinAttemptLimiter`, inside `AuthRepository.validatePin`): 5 free, then a lockout doubling from 30 s to 30 min. While locked out, `validatePin` answers false without looking at the PIN; screens tell the two apart with `pinRetryAfter()`. Changing the PIN asks for the current one first (`VerifyPinScreen`). The secure section opens with this same PIN, so changing, removing or recovering it has vault consequences — see `editions.md`.
 
 - Auth type (PIN or pattern) is stored in `flutter_secure_storage`; the credential itself is stored **salted and stretched** (`v2:<salt>:<hash>`, 60 k rounds of SHA-256), not in plaintext. Rows written by older versions are plaintext and are upgraded in place on the first *successful* validation — never on a wrong guess.
 - **A forgotten PIN is no longer a permanent lockout.** Setting a PIN mints a one-time recovery code (`AuthRepository.regenerateRecoveryCode`, hash-only storage, unambiguous alphabet with no O/0 or I/1) which `PinSetupScreen` shows once via `RecoveryCodeScreen`. `AuthBloc` emits `AuthRecoveryCodeIssued` **before** `AuthAuthenticated` for that reason — reorder them and the code is minted and lost in the same frame. «رمز را فراموش کرده‌ام» on both lock screens verifies it and drops to the set-a-PIN flow; it never unlocks the app directly, because a code written on paper must not become a second password. Settings → «کد بازیابی جدید» re-mints it from inside an unlocked app.

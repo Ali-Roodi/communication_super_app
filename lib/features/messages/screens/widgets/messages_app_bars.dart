@@ -1,3 +1,4 @@
+import 'package:communication_super_app/features/secure/widgets/secure_lock_button.dart';
 import 'package:flutter/material.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 
@@ -62,6 +63,8 @@ class MessagesDefaultAppBar extends StatelessWidget {
         ),
       ),
       actions: [
+        // Absent in the commercial edition (matrix row 3).
+        const SecureLockButton(),
         IconButton(
           icon: const Icon(Icons.search),
           tooltip: 'جستجو',
