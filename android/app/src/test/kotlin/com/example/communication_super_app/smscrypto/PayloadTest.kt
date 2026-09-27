@@ -1,0 +1,90 @@
+package com.example.communication_super_app.smscrypto
+
+import java.security.MessageDigest
+import org.bouncycastle.util.encoders.Hex
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class PayloadTest {
+    private fun roundTrip(text: String): ByteArray {
+        val payload = Payload.text(text)
+        assertEquals(text, Payload.parse(payload).text)
+        return payload
+    }
+
+    private val zwnj = 0x200C.toChar()
+
+    private fun table(): String = PersianCodePage.decode(ByteArray(97) { (0x80 + it).toByte() })!!
+
+    @Test
+    fun `Persian text takes one byte a letter`() {
+        val text = "می${zwnj}خواهم فردا ساعت ۱۰ «جلسه» را ببینم؛ باشد؟"
+        val payload = roundTrip(text)
+        assertEquals(Payload.KIND_TEXT_FA, payload[0].toInt())
+        assertEquals(1 + text.length, payload.size)
+        assertTrue(payload.size < text.toByteArray(Charsets.UTF_8).size)
+    }
+
+    @Test
+    fun `one emoji does not double the whole message`() {
+        val text = "سلام دوست من 😀"
+        val payload = roundTrip(text)
+        assertEquals(Payload.KIND_TEXT_FA, payload[0].toInt())
+        // 13 table/ASCII characters, then an escape and four UTF-8 bytes.
+        assertEquals(1 + 13 + 1 + 4, payload.size)
+    }
+
+    @Test
+    fun `text the code page does not help stays UTF-8`() {
+        assertEquals(Payload.KIND_TEXT_UTF8, roundTrip("Привет, как дела?")[0].toInt())
+        assertEquals(Payload.KIND_TEXT_UTF8, roundTrip("")[0].toInt())
+        roundTrip("plain ASCII\nwith a newline\tand a tab")
+        roundTrip("ي ك ة ۀ ـ ٪ ٫ ٬ ٠١٢ ۰۱۲ … – — “ ” ‘ ’ ﷼ • × ÷")
+    }
+
+    @Test
+    fun `every table character round-trips`() {
+        val all = table()
+        assertEquals(97, all.length)
+        assertEquals(97, all.toSet().size)
+        assertEquals(all, Payload.parse(Payload.text(all)).text)
+        assertEquals(97 + 1, Payload.text(all).size)
+    }
+
+    @Test
+    fun `the code page table is frozen`() {
+        // Sent messages are decoded through this table for ever. If this
+        // fails, the table was edited: revert it and add a new payload kind.
+        assertEquals(
+            FROZEN_TABLE_SHA256,
+            Hex.toHexString(MessageDigest.getInstance("SHA-256").digest(table().toByteArray(Charsets.UTF_8))),
+        )
+    }
+
+    @Test
+    fun `bytes no encoder produced are BAD_PAYLOAD`() {
+        val fa = Payload.KIND_TEXT_FA.toByte()
+        val utf8 = Payload.KIND_TEXT_UTF8.toByte()
+        val bad = listOf(
+            byteArrayOf(),
+            byteArrayOf(0x7F, 0x41),
+            byteArrayOf(fa, 0xE1.toByte()),
+            byteArrayOf(fa, 0xFF.toByte()),
+            byteArrayOf(fa, 0xFF.toByte(), 0x80.toByte()),
+            byteArrayOf(fa, 0xFF.toByte(), 0xC0.toByte(), 0x80.toByte()),
+            byteArrayOf(fa, 0xFF.toByte(), 0xF0.toByte(), 0x9F.toByte()),
+            byteArrayOf(utf8, 0xC3.toByte()),
+            byteArrayOf(utf8, 0xED.toByte(), 0xA0.toByte(), 0x80.toByte()),
+        )
+        for (bytes in bad) {
+            expectError(SmsCryptoException.Code.BAD_PAYLOAD) { Payload.parse(bytes) }
+        }
+        assertNull(PersianCodePage.decode(byteArrayOf(0xFE.toByte())))
+    }
+
+    private companion object {
+        const val FROZEN_TABLE_SHA256 = "fcab63c00d891aadf740a133f04c3f95488a354ae3a59a84d733f8035ca3b724"
+    }
+}

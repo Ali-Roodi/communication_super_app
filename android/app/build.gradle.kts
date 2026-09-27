@@ -251,6 +251,14 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
 
+    // The SMS crypto (smscrypto/): ML-KEM-768 (FIPS 203), X25519 and HKDF
+    // through Bouncy Castle's lightweight API — pure Java, no JNI, no
+    // permission, and the same bytes on every Android version. Android's own
+    // providers have no ML-KEM, and X25519 only from API 33. Only the classes
+    // actually called survive R8. Pinned: the ML-KEM KATs in src/test pin its
+    // behaviour, re-run them on any upgrade.
+    implementation("org.bouncycastle:bcprov-jdk18on:1.86")
+
     // JVM unit tests for the pure-Kotlin crypto (src/test). Run with
     // `./gradlew :app:testCommercialDebugUnitTest` from android/.
     testImplementation("junit:junit:4.13.2")

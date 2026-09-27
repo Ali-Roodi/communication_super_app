@@ -37,7 +37,7 @@ as the code.
 | `docs/architecture/dual-sim.md` | anything that names a SIM: `subscriptionId`, per-thread SIM memory, the pickers, SIM contacts |
 | `docs/architecture/drafts-and-templates.md` | drafts, categories, «قالب آماده» and the template SMS wire format |
 | `docs/architecture/settings.md` | the settings pages |
-| `docs/architecture/editions.md` | anything edition-specific (تجاری / بین‌سازمانی / سازمانی): the two Gradle flavors, the shared applicationId and signing key, the organization versionCode band that keeps a store from replacing an organization install, `AppEdition` / `EditionBloc`, the inter-organizational activation code (`ActivationCode`, BLAKE3), the secure section (Keystore vault, SQLCipher `secure.db`, `SecureSessionBloc`, lock icon, FLAG_SECURE, the PIN attempt limiter), and what each release script checks |
+| `docs/architecture/editions.md` | anything edition-specific (تجاری / بین‌سازمانی / سازمانی): the two Gradle flavors, the shared applicationId and signing key, the organization versionCode band that keeps a store from replacing an organization install, `AppEdition` / `EditionBloc`, the inter-organizational activation code (`ActivationCode`, BLAKE3), the secure section (Keystore vault, SQLCipher `secure.db`, `SecureSessionBloc`, lock icon, FLAG_SECURE, the PIN attempt limiter), the SMS crypto (`smscrypto/`: ML-KEM-768 + X25519 handshake, ratchet, `#E:` wire format, frozen Persian code page, golden vector), and what each release script checks |
 | `docs/publishing/store-release.md` | anything about shipping the app to بازار / مایکت — the signing key, the store permission review, the store listing, the release pipeline. It carries the **live status** of the launch: update its status table and history in the same commit as the change. |
 
 These rules from those files apply **everywhere** and are repeated here so they cannot be
@@ -62,7 +62,7 @@ missed:
 `BlockedNumbers.kt` ↔ `PhoneNormalizer`. A mismatch does not fail loudly — it silently
 does something different. Same rule for the build: the flavor names and the organization
 versionCode base in `android/app/build.gradle.kts` ↔ `AppEdition` and
-`scripts/release_build.{sh,ps1}`; and `ActivationCode` ↔ the mentor's Windows activation-code generator, whose format is fixed (see `editions.md`).
+`scripts/release_build.{sh,ps1}`; and `ActivationCode` ↔ the mentor's Windows activation-code generator, whose format is fixed (see `editions.md`); and `Wire.PREFIX` (`smscrypto/Wire.kt`) ↔ `SmsCryptoService.wirePrefix`. The SMS crypto wire format itself is pinned by `GoldenVectorTest` — a change there is a new `Wire.VERSION`, never a new expected value.
 
 ## Architecture
 
