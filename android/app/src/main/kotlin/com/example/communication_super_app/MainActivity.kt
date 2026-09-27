@@ -16,6 +16,7 @@ import com.example.communication_super_app.contacts.ContactExtrasHandler
 import com.example.communication_super_app.contacts.ContactGroupsHandler
 import com.example.communication_super_app.contacts.ContactLinkHandler
 import com.example.communication_super_app.contacts.SimContactsHandler
+import com.example.communication_super_app.edition.DeviceIdentityHandler
 import com.example.communication_super_app.media.PhotoHandler
 import com.example.communication_super_app.scheduled.ScheduledSmsChannel
 import com.example.communication_super_app.scheduled.ScheduledSmsScheduler
@@ -192,6 +193,15 @@ class MainActivity : FlutterActivity() {
             MethodChannel(
                 flutterEngine.dartExecutor.binaryMessenger,
                 LocationHandler.CHANNEL,
+            )
+        )
+
+        // ── Device identity (کد دستگاه برای فعال‌سازی بین‌سازمانی) ──────────
+        // Stateless: the channel's handler is the only reference it needs.
+        DeviceIdentityHandler(applicationContext).setup(
+            MethodChannel(
+                flutterEngine.dartExecutor.binaryMessenger,
+                DeviceIdentityHandler.CHANNEL,
             )
         )
 

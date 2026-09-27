@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:communication_super_app/core/edition/app_edition.dart';
+import 'package:communication_super_app/features/edition/bloc/edition_bloc.dart';
+import 'package:communication_super_app/features/edition/screens/inter_org_activation_screen.dart';
 import 'package:communication_super_app/core/theme/theme_bloc.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
@@ -263,6 +265,9 @@ class _AboutGroupState extends State<_AboutGroup> {
 
   @override
   Widget build(BuildContext context) {
+    final edition = context.select<EditionBloc, AppEdition>(
+      (bloc) => bloc.state.edition,
+    );
     return GroupedList(
       children: [
         const SettingsRow(
@@ -271,13 +276,25 @@ class _AboutGroupState extends State<_AboutGroup> {
           summary: 'هم‌رسان',
         ),
         SettingsRow(icon: Icons.tag, title: 'نسخه', summary: _version ?? '…'),
-        // Both editions install as the same package and look identical, so a
+        // Every edition installs as the same package and looks the same, so a
         // support call has no other way to learn which one is on the phone.
         SettingsRow(
           icon: Icons.verified_outlined,
           title: 'نوع نسخه',
-          summary: AppEdition.current.label,
+          summary: edition.label,
         ),
+        // Activation exists only in the commercial build; the organization
+        // build is its edition by construction (and compiles this row out).
+        if (AppEdition.current == AppEdition.commercial)
+          SettingsRow(
+            icon: Icons.key_outlined,
+            title: 'نسخه بین‌سازمانی',
+            summary: edition == AppEdition.interOrganization
+                ? 'فعال است'
+                : 'فعال‌سازی با کد',
+            onTap: () =>
+                SettingsScreen._push(context, const InterOrgActivationScreen()),
+          ),
         SettingsRow(
           icon: Icons.privacy_tip_outlined,
           // The store-facing policy, kept inside the app so the text a
