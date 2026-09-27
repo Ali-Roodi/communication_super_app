@@ -109,6 +109,7 @@ class SmsPacketInfo {
     required this.type,
     required this.sid,
     this.counter,
+    this.control = false,
     this.senderKid,
     this.recipientKid,
   });
@@ -117,6 +118,9 @@ class SmsPacketInfo {
 
   /// Messages only.
   final int? counter;
+
+  /// A receipt (seen / delete), not a message to read.
+  final bool control;
 
   /// Handshake packets only.
   final Uint8List? senderKid;
@@ -130,6 +134,7 @@ class SmsSealed {
     required this.wire,
     required this.parts,
     this.sid,
+    this.counter,
   });
 
   /// The pending handshake (after `initiate`) or the session (otherwise).
@@ -141,6 +146,9 @@ class SmsSealed {
   /// How many SMS parts [wire] costs.
   final int parts;
   final int? sid;
+
+  /// For a message: the counter it travelled with (with [sid], its name).
+  final int? counter;
 }
 
 /// One member of a [KeyDirectory].
@@ -194,10 +202,33 @@ class OpenedKeyFile {
   final SmsIdentity? member;
 }
 
-class SmsOpened {
-  const SmsOpened({required this.session, required this.text});
+enum SmsPayloadKind { text, seen, delete }
+
+/// A decrypted message: the next session state, the message's own name
+/// ([sid], [counter]) and what it carried.
+class SmsDecrypted {
+  const SmsDecrypted({
+    required this.session,
+    required this.sid,
+    required this.counter,
+    required this.kind,
+    this.text,
+    this.deleteAfterSeen = false,
+    this.refSid,
+    this.refCounter,
+  });
   final Uint8List session;
-  final String text;
+  final int sid;
+  final int counter;
+  final SmsPayloadKind kind;
+
+  /// [SmsPayloadKind.text] only.
+  final String? text;
+  final bool deleteAfterSeen;
+
+  /// [SmsPayloadKind.seen] / [SmsPayloadKind.delete]: the message referred to.
+  final int? refSid;
+  final int? refCounter;
 }
 
 /// The SMS crypto (ML-KEM-768 + X25519 handshake, per-message AES-256-GCM
@@ -260,6 +291,7 @@ class SmsCryptoService {
       type: SmsPacketType.values.byName(m['type'] as String),
       sid: m['sid'] as int,
       counter: m['counter'] as int?,
+      control: m['control'] == true,
       senderKid: m['senderKid'] as Uint8List?,
       recipientKid: m['recipientKid'] as Uint8List?,
     );
@@ -311,19 +343,47 @@ class SmsCryptoService {
   Future<SmsSealed> encryptText({
     required Uint8List session,
     required String text,
+    bool deleteAfterSeen = false,
   }) async => _sealed(
-    await _call<Map>('encryptText', {'session': session, 'text': text}),
+    await _call<Map>('encryptText', {
+      'session': session,
+      'text': text,
+      'deleteAfterSeen': deleteAfterSeen,
+    }),
     'session',
   );
 
-  Future<SmsOpened> decrypt({
+  /// A receipt: [control] is `seen` (everything up to [refCounter] of
+  /// [refSid]) or `delete` (message [refCounter] of [refSid]).
+  Future<SmsSealed> encryptControl({
+    required Uint8List session,
+    required String control,
+    required int refSid,
+    required int refCounter,
+  }) async => _sealed(
+    await _call<Map>('encryptControl', {
+      'session': session,
+      'control': control,
+      'refSid': refSid,
+      'refCounter': refCounter,
+    }),
+    'session',
+  );
+
+  Future<SmsDecrypted> decrypt({
     required Uint8List session,
     required String text,
   }) async {
     final m = await _call<Map>('decrypt', {'session': session, 'text': text});
-    return SmsOpened(
+    return SmsDecrypted(
       session: m['session'] as Uint8List,
-      text: m['text'] as String,
+      sid: m['sid'] as int,
+      counter: m['counter'] as int,
+      kind: SmsPayloadKind.values.byName(m['kind'] as String),
+      text: m['text'] as String?,
+      deleteAfterSeen: m['deleteAfterSeen'] == true,
+      refSid: m['refSid'] as int?,
+      refCounter: m['refCounter'] as int?,
     );
   }
 
@@ -422,6 +482,7 @@ class SmsCryptoService {
     wire: m['wire'] as String,
     parts: m['parts'] as int,
     sid: m['sid'] as int?,
+    counter: m['counter'] as int?,
   );
 
   Future<T> _call<T>(String method, Map<String, Object?> args) async {

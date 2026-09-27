@@ -37,7 +37,7 @@ as the code.
 | `docs/architecture/dual-sim.md` | anything that names a SIM: `subscriptionId`, per-thread SIM memory, the pickers, SIM contacts |
 | `docs/architecture/drafts-and-templates.md` | drafts, categories, «قالب آماده» and the template SMS wire format |
 | `docs/architecture/settings.md` | the settings pages |
-| `docs/architecture/editions.md` | anything edition-specific (تجاری / بین‌سازمانی / سازمانی): the two Gradle flavors, the shared applicationId and signing key, the organization versionCode band that keeps a store from replacing an organization install, `AppEdition` / `EditionBloc`, the inter-organizational activation code (`ActivationCode`, BLAKE3), the secure section (Keystore vault, SQLCipher `secure.db`, `SecureSessionBloc`, lock icon, FLAG_SECURE, the PIN attempt limiter), the SMS crypto (`smscrypto/`: ML-KEM-768 + X25519 handshake, ratchet, `#E:` wire format, frozen Persian code page, golden vector), the key bank (`smscrypto/keybank/`, `KeyBankBloc`, trust anchors, the `tools/keybank/` Windows tool, frozen `Canon`), `AppHandoff`, and what each release script checks |
+| `docs/architecture/editions.md` | anything edition-specific (تجاری / بین‌سازمانی / سازمانی): the two Gradle flavors, the shared applicationId and signing key, the organization versionCode band that keeps a store from replacing an organization install, `AppEdition` / `EditionBloc`, the inter-organizational activation code (`ActivationCode`, BLAKE3), the secure section (Keystore vault, SQLCipher `secure.db`, `SecureSessionBloc`, lock icon, FLAG_SECURE, the PIN attempt limiter), the SMS crypto (`smscrypto/`: ML-KEM-768 + X25519 handshake, ratchet, `#E:` wire format, frozen Persian code page, golden vector), the key bank (`smscrypto/keybank/`, `KeyBankBloc`, trust anchors, the `tools/keybank/` Windows tool, frozen `Canon`), encrypted SMS «پیام‌های رمز» (`secure_queue`, `SecureSmsInbox`, `SecureMessenger`, `lib/features/secure_sms/`), `AppHandoff`, and what each release script checks |
 | `docs/publishing/store-release.md` | anything about shipping the app to بازار / مایکت — the signing key, the store permission review, the store listing, the release pipeline. It carries the **live status** of the launch: update its status table and history in the same commit as the change. |
 
 These rules from those files apply **everywhere** and are repeated here so they cannot be
@@ -53,13 +53,16 @@ missed:
   dead, with no key; secure data lives only in the SQLCipher `secure.db` of the secure
   section (`lib/features/secure/`, the only importer of `sqflite_sqlcipher`). See
   `editions.md`.
+- **An encrypted SMS (`#E:`) never enters `content://sms` or `messages`.** The
+  receivers park its ciphertext in `secure_queue` and post a bare «پیام رمز جدید»;
+  sending skips the provider write (`private: true`). See `editions.md`.
 - **Any batch handed to the contacts provider is chunked below 500 operations.** A batch
   that crosses `ContactsProvider2`'s ceiling writes nothing at all, and through
   `flutter_contacts` it takes the process with it. See `contacts.md`.
 
 **Kotlin/Dart mirrors that must change together:** `ScheduledSmsWorker.kt` ↔
 `scheduled_message_model.dart`, `TemplateWire.kt` ↔ `message_template_model.dart`,
-`BlockedNumbers.kt` ↔ `PhoneNormalizer`. A mismatch does not fail loudly — it silently
+`BlockedNumbers.kt` ↔ `PhoneNormalizer`, `SecureSmsInbox.kt` ↔ `DatabaseHelper._createSecureQueueTable` / `AppConstants.secureQueueTable`. A mismatch does not fail loudly — it silently
 does something different. Same rule for the build: the flavor names and the organization
 versionCode base in `android/app/build.gradle.kts` ↔ `AppEdition` and
 `scripts/release_build.{sh,ps1}`; and `ActivationCode` ↔ the mentor's Windows activation-code generator, whose format is fixed (see `editions.md`); and `Wire.PREFIX` (`smscrypto/Wire.kt`) ↔ `SmsCryptoService.wirePrefix`. The SMS crypto wire format itself is pinned by `GoldenVectorTest` — a change there is a new `Wire.VERSION`, never a new expected value. The same holds for the key bank: `Canon`, group derivation and the directory format are pinned by `KeyBankTest` (a change re-keys every group), and `tools/keybank/` compiles the app's own `smscrypto/` source — never copy it. The development key-bank authority is trusted only with `--dart-define=HAMRESAN_DEV_ANCHOR=true`, and the release scripts refuse an APK that contains it.
@@ -102,7 +105,7 @@ All state is BLoC (`flutter_bloc`). BLoCs are provided globally in `AppBlocProvi
 
 ### Database
 
-Single SQLite database (`communication_app.db`, version 24) managed by `DatabaseHelper` singleton (`lib/core/database/`). Tables: `contacts`, `messages`, `call_logs`, `favorites`, `blocked_numbers`, `archived_threads`, `pinned_threads`, `message_categories`, `drafts`, `message_templates`, `scheduled_messages`, `thread_sim`, `speed_dial`, `message_groups`, `message_group_members`, `message_group_targets`, `contact_name_cache`, `unread_marks`. Constants in `AppConstants`.
+Single SQLite database (`communication_app.db`, version 25) managed by `DatabaseHelper` singleton (`lib/core/database/`). Tables: `contacts`, `messages`, `call_logs`, `favorites`, `blocked_numbers`, `archived_threads`, `pinned_threads`, `message_categories`, `drafts`, `message_templates`, `scheduled_messages`, `thread_sim`, `speed_dial`, `message_groups`, `message_group_members`, `message_group_targets`, `contact_name_cache`, `unread_marks`, `secure_queue`. Constants in `AppConstants`.
 
 **Schema invariants:**
 - `contact_name_cache` (DB v23, `ContactNameCache`) is the address book as `ContactRepository.getDeviceContacts` last read it — normalized number → name + contact id — and it is a **cache, never a source of truth**. It exists because the address book is on the far side of a platform channel: both the inbox and «اخیر» paint from SQLite immediately and used to do it as bare *numbers*, dropping the names in as a second emit a beat later, on every single launch. Now the first emit is named from this table and the authoritative read still runs behind it; when nothing has changed the second emit is `==` to the first and `ThreadsLoaded` / `CallLogsLoaded` being Equatable means nothing repaints. Two rules keep it honest: only a completed device read writes it (so it cannot drift), and the write **replaces the whole set** in one transaction rather than upserting — an upsert-only cache would go on naming a contact the user deleted.

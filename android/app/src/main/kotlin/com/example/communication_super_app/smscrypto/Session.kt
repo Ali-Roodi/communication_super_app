@@ -110,13 +110,17 @@ class Session private constructor(
 
     class Opened(val session: Session, val payload: ByteArray)
 
-    /** Encrypts [payload] as the next message of this session. */
-    fun seal(payload: ByteArray): Sealed {
+    /**
+     * Encrypts [payload] as the next message of this session; [control] marks
+     * a receipt (see [Wire.TYPE_CONTROL]).
+     */
+    fun seal(payload: ByteArray, control: Boolean = false): Sealed {
         if (sendCounter > Wire.MAX_COUNTER) {
             cryptoError(SmsCryptoException.Code.REKEY_REQUIRED, "send counter exhausted")
         }
         val (messageKey, next) = step(sendChain)
-        val header = byteArrayOf(Wire.typeByte(Wire.TYPE_MESSAGE)) +
+        val type = if (control) Wire.TYPE_CONTROL else Wire.TYPE_MESSAGE
+        val header = byteArrayOf(Wire.typeByte(type)) +
             Wire.writeSid(sid) + Wire.writeVarint(sendCounter)
         val sealed = cipher(Cipher.ENCRYPT_MODE, messageKey, header).doFinal(payload)
         return Sealed(

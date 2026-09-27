@@ -124,6 +124,20 @@ class SessionTest {
     }
 
     @Test
+    fun `a receipt travels as a control packet whose type cannot be flipped`() {
+        val sealed = session.alice.seal(Payload.seen(session.alice.sid, 0), control = true)
+        val packet = Wire.parse(sealed.wire) as Packet.Message
+        assertEquals(true, packet.control)
+        val flipped = decodeWire(sealed.wire).also { it[0] = Wire.typeByte(Wire.TYPE_MESSAGE) }
+        val asMessage = Wire.parse(Wire.encode(flipped)) as Packet.Message
+        assertEquals(false, asMessage.control)
+        expectError(SmsCryptoException.Code.AUTH_FAILED) { session.bob.open(asMessage) }
+        val opened = session.bob.open(packet)
+        assertEquals(0L, (Payload.parse(opened.payload) as Payload.Seen).upTo)
+        assertEquals(false, (Wire.parse(session.alice.send("x").wire) as Packet.Message).control)
+    }
+
+    @Test
     fun `plain text is NOT_OURS`() {
         expectError(SmsCryptoException.Code.NOT_OURS) { session.bob.receive("سلام") }
     }

@@ -22,8 +22,14 @@ class NativeSmsService {
   StreamSubscription<dynamic>? _smsSubscription;
   final StreamController<SmsReceivedEvent> _smsController =
       StreamController<SmsReceivedEvent>.broadcast();
-  final StreamController<SmsStatusEvent> _statusController =
+  // Process-wide, unlike [_smsController]: the EventChannel is subscribed by
+  // ONE instance (the one `SmsService` initializes — a second subscription
+  // would steal the native sink), but the secure messenger needs the status
+  // reports and the «secure» nudges too, from its own instance.
+  static final StreamController<SmsStatusEvent> _statusController =
       StreamController<SmsStatusEvent>.broadcast();
+  static final StreamController<void> _secureController =
+      StreamController<void>.broadcast();
 
   // Guard against calling initialize() more than once so that the native
   // EventChannel is never set up with more than one active StreamSubscription.
@@ -38,6 +44,10 @@ class NativeSmsService {
   /// Stream of send/delivery status updates for outgoing messages — keyed by
   /// the tracking id passed to [sendSms] (the Dart-side message UUID).
   Stream<SmsStatusEvent> get onSmsStatus => _statusController.stream;
+
+  /// An encrypted SMS was parked in `secure_queue` by the native receiver.
+  /// Carries nothing — not even the sender: the queue is the source.
+  Stream<void> get onSecureArrived => _secureController.stream;
 
   /// Initialize the SMS service and start listening for incoming messages.
   /// Safe to call multiple times — subsequent calls are no-ops.
@@ -66,6 +76,10 @@ class NativeSmsService {
               // payloads carry no "type" key).
               if (map['type'] == 'status') {
                 _statusController.add(SmsStatusEvent.fromMap(map));
+                return;
+              }
+              if (map['type'] == 'secure') {
+                _secureController.add(null);
                 return;
               }
               final smsEvent = SmsReceivedEvent.fromMap(map);
@@ -108,6 +122,8 @@ class NativeSmsService {
     int? subscriptionId,
     String? trackingId,
     bool deliveryReport = true,
+    // An encrypted SMS: the native side writes nothing to content://sms.
+    bool private = false,
   }) async {
     try {
       if (phoneNumber.trim().isEmpty) {
@@ -125,6 +141,7 @@ class NativeSmsService {
         'trackingId': trackingId ?? '',
         // Off → no delivery PendingIntent, so the bubble stops at ✓ (sent).
         'deliveryReport': deliveryReport,
+        'private': private,
       };
 
       final result = await _methodChannel.invokeMethod<Map>('sendSms', params);
@@ -286,9 +303,8 @@ class NativeSmsService {
     if (!_smsController.isClosed) {
       _smsController.close();
     }
-    if (!_statusController.isClosed) {
-      _statusController.close();
-    }
+    // The status and secure streams are process-wide and outlive any one
+    // instance; they are never closed.
     _initialized = false;
     debugPrint('NativeSmsService disposed');
   }

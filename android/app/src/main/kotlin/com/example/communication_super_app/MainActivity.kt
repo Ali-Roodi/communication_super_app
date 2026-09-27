@@ -19,6 +19,7 @@ import com.example.communication_super_app.contacts.SimContactsHandler
 import com.example.communication_super_app.edition.DeviceIdentityHandler
 import com.example.communication_super_app.secure.SecureVaultHandler
 import com.example.communication_super_app.smscrypto.KeyFilePicker
+import com.example.communication_super_app.smscrypto.SecureSmsInbox
 import com.example.communication_super_app.smscrypto.SmsCryptoHandler
 import com.example.communication_super_app.media.PhotoHandler
 import com.example.communication_super_app.scheduled.ScheduledSmsChannel
@@ -294,6 +295,11 @@ class MainActivity : FlutterActivity() {
                         )
                         result.success(true)
                     }
+                    // The secure inbox drained the queue: «پیام رمز جدید» is told.
+                    "clearSecureNotification" -> {
+                        SecureSmsInbox.cancelNotification(applicationContext)
+                        result.success(true)
+                    }
                     // Dismiss this thread's SMS notifications (user opened it).
                     "clearThreadNotifications" -> {
                         val threadId = call.arguments as? String
@@ -373,6 +379,13 @@ class MainActivity : FlutterActivity() {
         if (intent.getBooleanExtra(CallInCallService.EXTRA_RETURN_TO_CALL, false)) {
             intent.removeExtra(CallInCallService.EXTRA_RETURN_TO_CALL)
             CallEventStreamHandler.sendRaw(mapOf("event" to "SHOW_CALL_UI"))
+        }
+
+        // «پیام رمز جدید» tapped: the secure inbox (behind the app lock and
+        // the secure section's own unlock, both on the Dart side).
+        if (intent.getBooleanExtra(SecureSmsInbox.EXTRA_OPEN_SECURE, false)) {
+            intent.removeExtra(SecureSmsInbox.EXTRA_OPEN_SECURE)
+            return mapOf("type" to "secure")
         }
 
         intent.getStringExtra("threadId")?.let { threadId ->

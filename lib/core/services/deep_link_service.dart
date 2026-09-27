@@ -16,6 +16,10 @@ enum LaunchActionType {
   /// An `sms:`/`smsto:` intent or a shared text: open the conversation with the
   /// body typed in. An empty [number] means "ask who to send it to".
   sms,
+
+  /// «پیام رمز جدید» tapped: the secure inbox. It carries nothing — the card
+  /// names no sender, so neither does the action.
+  secure,
 }
 
 class LaunchAction {
@@ -50,6 +54,8 @@ class LaunchAction {
           number: (map['number'] as String?) ?? '',
           body: map['body'] as String?,
         );
+      case 'secure':
+        return const LaunchAction(type: LaunchActionType.secure);
       default:
         return null;
     }
@@ -136,6 +142,15 @@ class DeepLinkService {
       await _channel.invokeMethod('clearMissedCallNotifications');
     } catch (e) {
       debugPrint('clearMissedCallNotifications failed: $e');
+    }
+  }
+
+  /// Dismisses «پیام رمز جدید» (the secure inbox has taken the queue).
+  Future<void> clearSecureNotification() async {
+    try {
+      await _channel.invokeMethod('clearSecureNotification');
+    } catch (e) {
+      debugPrint('clearSecureNotification failed: $e');
     }
   }
 

@@ -35,8 +35,11 @@ import kotlinx.coroutines.withContext
  * - `respond {secret, peer, text}` → `{session, sid, wire, parts}`
  * - `complete {secret, peer, pending, text}` → `{session, sid}`
  * - `ownInitWins {ownKid, peerKid}` → Boolean — crossed INITs
- * - `encryptText {session, text}` → `{session, wire, parts}`
- * - `decrypt {session, text}` → `{session, text}`
+ * - `encryptText {session, text, deleteAfterSeen?}` → `{session, wire, parts, sid, counter}`
+ * - `encryptControl {session, control: seen|delete, refSid, refCounter}` → same
+ * - `decrypt {session, text}` → `{session, sid, counter, kind: text|seen|delete,
+ *   text?, deleteAfterSeen?, refSid?, refCounter?}` — `sid`/`counter` name
+ *   the message itself (what a later seen/delete refers to)
  *
  * Key bank (`keybank/`):
  * - `canonicalPhone {phone}` → String? — the spelling keys are derived from
@@ -86,6 +89,7 @@ class SmsCryptoHandler {
                     Handshake.ownInitWins(call.bytes("ownKid"), call.bytes("peerKid"))
                 }
                 "encryptText" -> run(call, result) { encryptText(call) }
+                "encryptControl" -> run(call, result) { encryptControl(call) }
                 "decrypt" -> run(call, result) { decrypt(call) }
                 "canonicalPhone" -> run(call, result) { Canon.phone(call.string("phone")) }
                 "deriveGroup" -> run(call, result) {
@@ -121,7 +125,12 @@ class SmsCryptoHandler {
             return null
         }
         return when (packet) {
-            is Packet.Message -> mapOf("type" to "message", "sid" to packet.sid, "counter" to packet.counter)
+            is Packet.Message -> mapOf(
+                "type" to "message",
+                "sid" to packet.sid,
+                "counter" to packet.counter,
+                "control" to packet.control,
+            )
             is Packet.Init -> mapOf(
                 "type" to "init",
                 "sid" to packet.sid,
@@ -172,12 +181,31 @@ class SmsCryptoHandler {
         return mapOf("session" to session.serialize(), "sid" to session.sid)
     }
 
-    private fun encryptText(call: MethodCall): Map<String, Any> {
-        val sealed = Session.parse(call.bytes("session")).seal(Payload.text(call.string("text")))
+    private fun encryptText(call: MethodCall): Map<String, Any> = seal(
+        Session.parse(call.bytes("session")),
+        Payload.text(call.string("text"), call.argument<Boolean>("deleteAfterSeen") == true),
+    )
+
+    private fun encryptControl(call: MethodCall): Map<String, Any> {
+        val refSid = call.argument<Int>("refSid") ?: throw IllegalArgumentException("missing refSid")
+        val refCounter = call.argument<Number>("refCounter")?.toLong()
+            ?: throw IllegalArgumentException("missing refCounter")
+        val payload = when (call.string("control")) {
+            "seen" -> Payload.seen(refSid, refCounter)
+            "delete" -> Payload.delete(refSid, refCounter)
+            else -> throw IllegalArgumentException("unknown control")
+        }
+        return seal(Session.parse(call.bytes("session")), payload, control = true)
+    }
+
+    private fun seal(session: Session, payload: ByteArray, control: Boolean = false): Map<String, Any> {
+        val sealed = session.seal(payload, control)
         return mapOf(
             "session" to sealed.session.serialize(),
             "wire" to sealed.wire,
             "parts" to Wire.smsParts(sealed.wire),
+            "sid" to session.sid,
+            "counter" to session.sendCounter,
         )
     }
 
@@ -185,10 +213,22 @@ class SmsCryptoHandler {
         val message = Wire.parse(call.string("text")) as? Packet.Message
             ?: cryptoError(SmsCryptoException.Code.WRONG_TYPE, "not a message")
         val opened = Session.parse(call.bytes("session")).open(message)
-        return mapOf(
+        val base = mapOf(
             "session" to opened.session.serialize(),
-            "text" to Payload.parse(opened.payload).text,
+            "sid" to message.sid,
+            "counter" to message.counter,
         )
+        val payload = Payload.parse(opened.payload)
+        // A receipt travels as a control packet and only a receipt does: the
+        // type is authenticated, so a mismatch is a sender bug, never data.
+        if ((payload is Payload.Text) == message.control) {
+            cryptoError(SmsCryptoException.Code.BAD_PAYLOAD, "payload does not match the packet type")
+        }
+        return base + when (val p = payload) {
+            is Payload.Text -> mapOf("kind" to "text", "text" to p.text, "deleteAfterSeen" to p.deleteAfterSeen)
+            is Payload.Seen -> mapOf("kind" to "seen", "refSid" to p.sid, "refCounter" to p.upTo)
+            is Payload.Delete -> mapOf("kind" to "delete", "refSid" to p.sid, "refCounter" to p.counter)
+        }
     }
 
     private fun openKeyFile(call: MethodCall): Map<String, Any?> {

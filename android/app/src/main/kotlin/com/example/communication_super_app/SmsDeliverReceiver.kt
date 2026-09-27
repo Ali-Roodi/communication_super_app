@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
 import android.util.Log
+import com.example.communication_super_app.smscrypto.SecureSmsInbox
 
 /**
  * Receives `SMS_DELIVER` — the ordered broadcast Android sends **only to the
@@ -49,6 +50,14 @@ class SmsDeliverReceiver : BroadcastReceiver() {
         val address = parts[0].originatingAddress ?: return
         val body = parts.joinToString("") { it.messageBody ?: "" }
         val timestamp = parts[0].timestampMillis
+
+        // An encrypted SMS is never written where other apps can read it
+        // (matrix row 11). SMS_RECEIVED still reaches our receivers, which
+        // park it in the secure queue — see SecureSmsInbox.
+        if (SecureSmsInbox.isEncrypted(body)) {
+            Log.d(TAG, "Encrypted SMS kept out of the provider")
+            return
+        }
 
         // Blocked sender: as the default SMS app WE decide what lands in the
         // provider — a blocked message lands nowhere.

@@ -136,6 +136,24 @@ class SmsHandler(
                     return
                 }
 
+                // Encrypted: into the secure queue (the same path as a cold
+                // start, so a crash between here and Dart loses nothing),
+                // then a bare nudge to Dart — no address, no body.
+                if (com.example.communication_super_app.smscrypto.SecureSmsInbox.isEncrypted(body)) {
+                    val inbox = com.example.communication_super_app.smscrypto.SecureSmsInbox
+                    if (inbox.enqueue(context, address, body, timestamp, getSubscriptionId(bundle))) {
+                        coroutineScope.launch(Dispatchers.Main) {
+                            try {
+                                eventSink?.success(mapOf("type" to "secure"))
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error nudging Flutter: ${e.message}")
+                            }
+                        }
+                        if (inbox.announces(body)) inbox.notifyArrived(context)
+                    }
+                    return
+                }
+
                 val data = mapOf(
                     "type" to "received",
                     "address" to address,
@@ -505,6 +523,8 @@ class SmsHandler(
         /** When false no delivery PendingIntent is attached, so the carrier is
          *  never asked for a delivery report («گزارش تحویل» in Settings). */
         requestDeliveryReport: Boolean = true,
+        /** An encrypted SMS: never written to content://sms (matrix row 11). */
+        writeToProvider: Boolean = true,
     ): Result<Map<String, Any>> = withContext(Dispatchers.IO) {
         try {
             if (phoneNumber.isBlank()) {
@@ -617,8 +637,11 @@ class SmsHandler(
                 com.example.communication_super_app.sim.SimRegistry
                     .defaultSmsSubscriptionId()
             }
-            val deviceId =
+            val deviceId = if (writeToProvider) {
                 writeSentToProvider(phoneNumber, message, timestamp, usedSubscriptionId)
+            } else {
+                -1L // «not written», as when this app is not the default
+            }
 
             val result = mapOf(
                 "success" to true,
@@ -1075,6 +1098,7 @@ class SmsHandler(
                     val trackingId = call.argument<String>("trackingId") ?: ""
                     val deliveryReport =
                         call.argument<Boolean>("deliveryReport") ?: true
+                    val private = call.argument<Boolean>("private") == true
 
                     if (phoneNumber == null || message == null) {
                         result.error("INVALID_ARGUMENTS", "Phone number and message are required", null)
@@ -1089,6 +1113,7 @@ class SmsHandler(
                                 subscriptionId,
                                 trackingId,
                                 deliveryReport,
+                                writeToProvider = !private,
                             )
                             
                             if (sendResult.isSuccess) {

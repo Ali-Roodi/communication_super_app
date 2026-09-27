@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:communication_super_app/features/secure_sms/screens/secure_inbox_screen.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -138,6 +139,13 @@ class _MainNavigationState extends State<MainNavigation>
         // The keypad is a modal sheet, so this is the whole of "open the
         // dialer with the number in it".
         showDialerBottomSheet(context, initialNumber: action.number);
+      case LaunchActionType.secure:
+        // «پیام رمز جدید»: the secure inbox, which asks for the section to be
+        // opened if it is locked (the app lock is already behind us here).
+        setState(() => _currentIndex = _messagesTab);
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const SecureInboxScreen()));
     }
   }
 

@@ -29,6 +29,7 @@ import 'package:communication_super_app/features/edition/bloc/edition_bloc.dart'
 import 'package:communication_super_app/features/edition/repositories/activation_repository.dart';
 import 'package:communication_super_app/features/secure/bloc/secure_session_bloc.dart';
 import 'package:communication_super_app/features/keybank/bloc/key_bank_bloc.dart';
+import 'package:communication_super_app/features/secure_sms/bloc/secure_messages_bloc.dart';
 import 'package:communication_super_app/features/secure/repositories/secure_store.dart';
 
 class AppBlocProviders extends StatelessWidget {
@@ -72,6 +73,13 @@ class AppBlocProviders extends StatelessWidget {
         BlocProvider(
           create: (context) =>
               KeyBankBloc(session: context.read<SecureSessionBloc>()),
+        ),
+        // «پیام‌های رمز» — also after SecureSessionBloc. Lazy: the inbox row
+        // that shows it exists only while the section is open, and reading it
+        // there is what builds it (and drains what arrived while locked).
+        BlocProvider(
+          create: (context) =>
+              SecureMessagesBloc(session: context.read<SecureSessionBloc>()),
         ),
         // Roster first: the contacts read merges the SIM address book, and the
         // composer/dialer decide whether to show a SIM affordance at all from

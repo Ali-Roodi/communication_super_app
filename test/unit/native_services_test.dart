@@ -95,6 +95,7 @@ void main() {
         'trackingId': '',
         // Delivery reports are on unless «گزارش تحویل» is switched off.
         'deliveryReport': true,
+        'private': false,
       });
       expect(result.success, isTrue);
       expect(result.timestamp, 1700000000000);

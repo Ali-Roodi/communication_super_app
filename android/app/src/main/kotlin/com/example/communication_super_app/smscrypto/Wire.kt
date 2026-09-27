@@ -25,6 +25,14 @@ object Wire {
     const val TYPE_INIT = 2
     const val TYPE_RESPONSE = 3
 
+    /**
+     * A message that is a receipt (seen / delete), not something to read. Its
+     * own type so the receivers, which cannot decrypt, do not announce it as
+     * «پیام رمز جدید». Its size gives it away to an observer anyway; the type
+     * is in the authenticated header, so it cannot be flipped.
+     */
+    const val TYPE_CONTROL = 4
+
     const val SID_BYTES = 2
     const val X25519_BYTES = 32
     const val KEM_CIPHERTEXT_BYTES = 1088
@@ -59,7 +67,8 @@ object Wire {
             notOurs("unknown packet version")
         }
         return when (bytes[0].toInt() and 0x0F) {
-            TYPE_MESSAGE -> parseMessage(bytes)
+            TYPE_MESSAGE -> parseMessage(bytes, control = false)
+            TYPE_CONTROL -> parseMessage(bytes, control = true)
             TYPE_INIT -> parseHandshake(bytes, TYPE_INIT)
             TYPE_RESPONSE -> parseHandshake(bytes, TYPE_RESPONSE)
             else -> notOurs("unknown packet type")
@@ -81,7 +90,7 @@ object Wire {
         return if (Base64.toBase64String(bytes).trimEnd('=') == body) bytes else null
     }
 
-    private fun parseMessage(bytes: ByteArray): Packet.Message {
+    private fun parseMessage(bytes: ByteArray, control: Boolean): Packet.Message {
         var at = 1
         if (bytes.size < at + SID_BYTES) notOurs("truncated message")
         val sid = readSid(bytes, at)
@@ -96,6 +105,7 @@ object Wire {
             counter = counter,
             header = bytes.copyOfRange(0, at),
             sealed = bytes.copyOfRange(at, bytes.size),
+            control = control,
         )
     }
 
@@ -144,7 +154,7 @@ object Wire {
     }
 
     /** (value, bytes read), or null for a truncated, oversized or non-minimal varint. */
-    private fun readVarint(bytes: ByteArray, at: Int): Pair<Long, Int>? {
+    internal fun readVarint(bytes: ByteArray, at: Int): Pair<Long, Int>? {
         var value = 0L
         var i = 0
         while (i < 5) {
@@ -193,11 +203,16 @@ sealed class Packet {
         val unconfirmed: ByteArray get() = bytes.copyOf(bytes.size - Wire.CONFIRM_BYTES)
     }
 
-    /** One message: [header] is authenticated, [sealed] is ciphertext + tag. */
+    /**
+     * One message: [header] is authenticated, [sealed] is ciphertext + tag.
+     * [control]: a receipt ([Wire.TYPE_CONTROL]), which shares the counter
+     * space of the session with ordinary messages.
+     */
     class Message(
         override val sid: Int,
         val counter: Long,
         val header: ByteArray,
         val sealed: ByteArray,
+        val control: Boolean = false,
     ) : Packet()
 }

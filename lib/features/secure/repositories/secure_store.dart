@@ -42,8 +42,9 @@ class SecureStore {
 
   static const String fileName = 'secure.db';
 
-  /// v1: `secure_meta` (phase C). v2: the key bank (phase E).
-  static const int _schemaVersion = 2;
+  /// v1: `secure_meta` (phase C). v2: the key bank (phase E). v3: encrypted
+  /// conversations (phase F).
+  static const int _schemaVersion = 3;
 
   /// The open database, or null while locked.
   cipher.Database? get database => _db;
@@ -128,6 +129,79 @@ class SecureStore {
       'value': DateTime.now().millisecondsSinceEpoch.toString(),
     });
     await _createKeyBank(db);
+    await _createSecureMessages(db);
+  }
+
+  /// Encrypted conversations (v3) — see `SecureMessageStore`, the only code
+  /// that reads or writes these tables.
+  static Future<void> _createSecureMessages(cipher.DatabaseExecutor db) async {
+    // One conversation per peer number (canonical). The peer's key and the
+    // identity of ours used with them are fixed when it is started, so a key
+    // bank change can never silently re-route an existing conversation.
+    await db.execute('''
+      CREATE TABLE sm_conversations (
+        phone TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        peer_key_id TEXT NOT NULL,
+        peer_public BLOB NOT NULL,
+        own_key_id TEXT NOT NULL,
+        own_source TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        last_at INTEGER NOT NULL,
+        unread INTEGER NOT NULL DEFAULT 0,
+        seen_sid INTEGER,
+        seen_counter INTEGER
+      )
+    ''');
+    // Ratchet states and our pending handshakes. Stored BEFORE the SMS that
+    // used them goes out, so a crash can never reuse a message key.
+    await db.execute('''
+      CREATE TABLE sm_sessions (
+        phone TEXT NOT NULL,
+        sid INTEGER NOT NULL,
+        pending INTEGER NOT NULL,
+        state BLOB NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (phone, sid)
+      )
+    ''');
+    // `sid`/`counter`: the session and counter the message travelled with —
+    // what a «دیده شد» or «حذف برای هر دو» names it by.
+    await db.execute('''
+      CREATE TABLE sm_messages (
+        id TEXT PRIMARY KEY,
+        phone TEXT NOT NULL,
+        outgoing INTEGER NOT NULL,
+        body TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        sid INTEGER,
+        counter INTEGER,
+        delete_after_seen INTEGER NOT NULL DEFAULT 0,
+        seen_at INTEGER,
+        parts INTEGER
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX sm_messages_thread ON sm_messages (phone, timestamp)',
+    );
+    await db.execute(
+      'CREATE UNIQUE INDEX sm_messages_wire ON sm_messages '
+      '(phone, outgoing, sid, counter) WHERE sid IS NOT NULL',
+    );
+    // Packets taken from the main database's `secure_queue` that cannot be
+    // processed yet (a message that arrived before its session's handshake).
+    await db.execute('''
+      CREATE TABLE sm_inbox (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        address TEXT NOT NULL,
+        body TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        received_at INTEGER NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (address, body)
+      )
+    ''');
   }
 
   /// «بانک کلید» (v2) — see `KeyBankRepository`, the only code that reads
@@ -202,6 +276,7 @@ class SecureStore {
     int newVersion,
   ) async {
     if (oldVersion < 2) await _createKeyBank(db);
+    if (oldVersion < 3) await _createSecureMessages(db);
   }
 
   Future<String> _path() async =>

@@ -8,6 +8,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.provider.Telephony
 import android.util.Log
 import java.util.UUID
+import com.example.communication_super_app.smscrypto.SecureSmsInbox
 
 /**
  * Manifest-registered receiver that delivers incoming SMS **when the app
@@ -63,6 +64,17 @@ class IncomingSmsReceiver : BroadcastReceiver() {
         // Blocked sender: drop silently — no persist, no notification.
         if (BlockedNumbers.isBlocked(context, address)) {
             Log.d(TAG, "Dropped background SMS from blocked number")
+            return
+        }
+
+        // Encrypted: parked as ciphertext for the secure section, announced
+        // without sender or text, never in the messages table.
+        if (SecureSmsInbox.isEncrypted(body)) {
+            if (SecureSmsInbox.enqueue(context, address, body, timestamp, subscriptionId) &&
+                SecureSmsInbox.announces(body)
+            ) {
+                SecureSmsInbox.notifyArrived(context)
+            }
             return
         }
 
