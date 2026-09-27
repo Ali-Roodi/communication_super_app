@@ -18,6 +18,7 @@ import com.example.communication_super_app.contacts.ContactLinkHandler
 import com.example.communication_super_app.contacts.SimContactsHandler
 import com.example.communication_super_app.edition.DeviceIdentityHandler
 import com.example.communication_super_app.secure.SecureVaultHandler
+import com.example.communication_super_app.smscrypto.SmsCryptoHandler
 import com.example.communication_super_app.media.PhotoHandler
 import com.example.communication_super_app.scheduled.ScheduledSmsChannel
 import com.example.communication_super_app.scheduled.ScheduledSmsScheduler
@@ -47,6 +48,9 @@ class MainActivity : FlutterActivity() {
 
     /// The secure section's key vault and its FLAG_SECURE switch.
     private var secureVaultHandler: SecureVaultHandler? = null
+
+    /// The SMS crypto (ML-KEM-768 + X25519 sessions, per-message keys). Stateless.
+    private var smsCryptoHandler: SmsCryptoHandler? = null
 
     /**
      * Whether this activity is currently asking to be shown over the keyguard.
@@ -215,6 +219,16 @@ class MainActivity : FlutterActivity() {
                 MethodChannel(
                     flutterEngine.dartExecutor.binaryMessenger,
                     SecureVaultHandler.CHANNEL,
+                )
+            )
+        }
+
+        // ── SMS crypto (رمزنگاری پیامک — پساکوانتومی) ───────────────────────
+        smsCryptoHandler = SmsCryptoHandler().also {
+            it.setup(
+                MethodChannel(
+                    flutterEngine.dartExecutor.binaryMessenger,
+                    SmsCryptoHandler.CHANNEL,
                 )
             )
         }
@@ -614,6 +628,8 @@ class MainActivity : FlutterActivity() {
         locationHandler = null
         secureVaultHandler?.dispose()
         secureVaultHandler = null
+        smsCryptoHandler?.dispose()
+        smsCryptoHandler = null
         // The engine is going away: the alarm receiver must go back to delivering
         // scheduled messages natively.
         ScheduledSmsChannel.channel = null
