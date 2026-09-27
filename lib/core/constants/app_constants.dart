@@ -90,6 +90,10 @@ class AppConstants {
   /// down at setup is the only way back in — see `AuthRepository`.
   static const String recoveryCodeKey = 'auth_recovery_code';
 
+  /// Digits in the stored PIN (4, or 6 in the secure editions). Absent for a
+  /// PIN saved before lengths were recorded, which is 4. See `PinPolicy`.
+  static const String pinLengthKey = 'auth_pin_length';
+
   /// The inter-organizational activation code (secure storage). The code
   /// itself, re-verified against the device on every read — never a flag.
   /// See `ActivationRepository`.

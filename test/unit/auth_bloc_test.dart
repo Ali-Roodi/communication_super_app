@@ -13,7 +13,10 @@ class _MockAuthRepository extends Mock implements AuthRepository {}
 void main() {
   late _MockAuthRepository repo;
 
-  setUp(() => repo = _MockAuthRepository());
+  setUp(() {
+    repo = _MockAuthRepository();
+    when(() => repo.pinLength()).thenAnswer((_) async => 4);
+  });
 
   AuthBloc build() => AuthBloc(repo);
 
@@ -57,8 +60,12 @@ void main() {
         when(() => repo.setAuthSkipped(true)).thenAnswer((_) async {});
       },
       build: build,
+      // Seeded as already authenticated — the real situation in Settings.
+      // AuthLoading first is what makes the final AuthAuthenticated a new
+      // state Settings can wait for; without it the emit is dropped as equal.
+      seed: () => const AuthAuthenticated(),
       act: (bloc) => bloc.add(const DisableAuth()),
-      expect: () => [const AuthAuthenticated()],
+      expect: () => [const AuthLoading(), const AuthAuthenticated()],
       verify: (_) {
         verify(() => repo.clearAuth()).called(1);
         verify(() => repo.setAuthSkipped(true)).called(1);

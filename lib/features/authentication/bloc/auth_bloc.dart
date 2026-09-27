@@ -53,10 +53,16 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       if (isAuthenticated) {
         emit(const AuthAuthenticated());
       } else {
-        emit(AuthSet(authType));
+        emit(await _lockedState(authType));
       }
     }
   }
+
+  /// The state a PIN screen is drawn for, carrying the stored PIN's length.
+  Future<AuthSet> _lockedState([AuthType? type]) async => AuthSet(
+    type ?? await _repository.getAuthType(),
+    pinLength: await _repository.pinLength(),
+  );
 
   /// Whether a secure section exists. A failure to find out counts as yes:
   /// guessing "no" here is what would orphan it.
@@ -131,7 +137,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     if (!valid) {
       final authType = await _repository.getAuthType();
       emit(const AuthValidationFailure('کد بازیابی نادرست است'));
-      emit(AuthSet(authType));
+      emit(await _lockedState(authType));
       return;
     }
     // The owner's rule: a forgotten PIN loses the secure section. Its key is
@@ -166,13 +172,21 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(const AuthAuthenticated());
   }
 
-  /// «حذف رمز عبور» from Settings. Emits AuthAuthenticated (not AuthNotSet):
-  /// the user is inside the app; showing the setup screen again would be
-  /// wrong, and the skipped flag keeps future launches unprompted.
+  /// «حذف رمز عبور» from Settings. Ends in AuthAuthenticated (not
+  /// AuthNotSet): the user is inside the app; showing the setup screen again
+  /// would be wrong, and the skipped flag keeps future launches unprompted.
+  ///
+  /// It starts with AuthLoading on purpose. The user is already
+  /// AuthAuthenticated, so without it the final emit is equal to the current
+  /// state, is dropped, and nothing can tell that the removal has finished —
+  /// which is why Settings used to redraw from the storage *before* the PIN
+  /// was gone and kept showing «تغییر رمز عبور». AuthWrapperScreen ignores
+  /// AuthLoading, so nothing else reacts to it.
   Future<void> _onDisableAuth(
     DisableAuth event,
     Emitter<AuthState> emit,
   ) async {
+    emit(const AuthLoading());
     // The secure section opens with this PIN. Settings refuses to offer the
     // removal while one exists; this is the backstop.
     if (await _hasSecureSection()) {
@@ -209,7 +223,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       );
       // Back to the state the PIN screen is drawn for, as [RecoverWithCode]
       // does — a failure is an event to react to, not a place to stay.
-      emit(AuthSet(await _repository.getAuthType()));
+      emit(await _lockedState());
     }
   }
 
@@ -236,7 +250,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(const AuthAuthenticated());
     } else {
       emit(const AuthValidationFailure('الگو اشتباه است'));
-      emit(AuthSet(await _repository.getAuthType()));
+      emit(await _lockedState());
     }
   }
 
@@ -249,14 +263,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(const AuthAuthenticated());
     } else {
       final authType = await _repository.getAuthType();
-      emit(AuthSet(authType));
+      emit(await _lockedState(authType));
     }
   }
 
   Future<void> _onLogout(Logout event, Emitter<AuthState> emit) async {
     await _repository.setAuthenticated(false);
     final authType = await _repository.getAuthType();
-    emit(AuthSet(authType));
+    emit(await _lockedState(authType));
   }
 
   Future<void> _onClearAuth(ClearAuth event, Emitter<AuthState> emit) async {

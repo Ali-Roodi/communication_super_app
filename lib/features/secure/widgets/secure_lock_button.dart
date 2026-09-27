@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:communication_super_app/features/authentication/screens/pin_setup_screen.dart';
+import 'package:communication_super_app/features/authentication/screens/verify_pin_screen.dart';
 import '../bloc/secure_session_bloc.dart';
 import '../screens/secure_unlock_screen.dart';
 
@@ -41,6 +42,8 @@ class SecureLockButton extends StatelessWidget {
         bloc.add(const SecureLockRequested());
       case SecureStatus.needsPin:
         await _askForPin(context);
+      case SecureStatus.pinTooShort:
+        await _askForLongerPin(context);
       case SecureStatus.notCreated:
       case SecureStatus.locked:
       case SecureStatus.broken:
@@ -49,6 +52,49 @@ class SecureLockButton extends StatelessWidget {
         );
       case SecureStatus.unavailable:
         break;
+    }
+  }
+
+  /// A 4-digit PIN set before activation: the section needs 6 digits. The
+  /// change goes through the normal flow — current PIN, then the new one,
+  /// which [PinSetupScreen] requires to be 6 digits in this edition.
+  Future<void> _askForLongerPin(BuildContext context) async {
+    final change = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('رمز ۶ رقمی لازم است'),
+          content: const Text(
+            'بخش امن با رمز برنامه باز می‌شود و به رمز ۶ رقمی نیاز دارد. رمز '
+            'برنامه را به یک رمز ۶ رقمی تغییر دهید.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogCtx).pop(false),
+              child: const Text('انصراف'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogCtx).pop(true),
+              child: const Text('تغییر رمز'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (change != true || !context.mounted) return;
+    final currentPin = await Navigator.of(
+      context,
+    ).push<String>(MaterialPageRoute(builder: (_) => const VerifyPinScreen()));
+    if (currentPin == null || !context.mounted) return;
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) =>
+            PinSetupScreen(fromSettings: true, currentPin: currentPin),
+      ),
+    );
+    if (context.mounted) {
+      context.read<SecureSessionBloc>().add(const SecureSessionRefresh());
     }
   }
 

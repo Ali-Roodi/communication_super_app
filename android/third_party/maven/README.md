@@ -23,8 +23,10 @@ build time.
 
 Fetched 1405/07/05 (2026-09-27) through `maven.aliyun.com/repository/google`
 and verified **byte for byte** against a second, independent mirror
-(`maven.myket.ir`): every file's SHA-256 matched. Checksums are in
-`SHA256SUMS`; check them with `sha256sum -c SHA256SUMS` from this folder.
+(`maven.myket.ir`), and then — over a VPN — against **Google Maven itself**
+(`dl.google.com/dl/android/maven2`): every file's SHA-256 matched all three.
+Checksums are in `SHA256SUMS`; check them with `sha256sum -c SHA256SUMS` from
+this folder.
 
 ## Changing or removing
 

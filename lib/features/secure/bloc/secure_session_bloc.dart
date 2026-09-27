@@ -4,6 +4,7 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:communication_super_app/features/authentication/models/auth_type.dart';
+import 'package:communication_super_app/features/authentication/models/pin_policy.dart';
 import 'package:communication_super_app/features/authentication/repositories/auth_repository.dart';
 import 'package:communication_super_app/features/authentication/repositories/pin_attempt_limiter.dart';
 import 'package:communication_super_app/features/edition/bloc/edition_bloc.dart';
@@ -61,6 +62,11 @@ enum SecureStatus {
 
   /// The section opens with the app PIN, and none is set.
   needsPin,
+
+  /// The app PIN is shorter than a secure edition requires (a 4-digit PIN set
+  /// before activation): the section is not created until it is changed to 6
+  /// digits. A section that already exists is never affected by this.
+  pinTooShort,
 
   /// A PIN exists; the section has not been created yet.
   notCreated,
@@ -181,15 +187,20 @@ class SecureSessionBloc extends Bloc<SecureSessionEvent, SecureSessionState> {
     if (!_edition.state.hasSecureFeatures) return SecureStatus.unavailable;
     if (_store.isOpen) return SecureStatus.unlocked;
     if (await _auth.getAuthType() != AuthType.pin) return SecureStatus.needsPin;
+    final bool exists;
     try {
-      return await _store.exists()
-          ? (state.status == SecureStatus.broken
-                ? SecureStatus.broken
-                : SecureStatus.locked)
-          : SecureStatus.notCreated;
+      exists = await _store.exists();
     } on SecureStoreException {
       return SecureStatus.broken;
     }
+    if (exists) {
+      return state.status == SecureStatus.broken
+          ? SecureStatus.broken
+          : SecureStatus.locked;
+    }
+    return await _auth.pinLength() < PinPolicy.secureLength
+        ? SecureStatus.pinTooShort
+        : SecureStatus.notCreated;
   }
 
   Future<void> _onRefresh(

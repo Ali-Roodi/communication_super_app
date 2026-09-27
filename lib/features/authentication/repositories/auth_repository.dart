@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/auth_type.dart';
+import '../models/pin_policy.dart';
 import 'package:communication_super_app/core/constants/app_constants.dart';
 import 'pin_attempt_limiter.dart';
 
@@ -36,7 +37,19 @@ class AuthRepository {
 
   Future<void> setPin(String pin) async {
     await _storage.write(key: AppConstants.pinKey, value: _hash(pin));
+    await _storage.write(
+      key: AppConstants.pinLengthKey,
+      value: pin.length.toString(),
+    );
     await setAuthType(AuthType.pin);
+  }
+
+  /// How many digits the stored PIN has — what every entry screen sizes its
+  /// dots from and submits at. A PIN saved before lengths were recorded is 4
+  /// digits: that was the only length there was.
+  Future<int> pinLength() async {
+    final value = await _storage.read(key: AppConstants.pinLengthKey);
+    return int.tryParse(value ?? '') ?? PinPolicy.standardLength;
   }
 
   Future<void> setPattern(List<int> pattern) async {
@@ -136,6 +149,7 @@ class AuthRepository {
     await _storage.delete(key: AppConstants.authTypeKey);
     await _storage.delete(key: AppConstants.isAuthenticatedKey);
     await _storage.delete(key: AppConstants.recoveryCodeKey);
+    await _storage.delete(key: AppConstants.pinLengthKey);
   }
 
   /// «ادامه بدون رمز»: when true, the app never re-prompts auth setup on

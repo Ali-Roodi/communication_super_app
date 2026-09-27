@@ -4,6 +4,7 @@ import 'package:communication_super_app/features/authentication/bloc/auth_bloc.d
 import 'package:communication_super_app/features/authentication/bloc/auth_event.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_state.dart';
 import 'package:communication_super_app/features/authentication/models/auth_type.dart';
+import 'package:communication_super_app/features/authentication/models/pin_policy.dart';
 import 'package:communication_super_app/features/authentication/repositories/auth_repository.dart';
 import 'package:communication_super_app/features/authentication/repositories/pin_attempt_limiter.dart';
 import 'package:communication_super_app/features/edition/bloc/edition_bloc.dart';
@@ -144,6 +145,15 @@ void main() {
     });
   });
 
+  test(
+    'PinPolicy: 4 digits commercial, 6 wherever there is a secure section',
+    () {
+      expect(PinPolicy.requiredFor(AppEdition.commercial), 4);
+      expect(PinPolicy.requiredFor(AppEdition.interOrganization), 6);
+      expect(PinPolicy.requiredFor(AppEdition.organization), 6);
+    },
+  );
+
   group('SecureSessionBloc', () {
     late _MockAuth auth;
     late _MockEditionBloc edition;
@@ -161,6 +171,7 @@ void main() {
       when(() => auth.validatePin('1234')).thenAnswer((_) async => true);
       when(() => auth.validatePin('9999')).thenAnswer((_) async => false);
       when(() => auth.pinRetryAfter()).thenAnswer((_) async => null);
+      when(() => auth.pinLength()).thenAnswer((_) async => 6);
     });
 
     SecureSessionBloc build() =>
@@ -187,6 +198,30 @@ void main() {
       build: build,
       act: (b) => b.add(const SecureSessionRefresh()),
       expect: () => [const SecureSessionState(status: SecureStatus.needsPin)],
+    );
+
+    blocTest<SecureSessionBloc, SecureSessionState>(
+      'a 4-digit PIN cannot create a section — it must become 6 digits',
+      setUp: () => when(() => auth.pinLength()).thenAnswer((_) async => 4),
+      build: build,
+      act: (b) => b.add(const SecureUnlockRequested('1234')),
+      verify: (b) {
+        expect(b.state.status, SecureStatus.pinTooShort);
+        expect(store.calls, isEmpty);
+        verifyNever(() => auth.validatePin(any()));
+      },
+    );
+
+    blocTest<SecureSessionBloc, SecureSessionState>(
+      'an existing section is never locked out by a short PIN',
+      setUp: () {
+        store.vaultExists = true;
+        when(() => auth.pinLength()).thenAnswer((_) async => 4);
+      },
+      build: build,
+      act: (b) => b.add(const SecureUnlockRequested('1234')),
+      verify: (b) =>
+          expect(store.calls.take(2), ['window:true', 'unlock:1234']),
     );
 
     blocTest<SecureSessionBloc, SecureSessionState>(

@@ -23,10 +23,13 @@ class AuthNotSet extends AuthState {
 class AuthSet extends AuthState {
   final AuthType authType;
 
-  const AuthSet(this.authType);
+  /// Digits in the stored PIN — the lock screen sizes itself from this.
+  final int pinLength;
+
+  const AuthSet(this.authType, {this.pinLength = 4});
 
   @override
-  List<Object?> get props => [authType];
+  List<Object?> get props => [authType, pinLength];
 }
 
 class AuthAuthenticated extends AuthState {
