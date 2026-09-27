@@ -13,6 +13,7 @@ import 'core/bloc_providers/app_bloc_providers.dart';
 import 'core/widgets/app_lock_wrapper.dart';
 import 'features/authentication/screens/auth_wrapper_screen.dart';
 import 'features/messages/services/notification_service.dart';
+import 'features/secure/widgets/secure_session_guard.dart';
 import 'features/settings/bloc/settings_bloc.dart';
 import 'features/settings/bloc/settings_state.dart';
 
@@ -84,8 +85,10 @@ class MyApp extends StatelessWidget {
                   // every one of those destinations is a pushed route that
                   // would cover a bar mounted any lower.
                   return ReturnToCallBar(
-                    child: AppLockWrapper(
-                      child: child ?? const AuthWrapperScreen(),
+                    child: SecureSessionGuard(
+                      child: AppLockWrapper(
+                        child: child ?? const AuthWrapperScreen(),
+                      ),
                     ),
                   );
                 },

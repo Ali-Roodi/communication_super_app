@@ -14,10 +14,15 @@ class CheckAuthStatus extends AuthEvent {
 class SetPin extends AuthEvent {
   final String pin;
 
-  const SetPin(this.pin);
+  /// The PIN being replaced, when there is one. Required while a secure
+  /// section exists: it opens with the app PIN, so its key has to be re-sealed
+  /// under the new one, and that takes the old one.
+  final String? currentPin;
+
+  const SetPin(this.pin, {this.currentPin});
 
   @override
-  List<Object?> get props => [pin];
+  List<Object?> get props => [pin, currentPin];
 }
 
 class ValidatePin extends AuthEvent {

@@ -6,6 +6,7 @@ import 'package:communication_super_app/features/authentication/bloc/auth_bloc.d
 import 'package:communication_super_app/features/authentication/bloc/auth_state.dart';
 import 'package:communication_super_app/features/authentication/models/auth_type.dart';
 import 'package:communication_super_app/features/authentication/repositories/auth_repository.dart';
+import 'package:communication_super_app/features/authentication/repositories/pin_attempt_limiter.dart';
 import 'package:communication_super_app/features/authentication/screens/recovery_code_screen.dart';
 import 'package:communication_super_app/features/authentication/screens/widgets/pin_pad.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_bloc.dart';
@@ -126,14 +127,16 @@ class _RelockScreenState extends State<RelockScreen> {
   final AuthRepository _repository = AuthRepository();
   String _pin = '';
   bool _checking = false;
-  bool _wrong = false;
+
+  /// What went wrong with the last attempt — a wrong PIN or a lockout.
+  String? _error;
 
   void _onKey(String digit) {
     if (_checking || _pin.length >= 4) return;
     HapticFeedback.lightImpact();
     setState(() {
       _pin += digit;
-      _wrong = false;
+      _error = null;
     });
     if (_pin.length == 4) _verify();
   }
@@ -153,11 +156,15 @@ class _RelockScreenState extends State<RelockScreen> {
       if (mounted) Navigator.of(context).pop();
       return;
     }
+    final wait = await _repository.pinRetryAfter();
+    if (!mounted) return;
     HapticFeedback.heavyImpact();
     setState(() {
       _pin = '';
       _checking = false;
-      _wrong = true;
+      _error = wait == null
+          ? 'رمز عبور اشتباه است'
+          : PinAttemptLimiter.lockoutMessage(wait);
     });
   }
 
@@ -190,9 +197,10 @@ class _RelockScreenState extends State<RelockScreen> {
                 // somewhere else is a message nobody reads.
                 SizedBox(
                   height: 24,
-                  child: _wrong
+                  child: _error != null
                       ? Text(
-                          'رمز عبور اشتباه است',
+                          _error!,
+                          textAlign: TextAlign.center,
                           style: TextStyle(color: theme.colorScheme.error),
                         )
                       : null,

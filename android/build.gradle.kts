@@ -5,6 +5,13 @@ allprojects {
         maven {
             url = uri("https://jitpack.io")
         }
+        // Verified, vendored copies of the few artifacts Google Maven cannot
+        // serve on this development network — see third_party/maven/README.md.
+        // Last, and scoped to its group, so it never shadows a real repository.
+        maven {
+            url = uri("${rootDir}/third_party/maven")
+            content { includeGroup("androidx.sqlite") }
+        }
     }
 }
 

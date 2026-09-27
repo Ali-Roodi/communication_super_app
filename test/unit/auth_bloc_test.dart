@@ -105,6 +105,7 @@ void main() {
       'invalid PIN reports the failure in Persian and returns to AuthSet',
       setUp: () {
         when(() => repo.validatePin('0000')).thenAnswer((_) async => false);
+        when(() => repo.pinRetryAfter()).thenAnswer((_) async => null);
         when(() => repo.getAuthType()).thenAnswer((_) async => AuthType.pin);
       },
       build: build,

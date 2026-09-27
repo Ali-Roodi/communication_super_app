@@ -27,6 +27,8 @@ import 'package:communication_super_app/core/theme/theme_bloc.dart';
 import 'package:communication_super_app/core/sim/sim_bloc.dart';
 import 'package:communication_super_app/features/edition/bloc/edition_bloc.dart';
 import 'package:communication_super_app/features/edition/repositories/activation_repository.dart';
+import 'package:communication_super_app/features/secure/bloc/secure_session_bloc.dart';
+import 'package:communication_super_app/features/secure/repositories/secure_store.dart';
 
 class AppBlocProviders extends StatelessWidget {
   final Widget child;
@@ -49,7 +51,19 @@ class AppBlocProviders extends StatelessWidget {
         ),
         BlocProvider(
           create: (context) =>
-              AuthBloc(AuthRepository())..add(const CheckAuthStatus()),
+              AuthBloc(AuthRepository(), secureStore: SecureStore.instance)
+                ..add(const CheckAuthStatus()),
+        ),
+        // AFTER both blocs it reads (EditionBloc, AuthBloc): a provider can
+        // only read the ones listed above it, and reading one below throws on
+        // the first frame — every launch. Eager for the same reason as
+        // EditionBloc: the lock icon in every tab header reads it at once.
+        BlocProvider(
+          lazy: false,
+          create: (context) => SecureSessionBloc(
+            edition: context.read<EditionBloc>(),
+            authChanges: context.read<AuthBloc>().stream,
+          )..add(const SecureSessionRefresh()),
         ),
         // Roster first: the contacts read merges the SIM address book, and the
         // composer/dialer decide whether to show a SIM affordance at all from

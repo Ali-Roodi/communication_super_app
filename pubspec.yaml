@@ -50,6 +50,12 @@ dependencies:
   # Database
   sqflite: ^2.4.2
   path: ^1.9.0
+  # The secure section's own database (secure.db), encrypted with SQLCipher.
+  # Only `lib/features/secure/` imports it. It has its OWN databaseFactory and
+  # never replaces sqflite's global one, so the main database — which the
+  # Kotlin workers open with android.database.sqlite while the app is dead —
+  # stays plain SQLite. Java plugin, no permission requests.
+  sqflite_sqlcipher: ^3.4.1
 
   # SMS & Phone
   # NOTE: `another_telephony` was removed on purpose — its global

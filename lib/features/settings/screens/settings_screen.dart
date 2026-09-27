@@ -14,6 +14,8 @@ import 'package:communication_super_app/features/authentication/models/auth_type
 import 'package:communication_super_app/features/authentication/repositories/auth_repository.dart';
 import 'package:communication_super_app/features/authentication/screens/pin_setup_screen.dart';
 import 'package:communication_super_app/features/authentication/screens/recovery_code_screen.dart';
+import 'package:communication_super_app/features/authentication/screens/verify_pin_screen.dart';
+import 'package:communication_super_app/features/secure/bloc/secure_session_bloc.dart';
 import 'package:communication_super_app/core/services/crash_reporting.dart';
 import 'package:communication_super_app/features/dialer/screens/speed_dial_screen.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
@@ -396,9 +398,20 @@ class _SecurityGroupState extends State<_SecurityGroup> {
   }
 
   Future<void> _openPinSetup(BuildContext context) async {
+    // Changing a PIN takes the current one: whoever holds an unlocked phone
+    // must not be able to replace it, and the secure section needs the old
+    // PIN to re-seal its key under the new one.
+    String? currentPin;
+    if (_authType == AuthType.pin) {
+      currentPin = await Navigator.of(context).push<String>(
+        MaterialPageRoute(builder: (_) => const VerifyPinScreen()),
+      );
+      if (currentPin == null || !context.mounted) return;
+    }
     final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (_) => const PinSetupScreen(fromSettings: true),
+        builder: (_) =>
+            PinSetupScreen(fromSettings: true, currentPin: currentPin),
       ),
     );
     await _load();
@@ -420,7 +433,36 @@ class _SecurityGroupState extends State<_SecurityGroup> {
     await showRecoveryCode(context, code);
   }
 
+  /// Whether a secure section exists — it opens with the app PIN.
+  static bool _sectionExists(SecureStatus status) =>
+      status == SecureStatus.locked ||
+      status == SecureStatus.unlocked ||
+      status == SecureStatus.broken;
+
   void _confirmRemovePin(BuildContext context) {
+    if (_sectionExists(context.read<SecureSessionBloc>().state.status)) {
+      showDialog<void>(
+        context: context,
+        builder: (dialogCtx) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('حذف رمز عبور'),
+            content: const Text(
+              'بخش امن با رمز برنامه باز می‌شود؛ تا وقتی وجود دارد، رمز برنامه '
+              'حذف نمی‌شود. برای حذف رمز، ابتدا «بخش امن» را از همین صفحه حذف '
+              'کنید.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogCtx).pop(),
+                child: const Text('متوجه شدم'),
+              ),
+            ],
+          ),
+        ),
+      );
+      return;
+    }
     showDialog<bool>(
       context: context,
       builder: (dialogCtx) => Directionality(
@@ -494,6 +536,7 @@ class _SecurityGroupState extends State<_SecurityGroup> {
             summary: 'کد قبلی باطل می‌شود و کد تازه یک بار نمایش داده می‌شود',
             onTap: () => _regenerateRecoveryCode(context),
           ),
+        const _SecureSectionRow(),
         if (hasPin)
           SettingsRow(
             icon: Icons.no_encryption_outlined,
@@ -504,6 +547,65 @@ class _SecurityGroupState extends State<_SecurityGroup> {
           ),
       ],
     );
+  }
+}
+
+/// «بخش امن» — where the secure section stands, and the one place it can be
+/// deleted on purpose. Absent in the commercial edition.
+class _SecureSectionRow extends StatelessWidget {
+  const _SecureSectionRow();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<SecureSessionBloc>().state;
+    if (state.status == SecureStatus.unavailable) {
+      return const SizedBox.shrink();
+    }
+    final exists = _SecurityGroupState._sectionExists(state.status);
+    return SettingsRow(
+      icon: Icons.shield_outlined,
+      title: 'بخش امن',
+      summary: switch (state.status) {
+        SecureStatus.needsPin => 'برای استفاده، رمز برنامه را تعیین کنید',
+        SecureStatus.notCreated => 'با اولین باز کردن قفل ساخته می‌شود',
+        SecureStatus.locked => 'قفل است · برای حذف لمس کنید',
+        SecureStatus.unlocked => 'باز است · برای حذف لمس کنید',
+        SecureStatus.broken => 'قابل باز شدن نیست · برای حذف لمس کنید',
+        SecureStatus.unavailable => null,
+      },
+      onTap: exists ? () => _confirmDelete(context) : null,
+    );
+  }
+
+  Future<void> _confirmDelete(BuildContext context) async {
+    final scheme = Theme.of(context).colorScheme;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('حذف بخش امن؟'),
+          content: const Text(
+            'همه محتوای بخش امن برای همیشه پاک می‌شود و راهی برای بازگرداندن '
+            'آن نیست.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogCtx).pop(false),
+              child: const Text('انصراف'),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: scheme.error),
+              onPressed: () => Navigator.of(dialogCtx).pop(true),
+              child: const Text('حذف همیشگی'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed == true && context.mounted) {
+      context.read<SecureSessionBloc>().add(const SecureResetRequested());
+    }
   }
 }
 

@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:communication_super_app/core/theme/app_dimensions.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
+import 'package:communication_super_app/features/secure/bloc/secure_session_bloc.dart';
 import '../bloc/auth_bloc.dart';
 import '../bloc/auth_event.dart';
 import '../bloc/auth_state.dart';
@@ -151,6 +152,15 @@ class RecoveryEntryScreen extends StatefulWidget {
 }
 
 class _RecoveryEntryScreenState extends State<RecoveryEntryScreen> {
+  static bool _secureSectionExists(BuildContext context) {
+    final status = context.select<SecureSessionBloc, SecureStatus>(
+      (bloc) => bloc.state.status,
+    );
+    return status == SecureStatus.locked ||
+        status == SecureStatus.unlocked ||
+        status == SecureStatus.broken;
+  }
+
   final TextEditingController _controller = TextEditingController();
   bool _submitting = false;
 
@@ -203,6 +213,19 @@ class _RecoveryEntryScreenState extends State<RecoveryEntryScreen> {
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
+                  // Said BEFORE the code is entered: the secure section is
+                  // sealed under the PIN being discarded, and the owner's rule
+                  // is that a forgotten PIN loses it (AuthBloc deletes it).
+                  if (_secureSectionExists(context)) ...[
+                    const SizedBox(height: AppDimensions.paddingMd),
+                    Text(
+                      'توجه: بخش امن با رمز فعلی باز می‌شود؛ با بازیابی رمز، '
+                      'بخش امن و همه محتوایش برای همیشه پاک می‌شود.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.error,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: AppDimensions.paddingLg),
                   TextField(
                     controller: _controller,

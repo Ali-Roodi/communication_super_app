@@ -1,3 +1,4 @@
+import 'package:communication_super_app/features/secure/widgets/secure_lock_button.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -534,6 +535,8 @@ class _ContactsListScreenState extends State<ContactsListScreen>
                     ),
                   ),
                 ),
+                // Absent in the commercial edition (matrix row 3).
+                SecureLockButton(color: scheme.onSurfaceVariant),
                 if (_query.isEmpty)
                   Icon(Icons.search, color: scheme.onSurfaceVariant)
                 else

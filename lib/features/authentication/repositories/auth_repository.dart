@@ -7,9 +7,14 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/auth_type.dart';
 import 'package:communication_super_app/core/constants/app_constants.dart';
+import 'pin_attempt_limiter.dart';
 
 class AuthRepository {
+  AuthRepository({PinAttemptLimiter? limiter})
+    : _limiter = limiter ?? PinAttemptLimiter();
+
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
+  final PinAttemptLimiter _limiter;
 
   Future<void> setAuthType(AuthType type) async {
     await _storage.write(key: AppConstants.authTypeKey, value: type.value);
@@ -42,7 +47,25 @@ class AuthRepository {
     await setAuthType(AuthType.pattern);
   }
 
-  Future<bool> validatePin(String pin) => _verify(AppConstants.pinKey, pin);
+  /// Checks [pin] against the stored PIN, through the shared attempt budget
+  /// ([PinAttemptLimiter]).
+  ///
+  /// While locked out it answers false **without looking at the PIN** — a
+  /// lockout that still revealed a correct guess would not slow anything down.
+  /// Callers tell "wrong" from "locked out" with [pinRetryAfter].
+  Future<bool> validatePin(String pin) async {
+    if (await _limiter.retryAfter() != null) return false;
+    final ok = await _verify(AppConstants.pinKey, pin);
+    if (ok) {
+      await _limiter.recordSuccess();
+    } else {
+      await _limiter.recordFailure();
+    }
+    return ok;
+  }
+
+  /// How long until another PIN attempt is allowed; null when it is now.
+  Future<Duration?> pinRetryAfter() => _limiter.retryAfter();
 
   Future<bool> validatePattern(List<int> pattern) =>
       _verify(AppConstants.patternKey, pattern.join(','));
