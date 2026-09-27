@@ -5,6 +5,11 @@ import 'package:communication_super_app/features/dialer/widgets/dialer_widgets.d
     show DialKey;
 
 /// Row of 4 PIN dots that fill (in the primary colour) as digits are entered.
+///
+/// The dots fill LEFT to right, whatever the page direction. A PIN is a
+/// number, typed on a keypad that is itself forced LTR ([PinKeypad]); in the
+/// inherited RTL direction the first digit lit the rightmost dot, so the row
+/// filled backwards relative to the digits being typed.
 class PinDots extends StatelessWidget {
   final int length;
   final int filled;
@@ -15,6 +20,7 @@ class PinDots extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Row(
+      textDirection: TextDirection.ltr,
       mainAxisAlignment: MainAxisAlignment.center,
       children: List.generate(length, (i) {
         return Container(
