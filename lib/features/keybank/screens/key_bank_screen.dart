@@ -7,7 +7,7 @@ import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/features/secure/repositories/key_bank_repository.dart';
-import 'package:communication_super_app/features/secure/screens/secure_unlock_screen.dart';
+import 'package:communication_super_app/features/secure/widgets/secure_locked_view.dart';
 
 import '../bloc/key_bank_bloc.dart';
 import '../services/key_file_service.dart';
@@ -64,46 +64,14 @@ class KeyBankScreen extends StatelessWidget {
               );
           },
           builder: (context, state) => switch (state.status) {
-            KeyBankStatus.locked => const _Locked(),
+            KeyBankStatus.locked => const SecureLockedView(
+              message:
+                  'بانک کلید داخل بخش امن نگهداری می‌شود. برای دیدن یا تغییر '
+                  'آن، بخش امن را باز کنید.',
+            ),
             KeyBankStatus.loading => const SizedBox.shrink(),
             KeyBankStatus.ready => _Bank(state: state, keyFiles: keyFiles),
           },
-        ),
-      ),
-    );
-  }
-}
-
-class _Locked extends StatelessWidget {
-  const _Locked();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.lock_outline,
-              size: 48,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'بانک کلید داخل بخش امن نگهداری می‌شود. برای دیدن یا تغییر آن، '
-              'بخش امن را باز کنید.',
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 20),
-            FilledButton(
-              onPressed: () => Navigator.of(context).push<bool>(
-                MaterialPageRoute(builder: (_) => const SecureUnlockScreen()),
-              ),
-              child: const Text('باز کردن بخش امن'),
-            ),
-          ],
         ),
       ),
     );

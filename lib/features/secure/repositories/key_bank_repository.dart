@@ -101,6 +101,26 @@ class KeyBankSnapshot extends Equatable {
   List<Object?> get props => [directories, groups, ownNumbers];
 }
 
+/// One member of a stored directory.
+class DirectoryEntry {
+  const DirectoryEntry({
+    required this.directoryId,
+    required this.directoryName,
+    required this.keyId,
+    required this.name,
+    required this.publicKey,
+    required this.phones,
+  });
+  final String directoryId;
+  final String directoryName;
+  final String keyId;
+  final String name;
+  final Uint8List publicKey;
+
+  /// Canonical.
+  final List<String> phones;
+}
+
 /// A peer's public key as the key bank knows it.
 class PeerKey {
   const PeerKey({
@@ -356,14 +376,51 @@ class KeyBankRepository {
   }
 
   /// This phone's own directory keys, with their secrets.
-  Future<List<SmsIdentity>> ownDirectoryKeys() async {
+  Future<List<({String directoryId, SmsIdentity identity})>>
+  ownDirectoryKeys() async {
     final rows = await _db.query('kb_own_keys');
     return [
       for (final r in rows)
-        SmsIdentity(
-          secret: r['secret'] as Uint8List,
+        (
+          directoryId: r['directory_id'] as String,
+          identity: SmsIdentity(
+            secret: r['secret'] as Uint8List,
+            publicKey: r['public_key'] as Uint8List,
+            keyId: _unhex(r['key_id'] as String),
+          ),
+        ),
+    ];
+  }
+
+  /// Every member of every directory — the people an encrypted conversation
+  /// can be started with. Each member's phones come back **in the
+  /// directory's order** (the order they were inserted): GROUP_CONCAT's own
+  /// order is undefined, and it once put a member's landline first.
+  Future<List<DirectoryEntry>> allMembers() async {
+    final members = await _db.rawQuery('''
+      SELECT m.directory_id, d.name AS directory_name, m.key_id, m.name,
+             m.public_key
+        FROM kb_members m
+        JOIN kb_directories d ON d.id = m.directory_id
+       ORDER BY m.name COLLATE NOCASE
+    ''');
+    final phones = <String, List<String>>{};
+    for (final r in await _db.rawQuery(
+      'SELECT directory_id, key_id, phone FROM kb_member_phones ORDER BY rowid',
+    )) {
+      phones
+          .putIfAbsent('${r['directory_id']}/${r['key_id']}', () => [])
+          .add(r['phone'] as String);
+    }
+    return [
+      for (final r in members)
+        DirectoryEntry(
+          directoryId: r['directory_id'] as String,
+          directoryName: r['directory_name'] as String,
+          keyId: r['key_id'] as String,
+          name: r['name'] as String,
           publicKey: r['public_key'] as Uint8List,
-          keyId: _unhex(r['key_id'] as String),
+          phones: phones['${r['directory_id']}/${r['key_id']}'] ?? const [],
         ),
     ];
   }

@@ -10,6 +10,7 @@ import 'package:communication_super_app/features/contacts/repositories/contact_r
 import 'package:communication_super_app/features/settings/repositories/blocked_numbers_repository.dart';
 import 'package:communication_super_app/core/services/device_sync_queue.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
+import 'package:communication_super_app/features/secure/services/sms_crypto_service.dart';
 import 'package:uuid/uuid.dart';
 import 'notification_service.dart';
 import 'native_sms_service.dart';
@@ -813,7 +814,13 @@ class SmsService {
         );
         if (rows.isEmpty) continue;
         await _messageRepository.reconcileDeviceRows([
-          for (final row in rows) _createMessageModel(row, type, contactMap),
+          for (final row in rows)
+            // An encrypted SMS is the secure section's, never the inbox's.
+            // It reaches the provider only while this app is NOT the default
+            // SMS app (the system stores it then); as ciphertext it would be
+            // a wall of Base64 in a normal conversation.
+            if (!SmsCryptoService.looksEncrypted(row.body))
+              _createMessageModel(row, type, contactMap),
         ]);
         // Let the UI isolate breathe between pages — a first import walks the
         // whole mailbox and must never hold the frame.

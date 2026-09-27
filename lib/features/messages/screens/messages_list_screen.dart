@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:communication_super_app/features/secure_sms/screens/secure_inbox_entry.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -495,6 +496,8 @@ class _MessagesListScreenState extends State<MessagesListScreen>
                     }),
                   ),
                 ),
+              if (!_selectionMode && !_searching)
+                const SliverToBoxAdapter(child: SecureInboxEntry()),
               ..._buildBodySlivers(context),
             ],
           ),

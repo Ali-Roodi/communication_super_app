@@ -15,6 +15,19 @@ import java.nio.charset.CodingErrorAction
  * - [KIND_TEXT_FA] — [PersianCodePage]: ASCII and the Persian repertoire in
  *   one byte each, anything else escaped. A Persian message is half the size.
  *
+ * A text kind with [FLAG_DELETE_AFTER_SEEN] set is «حذف پس از دیدن»: the
+ * receiver removes it once it has been shown (the sender's choice, per
+ * message). Control kinds carry no text and are never shown as bubbles:
+ *
+ * - [KIND_SEEN] `sid ‖ counter` — "I have seen every message you sent me in
+ *   session `sid` up to and including `counter`" (one for many: each costs
+ *   an SMS).
+ * - [KIND_DELETE] `sid ‖ counter` — "delete the message I sent you as
+ *   `counter` in session `sid`" («حذف برای هر دو»).
+ *
+ * A message is named by the session and counter it travelled with — unique,
+ * known to both sides, and free (no id on the wire).
+ *
  * Kinds are append-only: a number, once shipped, keeps its meaning for ever,
  * because old messages are decrypted by newer builds. An unknown kind is
  * [SmsCryptoException.Code.BAD_PAYLOAD] — it was sealed by a newer build.
@@ -22,28 +35,62 @@ import java.nio.charset.CodingErrorAction
 object Payload {
     const val KIND_TEXT_UTF8 = 0x01
     const val KIND_TEXT_FA = 0x02
+    const val KIND_SEEN = 0x10
+    const val KIND_DELETE = 0x11
 
-    /** A decoded payload. Only text exists so far. */
-    class Text(val text: String)
+    /** On a text kind: delete once seen. */
+    const val FLAG_DELETE_AFTER_SEEN = 0x80
 
-    fun text(text: String): ByteArray {
+    sealed class Decoded
+
+    class Text(val text: String, val deleteAfterSeen: Boolean = false) : Decoded()
+
+    /** Every message up to [upTo] in session [sid] was seen. */
+    class Seen(val sid: Int, val upTo: Long) : Decoded()
+
+    /** Delete the message [counter] of session [sid]. */
+    class Delete(val sid: Int, val counter: Long) : Decoded()
+
+    fun text(text: String, deleteAfterSeen: Boolean = false): ByteArray {
+        val flag = if (deleteAfterSeen) FLAG_DELETE_AFTER_SEEN else 0
         val utf8 = text.toByteArray(Charsets.UTF_8)
         val compact = PersianCodePage.encode(text)
         return if (compact.size < utf8.size) {
-            byteArrayOf(KIND_TEXT_FA.toByte()) + compact
+            byteArrayOf((KIND_TEXT_FA or flag).toByte()) + compact
         } else {
-            byteArrayOf(KIND_TEXT_UTF8.toByte()) + utf8
+            byteArrayOf((KIND_TEXT_UTF8 or flag).toByte()) + utf8
         }
     }
 
-    fun parse(payload: ByteArray): Text {
+    fun seen(sid: Int, upTo: Long): ByteArray = reference(KIND_SEEN, sid, upTo)
+
+    fun delete(sid: Int, counter: Long): ByteArray = reference(KIND_DELETE, sid, counter)
+
+    private fun reference(kind: Int, sid: Int, counter: Long): ByteArray {
+        require(sid in 0..0xFFFF && counter in 0..Wire.MAX_COUNTER)
+        return byteArrayOf(kind.toByte()) + Wire.writeSid(sid) + Wire.writeVarint(counter)
+    }
+
+    fun parse(payload: ByteArray): Decoded {
         if (payload.isEmpty()) badPayload()
+        val kind = payload[0].toInt() and 0xFF
         val body = payload.copyOfRange(1, payload.size)
-        return when (payload[0].toInt() and 0xFF) {
-            KIND_TEXT_UTF8 -> Text(strictUtf8(body) ?: badPayload())
-            KIND_TEXT_FA -> Text(PersianCodePage.decode(body) ?: badPayload())
+        val flagged = kind and FLAG_DELETE_AFTER_SEEN != 0
+        return when (kind and FLAG_DELETE_AFTER_SEEN.inv()) {
+            KIND_TEXT_UTF8 -> Text(strictUtf8(body) ?: badPayload(), flagged)
+            KIND_TEXT_FA -> Text(PersianCodePage.decode(body) ?: badPayload(), flagged)
+            KIND_SEEN -> if (flagged) badPayload() else parseReference(body) { sid, n -> Seen(sid, n) }
+            KIND_DELETE -> if (flagged) badPayload() else parseReference(body) { sid, n -> Delete(sid, n) }
             else -> badPayload()
         }
+    }
+
+    private fun parseReference(body: ByteArray, make: (Int, Long) -> Decoded): Decoded {
+        if (body.size < 3) badPayload()
+        val sid = ((body[0].toInt() and 0xFF) shl 8) or (body[1].toInt() and 0xFF)
+        val (counter, length) = Wire.readVarint(body, 2) ?: badPayload()
+        if (2 + length != body.size || counter > Wire.MAX_COUNTER) badPayload()
+        return make(sid, counter)
     }
 
     /** UTF-8 that refuses malformed input instead of substituting U+FFFD. */

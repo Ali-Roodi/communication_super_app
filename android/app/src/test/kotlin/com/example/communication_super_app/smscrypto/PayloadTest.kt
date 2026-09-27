@@ -10,7 +10,7 @@ import org.junit.Test
 class PayloadTest {
     private fun roundTrip(text: String): ByteArray {
         val payload = Payload.text(text)
-        assertEquals(text, Payload.parse(payload).text)
+        assertEquals(text, (Payload.parse(payload) as Payload.Text).text)
         return payload
     }
 
@@ -49,7 +49,7 @@ class PayloadTest {
         val all = table()
         assertEquals(97, all.length)
         assertEquals(97, all.toSet().size)
-        assertEquals(all, Payload.parse(Payload.text(all)).text)
+        assertEquals(all, (Payload.parse(Payload.text(all)) as Payload.Text).text)
         assertEquals(97 + 1, Payload.text(all).size)
     }
 
@@ -82,6 +82,40 @@ class PayloadTest {
             expectError(SmsCryptoException.Code.BAD_PAYLOAD) { Payload.parse(bytes) }
         }
         assertNull(PersianCodePage.decode(byteArrayOf(0xFE.toByte())))
+    }
+
+    @Test
+    fun `delete-after-seen is one bit on the text kind`() {
+        val plain = Payload.text("سلام")
+        val flagged = Payload.text("سلام", deleteAfterSeen = true)
+        assertEquals(plain.size, flagged.size)
+        assertEquals(Payload.KIND_TEXT_FA or Payload.FLAG_DELETE_AFTER_SEEN, flagged[0].toInt() and 0xFF)
+        val t = Payload.parse(flagged) as Payload.Text
+        assertEquals("سلام", t.text)
+        assertTrue(t.deleteAfterSeen)
+        assertTrue(!(Payload.parse(plain) as Payload.Text).deleteAfterSeen)
+        val latin = Payload.parse(Payload.text("Привет", deleteAfterSeen = true)) as Payload.Text
+        assertTrue(latin.deleteAfterSeen)
+    }
+
+    @Test
+    fun `seen and delete name a message by session and counter`() {
+        val seen = Payload.parse(Payload.seen(0xBEEF, 300)) as Payload.Seen
+        assertEquals(0xBEEF, seen.sid)
+        assertEquals(300L, seen.upTo)
+        val delete = Payload.parse(Payload.delete(7, 0)) as Payload.Delete
+        assertEquals(7, delete.sid)
+        assertEquals(0L, delete.counter)
+        assertEquals(4, Payload.seen(1, 0).size) // kind, sid, one counter byte
+        for (bad in listOf(
+            byteArrayOf(0x10),
+            byteArrayOf(0x10, 0, 1),
+            byteArrayOf(0x10, 0, 1, 1, 0),
+            byteArrayOf(0x90.toByte(), 0, 1, 1), // the flag on a control kind
+            byteArrayOf(0x11, 0, 1, 0x80.toByte(), 0),
+        )) {
+            expectError(SmsCryptoException.Code.BAD_PAYLOAD) { Payload.parse(bad) }
+        }
     }
 
     private companion object {

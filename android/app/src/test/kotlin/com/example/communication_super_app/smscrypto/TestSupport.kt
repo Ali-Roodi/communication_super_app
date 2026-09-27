@@ -51,7 +51,7 @@ fun Session.send(text: String): Session.Sealed = seal(Payload.text(text))
 /** (next state, text) */
 fun Session.receive(wire: String): kotlin.Pair<Session, String> {
     val opened = open(Wire.parse(wire) as Packet.Message)
-    return opened.session to Payload.parse(opened.payload).text
+    return opened.session to (Payload.parse(opened.payload) as Payload.Text).text
 }
 
 fun expectError(code: SmsCryptoException.Code, block: () -> Unit) {

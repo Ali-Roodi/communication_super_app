@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:communication_super_app/features/secure/repositories/key_bank_repository.dart';
 import 'package:communication_super_app/features/secure/repositories/secure_store.dart';
 import 'package:communication_super_app/features/secure/services/sms_crypto_service.dart';
+import 'package:communication_super_app/features/secure_sms/services/secure_identities.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -87,7 +88,31 @@ void main() {
     expect(keys.single.keyId, _b(8, 1));
     expect(keys.single.source, 'directory:0101010101010101');
     expect(await repo.directoryKeysFor('09129999999'), isEmpty);
-    expect((await repo.ownDirectoryKeys()).single.secret, _b(97, 0x51));
+    final own = (await repo.ownDirectoryKeys()).single;
+    expect(own.identity.secret, _b(97, 0x51));
+    expect(own.directoryId, '0101010101010101');
+    final all = await repo.allMembers();
+    expect(all.map((m) => m.name), ['علی', 'مریم']);
+    expect(all.first.phones, ['09121111111', '02188776655']);
+    expect(all.first.directoryName, 'سازمان 1');
+  });
+
+  test("a member's phones keep the directory's order", () async {
+    // GROUP_CONCAT's order is undefined; it once listed the landline first
+    // and an encrypted SMS went to a number that cannot receive one.
+    await repo.importKeyFile(
+      _file(
+        members: [
+          _member('رضا', ['02100000002', '09120000002', '09350000002'], 4),
+          _member('مینا', ['09120000009'], 5),
+        ],
+        ownIndex: 1,
+      ),
+    );
+    final reza = (await repo.allMembers()).firstWhere((m) => m.name == 'رضا');
+    expect(reza.phones, ['02100000002', '09120000002', '09350000002']);
+    expect(SecureIdentities.textTarget(reza.phones), '09120000002');
+    expect(SecureIdentities.textTarget(['02100000002']), '02100000002');
   });
 
   test('the same file twice changes nothing; a personal file after the '

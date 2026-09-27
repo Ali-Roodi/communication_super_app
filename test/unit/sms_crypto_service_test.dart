@@ -54,7 +54,11 @@ void main() {
         text: 'سلام',
       );
       expect(calls.single.method, 'encryptText');
-      expect(calls.single.arguments, {'session': bytes(99, 6), 'text': 'سلام'});
+      expect(calls.single.arguments, {
+        'session': bytes(99, 6),
+        'text': 'سلام',
+        'deleteAfterSeen': false,
+      });
       expect(sealed.state, bytes(99, 7));
       expect(sealed.wire, '#E:abc');
       expect(sealed.parts, 1);

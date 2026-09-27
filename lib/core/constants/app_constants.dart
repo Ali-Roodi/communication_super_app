@@ -3,7 +3,7 @@ class AppConstants {
 
   // Database
   static const String databaseName = 'communication_app.db';
-  static const int databaseVersion = 24;
+  static const int databaseVersion = 25;
 
   // Tables
   static const String contactsTable = 'contacts';
@@ -73,6 +73,13 @@ class AppConstants {
   /// carries the names the last run resolved, and the real read then corrects
   /// it (silently, when nothing changed — the states are Equatable).
   static const String contactNameCacheTable = 'contact_name_cache';
+
+  /// Encrypted SMS waiting for the secure section (v25): **ciphertext only**,
+  /// as it arrived. The native receivers write it while the app is dead and
+  /// the section locked (they cannot decrypt); `SecureMessenger` drains it
+  /// into `secure.db` when the section is open. MIRRORED in
+  /// `smscrypto/SecureSmsInbox.kt`, which also creates it `IF NOT EXISTS`.
+  static const String secureQueueTable = 'secure_queue';
 
   // Storage Keys
   static const String pinKey = 'app_pin';

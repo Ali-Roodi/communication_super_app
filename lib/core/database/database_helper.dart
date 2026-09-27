@@ -338,6 +338,27 @@ class DatabaseHelper {
     if (oldVersion < 24) {
       await _createUnreadMarksTable(db);
     }
+    if (oldVersion < 25) {
+      await _createSecureQueueTable(db);
+    }
+  }
+
+  /// Encrypted SMS waiting for the secure section (v25) — see
+  /// [AppConstants.secureQueueTable]. The DDL is byte-for-byte the one
+  /// `SecureSmsInbox.kt` runs, and both say `IF NOT EXISTS`: whichever side
+  /// gets there first creates it.
+  Future<void> _createSecureQueueTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.secureQueueTable} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        address TEXT NOT NULL,
+        body TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        subscription_id INTEGER,
+        received_at INTEGER NOT NULL,
+        UNIQUE (address, body)
+      )
+    ''');
   }
 
   /// Threads the user marked unread by hand (v24).
@@ -844,18 +865,14 @@ class DatabaseHelper {
     // older than the one before, so the board opens in the catalogue's order.
     for (var i = 0; i < seeds.length; i++) {
       final template = seeds[i];
-      batch.insert(
-        AppConstants.messageTemplatesTable,
-        {
-          'id': template.id,
-          'title': template.title,
-          'body': template.body,
-          'use_contact_name': template.useContactName ? 1 : 0,
-          'is_pinned': 0,
-          'updated_at': now - i,
-        },
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
+      batch.insert(AppConstants.messageTemplatesTable, {
+        'id': template.id,
+        'title': template.title,
+        'body': template.body,
+        'use_contact_name': template.useContactName ? 1 : 0,
+        'is_pinned': 0,
+        'updated_at': now - i,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
     }
     await batch.commit(noResult: true);
   }
@@ -1044,6 +1061,9 @@ class DatabaseHelper {
 
       // Hand-marked unread threads (v24)
       await _createUnreadMarksTable(db);
+
+      // Encrypted SMS waiting for the secure section (v25)
+      await _createSecureQueueTable(db);
     } catch (e) {
       throw Exception('Failed to create database tables: $e');
     }
