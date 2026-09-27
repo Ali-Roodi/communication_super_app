@@ -162,6 +162,29 @@ if (-not $SkipVerify) {
     Write-Host "Manifest OK - $packageName, versionCode $versionCode, versionName $apkVersionName." -ForegroundColor Green
 }
 
+# --- trust anchor check -----------------------------------------------------
+# The DEVELOPMENT key-bank authority (tools/keybank/dev/) is trusted only by a
+# build made with --dart-define=HAMRESAN_DEV_ANCHOR=true, which this script
+# never passes. Checked anyway, in the compiled Dart - see release_build.sh.
+$anchors = Get-Content -Raw (Join-Path $repo "lib\features\keybank\services\trust_anchors.dart")
+$devMatch = [regex]::Match($anchors, "_development =\s*'([0-9a-f]{64})")
+if (-not $devMatch.Success) { throw "cannot read the development authority from trust_anchors.dart - trust anchors UNVERIFIED" }
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zip = [System.IO.Compression.ZipFile]::OpenRead($apk)
+try {
+    $entry = $zip.GetEntry("lib/arm64-v8a/libapp.so")
+    if ($null -eq $entry) { throw "libapp.so not found in the APK - trust anchors UNVERIFIED" }
+    $stream = $entry.Open()
+    $buffer = New-Object System.IO.MemoryStream
+    try { $stream.CopyTo($buffer) } finally { $stream.Dispose() }
+    # Latin-1 maps every byte to one char, so an ASCII marker is found as is.
+    $libapp = [System.Text.Encoding]::GetEncoding(28591).GetString($buffer.ToArray())
+} finally { $zip.Dispose() }
+if ($libapp.Contains($devMatch.Groups[1].Value)) {
+    throw "REFUSING THIS APK: it trusts the DEVELOPMENT key-bank authority. Rebuild without HAMRESAN_DEV_ANCHOR."
+}
+Write-Host "Trust anchors OK - no development authority." -ForegroundColor Green
+
 # --- signature check --------------------------------------------------------
 # android/key.properties is gitignored, so a fresh clone signs the RELEASE
 # build with the DEBUG key (see android/app/build.gradle.kts). That APK

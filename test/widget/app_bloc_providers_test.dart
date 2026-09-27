@@ -1,6 +1,7 @@
 import 'package:communication_super_app/core/bloc_providers/app_bloc_providers.dart';
 import 'package:communication_super_app/core/database/database_helper.dart';
 import 'package:communication_super_app/features/edition/bloc/edition_bloc.dart';
+import 'package:communication_super_app/features/keybank/bloc/key_bank_bloc.dart';
 import 'package:communication_super_app/features/secure/bloc/secure_session_bloc.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -32,12 +33,15 @@ void main() {
   ) async {
     late SecureSessionBloc secure;
     late EditionBloc edition;
+    late KeyBankBloc keyBank;
     await tester.pumpWidget(
       AppBlocProviders(
         child: Builder(
           builder: (context) {
             secure = context.read<SecureSessionBloc>();
             edition = context.read<EditionBloc>();
+            // Lazy, so read it here to build it — it reads SecureSessionBloc.
+            keyBank = context.read<KeyBankBloc>();
             return const SizedBox.shrink();
           },
         ),
@@ -47,5 +51,6 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(secure, isNotNull);
     expect(edition, isNotNull);
+    expect(keyBank.state.status, KeyBankStatus.locked);
   });
 }

@@ -97,6 +97,11 @@ void main() {
       'AUTH_FAILED': SmsCryptoFailure.authFailed,
       'BAD_PAYLOAD': SmsCryptoFailure.badPayload,
       'REKEY_REQUIRED': SmsCryptoFailure.rekeyRequired,
+      'NOT_A_KEY_FILE': SmsCryptoFailure.notAKeyFile,
+      'WRONG_PASSWORD': SmsCryptoFailure.wrongPassword,
+      'UNTRUSTED': SmsCryptoFailure.untrusted,
+      'BAD_SIGNATURE': SmsCryptoFailure.badSignature,
+      'BAD_BUNDLE': SmsCryptoFailure.badBundle,
       'BAD_ARGS': SmsCryptoFailure.failed,
       'FAILED': SmsCryptoFailure.failed,
     };
@@ -138,6 +143,44 @@ void main() {
     expect(info.sid, 5);
     expect(info.counter, isNull);
     expect(info.senderKid, bytes(8, 1));
+  });
+
+  test('a key file comes back as its directory and the member key', () async {
+    answer(
+      (_) => {
+        'signed': bytes(40, 1),
+        'directory': {
+          'authorityId': bytes(8, 2),
+          'directoryId': bytes(8, 3),
+          'serial': 1790000000000,
+          'name': 'سازمان',
+          'members': [
+            {
+              'name': 'علی',
+              'phones': ['09121111111'],
+              'public': bytes(1217, 4),
+              'keyId': bytes(8, 5),
+            },
+          ],
+        },
+        'member': {
+          'index': 0,
+          'secret': bytes(97, 6),
+          'public': bytes(1217, 4),
+          'keyId': bytes(8, 5),
+        },
+      },
+    );
+    final opened = await service.openKeyFile(
+      file: bytes(100, 0),
+      password: 'pw',
+      anchors: [bytes(1985, 7)],
+    );
+    expect((calls.single.arguments as Map)['anchors'], [bytes(1985, 7)]);
+    expect(opened.directory.serial, 1790000000000);
+    expect(opened.directory.members.single.phones, ['09121111111']);
+    expect(opened.memberIndex, 0);
+    expect(opened.member!.secret, bytes(97, 6));
   });
 
   test('no native side at all is a failure, not a hang', () async {

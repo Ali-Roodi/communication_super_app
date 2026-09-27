@@ -18,6 +18,7 @@ import com.example.communication_super_app.contacts.ContactLinkHandler
 import com.example.communication_super_app.contacts.SimContactsHandler
 import com.example.communication_super_app.edition.DeviceIdentityHandler
 import com.example.communication_super_app.secure.SecureVaultHandler
+import com.example.communication_super_app.smscrypto.KeyFilePicker
 import com.example.communication_super_app.smscrypto.SmsCryptoHandler
 import com.example.communication_super_app.media.PhotoHandler
 import com.example.communication_super_app.scheduled.ScheduledSmsChannel
@@ -51,6 +52,9 @@ class MainActivity : FlutterActivity() {
 
     /// The SMS crypto (ML-KEM-768 + X25519 sessions, per-message keys). Stateless.
     private var smsCryptoHandler: SmsCryptoHandler? = null
+
+    /// Picks a key-bank file through the system document picker.
+    private var keyFilePicker: KeyFilePicker? = null
 
     /**
      * Whether this activity is currently asking to be shown over the keyguard.
@@ -231,6 +235,9 @@ class MainActivity : FlutterActivity() {
                     SmsCryptoHandler.CHANNEL,
                 )
             )
+        }
+        keyFilePicker = KeyFilePicker(this).also {
+            it.setup(MethodChannel(flutterEngine.dartExecutor.binaryMessenger, KeyFilePicker.CHANNEL))
         }
 
         // ── Contact photo (دوربین / گالری + برش و چرخش) ──────────────────
@@ -428,6 +435,7 @@ class MainActivity : FlutterActivity() {
         if (smsHandler?.handleRoleActivityResult(requestCode) == true) return
         if (callHandler?.handleRoleActivityResult(requestCode) == true) return
         if (contactExtrasHandler?.handleActivityResult(requestCode, data) == true) return
+        if (keyFilePicker?.handleActivityResult(requestCode, resultCode, data) == true) return
         photoHandler?.handleActivityResult(requestCode, resultCode, data)
     }
 
@@ -630,6 +638,7 @@ class MainActivity : FlutterActivity() {
         secureVaultHandler = null
         smsCryptoHandler?.dispose()
         smsCryptoHandler = null
+        keyFilePicker = null
         // The engine is going away: the alarm receiver must go back to delivering
         // scheduled messages natively.
         ScheduledSmsChannel.channel = null

@@ -1,0 +1,5 @@
+# Build output and the development authority (a private key) never go into git.
+/build/
+/.gradle/
+/.kotlin/
+/dev/
