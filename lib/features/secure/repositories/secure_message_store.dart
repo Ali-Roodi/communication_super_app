@@ -211,9 +211,18 @@ class SecureMessageStore {
              (SELECT m.outgoing FROM sm_messages m WHERE m.phone = c.phone
                ORDER BY m.timestamp DESC LIMIT 1) AS last_outgoing
         FROM sm_conversations c
+       WHERE c.listed = 1
+          OR EXISTS (SELECT 1 FROM sm_messages m WHERE m.phone = c.phone)
        ORDER BY c.last_at DESC
     ''');
     return rows.map(_conversation).toList();
+  }
+
+  /// Number → name of every conversation, listed or not — how a group
+  /// names its members.
+  Future<Map<String, String>> names() async {
+    final rows = await db.query('sm_conversations', columns: ['phone', 'name']);
+    return {for (final r in rows) r['phone'] as String: r['name'] as String};
   }
 
   Future<SecureConversation?> conversation(String phone) async {
@@ -253,6 +262,7 @@ class SecureMessageStore {
     required String ownKeyId,
     required String ownSource,
     required int now,
+    bool listed = true,
   }) => db.transaction((txn) async {
     final existing = await txn.query(
       'sm_conversations',
@@ -270,6 +280,7 @@ class SecureMessageStore {
         'own_source': ownSource,
         'created_at': now,
         'last_at': now,
+        'listed': listed ? 1 : 0,
       });
       return;
     }
@@ -277,7 +288,7 @@ class SecureMessageStore {
     if (row['peer_key_id'] == peerKeyId && row['own_key_id'] == ownKeyId) {
       await txn.update(
         'sm_conversations',
-        {'name': name},
+        {'name': name, if (listed) 'listed': 1},
         where: 'phone = ?',
         whereArgs: [phone],
       );

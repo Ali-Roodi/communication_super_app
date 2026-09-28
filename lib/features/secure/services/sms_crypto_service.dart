@@ -202,7 +202,41 @@ class OpenedKeyFile {
   final SmsIdentity? member;
 }
 
-enum SmsPayloadKind { text, seen, delete }
+enum SmsPayloadKind { text, seen, delete, groupInfo }
+
+/// How members answer in a group (`Payload.GROUP_MODE_*`).
+enum SmsGroupMode {
+  /// A reply goes to every member.
+  chat,
+
+  /// A reply goes to the creator only (an announcement list).
+  announce,
+}
+
+class SmsGroupMember {
+  const SmsGroupMember({required this.phone, required this.keyId});
+
+  /// Canonical digits.
+  final String phone;
+  final Uint8List keyId;
+}
+
+/// A group as its creator defines it (`Payload.GroupInfo`). [version] grows
+/// with every change; a receiver keeps only the newest.
+class SmsGroupInfo {
+  const SmsGroupInfo({
+    required this.groupId,
+    required this.version,
+    required this.mode,
+    required this.name,
+    required this.members,
+  });
+  final Uint8List groupId;
+  final int version;
+  final SmsGroupMode mode;
+  final String name;
+  final List<SmsGroupMember> members;
+}
 
 /// A decrypted message: the next session state, the message's own name
 /// ([sid], [counter]) and what it carried.
@@ -216,11 +250,19 @@ class SmsDecrypted {
     this.deleteAfterSeen = false,
     this.refSid,
     this.refCounter,
+    this.groupId,
+    this.groupInfo,
   });
   final Uint8List session;
   final int sid;
   final int counter;
   final SmsPayloadKind kind;
+
+  /// A text that belongs to a group (8 bytes).
+  final Uint8List? groupId;
+
+  /// [SmsPayloadKind.groupInfo] only.
+  final SmsGroupInfo? groupInfo;
 
   /// [SmsPayloadKind.text] only.
   final String? text;
@@ -340,15 +382,38 @@ class SmsCryptoService {
   Future<bool> ownInitWins(Uint8List ownKid, Uint8List peerKid) =>
       _call<bool>('ownInitWins', {'ownKid': ownKid, 'peerKid': peerKid});
 
+  /// [groupId] (8 bytes) makes it a group message.
   Future<SmsSealed> encryptText({
     required Uint8List session,
     required String text,
     bool deleteAfterSeen = false,
+    Uint8List? groupId,
   }) async => _sealed(
     await _call<Map>('encryptText', {
       'session': session,
       'text': text,
       'deleteAfterSeen': deleteAfterSeen,
+      'groupId': ?groupId,
+    }),
+    'session',
+  );
+
+  /// A group's definition, as a control packet (no notification).
+  Future<SmsSealed> encryptGroupInfo({
+    required Uint8List session,
+    required SmsGroupInfo info,
+  }) async => _sealed(
+    await _call<Map>('encryptGroupInfo', {
+      'session': session,
+      'info': {
+        'groupId': info.groupId,
+        'version': info.version,
+        'mode': info.mode.index,
+        'name': info.name,
+        'members': [
+          for (final m in info.members) {'phone': m.phone, 'keyId': m.keyId},
+        ],
+      },
     }),
     'session',
   );
@@ -384,8 +449,24 @@ class SmsCryptoService {
       deleteAfterSeen: m['deleteAfterSeen'] == true,
       refSid: m['refSid'] as int?,
       refCounter: m['refCounter'] as int?,
+      groupId: m['groupId'] as Uint8List?,
+      groupInfo: m['kind'] == 'groupInfo' ? _groupInfo(m) : null,
     );
   }
+
+  SmsGroupInfo _groupInfo(Map m) => SmsGroupInfo(
+    groupId: m['groupId'] as Uint8List,
+    version: m['version'] as int,
+    mode: SmsGroupMode.values[m['mode'] as int],
+    name: m['name'] as String,
+    members: [
+      for (final e in (m['members'] as List).cast<Map>())
+        SmsGroupMember(
+          phone: e['phone'] as String,
+          keyId: e['keyId'] as Uint8List,
+        ),
+    ],
+  );
 
   /// Opens records Kotlin sealed to [secret]'s public key (`SealedBox`):
   /// one result per blob, null for a blob that does not open with it.

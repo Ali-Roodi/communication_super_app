@@ -9,6 +9,7 @@ import 'package:communication_super_app/features/keybank/screens/key_bank_screen
 import '../bloc/secure_messages_bloc.dart';
 import '../services/secure_identities.dart';
 import 'secure_conversation_screen.dart';
+import 'secure_group_edit_screen.dart';
 
 /// «گفتگوی رمز»: pick who to talk to. Directory members are listed; a number
 /// typed by hand is looked up in the passphrase groups (a group has no member
@@ -189,6 +190,22 @@ class _SecureNewConversationScreenState
               return ListView(
                 padding: const EdgeInsets.only(bottom: 24),
                 children: [
+                  ListTile(
+                    contentPadding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    leading: CircleAvatar(
+                      backgroundColor: scheme.tertiaryContainer,
+                      child: Icon(
+                        Icons.group_add_outlined,
+                        color: scheme.onTertiaryContainer,
+                      ),
+                    ),
+                    title: const Text('گروه رمز جدید'),
+                    onTap: () => Navigator.of(context).pushReplacement(
+                      MaterialPageRoute(
+                        builder: (_) => const SecureGroupEditScreen(),
+                      ),
+                    ),
+                  ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
                     child: TextField(

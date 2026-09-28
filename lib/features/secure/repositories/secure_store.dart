@@ -48,8 +48,8 @@ class SecureStore {
 
   /// v1: `secure_meta` (phase C). v2: the key bank (phase E). v3: encrypted
   /// conversations (phase F). v4: the hidden phonebook, its calls, and plain
-  /// SMS with hidden contacts (phase G).
-  static const int _schemaVersion = 4;
+  /// SMS with hidden contacts (phase G). v5: encrypted groups (matrix row 14).
+  static const int _schemaVersion = 5;
 
   /// The open database, or null while locked.
   cipher.Database? get database => _db;
@@ -143,6 +143,86 @@ class SecureStore {
     await _createSecureMessages(db);
     await _upgradeMessagesToV4(db);
     await _createHiddenPhonebook(db);
+    await _createGroups(db);
+  }
+
+  /// Encrypted groups (v5) — see `SecureGroupStore`, the only code that
+  /// reads or writes these tables.
+  ///
+  /// SMS has no multicast: a group message is one row here and one delivery
+  /// per member, each sealed over that member's own session. That is also
+  /// why `sm_conversations` gains `listed`: a group makes a one-to-one
+  /// conversation (and a handshake) with every member, and those stay out of
+  /// the list until something is said in them.
+  static Future<void> _createGroups(cipher.DatabaseExecutor db) async {
+    await db.execute(
+      'ALTER TABLE sm_conversations ADD COLUMN listed INTEGER NOT NULL DEFAULT 1',
+    );
+    // `creator` null = this phone. `pending_info`: a message arrived before
+    // the group's definition; the first definition then decides the creator.
+    // `left`: the creator's newest definition no longer lists this phone.
+    await db.execute('''
+      CREATE TABLE sg_groups (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        mode INTEGER NOT NULL,
+        version INTEGER NOT NULL,
+        creator TEXT,
+        pending_info INTEGER NOT NULL DEFAULT 0,
+        left_group INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        last_at INTEGER NOT NULL,
+        unread INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+    // Every member but the creator (a receiver adds the creator itself).
+    // Creator side: `info_version` is the definition this member was last
+    // sent; `removed` keeps a dropped member until they are told.
+    await db.execute('''
+      CREATE TABLE sg_members (
+        group_id TEXT NOT NULL,
+        phone TEXT NOT NULL,
+        key_id TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        info_version INTEGER NOT NULL DEFAULT 0,
+        removed INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (group_id, phone)
+      )
+    ''');
+    // `sender` null = ours. Incoming: `sid`/`counter` of the pairwise
+    // session it came on (what a receipt or a delete names).
+    await db.execute('''
+      CREATE TABLE sg_messages (
+        id TEXT PRIMARY KEY,
+        group_id TEXT NOT NULL,
+        sender TEXT,
+        body TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        sid INTEGER,
+        counter INTEGER,
+        delete_after_seen INTEGER NOT NULL DEFAULT 0,
+        seen_at INTEGER
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX sg_messages_thread ON sg_messages (group_id, timestamp)',
+    );
+    // One per member an outgoing group message goes to.
+    await db.execute('''
+      CREATE TABLE sg_deliveries (
+        message_id TEXT NOT NULL,
+        phone TEXT NOT NULL,
+        status TEXT NOT NULL,
+        sid INTEGER,
+        counter INTEGER,
+        parts INTEGER,
+        PRIMARY KEY (message_id, phone)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX sg_deliveries_phone ON sg_deliveries (phone, status)',
+    );
   }
 
   /// v4 on the phase F tables: a conversation may have **no key** (a hidden
@@ -369,6 +449,7 @@ class SecureStore {
       await _upgradeMessagesToV4(db);
       await _createHiddenPhonebook(db);
     }
+    if (oldVersion < 5 && newVersion >= 5) await _createGroups(db);
   }
 
   Future<String> _path() async =>

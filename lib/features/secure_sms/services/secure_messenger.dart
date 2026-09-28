@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:communication_super_app/features/secure/repositories/key_bank_repository.dart';
+import 'package:communication_super_app/features/secure/repositories/secure_group_store.dart';
 import 'package:communication_super_app/features/secure/repositories/secure_message_store.dart';
 import 'package:communication_super_app/features/secure/services/sms_crypto_service.dart';
 
@@ -40,6 +42,7 @@ enum _Outcome {
 class SecureMessenger {
   SecureMessenger({
     SecureMessageStore? store,
+    SecureGroupStore? groups,
     SecureQueueRepository? queue,
     SecureIdentities? identities,
     SmsCryptoService crypto = const SmsCryptoService(),
@@ -48,6 +51,7 @@ class SecureMessenger {
     int Function()? clock,
     String Function()? newId,
   }) : _store = store ?? SecureMessageStore(),
+       _groups = groups ?? SecureGroupStore(),
        _hidden = hidden,
        _queue = queue ?? SecureQueueRepository(),
        _identities = identities ?? SecureIdentities(),
@@ -57,6 +61,10 @@ class SecureMessenger {
        _newId = newId ?? (() => const Uuid().v4());
 
   final SecureMessageStore _store;
+
+  /// Encrypted groups (matrix row 14): a group message is sealed once per
+  /// member, over that member's own session.
+  final SecureGroupStore _groups;
   final SecureQueueRepository _queue;
   final SecureIdentities _identities;
   final SmsCryptoService _crypto;
@@ -274,6 +282,9 @@ class SecureMessenger {
       ownKeyId: own.keyId,
       ownSource: own.source,
       now: now,
+      // A session request alone lists nothing: it may be for a group, and
+      // the first message in the pair lists the conversation.
+      listed: false,
     );
     await _store.saveSession(
       StoredSession(
@@ -351,9 +362,65 @@ class SecureMessenger {
       if (e.failure == SmsCryptoFailure.duplicate) return _Outcome.done;
       rethrow;
     }
+    // A group definition needs our key ids (to find ourselves in it) and
+    // canonical numbers — read before the transaction: the key bank lives in
+    // this same database.
+    ({List<({String phone, String keyId})> members, bool includesMe})?
+    definition;
+    final groupInfo = opened.groupInfo;
+    if (groupInfo != null) {
+      final own = {for (final o in await _identities.own()) o.keyId};
+      final members = <({String phone, String keyId})>[];
+      var me = false;
+      for (final m in groupInfo.members) {
+        final kid = keyHex(m.keyId);
+        if (own.contains(kid)) {
+          me = true;
+          continue;
+        }
+        final canonical = await _crypto.canonicalPhone(m.phone) ?? m.phone;
+        // The creator is added by every receiver itself.
+        if (canonical == phone) continue;
+        members.add((phone: canonical, keyId: kid));
+      }
+      definition = (members: members, includesMe: me);
+    }
+    var groupChanged = false;
     await _store.db.transaction((txn) async {
       await _store.updateSessionState(txn, phone, session.sid, opened.session);
       switch (opened.kind) {
+        case SmsPayloadKind.text when opened.groupId != null:
+          final gid = keyHex(opened.groupId!);
+          // Before its definition, if SMS arrived out of order.
+          await _groups.ensurePlaceholder(txn, gid, packet.timestamp);
+          await _groups.addIncoming(
+            txn,
+            SecureGroupMessage(
+              id: _newId(),
+              groupId: gid,
+              sender: phone,
+              body: opened.text!,
+              timestamp: packet.timestamp,
+              status: SecureMessageStatus.received,
+              sid: opened.sid,
+              counter: opened.counter,
+              deleteAfterSeen: opened.deleteAfterSeen,
+            ),
+          );
+          await _groups.touch(gid, packet.timestamp, unread: true, txn: txn);
+          groupChanged = true;
+        case SmsPayloadKind.groupInfo:
+          groupChanged = await _groups.applyInfo(
+            txn,
+            id: keyHex(groupInfo!.groupId),
+            sender: phone,
+            version: groupInfo.version,
+            mode: SecureGroupMode.values[groupInfo.mode.index],
+            name: groupInfo.name,
+            members: definition!.members,
+            includesMe: definition.includesMe,
+            now: packet.timestamp,
+          );
         case SmsPayloadKind.text:
           await _store.insertMessage(
             txn,
@@ -388,15 +455,32 @@ class SecureMessenger {
               SecureMessageStatus.delivered.name,
             ],
           );
+          // The same session carried our group messages to them too.
+          final seenGroups = await _groups.markSeenBy(
+            txn,
+            phone,
+            opened.refSid!,
+            opened.refCounter!,
+          );
+          groupChanged = seenGroups.isNotEmpty;
         case SmsPayloadKind.delete:
           await txn.delete(
             'sm_messages',
             where: 'phone = ? AND outgoing = 0 AND sid = ? AND counter = ?',
             whereArgs: [phone, opened.refSid, opened.refCounter],
           );
+          groupChanged =
+              await _groups.deleteIncoming(
+                txn,
+                phone,
+                opened.refSid!,
+                opened.refCounter!,
+              ) !=
+              null;
       }
     });
-    _changed(phone);
+    // A group change repaints the whole list (null); a pair's, that pair.
+    _changed(groupChanged ? null : phone);
     return _Outcome.done;
   }
 
@@ -571,7 +655,11 @@ class SecureMessenger {
     // out at once (sendPlain).
     if (conversation == null || !conversation.encrypted) return;
     final queued = await _store.queued(phone);
-    if (queued.isEmpty) return;
+    // Group work for this member: a definition they have not had (always
+    // first, so they know the group before its messages), then messages.
+    final infos = await _groups.staleInfoFor(phone);
+    final groupQueued = await _groups.queuedFor(phone);
+    if (queued.isEmpty && infos.isEmpty && groupQueued.isEmpty) return;
     final sessions = await _store.sessions(phone);
     final session = sessions.where((s) => !s.pending).firstOrNull;
     if (session == null) {
@@ -579,6 +667,9 @@ class SecureMessenger {
       return;
     }
     var state = session.state;
+    for (final g in infos) {
+      state = await _sendGroupInfo(phone, session.sid, state, g);
+    }
     for (final m in queued) {
       final SmsSealed sealed;
       try {
@@ -613,7 +704,105 @@ class SecureMessenger {
       }
       _changed(phone);
     }
+    for (final q in groupQueued) {
+      state = await _sendGroupText(phone, session.sid, state, q.message);
+    }
   }
+
+  /// One member's copy of a group definition. Returns the session's next
+  /// state (unchanged if encrypting failed).
+  Future<Uint8List> _sendGroupInfo(
+    String phone,
+    int sid,
+    Uint8List state,
+    SecureGroup g,
+  ) async {
+    final SmsSealed sealed;
+    try {
+      sealed = await _crypto.encryptGroupInfo(
+        session: state,
+        info: SmsGroupInfo(
+          groupId: _unhex(g.id),
+          version: g.version,
+          mode: SmsGroupMode.values[g.mode.index],
+          name: g.name,
+          members: [
+            for (final m in g.members)
+              SmsGroupMember(phone: m.phone, keyId: _unhex(m.keyId)),
+          ],
+        ),
+      );
+    } on SmsCryptoException catch (e) {
+      debugPrint('Encrypting a group definition failed: ${e.failure.name}');
+      return state;
+    }
+    await _store.db.transaction(
+      (txn) => _store.updateSessionState(txn, phone, sid, sealed.state),
+    );
+    try {
+      await _sender.send(phone, sealed.wire, trackingId: 'gi-${_newId()}');
+      // Only once it is out: a failed send is tried again next flush.
+      await _groups.markInfoSent(g.id, phone, g.version);
+    } catch (e) {
+      debugPrint('Sending a group definition failed: ${e.runtimeType}');
+    }
+    return sealed.state;
+  }
+
+  /// One member's copy of a group message.
+  Future<Uint8List> _sendGroupText(
+    String phone,
+    int sid,
+    Uint8List state,
+    SecureGroupMessage m,
+  ) async {
+    final SmsSealed sealed;
+    try {
+      sealed = await _crypto.encryptText(
+        session: state,
+        text: m.body,
+        deleteAfterSeen: m.deleteAfterSeen,
+        groupId: _unhex(m.groupId),
+      );
+    } on SmsCryptoException catch (e) {
+      debugPrint('Encrypting a group message failed: ${e.failure.name}');
+      await _groups.advanceDelivery(m.id, phone, SecureMessageStatus.failed);
+      return state;
+    }
+    await _store.db.transaction((txn) async {
+      await _store.updateSessionState(txn, phone, sid, sealed.state);
+      await _groups.markDeliverySending(
+        txn,
+        m.id,
+        phone,
+        sid: sealed.sid!,
+        counter: sealed.counter!,
+        parts: sealed.parts,
+      );
+    });
+    try {
+      await _sender.send(
+        phone,
+        sealed.wire,
+        trackingId: groupTrackingId(m.id, phone),
+      );
+      await _groups.advanceDelivery(m.id, phone, SecureMessageStatus.sent);
+    } catch (e) {
+      debugPrint('Sending a group message failed: ${e.runtimeType}');
+      await _groups.advanceDelivery(m.id, phone, SecureMessageStatus.failed);
+    }
+    _changed(null);
+    return sealed.state;
+  }
+
+  /// A delivery report names a member's copy of a group message by this.
+  static String groupTrackingId(String messageId, String phone) =>
+      'g:$messageId:$phone';
+
+  static Uint8List _unhex(String hex) => Uint8List.fromList([
+    for (var i = 0; i + 1 < hex.length; i += 2)
+      int.parse(hex.substring(i, i + 2), radix: 16),
+  ]);
 
   Future<void> _handshakeIfNeeded(
     SecureConversation conversation,
@@ -754,9 +943,200 @@ class SecureMessenger {
       _ => null,
     };
     if (to == null) return;
+    if (id.startsWith('g:')) {
+      final parts = id.split(':');
+      if (parts.length != 3) return;
+      if (await _groups.advanceDelivery(parts[1], parts[2], to)) {
+        _changed(null);
+      }
+      return;
+    }
     final m = await _store.message(id);
     if (m == null) return;
     if (await _store.advanceStatus(id, to)) _changed(m.phone);
+  });
+
+  // ── Groups ───────────────────────────────────────────────────────────────
+
+  /// Makes a group of [members] (never us) and tells each of them — over a
+  /// handshake first where there is no session yet. Returns its id (hex).
+  Future<String> createGroup({
+    required String name,
+    required SecureGroupMode mode,
+    required List<SecurePeer> members,
+  }) => _serial(() async {
+    final random = Random.secure();
+    final id = keyHex([for (var i = 0; i < 8; i++) random.nextInt(256)]);
+    final now = _clock();
+    await _ensurePeers(members);
+    await _groups.createGroup(
+      id: id,
+      name: name,
+      mode: mode,
+      members: [for (final m in members) (phone: m.phone, keyId: m.keyId)],
+      now: now,
+    );
+    _changed(null);
+    for (final m in members) {
+      await _flush(m.phone);
+    }
+    return id;
+  });
+
+  /// The creator renames or re-populates its group. Everyone — dropped
+  /// members included — is sent the new definition.
+  /// [keep]: members staying whose key the bank no longer has (they are
+  /// reached over the conversation that already exists).
+  Future<void> editGroup(
+    String id, {
+    required String name,
+    required List<SecurePeer> members,
+    List<String> keep = const [],
+  }) => _serial(() async {
+    final g = await _groups.group(id);
+    if (g == null || !g.isMine) return;
+    await _ensurePeers(members);
+    final kept = {
+      for (final m in await _groups.allMembers(id))
+        if (keep.contains(m.phone)) m.phone: m.keyId,
+    };
+    await _groups.editGroup(
+      id: id,
+      name: name,
+      members: [
+        for (final m in members) (phone: m.phone, keyId: m.keyId),
+        for (final e in kept.entries)
+          if (!members.any((m) => m.phone == e.key))
+            (phone: e.key, keyId: e.value),
+      ],
+    );
+    _changed(null);
+    for (final m in await _groups.allMembers(id)) {
+      await _flush(m.phone);
+    }
+  });
+
+  /// One-to-one conversations with group members, kept out of the list
+  /// until something is said in them.
+  Future<void> _ensurePeers(List<SecurePeer> peers) async {
+    for (final p in peers) {
+      final existing = await _store.conversation(p.phone);
+      if (existing != null && existing.encrypted) continue;
+      await _store.upsertConversation(
+        phone: p.phone,
+        name: await _hidden?.nameFor(p.phone) ?? p.name,
+        peerKeyId: p.keyId,
+        peerPublic: p.publicKey,
+        ownKeyId: p.own.keyId,
+        ownSource: p.own.source,
+        now: _clock(),
+        listed: false,
+      );
+    }
+  }
+
+  /// A member we can reach: a conversation with a key, or one made from the
+  /// key bank by the key id the group gives. Null when the bank has none.
+  Future<bool> _reachable(String phone, String? keyId) async {
+    final existing = await _store.conversation(phone);
+    if (existing != null && existing.encrypted) return true;
+    if (keyId == null) return false;
+    final peer = await _identities.byKeyId(keyId, phone);
+    if (peer == null) return false;
+    await _ensurePeers([peer]);
+    return true;
+  }
+
+  /// Sends [text] to the group: every member in a chat group, or — in an
+  /// announcement list — every member when it is ours, else its creator.
+  /// Members this phone has no key for are skipped.
+  Future<void> sendGroupText(
+    String groupId,
+    String text, {
+    bool deleteAfterSeen = false,
+  }) => _serial(() async {
+    final g = await _groups.group(groupId);
+    if (g == null || g.left || g.pendingInfo) return;
+    final keys = {for (final m in g.members) m.phone: m.keyId};
+    final targets = <String>[];
+    for (final phone in g.recipients) {
+      if (await _reachable(phone, keys[phone])) targets.add(phone);
+    }
+    final now = _clock();
+    final message = SecureGroupMessage(
+      id: _newId(),
+      groupId: groupId,
+      body: text,
+      timestamp: now,
+      status: targets.isEmpty
+          ? SecureMessageStatus.failed
+          : SecureMessageStatus.sent,
+      deleteAfterSeen: deleteAfterSeen,
+    );
+    await _groups.addOutgoing(message, targets);
+    await _groups.touch(groupId, now);
+    _changed(null);
+    for (final phone in targets) {
+      await _flush(phone);
+    }
+  });
+
+  /// Failed copies of a group message are sent again.
+  Future<void> retryGroupMessage(String id) => _serial(() async {
+    for (final phone in await _groups.requeueFailed(id)) {
+      await _flush(phone);
+    }
+    _changed(null);
+  });
+
+  /// The group is on screen: its messages are seen. One «دیده شد» per sender
+  /// (to them only — owner's decision), unless receipts are off. It covers
+  /// that pair's session up to the newest group message, one-to-one messages
+  /// before it included: a receipt names a point in a session, not a thread.
+  Future<void> markGroupSeen(String groupId) => _serial(() async {
+    await _groups.markShown(groupId, _clock());
+    await _groups.clearUnread(groupId);
+    _changed(null);
+    if (await _store.meta(sendSeenKey) == '0') return;
+    for (final mark in await _groups.seenMarks(groupId)) {
+      final c = await _store.conversation(mark.sender);
+      if (c == null) continue;
+      if (c.seenSid == mark.sid && (c.seenCounter ?? -1) >= mark.upTo) {
+        continue;
+      }
+      if (await _sendControl(mark.sender, 'seen', mark.sid, mark.upTo)) {
+        await _store.setSeenMark(mark.sender, mark.sid, mark.upTo);
+      }
+    }
+  });
+
+  /// The group was left: «حذف پس از دیدن» messages that were shown go.
+  Future<void> leaveGroupThread(String groupId) => _serial(() async {
+    if (await _groups.deleteSeenEphemeral(groupId) > 0) _changed(null);
+  });
+
+  /// «حذف برای هر دو» on a group message of ours: every member's copy.
+  Future<void> deleteGroupMessageForAll(String id) => _serial(() async {
+    final m = await _groups.message(id);
+    if (m == null || !m.outgoing) return;
+    for (final d in m.deliveries) {
+      if (d.sid != null && d.counter != null) {
+        await _sendControl(d.phone, 'delete', d.sid!, d.counter!);
+      }
+    }
+    await _groups.deleteMessage(id);
+    _changed(null);
+  });
+
+  Future<void> deleteGroupMessageLocally(String id) => _serial(() async {
+    await _groups.deleteMessage(id);
+    _changed(null);
+  });
+
+  /// On this phone only; members keep theirs.
+  Future<void> deleteGroup(String id) => _serial(() async {
+    await _groups.deleteGroup(id);
+    _changed(null);
   });
 
   Future<bool> sendsSeenReceipts() async =>
