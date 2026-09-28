@@ -1,5 +1,8 @@
 import 'dart:convert';
 
+import 'package:communication_super_app/features/secure/repositories/key_bank_repository.dart'
+    show keyHex;
+import 'package:communication_super_app/features/secure/repositories/secure_group_store.dart';
 import 'package:communication_super_app/features/secure/repositories/secure_message_store.dart';
 import 'package:communication_super_app/features/secure/repositories/secure_store.dart';
 import 'package:communication_super_app/features/secure/services/sms_crypto_service.dart';
@@ -160,8 +163,28 @@ class FakeCrypto implements SmsCryptoService {
     required Uint8List session,
     required String text,
     bool deleteAfterSeen = false,
-  }) async =>
-      _seal(session, {'kind': 'text', 'text': text, 'del': deleteAfterSeen});
+    Uint8List? groupId,
+  }) async => _seal(session, {
+    'kind': 'text',
+    'text': text,
+    'del': deleteAfterSeen,
+    if (groupId != null) 'gid': keyHex(groupId),
+  });
+
+  @override
+  Future<SmsSealed> encryptGroupInfo({
+    required Uint8List session,
+    required SmsGroupInfo info,
+  }) async => _seal(session, {
+    'kind': 'groupInfo',
+    'gid': keyHex(info.groupId),
+    'ver': info.version,
+    'mode': info.mode.index,
+    'name': info.name,
+    'members': [
+      for (final m in info.members) {'phone': m.phone, 'kid': keyHex(m.keyId)},
+    ],
+  }, control: true);
 
   @override
   Future<SmsSealed> encryptControl({
@@ -200,8 +223,29 @@ class FakeCrypto implements SmsCryptoService {
       deleteAfterSeen: m['del'] == true,
       refSid: m['refSid'] as int?,
       refCounter: m['refCounter'] as int?,
+      groupId: m['gid'] == null ? null : _unhex(m['gid'] as String),
+      groupInfo: m['kind'] == 'groupInfo'
+          ? SmsGroupInfo(
+              groupId: _unhex(m['gid'] as String),
+              version: m['ver'] as int,
+              mode: SmsGroupMode.values[m['mode'] as int],
+              name: m['name'] as String,
+              members: [
+                for (final e in (m['members'] as List).cast<Map>())
+                  SmsGroupMember(
+                    phone: e['phone'] as String,
+                    keyId: _unhex(e['kid'] as String),
+                  ),
+              ],
+            )
+          : null,
     );
   }
+
+  static Uint8List _unhex(String hex) => Uint8List.fromList([
+    for (var i = 0; i + 1 < hex.length; i += 2)
+      int.parse(hex.substring(i, i + 2), radix: 16),
+  ]);
 
   @override
   Future<bool> ownInitWins(Uint8List ownKid, Uint8List peerKid) async =>
@@ -359,8 +403,10 @@ class Phone {
       hidden = FakeHidden() {
     store = SecureMessageStore(database: () => db);
     air.queues[number] = queue;
+    groups = SecureGroupStore(database: () => db);
     messenger = SecureMessenger(
       store: store,
+      groups: groups,
       queue: queue,
       identities: identities,
       crypto: FakeCrypto(seed),
@@ -378,6 +424,7 @@ class Phone {
   final FakeQueue queue;
   final FakeHidden hidden;
   late final SecureMessageStore store;
+  late final SecureGroupStore groups;
   late final SecureMessenger messenger;
 
   Future<List<SecureMessage>> thread(String phone) => store.messages(phone);
@@ -387,9 +434,11 @@ void main() {
   late Air air;
   late Phone ali;
   late Phone sara;
+  late Phone reza;
   const book = {
     'ali': '09121111111',
     'sara': '09122222222',
+    'reza': '09123333333',
     'mallory': '09129999999',
   };
 
@@ -408,11 +457,13 @@ void main() {
 
     ali = Phone('ali', book['ali']!, await open(), air, book, 100);
     sara = Phone('sara', book['sara']!, await open(), air, book, 200);
+    reza = Phone('reza', book['reza']!, await open(), air, book, 300);
   });
 
   tearDown(() async {
     await ali.db.close();
     await sara.db.close();
+    await reza.db.close();
   });
 
   /// Delivers and drains until nothing is in flight.
@@ -421,6 +472,7 @@ void main() {
       air.deliver();
       await ali.messenger.drain();
       await sara.messenger.drain();
+      await reza.messenger.drain();
     }
   }
 
@@ -752,5 +804,196 @@ void main() {
         expect(c.name, 'سارا');
       },
     );
+  });
+
+  group('encrypted groups (matrix row 14)', () {
+    Future<String> makeGroup({
+      SecureGroupMode mode = SecureGroupMode.chat,
+      String name = 'تیم میدانی',
+    }) async {
+      final id = await ali.messenger.createGroup(
+        name: name,
+        mode: mode,
+        members: [ali.identities.peer('sara'), ali.identities.peer('reza')],
+      );
+      await settle();
+      return id;
+    }
+
+    test('a group reaches every member, definition first', () async {
+      final id = await makeGroup();
+      for (final p in [sara, reza]) {
+        final g = (await p.groups.group(id))!;
+        expect(g.name, 'تیم میدانی');
+        expect(g.creator, book['ali']);
+        expect(g.pendingInfo, isFalse);
+        expect(g.left, isFalse);
+      }
+      // Each sees the other member; the creator is implied.
+      expect((await sara.groups.group(id))!.members.map((m) => m.phone), [
+        book['reza'],
+      ]);
+      expect((await reza.groups.group(id))!.members.map((m) => m.phone), [
+        book['sara'],
+      ]);
+
+      await ali.messenger.sendGroupText(id, 'سلام به همه');
+      await settle();
+      for (final p in [sara, reza]) {
+        final got = (await p.groups.messages(id)).single;
+        expect(got.body, 'سلام به همه');
+        expect(got.sender, book['ali']);
+        expect((await p.groups.group(id))!.unread, 1);
+      }
+      // The pairwise conversations a group needs stay out of the list.
+      expect(await ali.store.conversations(), isEmpty);
+      expect(await sara.store.conversations(), isEmpty);
+    });
+
+    test('in a chat group a reply goes to everyone', () async {
+      final id = await makeGroup();
+      await sara.messenger.sendGroupText(id, 'من هم هستم');
+      await settle(); // Sara and Reza had no session: it is made on the way
+      expect((await ali.groups.messages(id)).single.sender, book['sara']);
+      expect((await reza.groups.messages(id)).single.body, 'من هم هستم');
+      final mine = (await sara.groups.messages(id)).single;
+      expect(mine.deliveries.map((d) => d.phone).toSet(), {
+        book['ali'],
+        book['reza'],
+      });
+    });
+
+    test('in an announcement list a reply goes to the creator only', () async {
+      final id = await makeGroup(mode: SecureGroupMode.announce);
+      await sara.messenger.sendGroupText(id, 'دریافت شد');
+      await settle();
+      expect((await ali.groups.messages(id)).single.body, 'دریافت شد');
+      expect(await reza.groups.messages(id), isEmpty);
+    });
+
+    test('one «دیده شد» per member makes «seen by 2 of 2»', () async {
+      final id = await makeGroup();
+      await ali.messenger.sendGroupText(id, 'خوانده شود');
+      await settle();
+      await sara.messenger.markGroupSeen(id);
+      await settle();
+      var m = (await ali.groups.messages(id)).single;
+      expect(m.count(SecureMessageStatus.seen), 1);
+      await reza.messenger.markGroupSeen(id);
+      await settle();
+      m = (await ali.groups.messages(id)).single;
+      expect(m.count(SecureMessageStatus.seen), 2);
+      expect((await sara.groups.group(id))!.unread, 0);
+    });
+
+    test('a removed member is told, and can no longer send', () async {
+      final id = await makeGroup();
+      await ali.messenger.editGroup(
+        id,
+        name: 'تیم کوچک',
+        members: [ali.identities.peer('sara')],
+      );
+      await settle();
+      final left = (await reza.groups.group(id))!;
+      expect(left.left, isTrue);
+      final kept = (await sara.groups.group(id))!;
+      expect(kept.name, 'تیم کوچک');
+      expect(kept.members, isEmpty);
+      expect(await ali.groups.allMembers(id), hasLength(1)); // told, dropped
+
+      await reza.messenger.sendGroupText(id, 'هنوز هستم؟');
+      expect(air.inFlight, isEmpty);
+    });
+
+    test('only the creator defines a group', () async {
+      final id = await makeGroup();
+      // Sara pretends the group is hers and "redefines" it.
+      await sara.groups.deleteGroup(id);
+      await sara.groups.createGroup(
+        id: id,
+        name: 'ربوده',
+        mode: SecureGroupMode.chat,
+        members: [
+          (phone: book['reza']!, keyId: sara.identities.peer('reza').keyId),
+          (phone: book['ali']!, keyId: sara.identities.peer('ali').keyId),
+        ],
+        now: 1,
+      );
+      await sara.messenger.editGroup(
+        id,
+        name: 'ربوده',
+        members: [sara.identities.peer('reza'), sara.identities.peer('ali')],
+      );
+      await settle();
+      expect((await reza.groups.group(id))!.name, 'تیم میدانی');
+      expect((await ali.groups.group(id))!.name, 'تیم میدانی');
+      expect((await ali.groups.group(id))!.isMine, isTrue);
+    });
+
+    test('«حذف برای هر دو» removes every member\'s copy', () async {
+      final id = await makeGroup();
+      await ali.messenger.sendGroupText(id, 'اشتباهی');
+      await settle();
+      final m = (await ali.groups.messages(id)).single;
+      await ali.messenger.deleteGroupMessageForAll(m.id);
+      await settle();
+      expect(await sara.groups.messages(id), isEmpty);
+      expect(await reza.groups.messages(id), isEmpty);
+      expect(await ali.groups.messages(id), isEmpty);
+    });
+
+    test(
+      'a message that overtakes its group\'s definition waits, then fits',
+      () async {
+        await makeGroup(); // sessions exist now
+        final id = await ali.messenger.createGroup(
+          name: 'دوم',
+          mode: SecureGroupMode.chat,
+          members: [ali.identities.peer('sara')],
+        );
+        await ali.messenger.sendGroupText(id, 'زودتر رسید');
+        expect(air.inFlight, hasLength(2)); // definition, then the message
+        air.deliver(order: [1, 0]);
+        await sara.messenger.drain();
+        final g = (await sara.groups.group(id))!;
+        expect(g.pendingInfo, isFalse);
+        expect(g.name, 'دوم');
+        expect((await sara.groups.messages(id)).single.body, 'زودتر رسید');
+      },
+    );
+
+    test('a failed copy is sent again, to that member only', () async {
+      final id = await makeGroup();
+      air.failNext = true;
+      await ali.messenger.sendGroupText(id, 'دوباره');
+      await settle();
+      var m = (await ali.groups.messages(id)).single;
+      expect(m.count(SecureMessageStatus.failed), 1);
+      final got =
+          (await sara.groups.messages(id)).length +
+          (await reza.groups.messages(id)).length;
+      expect(got, 1);
+
+      await ali.messenger.retryGroupMessage(m.id);
+      await settle();
+      m = (await ali.groups.messages(id)).single;
+      expect(m.count(SecureMessageStatus.failed), 0);
+      expect((await sara.groups.messages(id)), hasLength(1));
+      expect((await reza.groups.messages(id)), hasLength(1));
+    });
+
+    test('delivery reports reach a member\'s copy', () async {
+      final id = await makeGroup();
+      await ali.messenger.sendGroupText(id, 'گزارش');
+      await settle();
+      final m = (await ali.groups.messages(id)).single;
+      await ali.messenger.onStatus(
+        SecureMessenger.groupTrackingId(m.id, book['sara']!),
+        'delivered',
+      );
+      final after = (await ali.groups.messages(id)).single;
+      expect(after.count(SecureMessageStatus.delivered), 1);
+      expect(after.count(SecureMessageStatus.sent), 1);
+    });
   });
 }

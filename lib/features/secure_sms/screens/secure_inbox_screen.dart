@@ -4,11 +4,13 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
+import 'package:communication_super_app/features/secure/repositories/secure_group_store.dart';
 import 'package:communication_super_app/features/secure/repositories/secure_message_store.dart';
 import 'package:communication_super_app/features/secure/widgets/secure_locked_view.dart';
 
 import '../bloc/secure_messages_bloc.dart';
 import 'secure_conversation_screen.dart';
+import 'secure_group_screen.dart';
 import 'secure_new_conversation_screen.dart';
 
 /// «پیام‌های رمز» — the encrypted conversations. Reached from the row at the
@@ -51,17 +53,7 @@ class SecureInboxScreen extends StatelessWidget {
                     'بخش امن را باز کنید.',
               ),
               SecureMessagesStatus.loading => const SizedBox.shrink(),
-              SecureMessagesStatus.ready =>
-                state.conversations.isEmpty
-                    ? const _Empty()
-                    : ListView.separated(
-                        padding: const EdgeInsets.only(top: 8, bottom: 96),
-                        itemCount: state.conversations.length,
-                        separatorBuilder: (_, _) =>
-                            const Divider(height: 1, indent: 84),
-                        itemBuilder: (context, i) =>
-                            _ConversationRow(state.conversations[i]),
-                      ),
+              SecureMessagesStatus.ready => _list(state),
             },
             floatingActionButton: ready
                 ? FloatingActionButton.extended(
@@ -77,6 +69,131 @@ class SecureInboxScreen extends StatelessWidget {
                 : null,
           );
         },
+      ),
+    );
+  }
+}
+
+/// Conversations and groups, newest first.
+Widget _list(SecureMessagesState state) {
+  final rows = <({int at, Widget row})>[
+    for (final c in state.conversations)
+      (at: c.lastAt, row: _ConversationRow(c)),
+    for (final g in state.groups) (at: g.lastAt, row: _GroupRow(g, state)),
+  ]..sort((a, b) => b.at.compareTo(a.at));
+  if (rows.isEmpty) return const _Empty();
+  return ListView.separated(
+    padding: const EdgeInsets.only(top: 8, bottom: 96),
+    itemCount: rows.length,
+    separatorBuilder: (_, _) => const Divider(height: 1, indent: 84),
+    itemBuilder: (context, i) => rows[i].row,
+  );
+}
+
+class _GroupRow extends StatelessWidget {
+  const _GroupRow(this.g, this.state);
+  final SecureGroup g;
+  final SecureMessagesState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final unread = g.unread > 0;
+    final name = g.name.isEmpty ? 'گروه رمز' : g.name;
+    final preview = g.lastBody == null
+        ? (g.pendingInfo ? 'در انتظار مشخصات گروه' : 'بدون پیام')
+        : g.lastOutgoing
+        ? 'شما: ${g.lastBody}'
+        : g.lastSender == null
+        ? g.lastBody!
+        : '${state.nameOf(g.lastSender!)}: ${g.lastBody}';
+    return InkWell(
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => SecureGroupScreen(id: g.id, name: name),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 26,
+              backgroundColor: scheme.tertiaryContainer,
+              child: Icon(
+                g.mode == SecureGroupMode.announce
+                    ? Icons.campaign_outlined
+                    : Icons.groups,
+                color: scheme.onTertiaryContainer,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: unread ? FontWeight.w700 : FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    preview,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: unread
+                          ? scheme.onSurface
+                          : scheme.onSurfaceVariant,
+                      fontWeight: unread ? FontWeight.w600 : FontWeight.w400,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  DateFormatter.formatRelative(
+                    DateTime.fromMillisecondsSinceEpoch(g.lastAt),
+                  ),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                if (unread)
+                  Container(
+                    constraints: const BoxConstraints(minWidth: 22),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: scheme.primary,
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                    child: Text(
+                      PersianUtils.toPersianNumber('${g.unread}'),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: scheme.onPrimary, fontSize: 12),
+                    ),
+                  )
+                else
+                  const SizedBox(height: 18),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

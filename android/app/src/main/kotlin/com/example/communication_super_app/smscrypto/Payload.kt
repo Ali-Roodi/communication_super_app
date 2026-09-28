@@ -24,6 +24,14 @@ import java.nio.charset.CodingErrorAction
  *   an SMS).
  * - [KIND_DELETE] `sid ‖ counter` — "delete the message I sent you as
  *   `counter` in session `sid`" («حذف برای هر دو»).
+ * - [KIND_GROUP_INFO] — a group's name, mode and members, from its creator
+ *   ([GroupInfo]); sent before a member's first group message and whenever
+ *   the group changes.
+ *
+ * A text kind with [FLAG_GROUP] set is a **group message**: an 8-byte group
+ * id follows the kind byte, then the text. SMS has no multicast — a group
+ * message is sealed once per member, over each member's own session — so the
+ * id is all that makes it a group's.
  *
  * A message is named by the session and counter it travelled with — unique,
  * known to both sides, and free (no id on the wire).
@@ -37,13 +45,48 @@ object Payload {
     const val KIND_TEXT_FA = 0x02
     const val KIND_SEEN = 0x10
     const val KIND_DELETE = 0x11
+    const val KIND_GROUP_INFO = 0x12
 
     /** On a text kind: delete once seen. */
     const val FLAG_DELETE_AFTER_SEEN = 0x80
 
+    /** On a text kind: a group message; [GROUP_ID_BYTES] of group id follow. */
+    const val FLAG_GROUP = 0x40
+    const val GROUP_ID_BYTES = 8
+
+    /** Every member reply goes to all members. */
+    const val GROUP_MODE_CHAT = 0
+
+    /** Members reply to the creator only (an announcement list). */
+    const val GROUP_MODE_ANNOUNCE = 1
+
+    private const val MAX_GROUP_MEMBERS = 100
+    private const val MAX_PHONE_DIGITS = 15
+    private const val MAX_GROUP_NAME_BYTES = 200
+
     sealed class Decoded
 
-    class Text(val text: String, val deleteAfterSeen: Boolean = false) : Decoded()
+    class Text(
+        val text: String,
+        val deleteAfterSeen: Boolean = false,
+        /** Set for a group message. */
+        val groupId: ByteArray? = null,
+    ) : Decoded()
+
+    class GroupMember(val phone: String, val keyId: ByteArray)
+
+    /**
+     * A group as its creator defines it. [version] grows with every change,
+     * so a receiver keeps only the newest; [members] carry key ids so each
+     * phone can find itself (it may not know its own number).
+     */
+    class GroupInfo(
+        val groupId: ByteArray,
+        val version: Long,
+        val mode: Int,
+        val name: String,
+        val members: List<GroupMember>,
+    ) : Decoded()
 
     /** Every message up to [upTo] in session [sid] was seen. */
     class Seen(val sid: Int, val upTo: Long) : Decoded()
@@ -62,6 +105,51 @@ object Payload {
         }
     }
 
+    fun groupText(groupId: ByteArray, text: String, deleteAfterSeen: Boolean = false): ByteArray {
+        require(groupId.size == GROUP_ID_BYTES) { "group id must be $GROUP_ID_BYTES bytes" }
+        val plain = text(text, deleteAfterSeen)
+        return byteArrayOf(((plain[0].toInt() and 0xFF) or FLAG_GROUP).toByte()) +
+            groupId + plain.copyOfRange(1, plain.size)
+    }
+
+    fun groupInfo(info: GroupInfo): ByteArray {
+        require(info.groupId.size == GROUP_ID_BYTES) { "group id must be $GROUP_ID_BYTES bytes" }
+        require(info.mode == GROUP_MODE_CHAT || info.mode == GROUP_MODE_ANNOUNCE) { "unknown mode" }
+        require(info.members.size in 1..MAX_GROUP_MEMBERS) { "bad member count" }
+        require(info.version in 0..Wire.MAX_COUNTER) { "bad version" }
+        val name = PersianCodePage.encode(info.name)
+        require(name.size <= MAX_GROUP_NAME_BYTES) { "group name too long" }
+        val out = ByteArrayOutputStream()
+        out.write(KIND_GROUP_INFO)
+        out.write(info.groupId)
+        out.write(Wire.writeVarint(info.version))
+        out.write(info.mode)
+        out.write(Wire.writeVarint(name.size.toLong()))
+        out.write(name)
+        out.write(info.members.size)
+        for (m in info.members) {
+            require(m.keyId.size == PublicIdentity.KEY_ID_BYTES) { "bad key id" }
+            out.write(packDigits(m.phone))
+            out.write(m.keyId)
+        }
+        return out.toByteArray()
+    }
+
+    /** A phone as its digit count and packed BCD (`0x0F` pads an odd count). */
+    private fun packDigits(phone: String): ByteArray {
+        require(phone.isNotEmpty() && phone.length <= MAX_PHONE_DIGITS && phone.all { it in '0'..'9' }) {
+            "a member phone must be 1..$MAX_PHONE_DIGITS ASCII digits"
+        }
+        val out = ByteArray(1 + (phone.length + 1) / 2)
+        out[0] = phone.length.toByte()
+        for (i in phone.indices step 2) {
+            val hi = phone[i] - '0'
+            val lo = if (i + 1 < phone.length) phone[i + 1] - '0' else 0x0F
+            out[1 + i / 2] = ((hi shl 4) or lo).toByte()
+        }
+        return out
+    }
+
     fun seen(sid: Int, upTo: Long): ByteArray = reference(KIND_SEEN, sid, upTo)
 
     fun delete(sid: Int, counter: Long): ByteArray = reference(KIND_DELETE, sid, counter)
@@ -76,13 +164,73 @@ object Payload {
         val kind = payload[0].toInt() and 0xFF
         val body = payload.copyOfRange(1, payload.size)
         val flagged = kind and FLAG_DELETE_AFTER_SEEN != 0
-        return when (kind and FLAG_DELETE_AFTER_SEEN.inv()) {
-            KIND_TEXT_UTF8 -> Text(strictUtf8(body) ?: badPayload(), flagged)
-            KIND_TEXT_FA -> Text(PersianCodePage.decode(body) ?: badPayload(), flagged)
+        val group = kind and FLAG_GROUP != 0
+        val base = kind and (FLAG_DELETE_AFTER_SEEN or FLAG_GROUP).inv()
+        if (group && base != KIND_TEXT_UTF8 && base != KIND_TEXT_FA) badPayload()
+        val (groupId, textBytes) = if (group) {
+            if (body.size < GROUP_ID_BYTES) badPayload()
+            body.copyOf(GROUP_ID_BYTES) to body.copyOfRange(GROUP_ID_BYTES, body.size)
+        } else {
+            null to body
+        }
+        return when (base) {
+            KIND_TEXT_UTF8 -> Text(strictUtf8(textBytes) ?: badPayload(), flagged, groupId)
+            KIND_TEXT_FA -> Text(PersianCodePage.decode(textBytes) ?: badPayload(), flagged, groupId)
             KIND_SEEN -> if (flagged) badPayload() else parseReference(body) { sid, n -> Seen(sid, n) }
             KIND_DELETE -> if (flagged) badPayload() else parseReference(body) { sid, n -> Delete(sid, n) }
+            KIND_GROUP_INFO -> if (flagged) badPayload() else parseGroupInfo(body)
             else -> badPayload()
         }
+    }
+
+    private fun parseGroupInfo(body: ByteArray): GroupInfo {
+        var at = 0
+        fun need(n: Int) {
+            if (at + n > body.size) badPayload()
+        }
+        fun varint(): Long {
+            val (value, length) = Wire.readVarint(body, at) ?: badPayload()
+            at += length
+            return value
+        }
+        need(GROUP_ID_BYTES)
+        val groupId = body.copyOfRange(at, at + GROUP_ID_BYTES)
+        at += GROUP_ID_BYTES
+        val version = varint()
+        if (version > Wire.MAX_COUNTER) badPayload()
+        need(1)
+        val mode = body[at++].toInt() and 0xFF
+        if (mode != GROUP_MODE_CHAT && mode != GROUP_MODE_ANNOUNCE) badPayload()
+        val nameLength = varint()
+        if (nameLength > MAX_GROUP_NAME_BYTES) badPayload()
+        need(nameLength.toInt())
+        val name = PersianCodePage.decode(body.copyOfRange(at, at + nameLength.toInt())) ?: badPayload()
+        at += nameLength.toInt()
+        need(1)
+        val count = body[at++].toInt() and 0xFF
+        if (count !in 1..MAX_GROUP_MEMBERS) badPayload()
+        val members = ArrayList<GroupMember>(count)
+        repeat(count) {
+            need(1)
+            val digits = body[at++].toInt() and 0xFF
+            if (digits !in 1..MAX_PHONE_DIGITS) badPayload()
+            val packed = (digits + 1) / 2
+            need(packed + PublicIdentity.KEY_ID_BYTES)
+            val phone = StringBuilder(digits)
+            for (i in 0 until digits) {
+                val b = body[at + i / 2].toInt() and 0xFF
+                val nibble = if (i % 2 == 0) b shr 4 else b and 0x0F
+                if (nibble > 9) badPayload()
+                phone.append('0' + nibble)
+            }
+            // The pad nibble of an odd count must be the pad, nothing else.
+            if (digits % 2 == 1 && (body[at + packed - 1].toInt() and 0x0F) != 0x0F) badPayload()
+            at += packed
+            members.add(GroupMember(phone.toString(), body.copyOfRange(at, at + PublicIdentity.KEY_ID_BYTES)))
+            at += PublicIdentity.KEY_ID_BYTES
+        }
+        if (at != body.size) badPayload()
+        return GroupInfo(groupId, version, mode, name, members)
     }
 
     private fun parseReference(body: ByteArray, make: (Int, Long) -> Decoded): Decoded {

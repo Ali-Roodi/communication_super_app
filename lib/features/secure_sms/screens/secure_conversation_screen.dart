@@ -115,14 +115,14 @@ class _SecureConversationScreenState extends State<SecureConversationScreen> {
             body: Column(
               children: [
                 if (!encrypted)
-                  _Banner(
+                  SecureBanner(
                     icon: Icons.lock_open,
                     text:
                         'برای این شماره کلیدی در بانک کلید نیست؛ پیامک‌ها '
                         'رمزنشده فرستاده می‌شوند، ولی در سوابق گوشی ثبت نمی‌شوند.',
                   ),
                 if (state.openPhone == widget.phone && state.handshakePending)
-                  _Banner(
+                  SecureBanner(
                     icon: Icons.sync_lock,
                     text:
                         'در حال برقراری کانال امن. پیام‌ها پس از پاسخ گوشی مقابل '
@@ -155,7 +155,7 @@ class _SecureConversationScreenState extends State<SecureConversationScreen> {
                           ),
                         ),
                 ),
-                _Composer(
+                SecureComposer(
                   controller: _controller,
                   plain: !encrypted,
                   deleteAfterSeen: _deleteAfterSeen && encrypted,
@@ -172,8 +172,9 @@ class _SecureConversationScreenState extends State<SecureConversationScreen> {
   }
 }
 
-class _Banner extends StatelessWidget {
-  const _Banner({required this.icon, required this.text});
+/// A one-line notice above a secure thread.
+class SecureBanner extends StatelessWidget {
+  const SecureBanner({super.key, required this.icon, required this.text});
   final IconData icon;
   final String text;
 
@@ -385,13 +386,18 @@ class _StatusMark extends StatelessWidget {
   }
 }
 
-class _Composer extends StatelessWidget {
-  const _Composer({
+/// The composer of every secure thread (one-to-one and group). The text
+/// never feeds a keyboard's learned words.
+class SecureComposer extends StatelessWidget {
+  const SecureComposer({
+    super.key,
     required this.controller,
     required this.plain,
     required this.deleteAfterSeen,
     required this.onToggleDelete,
     required this.onSend,
+    this.hint,
+    this.note,
   });
 
   final TextEditingController controller;
@@ -402,6 +408,12 @@ class _Composer extends StatelessWidget {
   final bool deleteAfterSeen;
   final VoidCallback onToggleDelete;
   final VoidCallback onSend;
+
+  /// Overrides the field's hint.
+  final String? hint;
+
+  /// A small line under the field (a group's SMS cost).
+  final String? note;
 
   @override
   Widget build(BuildContext context) {
@@ -451,7 +463,8 @@ class _Composer extends StatelessWidget {
                     autocorrect: false,
                     enableIMEPersonalizedLearning: false,
                     decoration: InputDecoration(
-                      hintText: plain ? 'پیامک (رمزنشده)' : 'پیام رمز',
+                      hintText:
+                          hint ?? (plain ? 'پیامک (رمزنشده)' : 'پیام رمز'),
                     ),
                   ),
                 ),
@@ -466,6 +479,20 @@ class _Composer extends StatelessWidget {
                 ),
               ],
             ),
+            if (note != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+                child: Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: Text(
+                    note!,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),

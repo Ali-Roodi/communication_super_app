@@ -12,6 +12,9 @@ import 'package:communication_super_app/features/secure/repositories/secure_mess
 import 'package:communication_super_app/features/secure/services/sms_crypto_service.dart';
 
 import '../services/secure_identities.dart';
+import 'package:communication_super_app/features/hidden/repositories/hidden_contacts_repository.dart';
+import 'package:communication_super_app/features/secure/repositories/secure_group_store.dart';
+
 import '../services/hidden_sms_source.dart';
 import '../services/secure_messenger.dart';
 
@@ -120,6 +123,72 @@ class SecureRenamePeer extends SecureMessagesEvent {
   final String name;
 }
 
+// ── Groups (matrix row 14) ──────────────────────────────────────────────────
+
+class SecureOpenGroup extends SecureMessagesEvent {
+  const SecureOpenGroup(this.id);
+  final String id;
+}
+
+class SecureCloseGroup extends SecureMessagesEvent {
+  const SecureCloseGroup(this.id);
+  final String id;
+}
+
+class SecureSendGroupText extends SecureMessagesEvent {
+  const SecureSendGroupText(this.text, {this.deleteAfterSeen = false});
+  final String text;
+  final bool deleteAfterSeen;
+}
+
+class SecureCreateGroup extends SecureMessagesEvent {
+  const SecureCreateGroup(this.name, this.mode, this.members);
+  final String name;
+  final SecureGroupMode mode;
+  final List<SecurePeer> members;
+}
+
+class SecureEditGroup extends SecureMessagesEvent {
+  const SecureEditGroup(
+    this.id,
+    this.name,
+    this.members, {
+    this.keep = const [],
+  });
+  final String id;
+  final String name;
+  final List<SecurePeer> members;
+
+  /// Members staying whose key is no longer in the bank.
+  final List<String> keep;
+}
+
+class SecureDeleteGroup extends SecureMessagesEvent {
+  const SecureDeleteGroup(this.id);
+  final String id;
+}
+
+class SecureGroupDeleteForAll extends SecureMessagesEvent {
+  const SecureGroupDeleteForAll(this.id);
+  final String id;
+}
+
+class SecureGroupDeleteLocally extends SecureMessagesEvent {
+  const SecureGroupDeleteLocally(this.id);
+  final String id;
+}
+
+class SecureRetryGroupMessage extends SecureMessagesEvent {
+  const SecureRetryGroupMessage(this.id);
+  final String id;
+}
+
+/// Who a group can be made of: directory members, and hidden contacts the
+/// key bank has a key for.
+class SecureLoadGroupCandidates extends SecureMessagesEvent {
+  const SecureLoadGroupCandidates();
+}
+
 class SecureSetReceipts extends SecureMessagesEvent {
   const SecureSetReceipts(this.on);
   final bool on;
@@ -142,6 +211,13 @@ class SecureMessagesState extends Equatable {
     this.startedPhone,
     this.startedSeq = 0,
     this.sendsReceipts = true,
+    this.groups = const [],
+    this.names = const {},
+    this.openGroupId,
+    this.openGroupMessages = const [],
+    this.candidates = const [],
+    this.startedGroupId,
+    this.startedGroupSeq = 0,
   });
 
   final SecureMessagesStatus status;
@@ -168,7 +244,30 @@ class SecureMessagesState extends Equatable {
 
   final bool sendsReceipts;
 
-  int get totalUnread => conversations.fold(0, (sum, c) => sum + c.unread);
+  final List<SecureGroup> groups;
+
+  /// Number → name of every conversation, for group senders and members.
+  final Map<String, String> names;
+
+  /// The group on screen, and its messages.
+  final String? openGroupId;
+  final List<SecureGroupMessage> openGroupMessages;
+
+  /// [SecureLoadGroupCandidates]' answer.
+  final List<SecurePeer> candidates;
+
+  /// The group [SecureCreateGroup] made, for navigation.
+  final String? startedGroupId;
+  final int startedGroupSeq;
+
+  int get totalUnread =>
+      conversations.fold(0, (sum, c) => sum + c.unread) +
+      groups.fold(0, (sum, g) => sum + g.unread);
+
+  SecureGroup? get openGroup =>
+      groups.where((g) => g.id == openGroupId).firstOrNull;
+
+  String nameOf(String phone) => names[phone] ?? phone;
 
   SecureMessagesState copyWith({
     SecureMessagesStatus? status,
@@ -181,6 +280,13 @@ class SecureMessagesState extends Equatable {
     List<SecurePeer>? lookup,
     String? startedPhone,
     bool? sendsReceipts,
+    List<SecureGroup>? groups,
+    Map<String, String>? names,
+    String? openGroupId,
+    bool clearOpenGroup = false,
+    List<SecureGroupMessage>? openGroupMessages,
+    List<SecurePeer>? candidates,
+    String? startedGroupId,
   }) => SecureMessagesState(
     status: status ?? this.status,
     conversations: conversations ?? this.conversations,
@@ -195,6 +301,17 @@ class SecureMessagesState extends Equatable {
     startedPhone: startedPhone ?? this.startedPhone,
     startedSeq: startedPhone == null ? startedSeq : startedSeq + 1,
     sendsReceipts: sendsReceipts ?? this.sendsReceipts,
+    groups: groups ?? this.groups,
+    names: names ?? this.names,
+    openGroupId: clearOpenGroup ? null : (openGroupId ?? this.openGroupId),
+    openGroupMessages: clearOpenGroup
+        ? const []
+        : (openGroupMessages ?? this.openGroupMessages),
+    candidates: candidates ?? this.candidates,
+    startedGroupId: startedGroupId ?? this.startedGroupId,
+    startedGroupSeq: startedGroupId == null
+        ? startedGroupSeq
+        : startedGroupSeq + 1,
   );
 
   @override
@@ -208,6 +325,12 @@ class SecureMessagesState extends Equatable {
     lookupSeq,
     startedSeq,
     sendsReceipts,
+    groups,
+    names,
+    openGroupId,
+    openGroupMessages,
+    candidates,
+    startedGroupSeq,
   ];
 }
 
@@ -223,11 +346,15 @@ class SecureMessagesBloc
     required SecureSessionBloc session,
     SecureMessenger? messenger,
     SecureMessageStore? store,
+    SecureGroupStore? groups,
+    HiddenContactsRepository? hidden,
     Stream<void>? arrivals,
     Stream<SmsStatusEvent>? statuses,
     Future<void> Function()? clearNotification,
     SmsCryptoService crypto = const SmsCryptoService(),
   }) : _store = store ?? SecureMessageStore(),
+       _groups = groups ?? SecureGroupStore(),
+       _hidden = hidden ?? HiddenContactsRepository(),
        _crypto = crypto,
        _clearNotification =
            clearNotification ??
@@ -235,7 +362,11 @@ class SecureMessagesBloc
        super(const SecureMessagesState()) {
     _messenger =
         messenger ??
-        SecureMessenger(store: _store, hidden: NativeHiddenSmsSource());
+        SecureMessenger(
+          store: _store,
+          groups: _groups,
+          hidden: NativeHiddenSmsSource(),
+        );
     _identities = SecureIdentities();
 
     on<_SectionChanged>(_onSection);
@@ -264,6 +395,58 @@ class SecureMessagesBloc
       );
     });
     on<SecureOpenWith>(_onOpenWith);
+    on<SecureOpenGroup>(_onOpenGroup);
+    on<SecureCloseGroup>((e, emit) async {
+      if (state.openGroupId != e.id) return;
+      emit(state.copyWith(clearOpenGroup: true));
+      await _guard(() => _messenger.leaveGroupThread(e.id));
+    });
+    on<SecureSendGroupText>((e, emit) async {
+      final id = state.openGroupId;
+      if (id == null || e.text.trim().isEmpty) return;
+      await _guard(
+        () => _messenger.sendGroupText(
+          id,
+          e.text.trim(),
+          deleteAfterSeen: e.deleteAfterSeen,
+        ),
+      );
+    });
+    on<SecureCreateGroup>((e, emit) async {
+      if (!_open) return;
+      String? id;
+      await _guard(() async {
+        id = await _messenger.createGroup(
+          name: e.name.trim(),
+          mode: e.mode,
+          members: e.members,
+        );
+      });
+      if (id != null) emit(state.copyWith(startedGroupId: id));
+    });
+    on<SecureEditGroup>(
+      (e, emit) => _guard(
+        () => _messenger.editGroup(
+          e.id,
+          name: e.name.trim(),
+          members: e.members,
+          keep: e.keep,
+        ),
+      ),
+    );
+    on<SecureDeleteGroup>(
+      (e, emit) => _guard(() => _messenger.deleteGroup(e.id)),
+    );
+    on<SecureGroupDeleteForAll>(
+      (e, emit) => _guard(() => _messenger.deleteGroupMessageForAll(e.id)),
+    );
+    on<SecureGroupDeleteLocally>(
+      (e, emit) => _guard(() => _messenger.deleteGroupMessageLocally(e.id)),
+    );
+    on<SecureRetryGroupMessage>(
+      (e, emit) => _guard(() => _messenger.retryGroupMessage(e.id)),
+    );
+    on<SecureLoadGroupCandidates>(_onLoadCandidates);
     on<SecureImportHistory>((e, emit) async {
       var stored = false;
       await _guard(() async {
@@ -310,6 +493,8 @@ class SecureMessagesBloc
   }
 
   final SecureMessageStore _store;
+  final SecureGroupStore _groups;
+  final HiddenContactsRepository _hidden;
   final SmsCryptoService _crypto;
   final Future<void> Function() _clearNotification;
   late final SecureMessenger _messenger;
@@ -369,10 +554,16 @@ class SecureMessagesBloc
     try {
       final conversations = await _store.conversations();
       final phone = state.openPhone;
+      final group = state.openGroupId;
       emit(
         state.copyWith(
           status: SecureMessagesStatus.ready,
           conversations: conversations,
+          groups: await _groups.groups(),
+          names: await _store.names(),
+          openGroupMessages: group == null
+              ? null
+              : await _groups.messages(group),
           openMessages: phone == null ? null : await _store.messages(phone),
           handshakePending: phone == null ? null : await _pending(phone),
         ),
@@ -399,6 +590,11 @@ class SecureMessagesBloc
         (m) => !m.outgoing && m.seenAt == null,
       );
       if (unseen) await _guard(() => _messenger.markSeen(phone));
+    }
+    final group = state.openGroupId;
+    if (group != null &&
+        state.openGroupMessages.any((m) => !m.outgoing && m.seenAt == null)) {
+      await _guard(() => _messenger.markGroupSeen(group));
     }
   }
 
@@ -461,6 +657,51 @@ class SecureMessagesBloc
     if (!_open) return;
     await _guard(() => _messenger.startConversation(e.peer));
     emit(state.copyWith(startedPhone: e.peer.phone));
+  }
+
+  Future<void> _onOpenGroup(
+    SecureOpenGroup e,
+    Emitter<SecureMessagesState> emit,
+  ) async {
+    if (!_open) return;
+    emit(state.copyWith(openGroupId: e.id));
+    await _reload(emit);
+    await _guard(() => _messenger.markGroupSeen(e.id));
+  }
+
+  Future<void> _onLoadCandidates(
+    SecureLoadGroupCandidates e,
+    Emitter<SecureMessagesState> emit,
+  ) async {
+    if (!_open) return;
+    _identities.reset();
+    try {
+      final byPhone = <String, SecurePeer>{
+        for (final p in await _identities.directoryPeers()) p.phone: p,
+      };
+      for (final c in await _hidden.contacts()) {
+        for (final n in c.numbers.where((n) => n.textable)) {
+          final ways = await _identities.forNumber(n.phone);
+          if (ways.isEmpty) continue;
+          // The hidden contact's own name, whatever the directory calls them.
+          final w = ways.first;
+          byPhone[n.phone] = SecurePeer(
+            name: c.name,
+            phone: w.phone,
+            publicKey: w.publicKey,
+            keyId: w.keyId,
+            source: w.source,
+            sourceName: w.sourceName,
+            own: w.own,
+          );
+        }
+      }
+      final list = byPhone.values.toList()
+        ..sort((a, b) => a.name.compareTo(b.name));
+      emit(state.copyWith(candidates: list));
+    } on KeyBankLockedException {
+      emit(const SecureMessagesState());
+    }
   }
 
   Future<void> _onOpenWith(

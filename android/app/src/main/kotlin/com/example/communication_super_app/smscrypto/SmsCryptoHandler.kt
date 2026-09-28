@@ -36,9 +36,13 @@ import kotlinx.coroutines.withContext
  * - `complete {secret, peer, pending, text}` → `{session, sid}`
  * - `ownInitWins {ownKid, peerKid}` → Boolean — crossed INITs
  * - `encryptText {session, text, deleteAfterSeen?}` → `{session, wire, parts, sid, counter}`
+ * - `encryptText` also takes `groupId` (8 bytes): a group message
  * - `encryptControl {session, control: seen|delete, refSid, refCounter}` → same
- * - `decrypt {session, text}` → `{session, sid, counter, kind: text|seen|delete,
- *   text?, deleteAfterSeen?, refSid?, refCounter?}` — `sid`/`counter` name
+ * - `encryptGroupInfo {session, info: {groupId, version, mode, name,
+ *   members: [{phone, keyId}]}}` → same (a control packet)
+ * - `decrypt {session, text}` → `{session, sid, counter, kind:
+ *   text|seen|delete|groupInfo, text?, deleteAfterSeen?, groupId?, refSid?,
+ *   refCounter?, version?, mode?, name?, members?}` — `sid`/`counter` name
  *   the message itself (what a later seen/delete refers to)
  *
  * Sealed records (`SealedBox` — what Kotlin writes for the hidden phonebook):
@@ -94,6 +98,7 @@ class SmsCryptoHandler {
                 }
                 "encryptText" -> run(call, result) { encryptText(call) }
                 "encryptControl" -> run(call, result) { encryptControl(call) }
+                "encryptGroupInfo" -> run(call, result) { encryptGroupInfo(call) }
                 "decrypt" -> run(call, result) { decrypt(call) }
                 "openSealed" -> run(call, result) { openSealed(call) }
                 "canonicalPhone" -> run(call, result) { Canon.phone(call.string("phone")) }
@@ -186,10 +191,38 @@ class SmsCryptoHandler {
         return mapOf("session" to session.serialize(), "sid" to session.sid)
     }
 
-    private fun encryptText(call: MethodCall): Map<String, Any> = seal(
-        Session.parse(call.bytes("session")),
-        Payload.text(call.string("text"), call.argument<Boolean>("deleteAfterSeen") == true),
-    )
+    private fun encryptText(call: MethodCall): Map<String, Any> {
+        val deleteAfterSeen = call.argument<Boolean>("deleteAfterSeen") == true
+        val groupId = call.argument<ByteArray>("groupId")
+        val payload = if (groupId == null) {
+            Payload.text(call.string("text"), deleteAfterSeen)
+        } else {
+            Payload.groupText(groupId, call.string("text"), deleteAfterSeen)
+        }
+        return seal(Session.parse(call.bytes("session")), payload)
+    }
+
+    /** `{groupId, version, mode, name, members: [{phone, keyId}]}` */
+    private fun encryptGroupInfo(call: MethodCall): Map<String, Any> {
+        val info = call.argument<Map<String, Any?>>("info") ?: throw IllegalArgumentException("missing info")
+        val members = (info["members"] as? List<*>)?.map { m ->
+            val member = m as? Map<*, *> ?: throw IllegalArgumentException("bad member")
+            Payload.GroupMember(
+                member["phone"] as? String ?: throw IllegalArgumentException("member phone"),
+                member["keyId"] as? ByteArray ?: throw IllegalArgumentException("member keyId"),
+            )
+        } ?: throw IllegalArgumentException("missing members")
+        val payload = Payload.groupInfo(
+            Payload.GroupInfo(
+                groupId = info["groupId"] as? ByteArray ?: throw IllegalArgumentException("groupId"),
+                version = (info["version"] as? Number)?.toLong() ?: throw IllegalArgumentException("version"),
+                mode = (info["mode"] as? Number)?.toInt() ?: throw IllegalArgumentException("mode"),
+                name = info["name"] as? String ?: throw IllegalArgumentException("name"),
+                members = members,
+            ),
+        )
+        return seal(Session.parse(call.bytes("session")), payload, control = true)
+    }
 
     private fun encryptControl(call: MethodCall): Map<String, Any> {
         val refSid = call.argument<Int>("refSid") ?: throw IllegalArgumentException("missing refSid")
@@ -230,7 +263,20 @@ class SmsCryptoHandler {
             cryptoError(SmsCryptoException.Code.BAD_PAYLOAD, "payload does not match the packet type")
         }
         return base + when (val p = payload) {
-            is Payload.Text -> mapOf("kind" to "text", "text" to p.text, "deleteAfterSeen" to p.deleteAfterSeen)
+            is Payload.Text -> buildMap {
+                put("kind", "text")
+                put("text", p.text)
+                put("deleteAfterSeen", p.deleteAfterSeen)
+                p.groupId?.let { put("groupId", it) }
+            }
+            is Payload.GroupInfo -> mapOf(
+                "kind" to "groupInfo",
+                "groupId" to p.groupId,
+                "version" to p.version,
+                "mode" to p.mode,
+                "name" to p.name,
+                "members" to p.members.map { mapOf("phone" to it.phone, "keyId" to it.keyId) },
+            )
             is Payload.Seen -> mapOf("kind" to "seen", "refSid" to p.sid, "refCounter" to p.upTo)
             is Payload.Delete -> mapOf("kind" to "delete", "refSid" to p.sid, "refCounter" to p.counter)
         }
