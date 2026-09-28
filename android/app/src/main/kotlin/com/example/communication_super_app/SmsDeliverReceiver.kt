@@ -59,6 +59,13 @@ class SmsDeliverReceiver : BroadcastReceiver() {
             return
         }
 
+        // A hidden contact's SMS, plain or not, is never written where other
+        // apps can read it either — see HiddenSms.
+        if (com.example.communication_super_app.hidden.HiddenNumbers.isHidden(context, address)) {
+            Log.d(TAG, "Hidden contact's SMS kept out of the provider")
+            return
+        }
+
         // Blocked sender: as the default SMS app WE decide what lands in the
         // provider — a blocked message lands nowhere.
         if (BlockedNumbers.isBlocked(context, address)) {

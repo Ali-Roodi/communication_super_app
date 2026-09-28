@@ -12,6 +12,7 @@ import 'package:communication_super_app/features/secure/repositories/secure_mess
 import 'package:communication_super_app/features/secure/services/sms_crypto_service.dart';
 
 import '../services/secure_identities.dart';
+import '../services/hidden_sms_source.dart';
 import '../services/secure_messenger.dart';
 
 // ── Events ───────────────────────────────────────────────────────────────────
@@ -92,6 +93,31 @@ class SecureLookupNumber extends SecureMessagesEvent {
 class SecureStartConversation extends SecureMessagesEvent {
   const SecureStartConversation(this.peer);
   final SecurePeer peer;
+}
+
+/// «پیام» on a hidden contact: their conversation — encrypted when the key
+/// bank has a key for [phone], plain SMS otherwise (phase G).
+class SecureOpenWith extends SecureMessagesEvent {
+  const SecureOpenWith(this.phone, this.name);
+  final String phone;
+  final String name;
+}
+
+/// A contact just hidden: their SMS history moves into the section. [done]
+/// completes true once it is stored — only then may the original go.
+class SecureImportHistory extends SecureMessagesEvent {
+  const SecureImportHistory(this.phone, this.name, this.history, {this.done});
+  final String phone;
+  final String name;
+  final List<({bool outgoing, String body, int timestamp})> history;
+  final Completer<bool>? done;
+}
+
+/// A hidden contact was renamed.
+class SecureRenamePeer extends SecureMessagesEvent {
+  const SecureRenamePeer(this.phones, this.name);
+  final List<String> phones;
+  final String name;
 }
 
 class SecureSetReceipts extends SecureMessagesEvent {
@@ -207,7 +233,9 @@ class SecureMessagesBloc
            clearNotification ??
            DeepLinkService.instance.clearSecureNotification,
        super(const SecureMessagesState()) {
-    _messenger = messenger ?? SecureMessenger(store: _store);
+    _messenger =
+        messenger ??
+        SecureMessenger(store: _store, hidden: NativeHiddenSmsSource());
     _identities = SecureIdentities();
 
     on<_SectionChanged>(_onSection);
@@ -219,14 +247,34 @@ class SecureMessagesBloc
     on<SecureSendText>((e, emit) async {
       final phone = state.openPhone;
       if (phone == null || e.text.trim().isEmpty) return;
+      final encrypted =
+          state.conversations
+              .where((c) => c.phone == phone)
+              .firstOrNull
+              ?.encrypted ??
+          true;
       await _guard(
-        () => _messenger.sendText(
-          phone,
-          e.text.trim(),
-          deleteAfterSeen: e.deleteAfterSeen,
-        ),
+        () => encrypted
+            ? _messenger.sendText(
+                phone,
+                e.text.trim(),
+                deleteAfterSeen: e.deleteAfterSeen,
+              )
+            : _messenger.sendPlain(phone, e.text.trim()),
       );
     });
+    on<SecureOpenWith>(_onOpenWith);
+    on<SecureImportHistory>((e, emit) async {
+      var stored = false;
+      await _guard(() async {
+        await _messenger.importPlainHistory(e.phone, e.name, e.history);
+        stored = true;
+      });
+      e.done?.complete(stored);
+    });
+    on<SecureRenamePeer>(
+      (e, emit) => _guard(() => _messenger.rename(e.phones, e.name)),
+    );
     on<SecureRetry>((e, emit) => _guard(() => _messenger.retry(e.id)));
     on<SecureDeleteForBoth>(
       (e, emit) => _guard(() => _messenger.deleteForBoth(e.id)),
@@ -334,8 +382,12 @@ class SecureMessagesBloc
     }
   }
 
-  Future<bool> _pending(String phone) async =>
-      !(await _store.sessions(phone)).any((s) => !s.pending);
+  /// Waiting for a session — only an encrypted conversation ever does.
+  Future<bool> _pending(String phone) async {
+    final conversation = await _store.conversation(phone);
+    if (conversation == null || !conversation.encrypted) return false;
+    return !(await _store.sessions(phone)).any((s) => !s.pending);
+  }
 
   Future<void> _onChanged(_Changed e, Emitter<SecureMessagesState> emit) async {
     if (!_open) return;
@@ -409,6 +461,34 @@ class SecureMessagesBloc
     if (!_open) return;
     await _guard(() => _messenger.startConversation(e.peer));
     emit(state.copyWith(startedPhone: e.peer.phone));
+  }
+
+  Future<void> _onOpenWith(
+    SecureOpenWith e,
+    Emitter<SecureMessagesState> emit,
+  ) async {
+    if (!_open) return;
+    try {
+      if (await _store.conversation(e.phone) == null) {
+        _identities.reset();
+        final ways = await _identities.forNumber(e.phone);
+        if (ways.isEmpty) {
+          await _messenger.startPlainConversation(e.phone, e.name);
+        } else {
+          // A directory member before a group key: the first way is the
+          // authority-issued one when there is one (forNumber's order).
+          await _messenger.startConversation(ways.first);
+        }
+      } else {
+        await _messenger.rename([e.phone], e.name);
+      }
+    } on KeyBankLockedException {
+      return;
+    } catch (err) {
+      debugPrint('Opening a hidden conversation failed: ${err.runtimeType}');
+      return;
+    }
+    emit(state.copyWith(startedPhone: e.phone));
   }
 
   @override

@@ -8,6 +8,7 @@ import 'package:communication_super_app/features/secure/repositories/secure_mess
 import 'package:communication_super_app/features/secure/services/sms_crypto_service.dart';
 
 import '../repositories/secure_queue_repository.dart';
+import 'hidden_sms_source.dart';
 import 'secure_identities.dart';
 import 'secure_sms_sender.dart';
 
@@ -43,9 +44,11 @@ class SecureMessenger {
     SecureIdentities? identities,
     SmsCryptoService crypto = const SmsCryptoService(),
     SecureSmsSender? sender,
+    HiddenSmsSource? hidden,
     int Function()? clock,
     String Function()? newId,
   }) : _store = store ?? SecureMessageStore(),
+       _hidden = hidden,
        _queue = queue ?? SecureQueueRepository(),
        _identities = identities ?? SecureIdentities(),
        _crypto = crypto,
@@ -58,6 +61,10 @@ class SecureMessenger {
   final SecureIdentities _identities;
   final SmsCryptoService _crypto;
   final SecureSmsSender _sender;
+
+  /// SMS from hidden contacts, sealed by Kotlin (phase G); null in tests
+  /// that do not need it.
+  final HiddenSmsSource? _hidden;
   final int Function() _clock;
   final String Function() _newId;
 
@@ -101,6 +108,7 @@ class SecureMessenger {
     // The key bank may have changed since the last drain (a key file
     // imported, a group added): identities are looked up afresh.
     _identities.reset();
+    await _takeHidden();
     final queued = await _queue.all();
     if (queued.isNotEmpty) {
       await _store.addToInbox([
@@ -119,6 +127,72 @@ class SecureMessenger {
     }
     await _processInbox();
   });
+
+  /// SMS from hidden contacts: an encrypted one joins the packet inbox like
+  /// any other, a plain one is stored as it is.
+  Future<void> _takeHidden() async {
+    final source = _hidden;
+    if (source == null) return;
+    final entries = await source.take();
+    if (entries.isEmpty) return;
+    final packets = <InboxPacket>[];
+    for (final e in entries) {
+      final r = e.record;
+      final address = r?['address'];
+      final body = r?['body'];
+      final timestamp = r?['timestamp'];
+      if (address is! String || body is! String || timestamp is! int) continue;
+      if (SmsCryptoService.looksEncrypted(body)) {
+        packets.add(
+          InboxPacket(
+            id: 0,
+            address: address,
+            body: body,
+            timestamp: timestamp,
+            attempts: 0,
+          ),
+        );
+      } else {
+        await _receivePlain(address, body, timestamp);
+      }
+    }
+    if (packets.isNotEmpty) await _store.addToInbox(packets, _clock());
+    // Only once stored: a crash in between re-reads them, and both stores
+    // deduplicate.
+    await source.remove(entries.map((e) => e.id));
+  }
+
+  Future<void> _receivePlain(String address, String body, int timestamp) async {
+    final phone = await _crypto.canonicalPhone(address) ?? address;
+    if (await _store.hasPlain(
+      phone,
+      outgoing: false,
+      body: body,
+      timestamp: timestamp,
+    )) {
+      return;
+    }
+    if (await _store.conversation(phone) == null) {
+      await _store.ensurePlainConversation(
+        phone: phone,
+        name: await _hidden?.nameFor(phone) ?? phone,
+        now: timestamp,
+      );
+    }
+    await _store.addMessage(
+      SecureMessage(
+        id: _newId(),
+        phone: phone,
+        outgoing: false,
+        body: body,
+        timestamp: timestamp,
+        status: SecureMessageStatus.received,
+        plain: true,
+      ),
+    );
+    await _store.touchConversation(phone, timestamp, unread: true);
+    _changed(phone);
+  }
 
   Future<void> _processInbox() async {
     // One pass may unblock another (a RESPONSE makes the messages behind it
@@ -193,7 +267,8 @@ class SecureMessenger {
     final now = _clock();
     await _store.upsertConversation(
       phone: phone,
-      name: peer.name,
+      // A hidden contact is called what the user named them.
+      name: await _hidden?.nameFor(phone) ?? peer.name,
       peerKeyId: peer.keyId,
       peerPublic: peer.publicKey,
       ownKeyId: own.keyId,
@@ -227,14 +302,14 @@ class SecureMessenger {
         .firstOrNull;
     if (pending == null) return _Outcome.done; // not ours, or answered already
     final conversation = await _store.conversation(phone);
-    if (conversation == null) return _Outcome.done;
-    final own = await _identities.ownByKeyId(conversation.ownKeyId);
+    if (conversation == null || !conversation.encrypted) return _Outcome.done;
+    final own = await _identities.ownByKeyId(conversation.ownKeyId!);
     if (own == null) return _Outcome.done;
     final Uint8List session;
     try {
       session = await _crypto.complete(
         secret: own.identity.secret,
-        peer: conversation.peerPublic,
+        peer: conversation.peerPublic!,
         pending: pending.state,
         text: packet.body,
       );
@@ -331,7 +406,7 @@ class SecureMessenger {
   Future<void> startConversation(SecurePeer peer) => _serial(() async {
     await _store.upsertConversation(
       phone: peer.phone,
-      name: peer.name,
+      name: await _hidden?.nameFor(peer.phone) ?? peer.name,
       peerKeyId: peer.keyId,
       peerPublic: peer.publicKey,
       ownKeyId: peer.own.keyId,
@@ -364,11 +439,117 @@ class SecureMessenger {
     await _flush(phone);
   });
 
+  /// A conversation without a key, with a hidden contact the key bank does
+  /// not know: plain SMS, still kept out of the system's message store.
+  Future<void> startPlainConversation(String phone, String name) =>
+      _serial(() async {
+        await _store.ensurePlainConversation(
+          phone: phone,
+          name: name,
+          now: _clock(),
+        );
+        _changed(null);
+      });
+
+  /// Sends [text] unencrypted to [phone] (a keyless conversation). Never
+  /// written to `content://sms`, like every SMS of the secure section.
+  Future<void> sendPlain(String phone, String text) => _serial(() async {
+    final now = _clock();
+    final m = SecureMessage(
+      id: _newId(),
+      phone: phone,
+      outgoing: true,
+      body: text,
+      timestamp: now,
+      status: SecureMessageStatus.sending,
+      plain: true,
+    );
+    await _store.addMessage(m);
+    await _store.touchConversation(phone, now);
+    _changed(phone);
+    await _sendPlain(m);
+  });
+
+  Future<void> _sendPlain(SecureMessage m) async {
+    try {
+      await _sender.send(m.phone, m.body, trackingId: m.id);
+      await _store.advanceStatus(m.id, SecureMessageStatus.sent);
+    } catch (e) {
+      debugPrint('Sending a plain hidden SMS failed: ${e.runtimeType}');
+      await _store.advanceStatus(m.id, SecureMessageStatus.failed);
+    }
+    _changed(m.phone);
+  }
+
+  /// A contact just hidden takes their SMS history along: [history] (from
+  /// the main database) is stored here as plain messages, already read.
+  Future<void> importPlainHistory(
+    String phone,
+    String name,
+    List<({bool outgoing, String body, int timestamp})> history,
+  ) => _serial(() async {
+    if (history.isEmpty) return;
+    var last = 0;
+    for (final h in history) {
+      if (await _store.hasPlain(
+        phone,
+        outgoing: h.outgoing,
+        body: h.body,
+        timestamp: h.timestamp,
+      )) {
+        continue;
+      }
+      if (last == 0) {
+        await _store.ensurePlainConversation(
+          phone: phone,
+          name: name,
+          now: h.timestamp,
+        );
+      }
+      await _store.addMessage(
+        SecureMessage(
+          id: _newId(),
+          phone: phone,
+          outgoing: h.outgoing,
+          body: h.body,
+          timestamp: h.timestamp,
+          status: h.outgoing
+              ? SecureMessageStatus.sent
+              : SecureMessageStatus.received,
+          seenAt: h.outgoing ? null : h.timestamp,
+          plain: true,
+        ),
+      );
+      if (h.timestamp > last) last = h.timestamp;
+    }
+    if (last > 0) await _store.touchConversation(phone, last);
+    _changed(null);
+  });
+
+  /// A hidden contact was renamed: so are their conversations.
+  Future<void> rename(List<String> phones, String name) => _serial(() async {
+    for (final phone in phones) {
+      await _store.rename(phone, name);
+    }
+    _changed(null);
+  });
+
   /// A failed message goes back to the queue (it is encrypted again, under
   /// the next counter: the one that failed never reached anybody).
   Future<void> retry(String id) => _serial(() async {
     final m = await _store.message(id);
     if (m == null || !m.outgoing || m.status != SecureMessageStatus.failed) {
+      return;
+    }
+    if (m.plain) {
+      await _store.db.update(
+        'sm_messages',
+        {'status': SecureMessageStatus.sending.name},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      _changed(m.phone);
+      await _sendPlain(m);
       return;
     }
     await _store.db.update(
@@ -386,7 +567,9 @@ class SecureMessenger {
 
   Future<void> _flush(String phone) async {
     final conversation = await _store.conversation(phone);
-    if (conversation == null) return;
+    // A keyless conversation has nothing to encrypt or queue: plain SMS go
+    // out at once (sendPlain).
+    if (conversation == null || !conversation.encrypted) return;
     final queued = await _store.queued(phone);
     if (queued.isEmpty) return;
     final sessions = await _store.sessions(phone);
@@ -442,14 +625,14 @@ class SecureMessenger {
       if (_clock() - pending.createdAt < pendingTimeout.inMilliseconds) return;
       await _store.deleteSession(phone, pending.sid); // unanswered: ask again
     }
-    final own = await _identities.ownByKeyId(conversation.ownKeyId);
+    final own = await _identities.ownByKeyId(conversation.ownKeyId!);
     if (own == null) {
       debugPrint('No identity of ours for this conversation any more');
       return;
     }
     final started = await _crypto.initiate(
       secret: own.identity.secret,
-      peer: conversation.peerPublic,
+      peer: conversation.peerPublic!,
       busySids: {for (final s in sessions) s.sid},
     );
     await _store.saveSession(

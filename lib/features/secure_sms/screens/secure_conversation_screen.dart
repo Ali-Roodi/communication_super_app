@@ -76,6 +76,14 @@ class _SecureConversationScreenState extends State<SecureConversationScreen> {
           final messages = state.openPhone == widget.phone
               ? state.openMessages
               : const <SecureMessage>[];
+          // A hidden contact the key bank has no key for: plain SMS, still
+          // kept out of the system's message store (phase G).
+          final encrypted =
+              state.conversations
+                  .where((c) => c.phone == widget.phone)
+                  .firstOrNull
+                  ?.encrypted ??
+              true;
           return Scaffold(
             appBar: RtlAppBar(
               titleWidget: Column(
@@ -86,11 +94,18 @@ class _SecureConversationScreenState extends State<SecureConversationScreen> {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.lock, size: 12, color: scheme.primary),
+                      Icon(
+                        encrypted ? Icons.lock : Icons.lock_open,
+                        size: 12,
+                        color: encrypted ? scheme.primary : scheme.error,
+                      ),
                       const SizedBox(width: 4),
                       Text(
-                        'رمزشده پساکوانتومی',
-                        style: TextStyle(fontSize: 12, color: scheme.primary),
+                        encrypted ? 'رمزشده پساکوانتومی' : 'پیامک رمزنشده',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: encrypted ? scheme.primary : scheme.error,
+                        ),
                       ),
                     ],
                   ),
@@ -99,6 +114,13 @@ class _SecureConversationScreenState extends State<SecureConversationScreen> {
             ),
             body: Column(
               children: [
+                if (!encrypted)
+                  _Banner(
+                    icon: Icons.lock_open,
+                    text:
+                        'برای این شماره کلیدی در بانک کلید نیست؛ پیامک‌ها '
+                        'رمزنشده فرستاده می‌شوند، ولی در سوابق گوشی ثبت نمی‌شوند.',
+                  ),
                 if (state.openPhone == widget.phone && state.handshakePending)
                   _Banner(
                     icon: Icons.sync_lock,
@@ -112,8 +134,10 @@ class _SecureConversationScreenState extends State<SecureConversationScreen> {
                           child: Padding(
                             padding: const EdgeInsets.all(32),
                             child: Text(
-                              'پیام‌های این گفتگو با کلیدی که فقط شما دو نفر '
-                              'دارید رمز می‌شوند.',
+                              encrypted
+                                  ? 'پیام‌های این گفتگو با کلیدی که فقط شما دو '
+                                        'نفر دارید رمز می‌شوند.'
+                                  : 'این گفتگو فقط داخل بخش امن دیده می‌شود.',
                               textAlign: TextAlign.center,
                               style: TextStyle(color: scheme.onSurfaceVariant),
                             ),
@@ -123,13 +147,18 @@ class _SecureConversationScreenState extends State<SecureConversationScreen> {
                           reverse: true,
                           padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
                           itemCount: messages.length,
-                          itemBuilder: (context, i) =>
-                              _Bubble(messages[messages.length - 1 - i]),
+                          itemBuilder: (context, i) => _Bubble(
+                            messages[messages.length - 1 - i],
+                            // In a plain conversation the banner says it
+                            // once; a mark on every bubble is noise.
+                            markPlain: encrypted,
+                          ),
                         ),
                 ),
                 _Composer(
                   controller: _controller,
-                  deleteAfterSeen: _deleteAfterSeen,
+                  plain: !encrypted,
+                  deleteAfterSeen: _deleteAfterSeen && encrypted,
                   onToggleDelete: () =>
                       setState(() => _deleteAfterSeen = !_deleteAfterSeen),
                   onSend: _send,
@@ -179,8 +208,11 @@ class _Banner extends StatelessWidget {
 }
 
 class _Bubble extends StatelessWidget {
-  const _Bubble(this.m);
+  const _Bubble(this.m, {required this.markPlain});
   final SecureMessage m;
+
+  /// Label a plain message «رمزنشده» — only where it is the exception.
+  final bool markPlain;
 
   @override
   Widget build(BuildContext context) {
@@ -220,6 +252,22 @@ class _Bubble extends StatelessWidget {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (m.plain && markPlain) ...[
+                    Icon(
+                      Icons.lock_open,
+                      size: 13,
+                      color: fg.withValues(alpha: 0.7),
+                    ),
+                    const SizedBox(width: 3),
+                    Text(
+                      'رمزنشده',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: fg.withValues(alpha: 0.7),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
                   if (m.deleteAfterSeen) ...[
                     Icon(
                       Icons.timer_outlined,
@@ -340,12 +388,17 @@ class _StatusMark extends StatelessWidget {
 class _Composer extends StatelessWidget {
   const _Composer({
     required this.controller,
+    required this.plain,
     required this.deleteAfterSeen,
     required this.onToggleDelete,
     required this.onSend,
   });
 
   final TextEditingController controller;
+
+  /// A keyless conversation: no «حذف پس از دیدن» (only an encrypted
+  /// message can carry it).
+  final bool plain;
   final bool deleteAfterSeen;
   final VoidCallback onToggleDelete;
   final VoidCallback onSend;
@@ -377,14 +430,15 @@ class _Composer extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                IconButton(
-                  tooltip: 'حذف پس از دیدن',
-                  isSelected: deleteAfterSeen,
-                  icon: const Icon(Icons.timer_outlined),
-                  selectedIcon: const Icon(Icons.timer),
-                  color: deleteAfterSeen ? scheme.primary : null,
-                  onPressed: onToggleDelete,
-                ),
+                if (!plain)
+                  IconButton(
+                    tooltip: 'حذف پس از دیدن',
+                    isSelected: deleteAfterSeen,
+                    icon: const Icon(Icons.timer_outlined),
+                    selectedIcon: const Icon(Icons.timer),
+                    color: deleteAfterSeen ? scheme.primary : null,
+                    onPressed: onToggleDelete,
+                  ),
                 Expanded(
                   child: TextField(
                     controller: controller,
@@ -396,7 +450,9 @@ class _Composer extends StatelessWidget {
                     enableSuggestions: false,
                     autocorrect: false,
                     enableIMEPersonalizedLearning: false,
-                    decoration: const InputDecoration(hintText: 'پیام رمز'),
+                    decoration: InputDecoration(
+                      hintText: plain ? 'پیامک (رمزنشده)' : 'پیام رمز',
+                    ),
                   ),
                 ),
                 const SizedBox(width: 6),

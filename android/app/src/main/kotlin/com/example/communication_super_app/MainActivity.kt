@@ -17,6 +17,8 @@ import com.example.communication_super_app.contacts.ContactGroupsHandler
 import com.example.communication_super_app.contacts.ContactLinkHandler
 import com.example.communication_super_app.contacts.SimContactsHandler
 import com.example.communication_super_app.edition.DeviceIdentityHandler
+import com.example.communication_super_app.hidden.HiddenCallLog
+import com.example.communication_super_app.hidden.HiddenHandler
 import com.example.communication_super_app.secure.SecureVaultHandler
 import com.example.communication_super_app.smscrypto.KeyFilePicker
 import com.example.communication_super_app.smscrypto.SecureSmsInbox
@@ -237,6 +239,10 @@ class MainActivity : FlutterActivity() {
                 )
             )
         }
+        // ── Hidden phonebook (دفترچه مخفی) ─────────────────────────────────
+        HiddenHandler(applicationContext).setup(
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, HiddenHandler.CHANNEL)
+        )
         keyFilePicker = KeyFilePicker(this).also {
             it.setup(MethodChannel(flutterEngine.dartExecutor.binaryMessenger, KeyFilePicker.CHANNEL))
         }
@@ -381,6 +387,12 @@ class MainActivity : FlutterActivity() {
             CallEventStreamHandler.sendRaw(mapOf("event" to "SHOW_CALL_UI"))
         }
 
+        // A hidden contact's «تماس بی‌پاسخ» tapped: the hidden call history.
+        if (intent.getBooleanExtra(HiddenHandler.EXTRA_OPEN_HIDDEN_CALLS, false)) {
+            intent.removeExtra(HiddenHandler.EXTRA_OPEN_HIDDEN_CALLS)
+            return mapOf("type" to "hiddenCalls")
+        }
+
         // «پیام رمز جدید» tapped: the secure inbox (behind the app lock and
         // the secure section's own unlock, both on the Dart side).
         if (intent.getBooleanExtra(SecureSmsInbox.EXTRA_OPEN_SECURE, false)) {
@@ -495,6 +507,9 @@ class MainActivity : FlutterActivity() {
         // and the badge — up. Cheap: one `activeNotifications` read, and it
         // returns before touching the database when there is nothing posted.
         SmsNotifier.reconcile(applicationContext)
+        // A hidden contact's call the post-call sweep missed (the process
+        // died first) leaves the system call log here at the latest.
+        HiddenCallLog.sweepAsync(applicationContext, full = false)
         syncLockScreenVisibility()
         // Re-assert: a keyguard-driven resume can land after the card was
         // posted by an onStop that the call outlived.

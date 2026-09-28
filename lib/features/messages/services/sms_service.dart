@@ -12,6 +12,8 @@ import 'package:communication_super_app/core/services/device_sync_queue.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:communication_super_app/features/secure/services/sms_crypto_service.dart';
 import 'package:uuid/uuid.dart';
+import 'package:communication_super_app/features/secure/services/hidden_bridge.dart';
+
 import 'notification_service.dart';
 import 'native_sms_service.dart';
 import 'dart:async';
@@ -26,6 +28,8 @@ class SmsServiceResult {
   ///  'NO_SERVICE'       – SIM present but no cellular service
   ///  'PERMISSION_DENIED'– SEND_SMS permission not granted
   ///  'SMS_SEND_FAILED'  – generic failure
+  ///  'HIDDEN_NUMBER'    – the number is in «دفترچه مخفی»: its messages go
+  ///                       through the secure section, never this path
   final String? errorCode;
 
   const SmsServiceResult._({required this.success, this.errorCode});
@@ -149,6 +153,12 @@ class SmsService {
     final hasPermission = await requestPermissions();
     if (!hasPermission) {
       return const SmsServiceResult.fail('PERMISSION_DENIED');
+    }
+
+    // A hidden contact's SMS must never land in `messages` or content://sms
+    // (phase G) — refused before anything is persisted.
+    if (await const HiddenBridge().isHidden(phoneNumber)) {
+      return const SmsServiceResult.fail('HIDDEN_NUMBER');
     }
 
     final normalized = _normalizePhoneNumber(phoneNumber);

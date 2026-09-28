@@ -387,6 +387,20 @@ class SmsCryptoService {
     );
   }
 
+  /// Opens records Kotlin sealed to [secret]'s public key (`SealedBox`):
+  /// one result per blob, null for a blob that does not open with it.
+  Future<List<Uint8List?>> openSealed({
+    required Uint8List secret,
+    required List<Uint8List> blobs,
+  }) async {
+    if (blobs.isEmpty) return const [];
+    final opened = await _call<List>('openSealed', {
+      'secret': secret,
+      'blobs': blobs,
+    });
+    return opened.cast<Uint8List?>();
+  }
+
   // ── Key bank ──────────────────────────────────────────────────────────────
 
   /// The spelling keys are derived from (`Canon.phone`): `09…` for Iranian

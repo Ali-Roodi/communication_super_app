@@ -41,6 +41,10 @@ import kotlinx.coroutines.withContext
  *   text?, deleteAfterSeen?, refSid?, refCounter?}` — `sid`/`counter` name
  *   the message itself (what a later seen/delete refers to)
  *
+ * Sealed records (`SealedBox` — what Kotlin writes for the hidden phonebook):
+ * - `openSealed {secret, blobs}` → List of Uint8List?, one per blob, null
+ *   for a blob that does not open with this key
+ *
  * Key bank (`keybank/`):
  * - `canonicalPhone {phone}` → String? — the spelling keys are derived from
  * - `deriveGroup {name, passphrase}` → `{group, groupId}` — Argon2id, ~1 s
@@ -91,6 +95,7 @@ class SmsCryptoHandler {
                 "encryptText" -> run(call, result) { encryptText(call) }
                 "encryptControl" -> run(call, result) { encryptControl(call) }
                 "decrypt" -> run(call, result) { decrypt(call) }
+                "openSealed" -> run(call, result) { openSealed(call) }
                 "canonicalPhone" -> run(call, result) { Canon.phone(call.string("phone")) }
                 "deriveGroup" -> run(call, result) {
                     val group = KeyGroup.derive(call.string("name"), call.string("passphrase"))
@@ -228,6 +233,18 @@ class SmsCryptoHandler {
             is Payload.Text -> mapOf("kind" to "text", "text" to p.text, "deleteAfterSeen" to p.deleteAfterSeen)
             is Payload.Seen -> mapOf("kind" to "seen", "refSid" to p.sid, "refCounter" to p.upTo)
             is Payload.Delete -> mapOf("kind" to "delete", "refSid" to p.sid, "refCounter" to p.counter)
+        }
+    }
+
+    private fun openSealed(call: MethodCall): List<ByteArray?> {
+        val own = own(call)
+        val blobs = call.argument<List<ByteArray>>("blobs") ?: throw IllegalArgumentException("blobs")
+        return blobs.map { blob ->
+            try {
+                SealedBox.open(own, blob)
+            } catch (e: SmsCryptoException) {
+                null
+            }
         }
     }
 

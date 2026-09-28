@@ -1,3 +1,4 @@
+import 'package:communication_super_app/features/hidden/widgets/hidden_entries.dart';
 import 'package:flutter/material.dart';
 import 'package:communication_super_app/core/sim/widgets/sim_picker.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
@@ -174,6 +175,8 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
               }
             },
           ),
+          // «تماس‌های مخفی» — only while the secure section is open.
+          const HiddenCallsEntry(),
           Expanded(
             // A row's SIM badge is read from the *static* roster inside
             // `build`, so a card going into the phone while this list is on

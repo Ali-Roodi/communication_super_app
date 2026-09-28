@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 // SQLCipher's own factory — never sqflite's global one (see pubspec.yaml).
 import 'package:sqflite_sqlcipher/sqflite.dart' as cipher;
 
+import '../services/hidden_bridge.dart';
 import '../services/secure_vault_service.dart';
 
 /// Why the secure store could not open.
@@ -25,11 +26,13 @@ class SecureStoreException implements Exception {
 /// lock.
 ///
 /// Schema changes go through [_schemaVersion] / [_onUpgrade], exactly as in
-/// `DatabaseHelper`. Later phases add their tables here (hidden phonebook,
-/// encrypted messages, keys).
+/// `DatabaseHelper`.
 class SecureStore {
-  SecureStore({SecureVaultService vault = const SecureVaultService()})
-    : _vault = vault;
+  SecureStore({
+    SecureVaultService vault = const SecureVaultService(),
+    HiddenBridge hidden = const HiddenBridge(),
+  }) : _vault = vault,
+       _hidden = hidden;
 
   /// The one store the app uses. Shared on purpose: `AuthBloc` rekeys and
   /// resets it when the app PIN changes, and `SecureSessionBloc` holds its
@@ -38,13 +41,15 @@ class SecureStore {
   static final SecureStore instance = SecureStore();
 
   final SecureVaultService _vault;
+  final HiddenBridge _hidden;
   cipher.Database? _db;
 
   static const String fileName = 'secure.db';
 
   /// v1: `secure_meta` (phase C). v2: the key bank (phase E). v3: encrypted
-  /// conversations (phase F).
-  static const int _schemaVersion = 3;
+  /// conversations (phase F). v4: the hidden phonebook, its calls, and plain
+  /// SMS with hidden contacts (phase G).
+  static const int _schemaVersion = 4;
 
   /// The open database, or null while locked.
   cipher.Database? get database => _db;
@@ -85,11 +90,14 @@ class SecureStore {
   Future<void> rekey(String oldPin, String newPin) =>
       _guard(() => _vault.rekey(oldPin, newPin));
 
-  /// Deletes the vault and the database. What they held is gone for good.
+  /// Deletes the vault and the database. What they held is gone for good —
+  /// and so is Kotlin's half of the hidden phonebook: with no phonebook,
+  /// no number may stay hidden, and nothing sealed can be opened any more.
   Future<void> reset() async {
     await lock();
     await _deleteDatabaseFile();
     await _guard(_vault.destroy);
+    await _hidden.forget();
   }
 
   Future<void> setSecureWindow(bool secure) => _vault.setSecureWindow(secure);
@@ -112,10 +120,13 @@ class SecureStore {
   static Future<void> createSchemaForTest(cipher.Database db) =>
       _onCreate(db, _schemaVersion);
 
-  /// Runs the migrations from [from] to the current version.
+  /// Runs the migrations from [from] to [to] (default: the current version).
   @visibleForTesting
-  static Future<void> upgradeSchemaForTest(cipher.Database db, int from) =>
-      _onUpgrade(db, from, _schemaVersion);
+  static Future<void> upgradeSchemaForTest(
+    cipher.Database db,
+    int from, {
+    int to = _schemaVersion,
+  }) => _onUpgrade(db, from, to);
 
   static Future<void> _onCreate(cipher.Database db, int version) async {
     await db.execute('''
@@ -130,6 +141,83 @@ class SecureStore {
     });
     await _createKeyBank(db);
     await _createSecureMessages(db);
+    await _upgradeMessagesToV4(db);
+    await _createHiddenPhonebook(db);
+  }
+
+  /// v4 on the phase F tables: a conversation may have **no key** (a hidden
+  /// contact without one talks in plain SMS), and a message may be plain.
+  /// SQLite cannot drop a NOT NULL, so `sm_conversations` is rebuilt.
+  static Future<void> _upgradeMessagesToV4(cipher.DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE sm_conversations_v4 (
+        phone TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        peer_key_id TEXT,
+        peer_public BLOB,
+        own_key_id TEXT,
+        own_source TEXT,
+        created_at INTEGER NOT NULL,
+        last_at INTEGER NOT NULL,
+        unread INTEGER NOT NULL DEFAULT 0,
+        seen_sid INTEGER,
+        seen_counter INTEGER
+      )
+    ''');
+    await db.execute('''
+      INSERT INTO sm_conversations_v4
+        SELECT phone, name, peer_key_id, peer_public, own_key_id, own_source,
+               created_at, last_at, unread, seen_sid, seen_counter
+          FROM sm_conversations
+    ''');
+    await db.execute('DROP TABLE sm_conversations');
+    await db.execute(
+      'ALTER TABLE sm_conversations_v4 RENAME TO sm_conversations',
+    );
+    // A plain (unencrypted) SMS with a hidden contact.
+    await db.execute(
+      'ALTER TABLE sm_messages ADD COLUMN plain INTEGER NOT NULL DEFAULT 0',
+    );
+  }
+
+  /// «دفترچه مخفی» (v4) — see `HiddenContactsRepository`, the only code
+  /// that reads or writes these tables. Numbers are canonical, like
+  /// everything else in this database.
+  static Future<void> _createHiddenPhonebook(cipher.DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE hc_contacts (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        note TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE hc_numbers (
+        contact_id TEXT NOT NULL,
+        phone TEXT NOT NULL,
+        label TEXT,
+        position INTEGER NOT NULL,
+        PRIMARY KEY (contact_id, phone)
+      )
+    ''');
+    await db.execute('CREATE INDEX hc_numbers_phone ON hc_numbers (phone)');
+    // Calls with hidden numbers, moved out of the system call log. `call_type`
+    // is the raw `CallLog.Calls.TYPE` — mapped in Dart like the mirror's.
+    // UNIQUE: a row swept twice (sealed, then the delete failed) is one call.
+    await db.execute('''
+      CREATE TABLE hc_calls (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        phone TEXT NOT NULL,
+        call_type INTEGER NOT NULL,
+        timestamp INTEGER NOT NULL,
+        duration INTEGER,
+        account TEXT,
+        UNIQUE (phone, timestamp, call_type)
+      )
+    ''');
+    await db.execute('CREATE INDEX hc_calls_time ON hc_calls (timestamp DESC)');
   }
 
   /// Encrypted conversations (v3) — see `SecureMessageStore`, the only code
@@ -275,8 +363,12 @@ class SecureStore {
     int oldVersion,
     int newVersion,
   ) async {
-    if (oldVersion < 2) await _createKeyBank(db);
-    if (oldVersion < 3) await _createSecureMessages(db);
+    if (oldVersion < 2 && newVersion >= 2) await _createKeyBank(db);
+    if (oldVersion < 3 && newVersion >= 3) await _createSecureMessages(db);
+    if (oldVersion < 4 && newVersion >= 4) {
+      await _upgradeMessagesToV4(db);
+      await _createHiddenPhonebook(db);
+    }
   }
 
   Future<String> _path() async =>
