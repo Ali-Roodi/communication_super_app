@@ -162,4 +162,73 @@ void main() {
       await dir.delete(recursive: true);
     },
   );
+
+  test(
+    'a conversation waits for its channel only when something is under way',
+    () async {
+      final store = SecureMessageStore(database: () => db);
+      await store.upsertConversation(
+        phone: '09125555555',
+        name: 'رضا',
+        peerKeyId: 'aa',
+        peerPublic: Uint8List(4),
+        ownKeyId: 'bb',
+        ownSource: 'group:g',
+        now: 1,
+      );
+      // Just opened, nothing said: not waiting (it used to say it was).
+      expect(await store.awaitingSession('09125555555'), isFalse);
+
+      await store.addMessage(
+        const SecureMessage(
+          id: 'q',
+          phone: '09125555555',
+          outgoing: true,
+          body: 'سلام',
+          timestamp: 2,
+          status: SecureMessageStatus.queued,
+        ),
+      );
+      expect(await store.awaitingSession('09125555555'), isTrue);
+
+      await store.deleteMessage('q');
+      await store.saveSession(
+        StoredSession(
+          phone: '09125555555',
+          sid: 1,
+          pending: true,
+          state: Uint8List(1),
+          createdAt: 3,
+        ),
+      );
+      expect(
+        await store.awaitingSession('09125555555'),
+        isTrue,
+      ); // request sent
+
+      await store.saveSession(
+        StoredSession(
+          phone: '09125555555',
+          sid: 2,
+          pending: false,
+          state: Uint8List(1),
+          createdAt: 4,
+        ),
+      );
+      expect(
+        await store.awaitingSession('09125555555'),
+        isFalse,
+      ); // established
+
+      await store.ensurePlainConversation(
+        phone: '09126666666',
+        name: 'x',
+        now: 5,
+      );
+      expect(
+        await store.awaitingSession('09126666666'),
+        isFalse,
+      ); // no key: never
+    },
+  );
 }
