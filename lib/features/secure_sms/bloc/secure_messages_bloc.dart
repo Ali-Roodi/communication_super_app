@@ -573,12 +573,7 @@ class SecureMessagesBloc
     }
   }
 
-  /// Waiting for a session — only an encrypted conversation ever does.
-  Future<bool> _pending(String phone) async {
-    final conversation = await _store.conversation(phone);
-    if (conversation == null || !conversation.encrypted) return false;
-    return !(await _store.sessions(phone)).any((s) => !s.pending);
-  }
+  Future<bool> _pending(String phone) => _store.awaitingSession(phone);
 
   Future<void> _onChanged(_Changed e, Emitter<SecureMessagesState> emit) async {
     if (!_open) return;

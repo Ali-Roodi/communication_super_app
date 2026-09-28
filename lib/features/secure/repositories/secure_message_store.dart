@@ -369,6 +369,19 @@ class SecureMessageStore {
 
   // ── Sessions ─────────────────────────────────────────────────────────────
 
+  /// Whether [phone]'s conversation is waiting for its secure channel: an
+  /// encrypted conversation with no session yet **and** something under way
+  /// — our request sent, or a message queued. One just opened with nothing
+  /// said is not waiting for anything («در حال برقراری کانال امن» there was
+  /// untrue).
+  Future<bool> awaitingSession(String phone) async {
+    final c = await conversation(phone);
+    if (c == null || !c.encrypted) return false;
+    final all = await sessions(phone);
+    if (all.any((s) => !s.pending)) return false;
+    return all.any((s) => s.pending) || (await queued(phone)).isNotEmpty;
+  }
+
   Future<List<StoredSession>> sessions(String phone) async {
     final rows = await db.query(
       'sm_sessions',
