@@ -745,9 +745,9 @@ class _ConversationScreenState extends State<ConversationScreen>
                     scale: context.select<SettingsBloc, double>(
                       (b) => b.state.messageTextScale,
                     ),
-                    onScaleChanged: (scale) => context
-                        .read<SettingsBloc>()
-                        .add(SetMessageTextScale(scale)),
+                    onScaleChanged: (scale) => context.read<SettingsBloc>().add(
+                      SetMessageTextScale(scale),
+                    ),
                     child: Column(
                       children: [
                         // The thread sits on its own rounded sheet, one plane
@@ -946,10 +946,7 @@ class _ConversationScreenState extends State<ConversationScreen>
               style: Theme.of(context).textTheme.bodyMedium,
             ),
           ),
-          TextButton(
-            onPressed: _dismissSpamPrompt,
-            child: const Text('نه'),
-          ),
+          TextButton(onPressed: _dismissSpamPrompt, child: const Text('نه')),
           TextButton(
             onPressed: () {
               _dismissSpamPrompt();
@@ -1499,11 +1496,13 @@ class _ConversationScreenState extends State<ConversationScreen>
             children: [
               Text(
                 recipients
-                    .map((r) => r.name?.trim().isNotEmpty == true
-                        ? r.name!.trim()
-                        : PersianUtils.displayPhone(
-                            PhoneNormalizer.toNational(r.phoneNumber),
-                          ))
+                    .map(
+                      (r) => r.name?.trim().isNotEmpty == true
+                          ? r.name!.trim()
+                          : PersianUtils.displayPhone(
+                              PhoneNormalizer.toNational(r.phoneNumber),
+                            ),
+                    )
                     .join('، '),
                 style: Theme.of(dialogContext).textTheme.bodyMedium,
               ),
@@ -1544,9 +1543,7 @@ class _ConversationScreenState extends State<ConversationScreen>
         ),
       );
     }
-    messenger.showSnackBar(
-      SnackBar(content: Text('به $count مخاطب هدایت شد')),
-    );
+    messenger.showSnackBar(SnackBar(content: Text('به $count مخاطب هدایت شد')));
   }
 
   void _copyMessage(MessageModel msg) {

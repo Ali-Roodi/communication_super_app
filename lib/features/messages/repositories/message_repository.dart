@@ -936,14 +936,10 @@ class MessageRepository {
   // ── Archive ────────────────────────────────────────────────────────────
   Future<void> archiveThread(String threadId) async {
     final db = await _dbHelper.database;
-    await db.insert(
-      AppConstants.archivedThreadsTable,
-      {
-        'thread_id': threadId,
-        'archived_at': DateTime.now().millisecondsSinceEpoch,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert(AppConstants.archivedThreadsTable, {
+      'thread_id': threadId,
+      'archived_at': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<void> unarchiveThread(String threadId) async {
@@ -958,14 +954,10 @@ class MessageRepository {
   // ── Pin ────────────────────────────────────────────────────────────────
   Future<void> pinThread(String threadId) async {
     final db = await _dbHelper.database;
-    await db.insert(
-      AppConstants.pinnedThreadsTable,
-      {
-        'thread_id': threadId,
-        'pinned_at': DateTime.now().millisecondsSinceEpoch,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert(AppConstants.pinnedThreadsTable, {
+      'thread_id': threadId,
+      'pinned_at': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<void> unpinThread(String threadId) async {

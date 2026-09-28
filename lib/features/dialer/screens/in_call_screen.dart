@@ -587,9 +587,7 @@ class _InCallScreenState extends State<InCallScreen> {
               Directionality(
                 textDirection: TextDirection.ltr,
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    maxWidth: _kKeypadMaxWidth,
-                  ),
+                  constraints: const BoxConstraints(maxWidth: _kKeypadMaxWidth),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [

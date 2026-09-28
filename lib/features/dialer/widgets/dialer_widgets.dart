@@ -34,11 +34,7 @@ class _NumberMenuRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      children: [
-        Icon(icon, size: 18),
-        const SizedBox(width: 12),
-        Text(label),
-      ],
+      children: [Icon(icon, size: 18), const SizedBox(width: 12), Text(label)],
     );
   }
 }
@@ -899,11 +895,7 @@ class _DialerActionRow extends StatelessWidget {
                 color: scheme.secondaryContainer,
                 shape: BoxShape.circle,
               ),
-              child: Icon(
-                icon,
-                color: scheme.onSecondaryContainer,
-                size: 22,
-              ),
+              child: Icon(icon, color: scheme.onSecondaryContainer, size: 22),
             ),
             const SizedBox(width: 14),
             Expanded(

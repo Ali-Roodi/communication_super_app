@@ -98,7 +98,8 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
   bool _isDefaultNumber(String number) {
     final def = _defaultPhone;
     if (def == null) return false;
-    return _tailDigits(def) == _tailDigits(number) && _tailDigits(def).isNotEmpty;
+    return _tailDigits(def) == _tailDigits(number) &&
+        _tailDigits(def).isNotEmpty;
   }
 
   static String _tailDigits(String raw) {
@@ -657,7 +658,6 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
       ),
     );
   }
-
 
   // ── Sections ──────────────────────────────────────────────────────────────
 

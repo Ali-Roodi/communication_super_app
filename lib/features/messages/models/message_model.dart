@@ -210,8 +210,7 @@ class MessageThread extends Equatable {
 
   bool get hasDraft => draftText != null && draftText!.trim().isNotEmpty;
 
-  bool get hasScheduled =>
-      scheduledText != null && scheduledTime != null;
+  bool get hasScheduled => scheduledText != null && scheduledTime != null;
 
   /// Sort key: a fresh draft, or a queued send, lifts the row above older
   /// messages. A scheduled time is in the future, so such a row leads the
@@ -249,9 +248,7 @@ class MessageThread extends Equatable {
       threadId: threadId ?? this.threadId,
       phoneNumber: phoneNumber ?? this.phoneNumber,
       contactId: contactId ?? this.contactId,
-      contactName: clearContactName
-          ? null
-          : (contactName ?? this.contactName),
+      contactName: clearContactName ? null : (contactName ?? this.contactName),
       lastMessage: lastMessage ?? this.lastMessage,
       lastMessageTime: lastMessageTime ?? this.lastMessageTime,
       unreadCount: unreadCount ?? this.unreadCount,
