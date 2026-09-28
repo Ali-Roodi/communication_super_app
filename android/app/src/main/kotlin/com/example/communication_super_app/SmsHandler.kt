@@ -18,6 +18,7 @@ import android.telephony.SmsMessage
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import android.util.Log
+import com.example.communication_super_app.hidden.HiddenNumbers
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.*
@@ -133,6 +134,21 @@ class SmsHandler(
                 // Blocked sender: drop silently — no event, no notification.
                 if (BlockedNumbers.isBlocked(context, address)) {
                     Log.d(TAG, "Dropped live SMS from blocked number")
+                    return
+                }
+
+                // A hidden contact: sealed whole, then the same bare nudge.
+                if (com.example.communication_super_app.hidden.HiddenSms.receive(
+                        context, address, body, timestamp, getSubscriptionId(bundle),
+                    )
+                ) {
+                    coroutineScope.launch(Dispatchers.Main) {
+                        try {
+                            eventSink?.success(mapOf("type" to "secure"))
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error nudging Flutter: ${e.message}")
+                        }
+                    }
                     return
                 }
 
@@ -775,8 +791,10 @@ class SmsHandler(
             // getColumnIndex, not OrThrow: OEM providers have been seen to drop
             // the column even on supported API levels.
             val subIdx = c.getColumnIndex(Telephony.Sms.SUBSCRIPTION_ID)
+            val hiding = HiddenNumbers.any(context)
             while (c.moveToNext()) {
                 if (limit > 0 && out.size >= limit) break
+                if (hiding && HiddenNumbers.isHidden(context, c.getString(addrIdx))) continue
                 val subscriptionId =
                     if (subIdx >= 0 && !c.isNull(subIdx)) c.getInt(subIdx) else null
                 out.add(
@@ -807,11 +825,19 @@ class SmsHandler(
         val uri = if (box == "sent") Telephony.Sms.Sent.CONTENT_URI
                   else Telephony.Sms.Inbox.CONTENT_URI
         val out = ArrayList<Long>()
+        // A hidden contact's rows (left from before they were hidden, when
+        // the provider could not be cleared) are never mirrored.
+        val hiding = HiddenNumbers.any(context)
         context.contentResolver.query(
-            uri, arrayOf(Telephony.Sms._ID), null, null,
+            uri,
+            if (hiding) arrayOf(Telephony.Sms._ID, Telephony.Sms.ADDRESS) else arrayOf(Telephony.Sms._ID),
+            null, null,
             "${Telephony.Sms.DATE} DESC",
         )?.use { c ->
-            while (c.moveToNext()) out.add(c.getLong(0))
+            while (c.moveToNext()) {
+                if (hiding && HiddenNumbers.isHidden(context, c.getString(1))) continue
+                out.add(c.getLong(0))
+            }
         }
         return out
     }
@@ -857,7 +883,9 @@ class SmsHandler(
                 val bodyIdx = c.getColumnIndexOrThrow(Telephony.Sms.BODY)
                 val dateIdx = c.getColumnIndexOrThrow(Telephony.Sms.DATE)
                 val subIdx = c.getColumnIndex(Telephony.Sms.SUBSCRIPTION_ID)
+                val hiding = HiddenNumbers.any(context)
                 while (c.moveToNext()) {
+                    if (hiding && HiddenNumbers.isHidden(context, c.getString(addrIdx))) continue
                     val id = c.getLong(idIdx)
                     val subscriptionId =
                         if (subIdx >= 0 && !c.isNull(subIdx)) c.getInt(subIdx) else null

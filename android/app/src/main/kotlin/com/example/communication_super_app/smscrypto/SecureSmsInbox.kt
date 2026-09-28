@@ -129,7 +129,10 @@ object SecureSmsInbox {
                 this.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 putExtra(EXTRA_OPEN_SECURE, true)
             }
-            val count = pending(context).coerceAtLeast(1)
+            // Sealed SMS from hidden contacts are «پیام رمز» to the user too.
+            val count = (pending(context) +
+                com.example.communication_super_app.hidden.SealedInbox.pendingSms(context))
+                .coerceAtLeast(1)
             val text = if (count > 1) "${persianDigits(count)} پیام رمز جدید" else "پیام رمز جدید"
             val notification = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_stat_message)

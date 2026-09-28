@@ -2,6 +2,7 @@ import 'package:communication_super_app/features/secure/widgets/secure_lock_butt
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:communication_super_app/features/hidden/widgets/hidden_entries.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -150,6 +151,10 @@ class _ContactsListScreenState extends State<ContactsListScreen>
                 _buildSelectionBar(theme)
               else
                 _buildSearchField(theme),
+              // «دفترچه مخفی» — only while the secure section is open. Above
+              // the list, not in it: the fast-scroll offsets stay untouched.
+              if (!_selectionMode && _query.trim().isEmpty)
+                const HiddenContactsEntry(),
               Expanded(
                 child: BlocBuilder<ContactBloc, ContactState>(
                   builder: (context, state) {

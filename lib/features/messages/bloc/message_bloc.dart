@@ -926,6 +926,8 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         return 'سرویس شبکه در دسترس نیست. لطفاً اتصال شبکه را بررسی کنید.';
       case 'PERMISSION_DENIED':
         return 'دسترسی به ارسال پیامک رد شد. لطفاً مجوزهای لازم را بررسی کنید.';
+      case 'HIDDEN_NUMBER':
+        return 'این شماره در دفترچه مخفی است؛ از بخش امن پیام دهید.';
       default:
         return 'خطا در ارسال پیامک. لطفاً مجدداً تلاش کنید.';
     }

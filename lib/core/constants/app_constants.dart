@@ -3,7 +3,7 @@ class AppConstants {
 
   // Database
   static const String databaseName = 'communication_app.db';
-  static const int databaseVersion = 25;
+  static const int databaseVersion = 26;
 
   // Tables
   static const String contactsTable = 'contacts';
@@ -80,6 +80,13 @@ class AppConstants {
   /// into `secure.db` when the section is open. MIRRORED in
   /// `smscrypto/SecureSmsInbox.kt`, which also creates it `IF NOT EXISTS`.
   static const String secureQueueTable = 'secure_queue';
+
+  /// What happened with a hidden-phonebook number while the section was
+  /// locked (v26): calls and SMS, each **sealed** to the section's public key
+  /// (`SealedBox`) — only `kind` is in the clear. Written by Kotlin
+  /// (`hidden/SealedInbox.kt`, which mirrors this DDL and also creates it
+  /// `IF NOT EXISTS`), drained into `secure.db` on the next unlock.
+  static const String sealedQueueTable = 'sealed_queue';
 
   // Storage Keys
   static const String pinKey = 'app_pin';

@@ -28,10 +28,10 @@ class SecureConversation extends Equatable {
   const SecureConversation({
     required this.phone,
     required this.name,
-    required this.peerKeyId,
-    required this.peerPublic,
-    required this.ownKeyId,
-    required this.ownSource,
+    this.peerKeyId,
+    this.peerPublic,
+    this.ownKeyId,
+    this.ownSource,
     required this.createdAt,
     required this.lastAt,
     this.unread = 0,
@@ -44,13 +44,20 @@ class SecureConversation extends Equatable {
   /// The peer's number, canonical — the conversation's key.
   final String phone;
   final String name;
-  final String peerKeyId;
-  final Uint8List peerPublic;
+
+  /// Null for a conversation without a key: a hidden contact the key bank
+  /// does not know, reached by plain SMS (phase G).
+  final String? peerKeyId;
+  final Uint8List? peerPublic;
 
   /// Which of our identities talks to this peer, and where it comes from
-  /// (`directory:<id>` or `group:<id>`).
-  final String ownKeyId;
-  final String ownSource;
+  /// (`directory:<id>` or `group:<id>`); null without a key.
+  final String? ownKeyId;
+  final String? ownSource;
+
+  /// Whether messages here are encrypted (else plain SMS).
+  bool get encrypted =>
+      peerKeyId != null && peerPublic != null && ownKeyId != null;
   final int createdAt;
   final int lastAt;
   final int unread;
@@ -92,6 +99,7 @@ class SecureMessage extends Equatable {
     this.deleteAfterSeen = false,
     this.seenAt,
     this.parts,
+    this.plain = false,
   });
 
   final String id;
@@ -110,6 +118,9 @@ class SecureMessage extends Equatable {
   final int? seenAt;
   final int? parts;
 
+  /// A plain (unencrypted) SMS with a hidden contact.
+  final bool plain;
+
   static SecureMessage fromRow(Map<String, Object?> r) => SecureMessage(
     id: r['id'] as String,
     phone: r['phone'] as String,
@@ -124,6 +135,7 @@ class SecureMessage extends Equatable {
     deleteAfterSeen: r['delete_after_seen'] == 1,
     seenAt: r['seen_at'] as int?,
     parts: r['parts'] as int?,
+    plain: r['plain'] == 1,
   );
 
   @override
@@ -139,6 +151,7 @@ class SecureMessage extends Equatable {
     deleteAfterSeen,
     seenAt,
     parts,
+    plain,
   ];
 }
 
@@ -216,10 +229,10 @@ class SecureMessageStore {
       SecureConversation(
         phone: r['phone'] as String,
         name: r['name'] as String,
-        peerKeyId: r['peer_key_id'] as String,
-        peerPublic: r['peer_public'] as Uint8List,
-        ownKeyId: r['own_key_id'] as String,
-        ownSource: r['own_source'] as String,
+        peerKeyId: r['peer_key_id'] as String?,
+        peerPublic: r['peer_public'] as Uint8List?,
+        ownKeyId: r['own_key_id'] as String?,
+        ownSource: r['own_source'] as String?,
         createdAt: r['created_at'] as int,
         lastAt: r['last_at'] as int,
         unread: r['unread'] as int,
@@ -286,6 +299,29 @@ class SecureMessageStore {
     );
     await txn.delete('sm_sessions', where: 'phone = ?', whereArgs: [phone]);
   });
+
+  /// A conversation without a key (a hidden contact reached by plain SMS);
+  /// an existing one — keyed or not — only takes the name.
+  Future<void> ensurePlainConversation({
+    required String phone,
+    required String name,
+    required int now,
+  }) async {
+    final inserted = await db.insert('sm_conversations', {
+      'phone': phone,
+      'name': name,
+      'created_at': now,
+      'last_at': now,
+    }, conflictAlgorithm: cipher.ConflictAlgorithm.ignore);
+    if (inserted == 0) await rename(phone, name);
+  }
+
+  Future<void> rename(String phone, String name) => db.update(
+    'sm_conversations',
+    {'name': name},
+    where: 'phone = ?',
+    whereArgs: [phone],
+  );
 
   Future<void> touchConversation(String phone, int at, {bool unread = false}) =>
       db.rawUpdate(
@@ -426,7 +462,28 @@ class SecureMessageStore {
         'delete_after_seen': m.deleteAfterSeen ? 1 : 0,
         'seen_at': m.seenAt,
         'parts': m.parts,
+        'plain': m.plain ? 1 : 0,
       }, conflictAlgorithm: cipher.ConflictAlgorithm.ignore);
+
+  /// Whether this plain SMS is already stored — a carrier's second delivery,
+  /// or a history row moved twice. (Encrypted ones are deduplicated by
+  /// their session and counter.)
+  Future<bool> hasPlain(
+    String phone, {
+    required bool outgoing,
+    required String body,
+    required int timestamp,
+  }) async {
+    final rows = await db.query(
+      'sm_messages',
+      columns: ['id'],
+      where:
+          'phone = ? AND outgoing = ? AND plain = 1 AND body = ? AND timestamp = ?',
+      whereArgs: [phone, outgoing ? 1 : 0, body, timestamp],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
+  }
 
   Future<void> addMessage(SecureMessage m) => insertMessage(db, m);
 

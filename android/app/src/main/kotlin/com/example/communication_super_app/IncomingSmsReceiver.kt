@@ -67,6 +67,14 @@ class IncomingSmsReceiver : BroadcastReceiver() {
             return
         }
 
+        // A hidden contact: sealed whole for the secure section.
+        if (com.example.communication_super_app.hidden.HiddenSms.receive(
+                context, address, body, timestamp, subscriptionId,
+            )
+        ) {
+            return
+        }
+
         // Encrypted: parked as ciphertext for the secure section, announced
         // without sender or text, never in the messages table.
         if (SecureSmsInbox.isEncrypted(body)) {

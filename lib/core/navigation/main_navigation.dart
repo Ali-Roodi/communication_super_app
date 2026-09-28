@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:communication_super_app/features/secure_sms/screens/secure_inbox_screen.dart';
+import 'package:communication_super_app/features/hidden/screens/hidden_calls_screen.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -146,6 +147,13 @@ class _MainNavigationState extends State<MainNavigation>
         Navigator.of(
           context,
         ).push(MaterialPageRoute(builder: (_) => const SecureInboxScreen()));
+      case LaunchActionType.hiddenCalls:
+        // A hidden contact's missed call: the hidden call history, on the
+        // same terms.
+        setState(() => _currentIndex = _recentsTab);
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const HiddenCallsScreen()));
     }
   }
 

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_bloc.dart';
@@ -30,6 +32,11 @@ import 'package:communication_super_app/features/edition/repositories/activation
 import 'package:communication_super_app/features/secure/bloc/secure_session_bloc.dart';
 import 'package:communication_super_app/features/keybank/bloc/key_bank_bloc.dart';
 import 'package:communication_super_app/features/secure_sms/bloc/secure_messages_bloc.dart';
+import 'package:communication_super_app/features/hidden/bloc/hidden_bloc.dart';
+import 'package:communication_super_app/features/call_history/bloc/call_log_event.dart';
+import 'package:communication_super_app/features/call_history/services/native_call_log_service.dart';
+import 'package:communication_super_app/features/messages/bloc/message_event.dart';
+import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:communication_super_app/features/secure/repositories/secure_store.dart';
 
 class AppBlocProviders extends StatelessWidget {
@@ -111,6 +118,37 @@ class AppBlocProviders extends StatelessWidget {
               ScheduledMessageBloc()..add(const LoadScheduled()),
         ),
         BlocProvider(create: (context) => CallLogBloc()),
+        // «دفترچه مخفی» — after SecureSessionBloc and SecureMessagesBloc (it
+        // hands a newly hidden number's SMS to the latter) and after
+        // MessageBloc / CallLogBloc (it refreshes them once that history has
+        // left the ordinary app). Not lazy: while the section is open it is
+        // what tells Kotlin which numbers to keep out of the system logs.
+        BlocProvider(
+          lazy: false,
+          create: (context) => HiddenBloc(
+            session: context.read<SecureSessionBloc>(),
+            callLogChanges: NativeCallLogService.instance.onCallLogChanged,
+            importHistory: (phone, name, history) {
+              final done = Completer<bool>();
+              context.read<SecureMessagesBloc>().add(
+                SecureImportHistory(phone, name, history, done: done),
+              );
+              return done.future;
+            },
+            renamePeer: (phones, name) => context
+                .read<SecureMessagesBloc>()
+                .add(SecureRenamePeer(phones, name)),
+            onHistoryMoved: (phones) {
+              final messages = context.read<MessageBloc>();
+              for (final phone in phones) {
+                messages.add(
+                  ThreadChangedExternally(PhoneNormalizer.toThreadId(phone)),
+                );
+              }
+              context.read<CallLogBloc>().add(const SyncCallLogs());
+            },
+          ),
+        ),
         BlocProvider(create: (context) => DialerBloc(ContactRepository())),
         BlocProvider(
           create: (context) =>

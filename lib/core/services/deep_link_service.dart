@@ -20,6 +20,10 @@ enum LaunchActionType {
   /// «پیام رمز جدید» tapped: the secure inbox. It carries nothing — the card
   /// names no sender, so neither does the action.
   secure,
+
+  /// A hidden contact's «تماس بی‌پاسخ» tapped: the hidden call history. It
+  /// carries nothing either.
+  hiddenCalls,
 }
 
 class LaunchAction {
@@ -56,6 +60,8 @@ class LaunchAction {
         );
       case 'secure':
         return const LaunchAction(type: LaunchActionType.secure);
+      case 'hiddenCalls':
+        return const LaunchAction(type: LaunchActionType.hiddenCalls);
       default:
         return null;
     }

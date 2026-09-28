@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'package:communication_super_app/features/secure/repositories/secure_message_store.dart';
 import 'package:communication_super_app/features/secure/repositories/secure_store.dart';
 import 'package:communication_super_app/features/secure/services/sms_crypto_service.dart';
+import 'package:communication_super_app/features/hidden/services/sealed_inbox.dart';
 import 'package:communication_super_app/features/secure_sms/repositories/secure_queue_repository.dart';
+import 'package:communication_super_app/features/secure_sms/services/hidden_sms_source.dart';
 import 'package:communication_super_app/features/secure_sms/services/secure_identities.dart';
 import 'package:communication_super_app/features/secure_sms/services/secure_messenger.dart';
 import 'package:communication_super_app/features/secure_sms/services/secure_sms_sender.dart';
@@ -277,6 +279,32 @@ class FakeQueue implements SecureQueueRepository {
   }
 }
 
+/// SMS from hidden contacts, as Kotlin would have sealed them.
+class FakeHidden implements HiddenSmsSource {
+  final List<SealedEntry> entries = [];
+  final Map<String, String> names = {};
+  var _id = 1;
+
+  void add(String address, String body, int at) => entries.add(
+    SealedEntry(
+      id: _id++,
+      record: {'address': address, 'body': body, 'timestamp': at},
+    ),
+  );
+
+  @override
+  Future<List<SealedEntry>> take() async => List.of(entries);
+
+  @override
+  Future<void> remove(Iterable<int> ids) async {
+    final gone = ids.toSet();
+    entries.removeWhere((e) => gone.contains(e.id));
+  }
+
+  @override
+  Future<String?> nameFor(String phone) async => names[phone];
+}
+
 /// The radio: holds what each phone sends until the test delivers it.
 class Air {
   final List<({String from, String to, String wire})> inFlight = [];
@@ -327,7 +355,8 @@ class Phone {
     Map<String, String> book,
     int seed,
   ) : identities = FakeIdentities(name, book),
-      queue = FakeQueue() {
+      queue = FakeQueue(),
+      hidden = FakeHidden() {
     store = SecureMessageStore(database: () => db);
     air.queues[number] = queue;
     messenger = SecureMessenger(
@@ -336,6 +365,7 @@ class Phone {
       identities: identities,
       crypto: FakeCrypto(seed),
       sender: air.senderFor(number),
+      hidden: hidden,
       clock: () => air.clock++,
     );
   }
@@ -346,6 +376,7 @@ class Phone {
   final Air air;
   final FakeIdentities identities;
   final FakeQueue queue;
+  final FakeHidden hidden;
   late final SecureMessageStore store;
   late final SecureMessenger messenger;
 
@@ -608,6 +639,118 @@ void main() {
     expect(
       (await ali.store.message(id))!.status,
       SecureMessageStatus.delivered,
+    );
+  });
+
+  group('hidden contacts (phase G)', () {
+    test(
+      'a plain SMS from a hidden contact is stored once, named, keyless',
+      () async {
+        ali.hidden.names['09125555555'] = 'رضا';
+        ali.hidden.add('09125555555', 'سلام، کجایی؟', 5000);
+        await ali.messenger.drain();
+        // Kotlin parked it again (the delete failed): still one message.
+        ali.hidden.add('09125555555', 'سلام، کجایی؟', 5000);
+        await ali.messenger.drain();
+
+        final c = (await ali.store.conversation('09125555555'))!;
+        expect(c.name, 'رضا');
+        expect(c.encrypted, isFalse);
+        expect(c.unread, 1);
+        final m = (await ali.thread('09125555555')).single;
+        expect(m.plain, isTrue);
+        expect(m.outgoing, isFalse);
+        expect(m.body, 'سلام، کجایی؟');
+        expect(ali.hidden.entries, isEmpty);
+      },
+    );
+
+    test(
+      'an encrypted SMS from a hidden contact goes through the engine',
+      () async {
+        ali.hidden.names[book['sara']!] = 'سارا (مخفی)';
+        await sara.messenger.startConversation(sara.identities.peer('ali'));
+        await sara.messenger.sendText(book['ali']!, 'رمزی');
+        // Ali's phone knows Sara as hidden: Kotlin sealed her SMS instead of
+        // queueing them.
+        for (var i = 0; i < 5 && air.inFlight.isNotEmpty; i++) {
+          final batch = List.of(air.inFlight);
+          air.inFlight.clear();
+          for (final p in batch) {
+            if (p.to == book['ali']) {
+              ali.hidden.add(p.from, p.wire, air.clock++);
+            } else {
+              sara.queue.add(p.from, p.wire, air.clock++);
+            }
+          }
+          await ali.messenger.drain();
+          await sara.messenger.drain();
+        }
+        final got = (await ali.thread(book['sara']!)).single;
+        expect(got.body, 'رمزی');
+        expect(got.plain, isFalse);
+        expect(
+          (await ali.store.conversation(book['sara']!))!.name,
+          'سارا (مخفی)',
+        );
+      },
+    );
+
+    test(
+      'a keyless conversation sends plain SMS at once, never a handshake',
+      () async {
+        await ali.messenger.startPlainConversation('09125555555', 'رضا');
+        await ali.messenger.sendPlain('09125555555', 'بدون رمز');
+        final sent = air.inFlight.single;
+        expect(sent.wire, 'بدون رمز');
+        final m = (await ali.thread('09125555555')).single;
+        expect(m.plain, isTrue);
+        expect(m.status, SecureMessageStatus.sent);
+        await ali.messenger.flush('09125555555'); // nothing to encrypt
+        expect(air.inFlight, hasLength(1));
+        expect(await ali.store.sessions('09125555555'), isEmpty);
+      },
+    );
+
+    test('a failed plain SMS is retried as plain', () async {
+      await ali.messenger.startPlainConversation('09125555555', 'رضا');
+      air.failNext = true;
+      await ali.messenger.sendPlain('09125555555', 'دوباره');
+      final failed = (await ali.thread('09125555555')).single;
+      expect(failed.status, SecureMessageStatus.failed);
+      await ali.messenger.retry(failed.id);
+      expect(air.inFlight.single.wire, 'دوباره');
+      expect(
+        (await ali.store.message(failed.id))!.status,
+        SecureMessageStatus.sent,
+      );
+    });
+
+    test('moved history is stored once, already read', () async {
+      final history = [
+        (outgoing: false, body: 'قدیمی ۱', timestamp: 10),
+        (outgoing: true, body: 'قدیمی ۲', timestamp: 20),
+      ];
+      await ali.messenger.importPlainHistory('09125555555', 'رضا', history);
+      await ali.messenger.importPlainHistory('09125555555', 'رضا', history);
+      final thread = await ali.thread('09125555555');
+      expect(thread.map((m) => m.body), ['قدیمی ۱', 'قدیمی ۲']);
+      expect(thread.every((m) => m.plain), isTrue);
+      expect(thread.first.seenAt, isNotNull);
+      final c = (await ali.store.conversation('09125555555'))!;
+      expect(c.unread, 0);
+      expect(c.lastAt, 20);
+    });
+
+    test(
+      'a key-bank conversation keeps its key when the contact is hidden',
+      () async {
+        await ali.messenger.startConversation(ali.identities.peer('sara'));
+        await ali.messenger.startPlainConversation(book['sara']!, 'سارا');
+        final c = (await ali.store.conversation(book['sara']!))!;
+        expect(c.encrypted, isTrue);
+        expect(c.name, 'سارا');
+      },
     );
   });
 }

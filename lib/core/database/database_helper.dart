@@ -341,6 +341,23 @@ class DatabaseHelper {
     if (oldVersion < 25) {
       await _createSecureQueueTable(db);
     }
+    if (oldVersion < 26) {
+      await _createSealedQueueTable(db);
+    }
+  }
+
+  /// Sealed hidden-phonebook records (v26) — see
+  /// [AppConstants.sealedQueueTable]. Byte-for-byte the DDL
+  /// `hidden/SealedInbox.kt` runs, both `IF NOT EXISTS`.
+  Future<void> _createSealedQueueTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.sealedQueueTable} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind TEXT NOT NULL,
+        blob BLOB NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    ''');
   }
 
   /// Encrypted SMS waiting for the secure section (v25) — see
@@ -1064,6 +1081,9 @@ class DatabaseHelper {
 
       // Encrypted SMS waiting for the secure section (v25)
       await _createSecureQueueTable(db);
+
+      // Sealed hidden-phonebook records (v26)
+      await _createSealedQueueTable(db);
     } catch (e) {
       throw Exception('Failed to create database tables: $e');
     }

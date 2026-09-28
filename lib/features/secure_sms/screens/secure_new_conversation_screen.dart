@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
+import 'package:communication_super_app/features/hidden/bloc/hidden_bloc.dart';
 import 'package:communication_super_app/features/keybank/screens/key_bank_screen.dart';
 
 import '../bloc/secure_messages_bloc.dart';
@@ -96,6 +97,50 @@ class _SecureNewConversationScreenState
       ),
     );
     if (picked != null) _start(picked);
+  }
+
+  List<Widget> _hiddenSection(BuildContext context, ColorScheme scheme) {
+    final hidden = context.watch<HiddenBloc>().state.contacts;
+    final rows = [
+      for (final c in hidden)
+        for (final n in c.numbers)
+          if (n.textable &&
+              (_filter.isEmpty ||
+                  c.name.contains(_filter) ||
+                  n.phone.contains(PersianUtils.toEnglishNumber(_filter))))
+            (contact: c, phone: n.phone),
+    ];
+    if (rows.isEmpty) return const [];
+    return [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+        child: Text(
+          'دفترچه مخفی',
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+            color: scheme.primary,
+          ),
+        ),
+      ),
+      for (final r in rows)
+        ListTile(
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 4,
+          ),
+          leading: CircleAvatar(
+            backgroundColor: scheme.primaryContainer,
+            child: Text(
+              PersianUtils.getInitials(r.contact.name),
+              style: TextStyle(color: scheme.onPrimaryContainer),
+            ),
+          ),
+          title: Text(r.contact.name),
+          subtitle: Text(PersianUtils.displayPhone(r.phone)),
+          onTap: () => _bloc.add(SecureOpenWith(r.phone, r.contact.name)),
+        ),
+    ];
   }
 
   @override
@@ -205,7 +250,13 @@ class _SecureNewConversationScreenState
                       ),
                       onTap: () => _start(p),
                     ),
-                  if (state.peers.isEmpty)
+                  // «دفترچه مخفی»: every hidden contact can be written to —
+                  // encrypted when the key bank has their key, plain if not.
+                  ..._hiddenSection(context, scheme),
+                  if (state.peers.isEmpty &&
+                      !context.watch<HiddenBloc>().state.contacts.any(
+                        (c) => c.numbers.any((n) => n.textable),
+                      ))
                     Padding(
                       padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
                       child: Column(

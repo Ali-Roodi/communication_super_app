@@ -21,6 +21,9 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
 import com.example.communication_super_app.BlockedNumbers
 import com.example.communication_super_app.R
+import com.example.communication_super_app.hidden.HiddenCallLog
+import com.example.communication_super_app.hidden.HiddenHandler
+import com.example.communication_super_app.hidden.HiddenNumbers
 
 /**
  * The in-call UI binding for cellular calls — bound by telecom while this app
@@ -966,6 +969,12 @@ class CallInCallService : InCallService() {
             )
         }
 
+        // A hidden contact's call must not stay in the system call log:
+        // telecom writes the row a moment from now, and the sweep moves it.
+        if (HiddenNumbers.isHidden(this, phoneOf(call))) {
+            HiddenCallLog.sweepAfterCall(this)
+        }
+
         // Only LIVE top-level calls keep the UI up — see LIVE_STATES. Telecom
         // keeps freshly-added STATE_NEW placeholders and just-disconnected legs
         // bound for a while, and treating one of those as "another call is
@@ -1512,6 +1521,11 @@ class CallInCallService : InCallService() {
         ensureChannels(applicationContext)
         val piFlags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
 
+        if (HiddenNumbers.isHidden(this, phone)) {
+            postHiddenMissedNotice(nm, piFlags)
+            return
+        }
+
         // Stable per caller, so a repeat call updates the card instead of
         // adding another. An unknown number ("") still gets its own slot.
         val notifId = MISSED_ID_BASE + (phone.hashCode() and 0xFFFF)
@@ -1605,9 +1619,40 @@ class CallInCallService : InCallService() {
         // «تماس بی‌پاسخ» never appeared at all.
     }
 
+    /**
+     * A missed call from a hidden contact: «تماس بی‌پاسخ» and nothing else —
+     * no name, no number, no call-back action (owner's decision, 1405/07/06).
+     * Tapping it opens the hidden call history, which asks for the section.
+     * Not marked for [markMissedCall] either: that stores the number in the
+     * clear.
+     */
+    private fun postHiddenMissedNotice(nm: NotificationManager, piFlags: Int) {
+        val count = HiddenHandler.hiddenMissed.incrementAndGet()
+        val launch = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(HiddenHandler.EXTRA_OPEN_HIDDEN_CALLS, true)
+        } ?: Intent()
+        val title = if (count > 1) "$count تماس بی‌پاسخ" else "تماس بی‌پاسخ"
+        val notification = NotificationCompat.Builder(this, MISSED_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_call)
+            .setContentTitle(title)
+            .setContentText("برای دیدن، بخش امن را باز کنید")
+            .setCategory(NotificationCompat.CATEGORY_MISSED_CALL)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setNumber(count)
+            .setAutoCancel(true)
+            .setContentIntent(
+                PendingIntent.getActivity(this, HiddenHandler.MISSED_NOTICE_ID, launch, piFlags),
+            )
+            .build()
+        nm.notify(HiddenHandler.MISSED_NOTICE_ID, notification)
+    }
+
     /** The caller's photo thumbnail, for the missed-call card's large icon. */
     private fun lookupContactPhoto(phone: String): android.graphics.Bitmap? {
         if (phone.isEmpty()) return null
+        // A hidden contact has no photo outside the secure section.
+        if (HiddenNumbers.isHidden(this, phone)) return null
         return try {
             val uri = Uri.withAppendedPath(
                 ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(phone),
@@ -1627,6 +1672,9 @@ class CallInCallService : InCallService() {
 
     private fun lookupContactName(phone: String): String? {
         if (phone.isEmpty()) return null
+        // A hidden contact: named only while the section is open, and never
+        // from the address book (owner's decision, 1405/07/06).
+        if (HiddenNumbers.isHidden(this, phone)) return HiddenNumbers.nameFor(phone)
         return try {
             val uri = Uri.withAppendedPath(
                 ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(phone),

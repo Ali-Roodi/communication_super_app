@@ -124,7 +124,7 @@ class _ConversationRow extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final unread = c.unread > 0;
     final preview = c.lastBody == null
-        ? 'در انتظار برقراری کانال امن'
+        ? (c.encrypted ? 'در انتظار برقراری کانال امن' : 'بدون پیام')
         : (c.lastOutgoing ? 'شما: ${c.lastBody}' : c.lastBody!);
     return InkWell(
       onTap: () => Navigator.of(context).push(

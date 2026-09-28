@@ -15,7 +15,7 @@ sourceSets {
     main {
         kotlin {
             srcDir(appCrypto)
-            exclude("**/SmsCryptoHandler.kt", "**/KeyFilePicker.kt")
+            exclude("**/SmsCryptoHandler.kt", "**/KeyFilePicker.kt", "**/SecureSmsInbox.kt")
         }
     }
 }

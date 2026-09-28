@@ -6,6 +6,8 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.CallLog
 import android.util.Log
+import com.example.communication_super_app.hidden.HiddenCallLog
+import com.example.communication_super_app.hidden.HiddenNumbers
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -177,6 +179,11 @@ class CallLogSyncHandler(private val context: Context) {
             args.add(untilMs.toString())
         }
 
+        // Hidden contacts' calls never reach the mirror (matrix row 35). The
+        // sweep moves them out of the provider; the filter covers the moment
+        // before it has.
+        val hiding = HiddenNumbers.any(context)
+        if (hiding) HiddenCallLog.sweepAsync(context, full = false)
         val rows = ArrayList<Map<String, Any?>>()
         context.contentResolver.query(
             CallLog.Calls.CONTENT_URI,
@@ -199,6 +206,11 @@ class CallLogSyncHandler(private val context: Context) {
             val durationIndex = cursor.getColumnIndex(CallLog.Calls.DURATION)
             val accountIndex = cursor.getColumnIndex(CallLog.Calls.PHONE_ACCOUNT_ID)
             while (cursor.moveToNext()) {
+                if (hiding && numberIndex >= 0 &&
+                    HiddenNumbers.isHidden(context, cursor.getString(numberIndex))
+                ) {
+                    continue
+                }
                 rows.add(
                     mapOf(
                         "id" to if (idIndex >= 0) cursor.getString(idIndex) else null,
@@ -229,9 +241,12 @@ class CallLogSyncHandler(private val context: Context) {
      */
     private fun queryIdsSince(sinceMs: Long): List<String> {
         val ids = ArrayList<String>()
+        // A hidden number's rows are left out, so the diff drops any the
+        // mirror took before the number was hidden.
+        val hiding = HiddenNumbers.any(context)
         context.contentResolver.query(
             CallLog.Calls.CONTENT_URI,
-            arrayOf(CallLog.Calls._ID),
+            if (hiding) arrayOf(CallLog.Calls._ID, CallLog.Calls.NUMBER) else arrayOf(CallLog.Calls._ID),
             if (sinceMs > 0) "${CallLog.Calls.DATE} >= ?" else null,
             if (sinceMs > 0) arrayOf(sinceMs.toString()) else null,
             "${CallLog.Calls.DATE} DESC"
@@ -239,6 +254,7 @@ class CallLogSyncHandler(private val context: Context) {
             val idIndex = cursor.getColumnIndex(CallLog.Calls._ID)
             if (idIndex < 0) return ids
             while (cursor.moveToNext()) {
+                if (hiding && HiddenNumbers.isHidden(context, cursor.getString(1))) continue
                 ids.add(cursor.getString(idIndex) ?: continue)
             }
         }
