@@ -1328,10 +1328,17 @@ class CallInCallService : InCallService() {
         } ?: Intent()
         val fullScreen = PendingIntent.getActivity(this, 0, launch, piFlags)
 
-        val answer = PendingIntent.getBroadcast(
-            this, 1,
-            Intent(CallActionReceiver.ACTION_ANSWER).setPackage(packageName), piFlags,
-        )
+        // «رمز برای پاسخ به تماس»: answering straight from the shade would walk
+        // past the app lock, so «پاسخ» opens the incoming screen instead — the
+        // same intent as tapping the card — and the lock is asked there.
+        val answer = if (CallPrefs.pinToAnswerCalls(applicationContext)) {
+            fullScreen
+        } else {
+            PendingIntent.getBroadcast(
+                this, 1,
+                Intent(CallActionReceiver.ACTION_ANSWER).setPackage(packageName), piFlags,
+            )
+        }
         val decline = PendingIntent.getBroadcast(
             this, 2,
             Intent(CallActionReceiver.ACTION_DECLINE).setPackage(packageName), piFlags,

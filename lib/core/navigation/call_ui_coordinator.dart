@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:communication_super_app/core/widgets/app_lock_wrapper.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_bloc.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_event.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_state.dart';
@@ -40,6 +41,11 @@ class CallUiCoordinator extends StatefulWidget {
 
   /// Brings the call screen back: the in-app bar, and the notification tap.
   static void restore() => _CallUiCoordinatorState._instance?._restore();
+
+  /// Puts the call screen back over the app lock that `AppLockWrapper` has
+  /// just pushed on top of it. No-op when no call screen is up.
+  static void raiseAboveLock() =>
+      _CallUiCoordinatorState._instance?._raiseAboveLock();
 
   @override
   State<CallUiCoordinator> createState() => _CallUiCoordinatorState();
@@ -161,6 +167,28 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator>
     _reportCallScreenVisible(true);
   }
 
+  void _raiseAboveLock() {
+    if (!mounted) return;
+    final route = _callRoute;
+    if (route == null || !route.isActive || route.isCurrent) return;
+    final state = context.read<DialerBloc>().state;
+    if (state.callStatus == CallStatus.idle) return;
+    // Re-pushed rather than moved — a navigator cannot reorder — and with no
+    // transition, in the frame the lock was pushed in: nobody sees either.
+    _pushCall(
+      context,
+      _callRouteIsIncoming
+          ? IncomingCallScreen(
+              phone: state.activePhone,
+              contactName: state.activeName,
+            )
+          : InCallScreen(
+              phone: state.activePhone,
+              contactName: state.activeName,
+            ),
+    );
+  }
+
   /// Coming back to the app is the moment to check the call screen is not a
   /// ghost: every teardown path is an event, and a missed event leaves the
   /// user staring at a call that ended (timer still ticking). Telecom is asked
@@ -227,6 +255,22 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator>
     // second call answered from the shade re-opens the screen too.
     CallUiCoordinator.minimized.value = false;
     _reportCallScreenVisible(true);
+    // «رمز برای پاسخ به تماس»: a lone ringing call waits behind the lock when
+    // the app is locked. Not with a call already on the line (call waiting):
+    // the lock would cover that conversation too.
+    if (_callRouteIsIncoming) {
+      final dialer = context.read<DialerBloc>();
+      if (dialer.state.callCount <= 1) {
+        unawaited(
+          AppLock.coverRingingCall(
+            () =>
+                mounted &&
+                identical(_callRoute, route) &&
+                dialer.state.callStatus == CallStatus.incoming,
+          ),
+        );
+      }
+    }
   }
 
   void _dismissCallRoutes() {
@@ -244,12 +288,18 @@ class _CallUiCoordinatorState extends State<CallUiCoordinator>
   /// so the call screen is visible again — used when a second call starts
   /// from the "افزودن تماس" flow. No-op when the call route isn't in the
   /// stack.
+  ///
+  /// It stops at the app lock: the lock is above a call screen only because
+  /// the user asked for the PIN before answering, and popping it here — the
+  /// incoming card tapped again — would be a way past the PIN.
   void _bringCallRouteToTop(BuildContext context) {
     final navigator = appNavigatorKey.currentState;
     final route = _callRoute;
     if (navigator == null) return;
     if (route != null && route.isActive) {
-      navigator.popUntil((r) => r == route || r.isFirst);
+      navigator.popUntil(
+        (r) => r == route || r.isFirst || AppLock.isLockRoute(r),
+      );
     }
   }
 

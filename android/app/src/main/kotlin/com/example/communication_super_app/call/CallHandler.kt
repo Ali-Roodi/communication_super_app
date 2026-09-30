@@ -165,6 +165,15 @@ class CallHandler(
                     "getBlockUnknownCallers" -> result.success(
                         CallPrefs.blockUnknownCallers(context),
                     )
+                    // «رمز برای پاسخ به تماس» — read when the incoming card is
+                    // posted, usually with no engine. See [CallPrefs].
+                    "setPinToAnswerCalls" -> {
+                        CallPrefs.setPinToAnswerCalls(
+                            context,
+                            call.argument<Boolean>("value") ?: false,
+                        )
+                        result.success(true)
+                    }
                     else              -> result.notImplemented()
                 }
             } catch (e: SecurityException) {

@@ -23,6 +23,7 @@ import 'package:communication_super_app/features/dialer/screens/speed_dial_scree
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/features/messages/services/native_sms_service.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
+import 'package:communication_super_app/features/settings/bloc/settings_event.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_state.dart';
 import 'package:communication_super_app/features/messages/screens/spam_and_blocked_screen.dart';
 import 'package:communication_super_app/features/settings/screens/privacy_policy_page.dart';
@@ -537,6 +538,7 @@ class _SecurityGroupState extends State<_SecurityGroup> {
             },
             onTap: () => _pickRelock(context),
           ),
+        if (hasPin) const _PinToAnswerCallsRow(),
         if (hasPin)
           SettingsRow(
             icon: Icons.key_outlined,
@@ -555,6 +557,34 @@ class _SecurityGroupState extends State<_SecurityGroup> {
             onTap: () => _confirmRemovePin(context),
           ),
       ],
+    );
+  }
+}
+
+/// «رمز برای پاسخ به تماس» — see [BoolSetting.pinToAnswerCalls]. The same row
+/// in every edition: the secure section has its own lock, so what this guards
+/// is the app lock alone.
+class _PinToAnswerCallsRow extends StatelessWidget {
+  const _PinToAnswerCallsRow();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<SettingsBloc, SettingsState>(
+      buildWhen: (a, b) => a.pinToAnswerCalls != b.pinToAnswerCalls,
+      builder: (context, state) {
+        void set(bool value) => context.read<SettingsBloc>().add(
+          SetBoolSetting(BoolSetting.pinToAnswerCalls, value),
+        );
+        return SettingsRow(
+          icon: Icons.phone_locked_outlined,
+          title: 'رمز برای پاسخ به تماس',
+          summary: state.pinToAnswerCalls
+              ? 'وقتی برنامه قفل است، پیش از پاسخ به تماس رمز خواسته می‌شود'
+              : 'تماس ورودی بدون وارد کردن رمز پاسخ داده می‌شود',
+          onTap: () => set(!state.pinToAnswerCalls),
+          trailing: Switch(value: state.pinToAnswerCalls, onChanged: set),
+        );
+      },
     );
   }
 }

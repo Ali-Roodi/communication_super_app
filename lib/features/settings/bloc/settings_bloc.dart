@@ -57,6 +57,15 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     return prefs.getBool(_keyOf(BoolSetting.showDialpadOnStart)) ?? false;
   }
 
+  /// Reads «رمز برای پاسخ به تماس» straight from storage, for the same reason:
+  /// a call cold-starts the app, and the lock decision for its screen is made
+  /// before `LoadSettings` has landed — reading the state there would leave
+  /// the call unlocked for a user who asked for the PIN.
+  static Future<bool> readPinToAnswerCalls() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_keyOf(BoolSetting.pinToAnswerCalls)) ?? false;
+  }
+
   Future<void> _onLoad(LoadSettings event, Emitter<SettingsState> emit) async {
     final prefs = await SharedPreferences.getInstance();
     const defaults = SettingsState();
@@ -99,6 +108,7 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
         swipeActions: b(BoolSetting.swipeActions),
         deliveryReports: b(BoolSetting.deliveryReports),
         blockUnknownCallers: b(BoolSetting.blockUnknownCallers),
+        pinToAnswerCalls: b(BoolSetting.pinToAnswerCalls),
         autoRedial: b(BoolSetting.autoRedial),
         autoRedialAttempts: autoRedialAttempts,
         calendarType: calendar,
@@ -119,6 +129,11 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
         b(BoolSetting.blockUnknownCallers),
       ),
     );
+    unawaited(
+      NativeCallService.instance.setPinToAnswerCalls(
+        b(BoolSetting.pinToAnswerCalls),
+      ),
+    );
 
     for (final key in _retiredKeys) {
       if (prefs.containsKey(key)) await prefs.remove(key);
@@ -135,6 +150,9 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     }
     if (event.key == BoolSetting.blockUnknownCallers) {
       unawaited(NativeCallService.instance.setBlockUnknownCallers(event.value));
+    }
+    if (event.key == BoolSetting.pinToAnswerCalls) {
+      unawaited(NativeCallService.instance.setPinToAnswerCalls(event.value));
     }
     if (event.key == BoolSetting.autoRedial) {
       AutoRedialPolicy.enabled = event.value;
