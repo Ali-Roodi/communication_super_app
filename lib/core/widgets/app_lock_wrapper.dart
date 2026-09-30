@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/services/app_handoff.dart';
 import 'package:communication_super_app/core/navigation/call_ui_coordinator.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_bloc.dart';
+import 'package:communication_super_app/features/authentication/bloc/auth_event.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_state.dart';
 import 'package:communication_super_app/features/authentication/models/auth_type.dart';
 import 'package:communication_super_app/features/authentication/models/pin_policy.dart';
@@ -12,6 +13,8 @@ import 'package:communication_super_app/features/authentication/repositories/pin
 import 'package:communication_super_app/features/authentication/screens/recovery_code_screen.dart';
 import 'package:communication_super_app/features/authentication/screens/widgets/pin_pad.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_bloc.dart';
+import 'package:communication_super_app/features/dialer/bloc/dialer_state.dart';
+import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
 
 /// «قفل خودکار» — asks for the PIN again when the app comes back after sitting
 /// in the background for longer than the user chose
@@ -26,10 +29,12 @@ import 'package:communication_super_app/features/dialer/bloc/dialer_bloc.dart';
 /// over the navigator: it has to cover whatever screen was open (every one of
 /// them is a pushed route) and it has to swallow the back key, which an overlay
 /// above the navigator cannot — back would pop the conversation underneath it.
-/// Being an ordinary route is also what keeps calls working: `CallUiCoordinator`
-/// pushes the call screen *after* it, so a ringing phone is answerable on top
-/// of the lock and the lock is still there when the call is over. That is the
-/// default-dialer rule `CallUiCoordinator` already follows for the PIN screen.
+/// Being an ordinary route is also what keeps calls working: a call screen
+/// sits *above* the lock, so a ringing phone is answerable on top of it and the
+/// lock is still there when the call is over. That is the default-dialer rule
+/// `CallUiCoordinator` already follows for the PIN screen — and the order is
+/// kept whichever of the two arrives first (see [AppLock]), unless the user
+/// asked for «رمز برای پاسخ به تماس».
 class AppLockWrapper extends StatefulWidget {
   final Widget child;
 
@@ -49,9 +54,6 @@ class _AppLockWrapperState extends State<AppLockWrapper>
   /// A trip out that the app started itself (the key-file picker) — see
   /// [AppHandoff].
   final HandoffPause _handoff = HandoffPause();
-
-  /// The lock screen on the navigator, while it is up.
-  Route<void>? _lockRoute;
 
   @override
   void initState() {
@@ -88,21 +90,69 @@ class _AppLockWrapperState extends State<AppLockWrapper>
   }
 
   Future<void> _maybeLock(Duration away) async {
-    if (_lockRoute?.isActive == true) return;
+    if (AppLock.isUp) return;
     // Only a session that is open: the first unlock of a process is the PIN
     // screen `AuthWrapperScreen` already shows.
     if (context.read<AuthBloc>().state is! AuthAuthenticated) return;
-    // A live call owns the screen. Its UI goes over the lock anyway, but
-    // coming back to a call through the shade must not stop at a PIN first.
-    if (context.read<DialerBloc>().state.isInCall) return;
+    // An answered call owns the screen: coming back to it through the shade
+    // must not stop at a PIN first. A *ringing* one is not skipped — it is
+    // locked under (below), so declining it does not leave the app open.
+    if (_answeredCallUp()) return;
     if (await _repository.getAuthType() != AuthType.pin) return;
     final after = await AuthRepository.relockAfterSeconds();
     if (away.inSeconds < after) return;
-    if (!mounted) return;
+    final pinToAnswer = await SettingsBloc.readPinToAnswerCalls();
+    if (!mounted || _answeredCallUp()) return;
     final navigator = appNavigatorKey.currentState;
     if (navigator == null) return;
 
     await _repository.setAuthenticated(false);
+    AppLock.push(navigator);
+    // The phone rang while the app was away and the full-screen intent is
+    // what brought it back: the incoming screen is already up and the lock
+    // just landed on top of it. That put a PIN between the user and a
+    // ringing phone — the reported «برای پاسخ به تماس باید رمز وارد کرد».
+    // Unless they asked for exactly that, the call goes back on top, in the
+    // same frame.
+    if (!pinToAnswer) CallUiCoordinator.raiseAboveLock();
+  }
+
+  /// A call that has been answered — alone, or with a second one ringing over
+  /// it (call waiting): either way there is a conversation on the line.
+  bool _answeredCallUp() {
+    final dialer = context.read<DialerBloc>().state;
+    return dialer.isInCall ||
+        (dialer.callStatus == CallStatus.incoming && dialer.callCount > 1);
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
+/// The lock screen as a route on [appNavigatorKey], and where it sits relative
+/// to the call screens.
+///
+/// Two things push onto the same navigator independently — the lock (on
+/// resume, from [AppLockWrapper]) and the call screen (on a telecom event,
+/// from `CallUiCoordinator`) — and which lands first is a race: a ringing
+/// phone brings the app forward, so the resume and the call event arrive
+/// together. The order must not depend on it, so each side knows about the
+/// other: the lock hands a ringing call back the top ([AppLockWrapper]), the
+/// coordinator never pops the lock to raise its screen, and with «رمز برای
+/// پاسخ به تماس» on the coordinator asks for the lock over its incoming screen
+/// ([coverRingingCall]).
+abstract final class AppLock {
+  static Route<void>? _route;
+
+  /// Whether the lock screen is on the navigator.
+  static bool get isUp => _route?.isActive == true;
+
+  /// Whether [route] is the lock — the one route a call screen must never pop.
+  static bool isLockRoute(Route<dynamic> route) => identical(route, _route);
+
+  /// Pushes the lock on top of whatever is showing. A lock already somewhere
+  /// lower in the stack is retired: one PIN opens the app, not two.
+  static void push(NavigatorState navigator) {
     final route = PageRouteBuilder<void>(
       // No transition: the app's content must not slide out from under the
       // lock in view of whoever is holding the phone.
@@ -110,14 +160,40 @@ class _AppLockWrapperState extends State<AppLockWrapper>
       reverseTransitionDuration: Duration.zero,
       pageBuilder: (_, _, _) => const RelockScreen(),
     );
-    _lockRoute = route;
-    await navigator.push(route);
-    // Popped — by a correct PIN, or by the recovery flow clearing the stack.
-    if (identical(_lockRoute, route)) _lockRoute = null;
+    final previous = _route;
+    _route = route;
+    navigator.push(route).then((_) {
+      // Popped — by a correct PIN, or by the recovery flow clearing the stack.
+      if (identical(_route, route)) _route = null;
+    });
+    if (previous != null && previous.isActive) navigator.removeRoute(previous);
   }
 
-  @override
-  Widget build(BuildContext context) => widget.child;
+  /// «رمز برای پاسخ به تماس»: puts the lock over the incoming screen that
+  /// `CallUiCoordinator` has just pushed, when the user asked for the PIN
+  /// before answering and the app is locked — cold-started by the ring onto
+  /// its PIN screen, or re-locked.
+  ///
+  /// [stillRinging] is asked again after the reads: the call may have been
+  /// answered (a headset, a car) or gone away meanwhile, and an answered call
+  /// is never put behind the PIN.
+  static Future<void> coverRingingCall(bool Function() stillRinging) async {
+    final repository = AuthRepository();
+    try {
+      if (!await SettingsBloc.readPinToAnswerCalls()) return;
+      if (await repository.getAuthType() != AuthType.pin) return;
+      if (await repository.isAuthenticated()) return;
+    } catch (e) {
+      // Nothing thrown from here may reach the call path; the screen stays
+      // answerable, which is also the default.
+      debugPrint('AppLock: could not decide on covering the call: $e');
+      return;
+    }
+    final navigator = appNavigatorKey.currentState;
+    if (navigator == null || !stillRinging()) return;
+    if (_route?.isCurrent == true) return;
+    push(navigator);
+  }
 }
 
 /// The PIN screen over a session that was already open.
@@ -177,7 +253,12 @@ class _RelockScreenState extends State<RelockScreen> {
     if (!mounted) return;
     if (ok) {
       await _repository.setAuthenticated(true);
-      if (mounted) Navigator.of(context).pop();
+      if (!mounted) return;
+      // Over a call that cold-started the app («رمز برای پاسخ به تماس») the
+      // launch PIN screen is still underneath; one PIN opens both.
+      final auth = context.read<AuthBloc>();
+      if (auth.state is AuthSet) auth.add(const Authenticate());
+      Navigator.of(context).pop();
       return;
     }
     final wait = await _repository.pinRetryAfter();

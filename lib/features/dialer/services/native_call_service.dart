@@ -463,6 +463,17 @@ class NativeCallService {
     }
   }
 
+  /// Mirrors «رمز برای پاسخ به تماس» natively: the incoming card's «پاسخ» is
+  /// built in `CallInCallService` when the call is added, usually with no
+  /// engine. Pushed on load and on change, like [setBlockUnknownCallers].
+  Future<void> setPinToAnswerCalls(bool value) async {
+    try {
+      await _method.invokeMethod('setPinToAnswerCalls', {'value': value});
+    } catch (e) {
+      debugPrint('setPinToAnswerCalls failed: $e');
+    }
+  }
+
   /// Opens the per-app settings screen where that is granted.
   Future<void> openFullScreenIntentSettings() async {
     try {

@@ -48,6 +48,16 @@ enum BoolSetting {
   /// bank) is not rare. Mirrored natively; see `CallPrefs`.
   blockUnknownCallers,
 
+  /// «رمز برای پاسخ به تماس» — whether a ringing call waits behind the app
+  /// lock. Off by default: the call screen goes *over* the lock and the lock
+  /// is still there when the call ends, because a phone that has to be
+  /// unlocked before it can be answered is unusable while driving. On, the
+  /// incoming screen is covered by the lock whenever the app is locked, and
+  /// «پاسخ» on the card opens it instead of answering (mirrored natively; see
+  /// `CallPrefs`). Only a *ringing* call — one already answered (a headset, a
+  /// car) is never put behind the PIN. Read by `AppLock`.
+  pinToAnswerCalls,
+
   /// Dial a failed outgoing call again — busy, or dropped before it connected
   /// — after a visible countdown, up to [SettingsState.autoRedialAttempts]
   /// times. Off by default: a phone that dials by itself has to be asked for.
@@ -65,6 +75,7 @@ class SettingsState extends Equatable {
   final bool swipeActions;
   final bool deliveryReports;
   final bool blockUnknownCallers;
+  final bool pinToAnswerCalls;
   final bool autoRedial;
 
   /// «تعداد تلاش‌ها» for [autoRedial] — one of
@@ -88,6 +99,7 @@ class SettingsState extends Equatable {
     this.swipeActions = true,
     this.deliveryReports = true,
     this.blockUnknownCallers = false,
+    this.pinToAnswerCalls = false,
     this.autoRedial = false,
     this.autoRedialAttempts = AutoRedialPolicy.defaultAttempts,
     this.calendarType = CalendarType.jalali,
@@ -114,6 +126,8 @@ class SettingsState extends Equatable {
         return deliveryReports;
       case BoolSetting.blockUnknownCallers:
         return blockUnknownCallers;
+      case BoolSetting.pinToAnswerCalls:
+        return pinToAnswerCalls;
       case BoolSetting.autoRedial:
         return autoRedial;
     }
@@ -129,6 +143,7 @@ class SettingsState extends Equatable {
     bool? swipeActions,
     bool? deliveryReports,
     bool? blockUnknownCallers,
+    bool? pinToAnswerCalls,
     bool? autoRedial,
     int? autoRedialAttempts,
     CalendarType? calendarType,
@@ -144,6 +159,7 @@ class SettingsState extends Equatable {
       swipeActions: swipeActions ?? this.swipeActions,
       deliveryReports: deliveryReports ?? this.deliveryReports,
       blockUnknownCallers: blockUnknownCallers ?? this.blockUnknownCallers,
+      pinToAnswerCalls: pinToAnswerCalls ?? this.pinToAnswerCalls,
       autoRedial: autoRedial ?? this.autoRedial,
       autoRedialAttempts: autoRedialAttempts ?? this.autoRedialAttempts,
       calendarType: calendarType ?? this.calendarType,
@@ -171,6 +187,8 @@ class SettingsState extends Equatable {
         return copyWith(deliveryReports: value);
       case BoolSetting.blockUnknownCallers:
         return copyWith(blockUnknownCallers: value);
+      case BoolSetting.pinToAnswerCalls:
+        return copyWith(pinToAnswerCalls: value);
       case BoolSetting.autoRedial:
         return copyWith(autoRedial: value);
     }
@@ -187,6 +205,7 @@ class SettingsState extends Equatable {
     swipeActions,
     deliveryReports,
     blockUnknownCallers,
+    pinToAnswerCalls,
     autoRedial,
     autoRedialAttempts,
     calendarType,

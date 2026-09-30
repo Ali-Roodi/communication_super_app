@@ -17,6 +17,7 @@ import android.content.Context
 object CallPrefs {
     private const val FILE = "call_prefs"
     private const val KEY_BLOCK_UNKNOWN = "block_unknown_callers"
+    private const val KEY_PIN_TO_ANSWER = "pin_to_answer_calls"
 
     /**
      * «مسدود کردن تماس‌های ناشناس» — reject calls that arrive with no number:
@@ -40,6 +41,30 @@ object CallPrefs {
         } catch (e: Exception) {
             // A preference that cannot be written simply stays at its default;
             // failing a settings toggle over it would be worse.
+        }
+    }
+
+    /**
+     * «رمز برای پاسخ به تماس» — when on, «پاسخ» on the incoming-call card
+     * opens the app's incoming screen (where the app lock is asked first)
+     * instead of answering straight from the shade. Off by default: a ringing
+     * phone must be answerable with one touch — while driving above all.
+     */
+    fun pinToAnswerCalls(context: Context): Boolean = try {
+        context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+            .getBoolean(KEY_PIN_TO_ANSWER, false)
+    } catch (e: Exception) {
+        false
+    }
+
+    fun setPinToAnswerCalls(context: Context, value: Boolean) {
+        try {
+            context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(KEY_PIN_TO_ANSWER, value)
+                .apply()
+        } catch (e: Exception) {
+            // Stays at its default, as above.
         }
     }
 }
