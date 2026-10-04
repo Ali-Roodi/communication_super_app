@@ -117,9 +117,11 @@ app.*.symbols
 !CLAUDE.md
 !README.md
 
-# The mentor report: its PDF and HTML source are tracked; the screenshots
-# the HTML is built from stay local (the PDF already embeds them).
+# The mentor report and user manual: their PDF and HTML source are tracked;
+# the screenshots the HTML is built from stay local (the PDF already embeds
+# them).
 docs/mentor/img/
+docs/mentor/manual-img/
 
 # Exceptions to above rules.
 !**/ios/**/default.mode1v3
