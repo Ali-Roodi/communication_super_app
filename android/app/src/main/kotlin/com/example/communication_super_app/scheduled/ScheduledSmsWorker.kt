@@ -8,6 +8,8 @@ import android.os.Build
 import android.provider.Telephony
 import android.telephony.SmsManager
 import android.util.Log
+import com.example.communication_super_app.hidden.HiddenNumbers
+import com.example.communication_super_app.hidden.HiddenSms
 import com.example.communication_super_app.sim.SimRegistry
 import java.util.Calendar
 import java.util.UUID
@@ -82,7 +84,13 @@ object ScheduledSmsWorker {
                     SimRegistry.defaultSmsSubscriptionId()
                 }
                 val sent = sendSms(context, row.phoneNumber, row.body, subscriptionId)
-                if (sent) {
+                if (sent && HiddenNumbers.isHidden(context, row.phoneNumber)) {
+                    // Hidden after it was scheduled (scheduling to a hidden
+                    // number is refused): the copy is sealed for the secure
+                    // section, never written to the provider or the chat.
+                    HiddenSms.recordSent(context, row.phoneNumber, row.body, now, subscriptionId)
+                    db.update(TABLE, advance(row, now), "id = ?", arrayOf(row.id))
+                } else if (sent) {
                     // Provider write-through (default-SMS-app only): the system
                     // doesn't store sends from the role holder, so without this
                     // a background-scheduled SMS is invisible to other SMS apps.
@@ -447,7 +455,8 @@ object ScheduledSmsWorker {
 
     // ── Sending ────────────────────────────────────────────────────────────--
 
-    private fun sendSms(
+    /** Also used by [HiddenSms.sendPrivately]: a plain send, no provider row. */
+    fun sendSms(
         context: Context,
         phone: String,
         body: String,

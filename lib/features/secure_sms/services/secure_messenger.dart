@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
+import 'package:communication_super_app/core/edition/app_edition.dart';
 import 'package:communication_super_app/features/secure/repositories/key_bank_repository.dart';
 import 'package:communication_super_app/features/secure/repositories/secure_group_store.dart';
 import 'package:communication_super_app/features/secure/repositories/secure_message_store.dart';
@@ -50,7 +51,9 @@ class SecureMessenger {
     HiddenSmsSource? hidden,
     int Function()? clock,
     String Function()? newId,
-  }) : _store = store ?? SecureMessageStore(),
+    bool? coverAllowed,
+  }) : _coverAllowed = coverAllowed ?? kOrganizationBuild,
+       _store = store ?? SecureMessageStore(),
        _groups = groups ?? SecureGroupStore(),
        _hidden = hidden,
        _queue = queue ?? SecureQueueRepository(),
@@ -86,6 +89,13 @@ class SecureMessenger {
 
   /// `secure_meta` key: whether «دیده شد» receipts are sent (default on).
   static const sendSeenKey = 'send_seen_receipts';
+
+  /// `secure_meta` key: «متن پوششی» (row 31, organization edition) —
+  /// `fa`, `en`, or absent for plain `#E:`.
+  static const coverKey = 'cover_text';
+
+  /// Whether this build may send cover text at all.
+  final bool _coverAllowed;
 
   final StreamController<String?> _changes = StreamController.broadcast();
 
@@ -150,7 +160,15 @@ class SecureMessenger {
       final body = r?['body'];
       final timestamp = r?['timestamp'];
       if (address is! String || body is! String || timestamp is! int) continue;
-      if (SmsCryptoService.looksEncrypted(body)) {
+      final about = r?['about'];
+      if (about is String && about.isNotEmpty) {
+        // An operator's notice naming a hidden contact («تماس از …»): kept
+        // in that contact's conversation, with who sent it.
+        await _receivePlain(about, 'پیامک $address: $body', timestamp);
+      } else if (r?['outgoing'] == true) {
+        // A scheduled message that went out to a number hidden since.
+        await _receivePlain(address, body, timestamp, outgoing: true);
+      } else if (SmsCryptoService.looksEncrypted(body)) {
         packets.add(
           InboxPacket(
             id: 0,
@@ -170,11 +188,16 @@ class SecureMessenger {
     await source.remove(entries.map((e) => e.id));
   }
 
-  Future<void> _receivePlain(String address, String body, int timestamp) async {
+  Future<void> _receivePlain(
+    String address,
+    String body,
+    int timestamp, {
+    bool outgoing = false,
+  }) async {
     final phone = await _crypto.canonicalPhone(address) ?? address;
     if (await _store.hasPlain(
       phone,
-      outgoing: false,
+      outgoing: outgoing,
       body: body,
       timestamp: timestamp,
     )) {
@@ -191,14 +214,16 @@ class SecureMessenger {
       SecureMessage(
         id: _newId(),
         phone: phone,
-        outgoing: false,
+        outgoing: outgoing,
         body: body,
         timestamp: timestamp,
-        status: SecureMessageStatus.received,
+        status: outgoing
+            ? SecureMessageStatus.sent
+            : SecureMessageStatus.received,
         plain: true,
       ),
     );
-    await _store.touchConversation(phone, timestamp, unread: true);
+    await _store.touchConversation(phone, timestamp, unread: !outgoing);
     _changed(phone);
   }
 
@@ -226,8 +251,11 @@ class SecureMessenger {
   Future<_Outcome> _process(InboxPacket packet) async {
     final info = await _crypto.inspect(packet.body);
     if (info == null) return _Outcome.done;
-    final phone =
-        await _crypto.canonicalPhone(packet.address) ?? packet.address;
+    final from = await _crypto.canonicalPhone(packet.address) ?? packet.address;
+    // Dual-SIM phones answer from whichever SIM sends SMS, which need not be
+    // the number the key bank lists: who a packet belongs to is decided by
+    // its key / session, and only then by the number it came from.
+    final phone = await _owner(from, info);
     try {
       return switch (info.type) {
         SmsPacketType.init => await _onInit(phone, packet, info),
@@ -238,6 +266,40 @@ class SecureMessenger {
       // Not for us, forged, altered, or from a newer build: nothing to keep.
       debugPrint('Encrypted SMS dropped: ${e.failure.name}');
       return _Outcome.done;
+    }
+  }
+
+  /// The conversation a packet from [from] belongs to.
+  Future<String> _owner(String from, SmsPacketInfo info) async {
+    switch (info.type) {
+      case SmsPacketType.init:
+        // A request from a key we already talk to, over another SIM: the
+        // same conversation, not a second one.
+        final kid = info.senderKid;
+        if (kid == null) return from;
+        final known = await _store.phoneForPeerKey(keyHex(kid));
+        return known ?? from;
+      case SmsPacketType.response:
+        if ((await _store.sessions(
+          from,
+        )).any((s) => s.pending && s.sid == info.sid)) {
+          return from;
+        }
+        final kid = info.senderKid;
+        if (kid != null) {
+          final known = await _store.phoneForPeerKey(keyHex(kid));
+          if (known != null) return known;
+        }
+        final pending = await _store.phonesWithSession(info.sid, pending: true);
+        return pending.length == 1 ? pending.single : from;
+      case SmsPacketType.message:
+        if ((await _store.sessions(
+          from,
+        )).any((s) => !s.pending && s.sid == info.sid)) {
+          return from;
+        }
+        final holders = await _store.phonesWithSession(info.sid);
+        return holders.length == 1 ? holders.single : from;
     }
   }
 
@@ -405,6 +467,7 @@ class SecureMessenger {
               sid: opened.sid,
               counter: opened.counter,
               deleteAfterSeen: opened.deleteAfterSeen,
+              ttl: opened.ttlSeconds,
             ),
           );
           await _groups.touch(gid, packet.timestamp, unread: true, txn: txn);
@@ -434,6 +497,7 @@ class SecureMessenger {
               sid: opened.sid,
               counter: opened.counter,
               deleteAfterSeen: opened.deleteAfterSeen,
+              ttl: opened.ttlSeconds,
             ),
           );
           await txn.rawUpdate(
@@ -501,10 +565,12 @@ class SecureMessenger {
   });
 
   /// Queues [text] to [phone] and sends it as soon as a session allows.
+  /// [ttl] (seconds) makes it a timed message (matrix row 16).
   Future<void> sendText(
     String phone,
     String text, {
     bool deleteAfterSeen = false,
+    int? ttl,
   }) => _serial(() async {
     final now = _clock();
     await _store.addMessage(
@@ -516,6 +582,7 @@ class SecureMessenger {
         timestamp: now,
         status: SecureMessageStatus.queued,
         deleteAfterSeen: deleteAfterSeen,
+        ttl: ttl,
       ),
     );
     await _store.touchConversation(phone, now);
@@ -556,7 +623,7 @@ class SecureMessenger {
 
   Future<void> _sendPlain(SecureMessage m) async {
     try {
-      await _sender.send(m.phone, m.body, trackingId: m.id);
+      await _send(m.phone, m.body, trackingId: m.id);
       await _store.advanceStatus(m.id, SecureMessageStatus.sent);
     } catch (e) {
       debugPrint('Sending a plain hidden SMS failed: ${e.runtimeType}');
@@ -677,6 +744,7 @@ class SecureMessenger {
           session: state,
           text: m.body,
           deleteAfterSeen: m.deleteAfterSeen,
+          ttlSeconds: m.ttl,
         );
       } on SmsCryptoException catch (e) {
         debugPrint('Encrypting a message failed: ${e.failure.name}');
@@ -696,7 +764,7 @@ class SecureMessenger {
       });
       _changed(phone);
       try {
-        await _sender.send(phone, sealed.wire, trackingId: m.id);
+        await _send(phone, await _out(sealed.wire), trackingId: m.id);
         await _store.advanceStatus(m.id, SecureMessageStatus.sent);
       } catch (e) {
         debugPrint('Sending an encrypted SMS failed: ${e.runtimeType}');
@@ -740,7 +808,7 @@ class SecureMessenger {
       (txn) => _store.updateSessionState(txn, phone, sid, sealed.state),
     );
     try {
-      await _sender.send(phone, sealed.wire, trackingId: 'gi-${_newId()}');
+      await _send(phone, await _out(sealed.wire), trackingId: 'gi-${_newId()}');
       // Only once it is out: a failed send is tried again next flush.
       await _groups.markInfoSent(g.id, phone, g.version);
     } catch (e) {
@@ -763,6 +831,7 @@ class SecureMessenger {
         text: m.body,
         deleteAfterSeen: m.deleteAfterSeen,
         groupId: _unhex(m.groupId),
+        ttlSeconds: m.ttl,
       );
     } on SmsCryptoException catch (e) {
       debugPrint('Encrypting a group message failed: ${e.failure.name}');
@@ -781,9 +850,9 @@ class SecureMessenger {
       );
     });
     try {
-      await _sender.send(
+      await _send(
         phone,
-        sealed.wire,
+        await _out(sealed.wire),
         trackingId: groupTrackingId(m.id, phone),
       );
       await _groups.advanceDelivery(m.id, phone, SecureMessageStatus.sent);
@@ -836,6 +905,50 @@ class SecureMessenger {
     await _sendQuietly(phone, started.wire, 'hs-${_newId()}');
   }
 
+  /// `secure_meta` key: the SIM every encrypted SMS goes out on (a
+  /// subscription id); absent = the system default SMS SIM. Dual-SIM phones
+  /// often have the number the key bank lists on the *other* SIM.
+  static const simKey = 'sms_sim';
+
+  Future<void> _send(
+    String phone,
+    String wire, {
+    required String trackingId,
+  }) async {
+    final sim = int.tryParse(await _store.meta(simKey) ?? '');
+    await _sender.send(
+      phone,
+      wire,
+      trackingId: trackingId,
+      subscriptionId: sim != null && sim >= 0 ? sim : null,
+    );
+  }
+
+  Future<int?> smsSim() async => int.tryParse(await _store.meta(simKey) ?? '');
+
+  Future<void> setSmsSim(int? subscriptionId) =>
+      _store.setMeta(simKey, '${subscriptionId ?? -1}');
+
+  /// A message or receipt as cover text when the user chose it (row 31).
+  /// Handshakes are never covered: a thousand words for one SMS's worth.
+  Future<String> _out(String wire) async {
+    if (!_coverAllowed) return wire;
+    final mode = await _store.meta(coverKey);
+    if (mode != 'fa' && mode != 'en') return wire;
+    try {
+      return await _crypto.coverEncode(wire, persian: mode == 'fa');
+    } catch (e) {
+      debugPrint('Cover text failed: ${e.runtimeType}');
+      return wire;
+    }
+  }
+
+  Future<String?> coverMode() async =>
+      _coverAllowed ? await _store.meta(coverKey) : null;
+
+  Future<void> setCoverMode(String? mode) =>
+      _store.setMeta(coverKey, mode == 'fa' || mode == 'en' ? mode! : 'off');
+
   /// Handshake packets and receipts: no bubble to update; a failure is
   /// logged, and the handshake is retried by [pendingTimeout].
   Future<void> _sendQuietly(
@@ -844,7 +957,7 @@ class SecureMessenger {
     String trackingId,
   ) async {
     try {
-      await _sender.send(phone, wire, trackingId: trackingId);
+      await _send(phone, wire, trackingId: trackingId);
     } catch (e) {
       debugPrint('Sending a control SMS failed: ${e.runtimeType}');
     }
@@ -870,7 +983,7 @@ class SecureMessenger {
     await _store.db.transaction(
       (txn) => _store.updateSessionState(txn, phone, session.sid, sealed.state),
     );
-    await _sendQuietly(phone, sealed.wire, 'ctl-${_newId()}');
+    await _sendQuietly(phone, await _out(sealed.wire), 'ctl-${_newId()}');
     return true;
   }
 
@@ -1054,6 +1167,7 @@ class SecureMessenger {
     String groupId,
     String text, {
     bool deleteAfterSeen = false,
+    int? ttl,
   }) => _serial(() async {
     final g = await _groups.group(groupId);
     if (g == null || g.left || g.pendingInfo) return;
@@ -1072,6 +1186,7 @@ class SecureMessenger {
           ? SecureMessageStatus.failed
           : SecureMessageStatus.sent,
       deleteAfterSeen: deleteAfterSeen,
+      ttl: ttl,
     );
     await _groups.addOutgoing(message, targets);
     await _groups.touch(groupId, now);
@@ -1138,6 +1253,18 @@ class SecureMessenger {
     await _groups.deleteGroup(id);
     _changed(null);
   });
+
+  // ── Timed messages (row 16) ──────────────────────────────────────────────
+
+  /// Deletes every timed message whose time is up; how many went.
+  Future<int> purgeExpired() => _serial(() async {
+    final n = await _store.purgeExpired(_clock());
+    if (n > 0) _changed(null);
+    return n;
+  });
+
+  /// When the next timed message goes, if one is running.
+  Future<int?> nextExpiry() => _serial(_store.nextExpiry);
 
   Future<bool> sendsSeenReceipts() async =>
       await _store.meta(sendSeenKey) != '0';

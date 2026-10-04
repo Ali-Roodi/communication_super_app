@@ -18,6 +18,10 @@ import 'package:communication_super_app/features/authentication/screens/recovery
 import 'package:communication_super_app/features/authentication/screens/verify_pin_screen.dart';
 import 'package:communication_super_app/features/secure/bloc/secure_session_bloc.dart';
 import 'package:communication_super_app/features/keybank/screens/key_bank_screen.dart';
+import 'package:communication_super_app/features/security/screens/device_security_screen.dart';
+import 'package:communication_super_app/features/security/screens/intruder_photos_screen.dart';
+import 'package:communication_super_app/features/security/services/security_bridge.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:communication_super_app/core/services/crash_reporting.dart';
 import 'package:communication_super_app/features/dialer/screens/speed_dial_screen.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
@@ -548,6 +552,8 @@ class _SecurityGroupState extends State<_SecurityGroup> {
           ),
         const _SecureSectionRow(),
         const _KeyBankRow(),
+        const _DeviceSecurityRow(),
+        if (hasPin) const _IntruderRow(),
         if (hasPin)
           SettingsRow(
             icon: Icons.no_encryption_outlined,
@@ -668,6 +674,100 @@ class _KeyBankRow extends StatelessWidget {
       onTap: () => Navigator.of(
         context,
       ).push(MaterialPageRoute(builder: (_) => const KeyBankScreen())),
+    );
+  }
+}
+
+/// «کنترل امنیت سامانه» (row 29). Secure editions only.
+class _DeviceSecurityRow extends StatelessWidget {
+  const _DeviceSecurityRow();
+
+  @override
+  Widget build(BuildContext context) {
+    final status = context.select<SecureSessionBloc, SecureStatus>(
+      (bloc) => bloc.state.status,
+    );
+    if (status == SecureStatus.unavailable) return const SizedBox.shrink();
+    return SettingsRow(
+      icon: Icons.health_and_safety_outlined,
+      title: 'کنترل امنیت سامانه',
+      summary: 'روت، ابزار نفوذ، قفل صفحه، به‌روزرسانی و دسترسی برنامه‌ها',
+      onTap: () => Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const DeviceSecurityScreen())),
+    );
+  }
+}
+
+/// «عکس از ورود ناموفق» (row 32): off by default; the camera permission is
+/// asked for when it is turned on. Secure editions with an app PIN only.
+class _IntruderRow extends StatefulWidget {
+  const _IntruderRow();
+
+  @override
+  State<_IntruderRow> createState() => _IntruderRowState();
+}
+
+class _IntruderRowState extends State<_IntruderRow> {
+  static const _bridge = SecurityBridge();
+  bool? _enabled;
+  bool _camera = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _read();
+  }
+
+  Future<void> _read() async {
+    final s = await _bridge.intruderStatus();
+    if (mounted) {
+      setState(() {
+        _enabled = s.enabled;
+        _camera = s.camera;
+      });
+    }
+  }
+
+  Future<void> _set(bool on) async {
+    final messenger = ScaffoldMessenger.of(context);
+    if (on && !_camera) {
+      final granted = (await Permission.camera.request()).isGranted;
+      if (!granted) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'بدون دسترسی دوربین فقط زمان ورودهای ناموفق ثبت می‌شود',
+            ),
+          ),
+        );
+      }
+    }
+    await _bridge.setIntruderEnabled(on);
+    await _read();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final status = context.select<SecureSessionBloc, SecureStatus>(
+      (bloc) => bloc.state.status,
+    );
+    final enabled = _enabled;
+    if (status == SecureStatus.unavailable || enabled == null) {
+      return const SizedBox.shrink();
+    }
+    return SettingsRow(
+      icon: Icons.no_photography_outlined,
+      title: 'عکس از ورود ناموفق',
+      summary: !enabled
+          ? 'خاموش · با ۳ رمز اشتباه پشت‌سرهم از هر دو دوربین عکس گرفته شود'
+          : _camera
+          ? 'روشن · برای دیدن عکس‌ها لمس کنید'
+          : 'روشن، بدون دسترسی دوربین · فقط زمان ثبت می‌شود',
+      onTap: () => Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const IntruderPhotosScreen())),
+      trailing: Switch(value: enabled, onChanged: _set),
     );
   }
 }

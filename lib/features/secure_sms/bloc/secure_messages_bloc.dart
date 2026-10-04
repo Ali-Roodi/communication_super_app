@@ -40,6 +40,11 @@ class _Changed extends SecureMessagesEvent {
   final String? phone;
 }
 
+/// A timed message's time is up (row 16).
+class _Expire extends SecureMessagesEvent {
+  const _Expire();
+}
+
 class _Status extends SecureMessagesEvent {
   const _Status(this.id, this.status);
   final String id;
@@ -57,9 +62,12 @@ class SecureCloseThread extends SecureMessagesEvent {
 }
 
 class SecureSendText extends SecureMessagesEvent {
-  const SecureSendText(this.text, {this.deleteAfterSeen = false});
+  const SecureSendText(this.text, {this.deleteAfterSeen = false, this.ttl});
   final String text;
   final bool deleteAfterSeen;
+
+  /// A timed message (row 16): its lifetime in seconds.
+  final int? ttl;
 }
 
 class SecureRetry extends SecureMessagesEvent {
@@ -136,9 +144,14 @@ class SecureCloseGroup extends SecureMessagesEvent {
 }
 
 class SecureSendGroupText extends SecureMessagesEvent {
-  const SecureSendGroupText(this.text, {this.deleteAfterSeen = false});
+  const SecureSendGroupText(
+    this.text, {
+    this.deleteAfterSeen = false,
+    this.ttl,
+  });
   final String text;
   final bool deleteAfterSeen;
+  final int? ttl;
 }
 
 class SecureCreateGroup extends SecureMessagesEvent {
@@ -189,6 +202,18 @@ class SecureLoadGroupCandidates extends SecureMessagesEvent {
   const SecureLoadGroupCandidates();
 }
 
+/// «متن پوششی» (row 31, organization edition): `fa`, `en` or null (off).
+class SecureSetCover extends SecureMessagesEvent {
+  const SecureSetCover(this.mode);
+  final String? mode;
+}
+
+/// The SIM encrypted SMS go out on (null: the phone's default SMS SIM).
+class SecureSetSim extends SecureMessagesEvent {
+  const SecureSetSim(this.subscriptionId);
+  final int? subscriptionId;
+}
+
 class SecureSetReceipts extends SecureMessagesEvent {
   const SecureSetReceipts(this.on);
   final bool on;
@@ -211,6 +236,8 @@ class SecureMessagesState extends Equatable {
     this.startedPhone,
     this.startedSeq = 0,
     this.sendsReceipts = true,
+    this.cover,
+    this.smsSim,
     this.groups = const [],
     this.names = const {},
     this.openGroupId,
@@ -243,6 +270,12 @@ class SecureMessagesState extends Equatable {
   final int startedSeq;
 
   final bool sendsReceipts;
+
+  /// «متن پوششی»: `fa`, `en` or null.
+  final String? cover;
+
+  /// The SIM encrypted SMS go out on; null = the phone's default.
+  final int? smsSim;
 
   final List<SecureGroup> groups;
 
@@ -280,6 +313,10 @@ class SecureMessagesState extends Equatable {
     List<SecurePeer>? lookup,
     String? startedPhone,
     bool? sendsReceipts,
+    String? cover,
+    bool clearCover = false,
+    int? smsSim,
+    bool clearSmsSim = false,
     List<SecureGroup>? groups,
     Map<String, String>? names,
     String? openGroupId,
@@ -301,6 +338,8 @@ class SecureMessagesState extends Equatable {
     startedPhone: startedPhone ?? this.startedPhone,
     startedSeq: startedPhone == null ? startedSeq : startedSeq + 1,
     sendsReceipts: sendsReceipts ?? this.sendsReceipts,
+    cover: clearCover ? null : cover ?? this.cover,
+    smsSim: clearSmsSim ? null : smsSim ?? this.smsSim,
     groups: groups ?? this.groups,
     names: names ?? this.names,
     openGroupId: clearOpenGroup ? null : (openGroupId ?? this.openGroupId),
@@ -325,6 +364,8 @@ class SecureMessagesState extends Equatable {
     lookupSeq,
     startedSeq,
     sendsReceipts,
+    cover,
+    smsSim,
     groups,
     names,
     openGroupId,
@@ -390,6 +431,7 @@ class SecureMessagesBloc
                 phone,
                 e.text.trim(),
                 deleteAfterSeen: e.deleteAfterSeen,
+                ttl: e.ttl,
               )
             : _messenger.sendPlain(phone, e.text.trim()),
       );
@@ -397,6 +439,7 @@ class SecureMessagesBloc
     on<SecureOpenWith>(_onOpenWith);
     on<SecureOpenGroup>(_onOpenGroup);
     on<SecureCloseGroup>((e, emit) async {
+      if (_screenGroup == e.id) _screenGroup = null;
       if (state.openGroupId != e.id) return;
       emit(state.copyWith(clearOpenGroup: true));
       await _guard(() => _messenger.leaveGroupThread(e.id));
@@ -409,9 +452,11 @@ class SecureMessagesBloc
           id,
           e.text.trim(),
           deleteAfterSeen: e.deleteAfterSeen,
+          ttl: e.ttl,
         ),
       );
     });
+    on<_Expire>((e, emit) => _guard(_messenger.purgeExpired));
     on<SecureCreateGroup>((e, emit) async {
       if (!_open) return;
       String? id;
@@ -471,6 +516,19 @@ class SecureMessagesBloc
     on<SecureLoadPeers>(_onLoadPeers);
     on<SecureLookupNumber>(_onLookup);
     on<SecureStartConversation>(_onStart);
+    on<SecureSetSim>((e, emit) async {
+      await _guard(() => _messenger.setSmsSim(e.subscriptionId));
+      emit(
+        state.copyWith(
+          smsSim: e.subscriptionId,
+          clearSmsSim: e.subscriptionId == null,
+        ),
+      );
+    });
+    on<SecureSetCover>((e, emit) async {
+      await _guard(() => _messenger.setCoverMode(e.mode));
+      emit(state.copyWith(cover: e.mode, clearCover: e.mode == null));
+    });
     on<SecureSetReceipts>((e, emit) async {
       await _guard(() => _messenger.setSendsSeenReceipts(e.on));
       emit(state.copyWith(sendsReceipts: e.on));
@@ -501,6 +559,16 @@ class SecureMessagesBloc
   late final SecureIdentities _identities;
   late final List<StreamSubscription<Object?>> _subs;
 
+  /// Fires when the next timed message is due to go.
+  Timer? _expiry;
+
+  /// The conversation / group whose screen is up, kept across a lock: the
+  /// section locks when the app goes to the background, the screen stays,
+  /// and after the PIN it must show its messages again (it used to stay
+  /// empty until it was left and reopened — found on the phone).
+  String? _screenPhone;
+  String? _screenGroup;
+
   bool get _open => state.status != SecureMessagesStatus.locked;
 
   /// Runs an engine call; a section that locked under it just ends the call.
@@ -522,14 +590,35 @@ class SecureMessagesBloc
     _messenger.reset();
     _identities.reset();
     if (!e.unlocked) {
+      _expiry?.cancel();
       emit(const SecureMessagesState());
       return;
     }
     emit(state.copyWith(status: SecureMessagesStatus.loading));
     await _drain();
+    // Whatever ran out while the section was locked goes before it is shown.
+    await _guard(_messenger.purgeExpired);
+    emit(state.copyWith(openPhone: _screenPhone, openGroupId: _screenGroup));
     await _reload(emit);
+    final phone = _screenPhone;
+    if (phone != null) {
+      await _guard(() => _messenger.markSeen(phone));
+      await _guard(() => _messenger.flush(phone));
+    }
+    final group = _screenGroup;
+    if (group != null) await _guard(() => _messenger.markGroupSeen(group));
     try {
-      emit(state.copyWith(sendsReceipts: await _messenger.sendsSeenReceipts()));
+      final cover = await _messenger.coverMode();
+      final sim = await _messenger.smsSim();
+      emit(
+        state.copyWith(
+          sendsReceipts: await _messenger.sendsSeenReceipts(),
+          cover: cover == 'fa' || cover == 'en' ? cover : null,
+          clearCover: cover != 'fa' && cover != 'en',
+          smsSim: sim != null && sim >= 0 ? sim : null,
+          clearSmsSim: sim == null || sim < 0,
+        ),
+      );
     } on KeyBankLockedException {
       emit(const SecureMessagesState());
     }
@@ -568,9 +657,21 @@ class SecureMessagesBloc
           handshakePending: phone == null ? null : await _pending(phone),
         ),
       );
+      await _armExpiry();
     } on KeyBankLockedException {
       emit(const SecureMessagesState());
     }
+  }
+
+  Future<void> _armExpiry() async {
+    _expiry?.cancel();
+    final at = await _store.nextExpiry();
+    if (at == null || isClosed) return;
+    final wait = at - DateTime.now().millisecondsSinceEpoch;
+    _expiry = Timer(
+      Duration(milliseconds: wait < 0 ? 0 : wait + 50),
+      () => isClosed ? null : add(const _Expire()),
+    );
   }
 
   Future<bool> _pending(String phone) => _store.awaitingSession(phone);
@@ -597,6 +698,7 @@ class SecureMessagesBloc
     SecureOpenThread e,
     Emitter<SecureMessagesState> emit,
   ) async {
+    _screenPhone = e.phone;
     if (!_open) return;
     emit(state.copyWith(openPhone: e.phone));
     await _reload(emit);
@@ -609,6 +711,7 @@ class SecureMessagesBloc
     SecureCloseThread e,
     Emitter<SecureMessagesState> emit,
   ) async {
+    if (_screenPhone == e.phone) _screenPhone = null;
     if (state.openPhone != e.phone) return;
     emit(state.copyWith(clearOpen: true));
     await _guard(() => _messenger.leaveConversation(e.phone));
@@ -658,6 +761,7 @@ class SecureMessagesBloc
     SecureOpenGroup e,
     Emitter<SecureMessagesState> emit,
   ) async {
+    _screenGroup = e.id;
     if (!_open) return;
     emit(state.copyWith(openGroupId: e.id));
     await _reload(emit);
@@ -729,6 +833,7 @@ class SecureMessagesBloc
 
   @override
   Future<void> close() async {
+    _expiry?.cancel();
     for (final s in _subs) {
       await s.cancel();
     }

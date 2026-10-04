@@ -75,6 +75,9 @@ object Wire {
         }
     }
 
+    /** The packet bytes of a well-formed `#E:` text, or null. */
+    fun packetBytes(text: String): ByteArray? = decode(text)
+
     private fun decode(text: String): ByteArray? {
         if (!looksEncrypted(text)) return null
         val body = text.substring(PREFIX.length)

@@ -11,10 +11,76 @@ import 'package:flutter/foundation.dart';
 class TrustAnchors {
   TrustAnchors._();
 
-  /// The production authorities. **Empty until the mentor creates the real
-  /// authority** with the tool and hands over its `public` output; add it
-  /// here as one hex string. See `docs/architecture/editions.md`.
-  static const List<String> _production = [];
+  /// The production authorities. The first real authority was created on
+  /// 1405/07/12 (id `b45a8048bd2d0314`); its private file and password are
+  /// kept **off the repository**, with the owner. Another authority is added
+  /// as one more hex string. See `docs/architecture/editions.md`.
+  static const List<String> _production = [
+    // b45a8048bd2d0314
+    '0124b01851c884e5e5994f4c5c13d70462b7affd46b0c9e20bc2f389d0a4a6b8'
+        '35fb209109bea18083965817a29ca5fec6fdcef3cfebcdb65aac08351d93205d'
+        '7d838af3a1f6f0c08a7d0aca2af8041cc4faf92e301ac43db8b141473d829201'
+        '5c532471b13190868482bf9b4eb7b902d4f1e6a9d518e97b21a2e624d63f1edb'
+        '74c76507775a0fe2f1aa6d698a8ba1c8e71ea897a0ae595773ba896843ad5bb2'
+        'f74b453ac35eedbbf3138ae8a46c4ab18e0e30d5e1529dbf27961f9ad26d6a66'
+        '6b7778ff9c794bc98701c51f2637386fe9f24572d6ca069031c037e6231d33eb'
+        '7698ae383a5431c0c87face27c8d2de9d3840de34a4725c59d20f22f4cd0a1f2'
+        'b117f32f207b7800ec8e40a4a215dd6a48dfd7a83e43a6fea9d3c71cd9d3b293'
+        '1a7823bc457fae9dbe4b90c4a1c3d5b44b01c15186f7198027f5e5cbd2522e60'
+        'dec9d4c3659eda8f851739aabc128f9b0fdd90e8716e7155be455013ea85875d'
+        '4dcea5aa0d65daaa7920482b04143b87b015ce9546ac39f8477a7455ce4cc7e6'
+        'a11e65ee0e44957a6efd5a6bf88c09d8935fdfb3b0a99e74cfe5aff4776e4b4f'
+        'e7f0e88ca6720800ebd8dbd3785fc94b7c09abda7b1d8b93f0032cb4240e5af5'
+        'fb77aee019eb5e1bc52f11a10d6deae1785e88962e1f5daf8e7e8fe4ff913b7a'
+        '266d657a128745e2fb46a31719bbd953fd4d6689a4c2b346f4ca4f802b9e5d4d'
+        '20f2f6811e0459415d8c5e083c16a68e931fb17f822d443d5136e6c1f974e993'
+        'c0c24569eca563192149a4a1843dd07d335ea70b3e1a3d388e486611fe89d21c'
+        '92fa68f4d8bebfa8f9a0ba3ea6b6f2a4f0d8c51fa5d505ffb9db8309c99c795f'
+        '0f03e1ca51eb7adfe41eceb521c871de5e6d306ff254a5235fe57d02e678a1f7'
+        'a48b121747e2fc9a227afe017fbd04c4e5e92ec7088d513d945ff2c472681f07'
+        'b708c5f81a1eb354f42ff5cb5137e1cd555a8c6ecacd1bffaa75b2569a07fb3f'
+        '0d4f573d77a2604fc4c2057f794c399d9fc0f934f3583fc250f68681e2a6e010'
+        '15a424929f4f9773442e5be3ecd8a2b76d2fc9188e7c7231bd651db5f61cae49'
+        '7e502a2ec010774744d779103cb5f97d5a6f98a4294896c3842864b866bf6a7d'
+        '8eb5436e3addc3a3df032a158fab99176169e0ef1d062dc4124adedc400f9706'
+        '2cc3188cd042d97fbbff70ef566354093888f08fa7692d8fc12a87e11094a8d4'
+        'a3c728c13905ab5b6f8c98948ece122e43db76aa505a2a4d120867a704ffddfb'
+        'ef833c5bf23fb1709383f2fbd59463e67f335bb7ca1006fe9bbfd11e20c4620f'
+        'ec37aebe63b0ed293d7887b90d9db6dd79fb573a2dccddb03a893307574b1db1'
+        'a4aee8422f42cf5cf3a6224488ef3269c25a9e907c67881e1497bd4ed4036770'
+        '40f5f02d2bd41c776e4717473fad2572343e65861e96df63a0c785dbce923ccf'
+        'acf8b77fcb5a1689037f3fa171b8c73bcbc7d65a203b02bd4c1053ccc0a4528f'
+        'a9e8466cef8a9c796e065731e0ea099b88fd071b50a0f58e691fa272a065c8e5'
+        'c85ceedbe13099c8de9777cab855af08e4bbf9a1aac548e4bd263ee908e5da24'
+        'f471b5778e25d6c0b68001b78dd536e120ef076886cea63f975f989daf41f6b7'
+        'dae014e1244be5cca0d205cbb5220f9e57f6098823d97cc6046a4853e924aa54'
+        '38588fc2e158c87eb8019b48cbb85e26c9304528a8299952d68dafe389ed45c5'
+        'f689c01f3d8fbe0d8234b15a39335ccf7354271b30196b2e58eb62f5a2ee2fd6'
+        '1bf87e11e7a9874c3bb00928798561b4f98f4004713c3f9d31b37541d580b9b7'
+        '61abcbd91e267565583189dbe73852bb607ed1f59d7f797b561d8a5cd2d4bf8f'
+        'b4dfaaa3c657cf0e2c55a30fecda389828ac5707fb287b3923dba65b78d46cd4'
+        'f2befc98393b8a542abd59406d58a3a1e2798cc9d264c0f7418c182498cb193e'
+        '9ad50c0421ad8f4ce0c6aac8d5529af4bee71a242d4c3195139ed1376558128d'
+        'b0b95803b37c79f4dd25ece1d6bc35ae18e2c5a40c2b9b9a2c56ecd620fca712'
+        '12a7122f4bb90c38b386d96fd909ace45dba0fc865174ebd97b8169cdbd8e333'
+        '5d162b76e288a221d394c53a69793bd6c0c1eb81bc06a3ca71f95fb9f7a7789a'
+        '43d46ac9761455e7cf456bf430faaecd2b35dfbca7aa3bb3d6612d6b5f018760'
+        'fa150fb75f0abeb2215b8fae92b51d70fa1fd9f06bcebff3089bd097d0738471'
+        '4649d283928d202125c188c8034ccf87f0956aaa7a2b811d9ce7d79b8b0940f7'
+        '4b4e4eeb01fd3aeace09dabff15eb3a00227736e0c113c69651726c45997c489'
+        '017de60f8cd5d663e2d9acf97b544a839af227bff26adb74c5b1f5f264ee5cd4'
+        'bb7159c0d8457ba3dc13592057bffbbb42d9c8d842469596e298c1878adfff4d'
+        'a56f76eeece42aab6dec6715f65bb705517dc9d56f1194564d8ed33abd3f3447'
+        'c4431abe9a489374348ae5a4f364ba82f36fbcf71eb52926302e4f041ee4a552'
+        '6f8f10661a87ac96257a779cd8f551f7455f4af3a6dfefbf5a66595431ce165f'
+        '834206cb5ab8cb8a137c183ab508ef0d76aa628012420b9817e71ae92a9ec69f'
+        'a90f2b546f62f3c1f97c36bffd8579662bc79acbe2efb65141532ca85ea756e6'
+        '1ab604ab3ed0e3355e49d9b78699af388186fea671ba4b14b8d67ff31eaa208d'
+        'e651916ed1468fb4f8a0621fda9e0668196c4d1d448861816f59058f15017e66'
+        'd1bc838c7190328ca85827d03e154887cbeefa447fffedfde9742f3338d8b6a9'
+        '4f40e51251dd87716954528a57bcb7e8c5a7be0b12b3380022bd7966b21aa01e'
+        '5b',
+  ];
 
   /// The development authority (its private file lives only in the
   /// gitignored `tools/keybank/dev/`). Compiled in **only** with

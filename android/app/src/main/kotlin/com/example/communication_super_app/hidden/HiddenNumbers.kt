@@ -61,6 +61,47 @@ object HiddenNumbers {
     /** True when at least one number is hidden (cheap: no Keystore). */
     fun any(context: Context): Boolean = tags(context).isNotEmpty()
 
+    /**
+     * The hidden number an operator's own SMS talks about («تماس از 0912…»),
+     * canonical, or null. Only for a **service sender** (letters in the
+     * address, or a short code): a person who writes a hidden number in a
+     * message is still writing to the user, and that message stays.
+     */
+    fun mentionedBy(context: Context, address: String?, body: String?): String? {
+        if (body.isNullOrEmpty() || !any(context) || !isServiceSender(address)) return null
+        for (candidate in phoneLike(body)) {
+            if (isHidden(context, candidate)) return canonical(candidate)
+        }
+        return null
+    }
+
+    private fun isServiceSender(address: String?): Boolean {
+        if (address.isNullOrBlank()) return false
+        if (address.any { it.isLetter() }) return true
+        return address.count { it.isDigit() } in 1..7
+    }
+
+    private val PHONE_RUN = Regex("""\+?\d[\d \-]{7,16}\d""")
+
+    /** Digit runs in [text] that could be a phone number (Persian digits read too). */
+    internal fun phoneLike(text: String): List<String> {
+        val ascii = buildString(text.length) {
+            for (ch in text) {
+                append(
+                    when (ch) {
+                        in '۰'..'۹' -> '0' + (ch - '۰')
+                        in '٠'..'٩' -> '0' + (ch - '٠')
+                        else -> ch
+                    },
+                )
+            }
+        }
+        return PHONE_RUN.findAll(ascii)
+            .map { m -> m.value.filter { it.isDigit() || it == '+' } }
+            .filter { it.count(Char::isDigit) in 10..14 }
+            .toList()
+    }
+
     fun isHidden(context: Context, number: String?): Boolean {
         if (number.isNullOrBlank()) return false
         val known = tags(context)

@@ -163,6 +163,38 @@ void main() {
     },
   );
 
+  test('a v5 section gains lifetimes and the intruder photos (v6)', () async {
+    final dir = await Directory.systemTemp.createTemp('v6_migration');
+    final old = await databaseFactoryFfi.openDatabase('${dir.path}/v5.db');
+    await old.execute(
+      'CREATE TABLE secure_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
+    );
+    await SecureStore.upgradeSchemaForTest(old, 1, to: 5);
+    await old.insert('sm_messages', {
+      'id': 'm1',
+      'phone': '09122222222',
+      'outgoing': 1,
+      'body': 'قدیمی',
+      'timestamp': 1,
+      'status': 'sent',
+    });
+    await SecureStore.upgradeSchemaForTest(old, 5);
+
+    final store = SecureMessageStore(database: () => old);
+    final m = (await store.messages('09122222222')).single;
+    expect(m.body, 'قدیمی');
+    expect(m.ttl, isNull);
+    expect(await store.purgeExpired(1 << 40), 0);
+    await old.insert('ip_photos', {
+      'taken_at': 5,
+      'camera': 'front',
+      'failed_attempts': 3,
+    });
+    expect(await old.query('ip_photos'), hasLength(1));
+    await old.close();
+    await dir.delete(recursive: true);
+  });
+
   test(
     'a conversation waits for its channel only when something is under way',
     () async {

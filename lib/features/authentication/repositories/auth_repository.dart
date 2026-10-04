@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/auth_type.dart';
 import '../models/pin_policy.dart';
 import 'package:communication_super_app/core/constants/app_constants.dart';
+import 'package:communication_super_app/features/security/services/intruder_reporter.dart';
 import 'pin_attempt_limiter.dart';
 
 class AuthRepository {
@@ -71,8 +72,11 @@ class AuthRepository {
     final ok = await _verify(AppConstants.pinKey, pin);
     if (ok) {
       await _limiter.recordSuccess();
+      // «گزارش در اولین ورود موفق» (row 32).
+      IntruderReporter.rightPin();
     } else {
-      await _limiter.recordFailure();
+      // Every third in a row, the cameras — if the user turned it on.
+      IntruderReporter.wrongPin(await _limiter.recordFailure());
     }
     return ok;
   }

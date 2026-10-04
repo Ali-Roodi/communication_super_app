@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:communication_super_app/core/utils/date_formatter.dart';
+import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/features/secure/repositories/secure_message_store.dart';
 import 'package:communication_super_app/features/secure/widgets/secure_locked_view.dart';
@@ -33,7 +34,7 @@ class SecureConversationScreen extends StatefulWidget {
 class _SecureConversationScreenState extends State<SecureConversationScreen> {
   final _controller = TextEditingController();
   late final SecureMessagesBloc _bloc;
-  bool _deleteAfterSeen = false;
+  SecureExpiry _expiry = SecureExpiry.none;
 
   @override
   void initState() {
@@ -53,9 +54,15 @@ class _SecureConversationScreenState extends State<SecureConversationScreen> {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
     HapticFeedback.selectionClick();
-    _bloc.add(SecureSendText(text, deleteAfterSeen: _deleteAfterSeen));
+    _bloc.add(
+      SecureSendText(
+        text,
+        deleteAfterSeen: _expiry.deleteAfterSeen,
+        ttl: _expiry.ttl,
+      ),
+    );
     _controller.clear();
-    setState(() => _deleteAfterSeen = false);
+    setState(() => _expiry = SecureExpiry.none);
   }
 
   @override
@@ -90,7 +97,12 @@ class _SecureConversationScreenState extends State<SecureConversationScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(widget.name, style: const TextStyle(fontSize: 18)),
+                  // The name as the store has it now: the screen may have
+                  // been opened before the conversation was listed.
+                  Text(
+                    state.names[widget.phone] ?? widget.name,
+                    style: const TextStyle(fontSize: 18),
+                  ),
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -158,9 +170,8 @@ class _SecureConversationScreenState extends State<SecureConversationScreen> {
                 SecureComposer(
                   controller: _controller,
                   plain: !encrypted,
-                  deleteAfterSeen: _deleteAfterSeen && encrypted,
-                  onToggleDelete: () =>
-                      setState(() => _deleteAfterSeen = !_deleteAfterSeen),
+                  expiry: encrypted ? _expiry : SecureExpiry.none,
+                  onExpiry: (e) => setState(() => _expiry = e),
                   onSend: _send,
                 ),
               ],
@@ -262,6 +273,22 @@ class _Bubble extends StatelessWidget {
                     const SizedBox(width: 3),
                     Text(
                       'رمزنشده',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: fg.withValues(alpha: 0.7),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                  if (m.ttl != null) ...[
+                    Icon(
+                      Icons.av_timer,
+                      size: 13,
+                      color: fg.withValues(alpha: 0.7),
+                    ),
+                    const SizedBox(width: 3),
+                    Text(
+                      SecureExpiry.remaining(m.ttl!, m.expiresAt),
                       style: TextStyle(
                         fontSize: 11,
                         color: fg.withValues(alpha: 0.7),
@@ -388,13 +415,56 @@ class _StatusMark extends StatelessWidget {
 
 /// The composer of every secure thread (one-to-one and group). The text
 /// never feeds a keyboard's learned words.
+/// How a message goes away: «حذف پس از دیدن» (row 20) or a lifetime
+/// (row 16, «پیام زمان‌دار»). The sender picks one per message.
+@immutable
+class SecureExpiry {
+  const SecureExpiry._(this.deleteAfterSeen, this.ttl, this.label);
+
+  static const none = SecureExpiry._(false, null, 'بدون پاک شدن خودکار');
+  static const afterSeen = SecureExpiry._(true, null, 'پس از دیدن');
+  static const choices = [
+    none,
+    afterSeen,
+    SecureExpiry._(false, 30, '۳۰ ثانیه'),
+    SecureExpiry._(false, 300, '۵ دقیقه'),
+    SecureExpiry._(false, 3600, '۱ ساعت'),
+    SecureExpiry._(false, 86400, '۱ روز'),
+    SecureExpiry._(false, 604800, '۱ هفته'),
+  ];
+
+  final bool deleteAfterSeen;
+
+  /// Seconds; null when the message is not timed.
+  final int? ttl;
+  final String label;
+
+  bool get isSet => deleteAfterSeen || ttl != null;
+
+  String get notice => deleteAfterSeen
+      ? 'این پیام پس از دیده شدن از گوشی گیرنده پاک می‌شود'
+      : 'پیام زمان‌دار: $label پس از دیده شدن از گوشی گیرنده و $label '
+            'پس از ارسال از این گوشی پاک می‌شود';
+
+  /// A timed bubble's mark: when it goes, or its lifetime while it waits
+  /// to be seen.
+  static String remaining(int ttl, int? expiresAt) {
+    if (expiresAt == null) {
+      return choices.where((c) => c.ttl == ttl).firstOrNull?.label ??
+          PersianUtils.toPersianNumber('$ttl ثانیه');
+    }
+    final at = DateTime.fromMillisecondsSinceEpoch(expiresAt);
+    return 'تا ${DateFormatter.formatTime(at)}';
+  }
+}
+
 class SecureComposer extends StatelessWidget {
   const SecureComposer({
     super.key,
     required this.controller,
     required this.plain,
-    required this.deleteAfterSeen,
-    required this.onToggleDelete,
+    required this.expiry,
+    required this.onExpiry,
     required this.onSend,
     this.hint,
     this.note,
@@ -402,11 +472,11 @@ class SecureComposer extends StatelessWidget {
 
   final TextEditingController controller;
 
-  /// A keyless conversation: no «حذف پس از دیدن» (only an encrypted
-  /// message can carry it).
+  /// A keyless conversation: no «حذف پس از دیدن» and no lifetime (only an
+  /// encrypted message can carry them).
   final bool plain;
-  final bool deleteAfterSeen;
-  final VoidCallback onToggleDelete;
+  final SecureExpiry expiry;
+  final ValueChanged<SecureExpiry> onExpiry;
   final VoidCallback onSend;
 
   /// Overrides the field's hint.
@@ -425,16 +495,24 @@ class SecureComposer extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (deleteAfterSeen)
+            if (expiry.isSet)
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
                 child: Row(
                   children: [
-                    Icon(Icons.timer_outlined, size: 16, color: scheme.primary),
+                    Icon(
+                      expiry.deleteAfterSeen
+                          ? Icons.timer_outlined
+                          : Icons.av_timer,
+                      size: 16,
+                      color: scheme.primary,
+                    ),
                     const SizedBox(width: 6),
-                    Text(
-                      'این پیام پس از دیده شدن از گوشی گیرنده پاک می‌شود',
-                      style: TextStyle(fontSize: 12, color: scheme.primary),
+                    Expanded(
+                      child: Text(
+                        expiry.notice,
+                        style: TextStyle(fontSize: 12, color: scheme.primary),
+                      ),
                     ),
                   ],
                 ),
@@ -443,13 +521,28 @@ class SecureComposer extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 if (!plain)
-                  IconButton(
-                    tooltip: 'حذف پس از دیدن',
-                    isSelected: deleteAfterSeen,
-                    icon: const Icon(Icons.timer_outlined),
-                    selectedIcon: const Icon(Icons.timer),
-                    color: deleteAfterSeen ? scheme.primary : null,
-                    onPressed: onToggleDelete,
+                  PopupMenuButton<SecureExpiry>(
+                    tooltip: 'پاک شدن خودکار',
+                    initialValue: expiry,
+                    onSelected: onExpiry,
+                    icon: Icon(
+                      expiry.isSet ? Icons.timer : Icons.timer_outlined,
+                      color: expiry.isSet ? scheme.primary : null,
+                    ),
+                    itemBuilder: (_) => [
+                      for (final c in SecureExpiry.choices)
+                        PopupMenuItem(
+                          value: c,
+                          child: Directionality(
+                            textDirection: TextDirection.rtl,
+                            child: Text(
+                              c == SecureExpiry.none || c.deleteAfterSeen
+                                  ? c.label
+                                  : 'زمان‌دار: ${c.label}',
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 Expanded(
                   child: TextField(

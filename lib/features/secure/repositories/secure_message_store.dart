@@ -100,6 +100,7 @@ class SecureMessage extends Equatable {
     this.seenAt,
     this.parts,
     this.plain = false,
+    this.ttl,
   });
 
   final String id;
@@ -121,6 +122,18 @@ class SecureMessage extends Equatable {
   /// A plain (unencrypted) SMS with a hidden contact.
   final bool plain;
 
+  /// A timed message (matrix row 16): its lifetime in seconds.
+  final int? ttl;
+
+  /// When it goes: ours [ttl] after sending, theirs [ttl] after it was
+  /// first shown (null until then).
+  int? get expiresAt {
+    final t = ttl;
+    if (t == null) return null;
+    final from = outgoing ? timestamp : seenAt;
+    return from == null ? null : from + t * 1000;
+  }
+
   static SecureMessage fromRow(Map<String, Object?> r) => SecureMessage(
     id: r['id'] as String,
     phone: r['phone'] as String,
@@ -136,6 +149,7 @@ class SecureMessage extends Equatable {
     seenAt: r['seen_at'] as int?,
     parts: r['parts'] as int?,
     plain: r['plain'] == 1,
+    ttl: r['ttl'] as int?,
   );
 
   @override
@@ -152,6 +166,7 @@ class SecureMessage extends Equatable {
     seenAt,
     parts,
     plain,
+    ttl,
   ];
 }
 
@@ -232,6 +247,38 @@ class SecureMessageStore {
       whereArgs: [phone],
     );
     return rows.isEmpty ? null : _conversation(rows.first);
+  }
+
+  /// The encrypted conversation with the holder of key [peerKeyId], if any —
+  /// how a packet from a member's *other* SIM finds its conversation.
+  Future<String?> phoneForPeerKey(String peerKeyId) async {
+    final rows = await db.query(
+      'sm_conversations',
+      columns: ['phone'],
+      where: 'peer_key_id = ?',
+      whereArgs: [peerKeyId],
+      // The one the user sees first; an unlisted one made by a request from
+      // another SIM only when there is nothing else.
+      orderBy: 'listed DESC, last_at DESC',
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first['phone'] as String;
+  }
+
+  /// Numbers that hold session [sid] (established, or ours pending when
+  /// [pending]) — candidates for a packet that came from an unknown number.
+  Future<List<String>> phonesWithSession(
+    int sid, {
+    bool pending = false,
+  }) async {
+    final rows = await db.query(
+      'sm_sessions',
+      columns: ['phone'],
+      where: 'sid = ? AND pending = ?',
+      whereArgs: [sid, pending ? 1 : 0],
+      orderBy: 'created_at DESC',
+    );
+    return [for (final r in rows) r['phone'] as String];
   }
 
   SecureConversation _conversation(Map<String, Object?> r) =>
@@ -487,6 +534,7 @@ class SecureMessageStore {
         'seen_at': m.seenAt,
         'parts': m.parts,
         'plain': m.plain ? 1 : 0,
+        'ttl': m.ttl,
       }, conflictAlgorithm: cipher.ConflictAlgorithm.ignore);
 
   /// Whether this plain SMS is already stored — a carrier's second delivery,
@@ -603,6 +651,58 @@ class SecureMessageStore {
     where: 'phone = ? AND outgoing = 0 AND sid = ? AND counter = ?',
     whereArgs: [phone, sid, counter],
   );
+
+  /// Timed messages whose time is up (row 16), in every conversation and
+  /// group. Returns how many went.
+  Future<int> purgeExpired(int now) async {
+    var n = await db.rawDelete(
+      '''
+      DELETE FROM sm_messages WHERE ttl IS NOT NULL AND (
+        (outgoing = 1 AND timestamp + ttl * 1000 <= ?) OR
+        (outgoing = 0 AND seen_at IS NOT NULL AND seen_at + ttl * 1000 <= ?))
+      ''',
+      [now, now],
+    );
+    final groupIds = await db.rawQuery(
+      '''
+      SELECT id FROM sg_messages WHERE ttl IS NOT NULL AND (
+        (sender IS NULL AND timestamp + ttl * 1000 <= ?) OR
+        (sender IS NOT NULL AND seen_at IS NOT NULL AND seen_at + ttl * 1000 <= ?))
+      ''',
+      [now, now],
+    );
+    if (groupIds.isNotEmpty) {
+      final ids = [for (final r in groupIds) r['id'] as String];
+      final marks = List.filled(ids.length, '?').join(',');
+      await db.transaction((txn) async {
+        await txn.delete(
+          'sg_deliveries',
+          where: 'message_id IN ($marks)',
+          whereArgs: ids,
+        );
+        await txn.delete(
+          'sg_messages',
+          where: 'id IN ($marks)',
+          whereArgs: ids,
+        );
+      });
+      n += ids.length;
+    }
+    return n;
+  }
+
+  /// The soonest moment a timed message goes, or null when none is running.
+  Future<int?> nextExpiry() async {
+    final rows = await db.rawQuery('''
+      SELECT MIN(at) AS at FROM (
+        SELECT CASE WHEN outgoing = 1 THEN timestamp ELSE seen_at END + ttl * 1000 AS at
+          FROM sm_messages WHERE ttl IS NOT NULL AND (outgoing = 1 OR seen_at IS NOT NULL)
+        UNION ALL
+        SELECT CASE WHEN sender IS NULL THEN timestamp ELSE seen_at END + ttl * 1000
+          FROM sg_messages WHERE ttl IS NOT NULL AND (sender IS NULL OR seen_at IS NOT NULL))
+    ''');
+    return rows.isEmpty ? null : rows.first['at'] as int?;
+  }
 
   /// «حذف پس از دیدن»: incoming messages that asked for it and were shown.
   Future<int> deleteSeenEphemeral(String phone) => db.delete(

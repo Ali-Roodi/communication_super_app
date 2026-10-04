@@ -41,16 +41,18 @@ class PinAttemptLimiter {
     return remaining > maxLockout ? maxLockout : remaining;
   }
 
-  Future<void> recordFailure() async {
+  /// Counts a wrong PIN; returns how many in a row now.
+  Future<int> recordFailure() async {
     final prefs = await SharedPreferences.getInstance();
     final failures = (prefs.getInt(_failuresKey) ?? 0) + 1;
     await prefs.setInt(_failuresKey, failures);
-    if (failures < freeAttempts) return;
+    if (failures < freeAttempts) return failures;
     final lockout = lockoutAfter(failures);
     await prefs.setInt(
       _lockedUntilKey,
       _now().add(lockout).millisecondsSinceEpoch,
     );
+    return failures;
   }
 
   Future<void> recordSuccess() async {

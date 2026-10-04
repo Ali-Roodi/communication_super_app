@@ -7,6 +7,7 @@ import 'package:communication_super_app/features/secure/bloc/secure_session_bloc
 import '../bloc/hidden_bloc.dart';
 import '../screens/hidden_calls_screen.dart';
 import '../screens/hidden_contacts_screen.dart';
+import 'package:communication_super_app/features/secure_sms/screens/secure_new_conversation_screen.dart';
 
 /// «دفترچه مخفی» at the top of the Contacts tab — there **only while the
 /// secure section is open** (matrix row 3): with the lock closed nothing
@@ -30,6 +31,31 @@ class HiddenContactsEntry extends StatelessWidget {
       onTap: () => Navigator.of(
         context,
       ).push(MaterialPageRoute(builder: (_) => const HiddenContactsScreen())),
+    );
+  }
+}
+
+/// «مخاطبین رمز» (matrix row 36: a default group for the encrypted
+/// contacts): everyone this phone can write to encrypted — key-bank members
+/// and hidden contacts — on the same terms as the hidden phonebook.
+class EncryptedContactsEntry extends StatelessWidget {
+  const EncryptedContactsEntry({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final open = context.select<SecureSessionBloc, bool>(
+      (b) => b.state.isUnlocked,
+    );
+    if (!open) return const SizedBox.shrink();
+    return SecureEntryRow(
+      icon: Icons.enhanced_encryption_outlined,
+      title: 'مخاطبین رمز',
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) =>
+              const SecureNewConversationScreen(title: 'مخاطبین رمز'),
+        ),
+      ),
     );
   }
 }

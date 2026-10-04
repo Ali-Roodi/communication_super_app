@@ -29,6 +29,7 @@ import 'package:communication_super_app/features/settings/screens/widgets/block_
 import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_event.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
+import 'package:communication_super_app/features/secure/services/hidden_bridge.dart';
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
 import 'package:communication_super_app/features/contacts/widgets/save_number_actions.dart';
@@ -616,8 +617,20 @@ class _ConversationScreenState extends State<ConversationScreen>
     );
   }
 
-  void _scheduleMessage(String body, ScheduleChoice schedule) {
-    context.read<ScheduledMessageBloc>().add(
+  Future<void> _scheduleMessage(String body, ScheduleChoice schedule) async {
+    final scheduled = context.read<ScheduledMessageBloc>();
+    // A schedule is stored in the main database: never for a hidden contact.
+    if (!_isGroup && await const HiddenBridge().isHidden(widget.phoneNumber)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('این شماره در دفترچه مخفی است؛ از بخش امن پیام دهید.'),
+        ),
+      );
+      return;
+    }
+    if (!mounted) return;
+    scheduled.add(
       SaveScheduled(
         phoneNumber: widget.phoneNumber,
         contactName: _contactName,

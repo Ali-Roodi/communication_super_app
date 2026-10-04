@@ -19,6 +19,7 @@ import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import android.util.Log
 import com.example.communication_super_app.hidden.HiddenNumbers
+import com.example.communication_super_app.hidden.HiddenSms
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.*
@@ -128,7 +129,11 @@ class SmsHandler(
                 if (parts.isEmpty()) return
 
                 val address = parts[0].originatingAddress ?: return
-                val body = parts.joinToString("") { it.messageBody ?: "" }
+                // A cover text («متن پوششی», row 31) is an encrypted SMS in
+                // words: from here on it is its #E: form.
+                val body = com.example.communication_super_app.smscrypto.CoverText.uncover(
+                    parts.joinToString("") { it.messageBody ?: "" },
+                )
                 val timestamp = parts[0].timestampMillis
 
                 // Blocked sender: drop silently — no event, no notification.
@@ -794,7 +799,7 @@ class SmsHandler(
             val hiding = HiddenNumbers.any(context)
             while (c.moveToNext()) {
                 if (limit > 0 && out.size >= limit) break
-                if (hiding && HiddenNumbers.isHidden(context, c.getString(addrIdx))) continue
+                if (hiding && HiddenSms.concerns(context, c.getString(addrIdx), c.getString(bodyIdx))) continue
                 val subscriptionId =
                     if (subIdx >= 0 && !c.isNull(subIdx)) c.getInt(subIdx) else null
                 out.add(
@@ -830,12 +835,16 @@ class SmsHandler(
         val hiding = HiddenNumbers.any(context)
         context.contentResolver.query(
             uri,
-            if (hiding) arrayOf(Telephony.Sms._ID, Telephony.Sms.ADDRESS) else arrayOf(Telephony.Sms._ID),
+            if (hiding) {
+                arrayOf(Telephony.Sms._ID, Telephony.Sms.ADDRESS, Telephony.Sms.BODY)
+            } else {
+                arrayOf(Telephony.Sms._ID)
+            },
             null, null,
             "${Telephony.Sms.DATE} DESC",
         )?.use { c ->
             while (c.moveToNext()) {
-                if (hiding && HiddenNumbers.isHidden(context, c.getString(1))) continue
+                if (hiding && HiddenSms.concerns(context, c.getString(1), c.getString(2))) continue
                 out.add(c.getLong(0))
             }
         }
@@ -885,7 +894,7 @@ class SmsHandler(
                 val subIdx = c.getColumnIndex(Telephony.Sms.SUBSCRIPTION_ID)
                 val hiding = HiddenNumbers.any(context)
                 while (c.moveToNext()) {
-                    if (hiding && HiddenNumbers.isHidden(context, c.getString(addrIdx))) continue
+                    if (hiding && HiddenSms.concerns(context, c.getString(addrIdx), c.getString(bodyIdx))) continue
                     val id = c.getLong(idIdx)
                     val subscriptionId =
                         if (subIdx >= 0 && !c.isNull(subIdx)) c.getInt(subIdx) else null

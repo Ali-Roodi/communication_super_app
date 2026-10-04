@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:uuid/uuid.dart';
+
+import 'package:communication_super_app/features/secure/services/hidden_bridge.dart';
 import '../models/scheduled_message_model.dart';
 import '../repositories/scheduled_message_repository.dart';
 import '../services/scheduled_delivery_service.dart';
@@ -29,6 +31,7 @@ class ScheduledMessageBloc extends Bloc<ScheduledEvent, ScheduledState> {
   final ScheduledMessageRepository _repository;
   final ScheduledDeliveryService _delivery;
   final NativeScheduledSmsService _nativeScheduler;
+  final HiddenBridge _hidden;
   static const _uuid = Uuid();
   Timer? _timer;
 
@@ -36,12 +39,14 @@ class ScheduledMessageBloc extends Bloc<ScheduledEvent, ScheduledState> {
     ScheduledMessageRepository? repository,
     ScheduledDeliveryService? deliveryService,
     NativeScheduledSmsService? nativeScheduler,
+    HiddenBridge hidden = const HiddenBridge(),
     bool autoDeliver = true,
     Duration deliverInterval = const Duration(seconds: 30),
   }) : _repository = repository ?? ScheduledMessageRepository(),
        _delivery =
            deliveryService ?? ScheduledDeliveryService(repository: repository),
        _nativeScheduler = nativeScheduler ?? NativeScheduledSmsService(),
+       _hidden = hidden,
        super(const ScheduledInitial()) {
     on<LoadScheduled>(_onLoad);
     on<SaveScheduled>(_onSave);
@@ -106,6 +111,9 @@ class ScheduledMessageBloc extends Bloc<ScheduledEvent, ScheduledState> {
       final body = event.body.trim();
       final phone = event.phoneNumber.trim();
       if (body.isEmpty || phone.isEmpty) return;
+      // The schedule would sit in the main database naming a hidden contact
+      // (phase G); the screens refuse it first and say why.
+      if (await _hidden.isHidden(phone)) return;
       await _repository.upsert(
         ScheduledMessage(
           id: event.id ?? _uuid.v4(),

@@ -164,11 +164,13 @@ class FakeCrypto implements SmsCryptoService {
     required String text,
     bool deleteAfterSeen = false,
     Uint8List? groupId,
+    int? ttlSeconds,
   }) async => _seal(session, {
     'kind': 'text',
     'text': text,
     'del': deleteAfterSeen,
     if (groupId != null) 'gid': keyHex(groupId),
+    if (ttlSeconds != null) 'ttl': ttlSeconds,
   });
 
   @override
@@ -224,6 +226,7 @@ class FakeCrypto implements SmsCryptoService {
       refSid: m['refSid'] as int?,
       refCounter: m['refCounter'] as int?,
       groupId: m['gid'] == null ? null : _unhex(m['gid'] as String),
+      ttlSeconds: m['ttl'] as int?,
       groupInfo: m['kind'] == 'groupInfo'
           ? SmsGroupInfo(
               groupId: _unhex(m['gid'] as String),
@@ -329,10 +332,15 @@ class FakeHidden implements HiddenSmsSource {
   final Map<String, String> names = {};
   var _id = 1;
 
-  void add(String address, String body, int at) => entries.add(
+  void add(
+    String address,
+    String body,
+    int at, {
+    Map<String, Object?> extra = const {},
+  }) => entries.add(
     SealedEntry(
       id: _id++,
-      record: {'address': address, 'body': body, 'timestamp': at},
+      record: {'address': address, 'body': body, 'timestamp': at, ...extra},
     ),
   );
 
@@ -381,6 +389,7 @@ class _Sender implements SecureSmsSender {
     String phone,
     String wire, {
     required String trackingId,
+    int? subscriptionId,
   }) async {
     if (air.failNext) {
       air.failNext = false;
@@ -543,6 +552,55 @@ void main() {
       );
       expect(aliSessions.where((s) => s.pending), isEmpty);
       expect(saraSessions.where((s) => s.pending), isEmpty);
+    },
+  );
+
+  test(
+    'a dual-SIM peer answering from its other number is still them',
+    () async {
+      // Sara's phone sends from a SIM whose number the key bank does not
+      // list: every packet of hers arrives from 09127777777.
+      const otherSim = '09127777777';
+      Future<void> deliverAll() async {
+        for (var i = 0; i < 10 && air.inFlight.isNotEmpty; i++) {
+          final batch = List.of(air.inFlight);
+          air.inFlight.clear();
+          for (final p in batch) {
+            final from = p.from == book['sara'] ? otherSim : p.from;
+            final to = p.to == otherSim ? book['sara']! : p.to;
+            air.queues[to]!.add(from, p.wire, air.clock++);
+          }
+          await ali.messenger.drain();
+          await sara.messenger.drain();
+        }
+      }
+
+      await ali.messenger.startConversation(ali.identities.peer('sara'));
+      await ali.messenger.sendText(book['sara']!, 'سلام');
+      await deliverAll();
+      // The answer came from the other SIM, and still opened the channel.
+      expect(
+        (await ali.thread(book['sara']!)).single.status,
+        SecureMessageStatus.sent,
+      );
+      expect((await sara.thread(book['ali']!)).single.body, 'سلام');
+
+      // Her reply, from the other SIM too, lands in the same conversation.
+      await sara.messenger.sendText(book['ali']!, 'علیک');
+      await deliverAll();
+      expect((await ali.thread(book['sara']!)).map((m) => m.body), [
+        'سلام',
+        'علیک',
+      ]);
+      expect(await ali.store.conversation(otherSim), isNull);
+
+      // A fresh request from the other SIM rejoins the known conversation.
+      await sara.messenger.deleteConversation(book['ali']!);
+      await sara.messenger.startConversation(sara.identities.peer('ali'));
+      await sara.messenger.sendText(book['ali']!, 'دوباره');
+      await deliverAll();
+      expect((await ali.thread(book['sara']!)).last.body, 'دوباره');
+      expect(await ali.store.conversation(otherSim), isNull);
     },
   );
 
@@ -795,6 +853,44 @@ void main() {
     });
 
     test(
+      'a scheduled SMS sent to a hidden number lands as ours, read',
+      () async {
+        ali.hidden.names['09125555555'] = 'رضا';
+        ali.hidden.add(
+          '09125555555',
+          'زمان‌بندی‌شده',
+          7000,
+          extra: {'outgoing': true},
+        );
+        await ali.messenger.drain();
+        final m = (await ali.thread('09125555555')).single;
+        expect(m.outgoing, isTrue);
+        expect(m.plain, isTrue);
+        expect(m.status, SecureMessageStatus.sent);
+        expect((await ali.store.conversation('09125555555'))!.unread, 0);
+      },
+    );
+
+    test(
+      'an operator notice naming a hidden number joins that conversation',
+      () async {
+        ali.hidden.names['09125555555'] = 'رضا';
+        ali.hidden.add(
+          'MCI',
+          'تماس از 09125555555',
+          8000,
+          extra: {'about': '09125555555'},
+        );
+        await ali.messenger.drain();
+        expect(await ali.store.conversation('MCI'), isNull);
+        final m = (await ali.thread('09125555555')).single;
+        expect(m.body, 'پیامک MCI: تماس از 09125555555');
+        expect(m.outgoing, isFalse);
+        expect((await ali.store.conversation('09125555555'))!.name, 'رضا');
+      },
+    );
+
+    test(
       'a key-bank conversation keeps its key when the contact is hidden',
       () async {
         await ali.messenger.startConversation(ali.identities.peer('sara'));
@@ -802,6 +898,59 @@ void main() {
         final c = (await ali.store.conversation(book['sara']!))!;
         expect(c.encrypted, isTrue);
         expect(c.name, 'سارا');
+      },
+    );
+  });
+
+  group('timed messages (matrix row 16)', () {
+    test('ours goes ttl after sending, theirs ttl after it is shown', () async {
+      await ali.messenger.startConversation(ali.identities.peer('sara'));
+      await ali.messenger.sendText(book['sara']!, 'زمان‌دار', ttl: 30);
+      await ali.messenger.sendText(book['sara']!, 'ماندگار');
+      await settle();
+      final got = (await sara.thread(book['ali']!)).first;
+      expect(got.ttl, 30);
+      expect(got.expiresAt, isNull); // not shown yet: the clock has not started
+
+      air.clock += 31000;
+      expect(await ali.messenger.purgeExpired(), 1);
+      expect((await ali.thread(book['sara']!)).map((m) => m.body), ['ماندگار']);
+      // Never shown on Sara's phone: still there however long it waits.
+      expect(await sara.messenger.purgeExpired(), 0);
+      expect(await sara.thread(book['ali']!), hasLength(2));
+
+      await sara.messenger.markSeen(book['ali']!);
+      final shown = (await sara.thread(book['ali']!)).first;
+      expect(shown.expiresAt, shown.seenAt! + 30000);
+      expect(await sara.messenger.nextExpiry(), shown.expiresAt);
+      air.clock += 31000;
+      expect(await sara.messenger.purgeExpired(), 1);
+      expect((await sara.thread(book['ali']!)).map((m) => m.body), ['ماندگار']);
+      expect(await sara.messenger.nextExpiry(), isNull);
+    });
+
+    test(
+      'a timed group message carries its lifetime to every member',
+      () async {
+        final id = await ali.messenger.createGroup(
+          name: 'تیم',
+          mode: SecureGroupMode.chat,
+          members: [ali.identities.peer('sara'), ali.identities.peer('reza')],
+        );
+        await settle();
+        await ali.messenger.sendGroupText(id, 'تا یک ساعت', ttl: 3600);
+        await settle();
+        for (final p in [sara, reza]) {
+          final m = (await p.groups.messages(id)).single;
+          expect(m.ttl, 3600);
+          expect(m.expiresAt, isNull);
+          await p.messenger.markGroupSeen(id);
+        }
+        air.clock += 3600 * 1000 + 1;
+        for (final p in [ali, sara, reza]) {
+          expect(await p.messenger.purgeExpired(), 1);
+          expect(await p.groups.messages(id), isEmpty);
+        }
       },
     );
   });
