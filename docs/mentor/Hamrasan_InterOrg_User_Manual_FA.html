@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>راهنمای کاربر هم‌رسان</title>
+<style>
+  @font-face { font-family: Vazirmatn; font-weight: 400; src: url("../../assets/fonts/Vazirmatn-Regular.ttf"); }
+  @font-face { font-family: Vazirmatn; font-weight: 500; src: url("../../assets/fonts/Vazirmatn-Medium.ttf"); }
+  @font-face { font-family: Vazirmatn; font-weight: 600; src: url("../../assets/fonts/Vazirmatn-SemiBold.ttf"); }
+  @font-face { font-family: Vazirmatn; font-weight: 700; src: url("../../assets/fonts/Vazirmatn-Bold.ttf"); }
+  @page { size: A4; margin: 14mm 13mm 14mm 13mm; }
+  :root { --ink: #1c2330; --muted: #5b6474; --line: #d5dbe5; --navy: #023066; --tint: #eef3fa; --warn: #fff4e0; --warnline: #e9b44c; --a: #0b5cad; --b: #b04a12; }
+  html, body { background: #fff; }
+  body { font-family: Vazirmatn, Tahoma, sans-serif; color: var(--ink); font-size: 10.6pt; line-height: 1.9; margin: 0; }
+  h1 { font-size: 21pt; color: var(--navy); margin: 0 0 4px; font-weight: 700; }
+  h2 { font-size: 14.5pt; color: var(--navy); margin: 18px 0 6px; padding-bottom: 3px; border-bottom: 2px solid var(--navy); font-weight: 700; page-break-after: avoid; }
+  h3 { font-size: 11.3pt; margin: 11px 0 3px; font-weight: 600; page-break-after: avoid; color: #173a66; }
+  p { margin: 4px 0 7px; text-align: justify; }
+  ul, ol { margin: 3px 0 8px; padding-right: 20px; }
+  ol { list-style-type: persian; }
+  li { margin: 2px 0; }
+  .en { font-family: "Segoe UI", Arial, sans-serif; direction: ltr; unicode-bidi: isolate; font-size: 0.93em; }
+  code { font-family: Consolas, "Courier New", monospace; direction: ltr; unicode-bidi: isolate; font-size: 0.88em; background: #f1f3f7; padding: 0 4px; border-radius: 3px; }
+  pre { font-family: Consolas, "Courier New", monospace; direction: ltr; text-align: left; background: #f1f3f7; border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; font-size: 8.8pt; line-height: 1.55; margin: 5px 0 9px; white-space: pre-wrap; word-break: break-all; page-break-inside: avoid; }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0 10px; font-size: 9.5pt; }
+  tr { page-break-inside: avoid; }
+  th, td { border: 1px solid var(--line); padding: 3px 7px; vertical-align: top; text-align: right; }
+  th { background: var(--tint); font-weight: 600; }
+  .box { border: 1px solid var(--line); border-right: 4px solid var(--navy); background: var(--tint); border-radius: 6px; padding: 6px 11px; margin: 7px 0 10px; page-break-inside: avoid; }
+  .warn { border-right-color: var(--warnline); background: var(--warn); }
+  .cover { border-bottom: 3px solid var(--navy); padding-bottom: 8px; margin-bottom: 10px; }
+  .meta { color: var(--muted); font-size: 9.5pt; }
+  .small { font-size: 9pt; color: var(--muted); }
+  .pb { page-break-before: always; }
+  .step { page-break-inside: avoid; margin-bottom: 6px; }
+  .shots { display: flex; flex-wrap: wrap; gap: 8px 10px; margin: 6px 0 10px; }
+  figure { margin: 0; width: 41mm; page-break-inside: avoid; text-align: center; }
+  figure img { width: 41mm; border: 1px solid #c9d0db; border-radius: 6px; display: block; }
+  figure.wide { width: 86mm; } figure.wide img { width: 86mm; }
+  figcaption { font-size: 8.3pt; line-height: 1.5; margin-top: 3px; }
+  figcaption b { color: var(--navy); }
+  .who { display: inline-block; font-size: 7.8pt; font-weight: 600; padding: 0 6px; border-radius: 8px; color: #fff; margin-bottom: 2px; }
+  .who.A { background: var(--a); } .who.B { background: var(--b); }
+  figure.ga img { border: 2px solid var(--a); } figure.gb img { border: 2px solid var(--b); }
+  .arrow { align-self: center; font-size: 20pt; color: #8a97ab; padding: 0 2px; }
+  .legend { display: flex; gap: 18px; margin: 6px 0 10px; font-size: 9.5pt; }
+  .num { display: inline-block; min-width: 20px; height: 20px; line-height: 20px; border-radius: 10px; background: var(--navy); color: #fff; text-align: center; font-size: 9pt; font-weight: 700; margin-left: 6px; }
+  .check li { list-style: none; position: relative; }
+  .check li::before { content: "☐"; position: absolute; right: -18px; color: var(--navy); }
+  .toc { columns: 2; column-gap: 24px; font-size: 9.8pt; padding-right: 18px; }
+  .toc li { break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <h1>راهنمای کاربر هم‌رسان، نسخهٔ بین‌سازمانی</h1>
+  <div class="meta">از نصب برنامه تا اولین پیام رمز بین دو نفر · با تصویرهای دو گوشی واقعی · ۱۴۰۵/۰۷/۱۲</div>
+</div>
+
+<div class="box">
+  این راهنما قدم به قدم نشان می‌دهد دو نفر چطور با هم‌رسان ارتباط امن برقرار می‌کنند: برنامه را نصب می‌کنند، آن را به نسخهٔ بین‌سازمانی تبدیل می‌کنند، کلیدشان را وارد می‌کنند و پیام رمز رد و بدل می‌کنند. همهٔ تصویرها از دو گوشی واقعی با سیم‌کارت و شبکهٔ واقعی گرفته شده‌اند. بنابراین آنچه می‌بینید دقیقاً همان چیزی است که روی گوشی خودتان خواهید دید.
+  <br>برای توضیح فنی اینکه پشت هر مرحله چه اتفاقی می‌افتد، سند «گزارش نسخه‌های امن هم‌رسان» را ببینید.
+</div>
+
+<h3>دو گوشی این راهنما</h3>
+<div class="legend">
+  <div><span class="who A">گوشی اول</span> سامسونگ <span class="en">Galaxy A33</span>، عضو «علی رودی»، شمارهٔ <code>09034853204</code></div>
+  <div><span class="who B">گوشی دوم</span> شیائومی <span class="en">Mi 10T</span>، عضو «گوشی دوم»، شمارهٔ <code>09356455230</code></div>
+</div>
+<p>هر تصویر برچسب گوشی‌اش را دارد. وقتی دو تصویر کنار هم آمده‌اند، یعنی یک اتفاق را هم‌زمان از دید دو نفر می‌بینید.</p>
+
+<h3>فهرست</h3>
+<ol class="toc">
+  <li>پیش از شروع چه لازم دارید</li>
+  <li>نصب و اولین اجرا</li>
+  <li>تبدیل به نسخهٔ بین‌سازمانی</li>
+  <li>رمز ۶ رقمی و ساختن بخش امن</li>
+  <li>باز و بسته کردن بخش امن</li>
+  <li>وارد کردن فایل کلید</li>
+  <li>اولین پیام رمز بین دو نفر</li>
+  <li>پاسخ دادن و «دیده شد»</li>
+  <li>وقتی پیام رمز می‌رسد</li>
+  <li>پیام زمان‌دار</li>
+  <li>حذف پس از دیدن</li>
+  <li>حذف برای هر دو</li>
+  <li>تنظیمات پیام‌های رمز</li>
+  <li>گروه رمز</li>
+  <li>دفترچهٔ مخفی و تماس‌های مخفی</li>
+  <li>کنترل امنیت و عکس ورود ناموفق</li>
+  <li>گروه عبارت عبور (روش جایگزین)</li>
+  <li>دیگران چه می‌بینند</li>
+  <li>برای مسئول کلیدهای سازمان</li>
+  <li>اشکال‌ها و پرسش‌های رایج</li>
+  <li>خلاصهٔ یک‌صفحه‌ای</li>
+</ol>
+
+<!-- ═════════════ 1 ═════════════ -->
+<h2>۱. پیش از شروع چه لازم دارید</h2>
+<p>هر کدام از دو نفر این‌ها را لازم دارند:</p>
+<table>
+  <tr><th style="width:28%">چه چیزی</th><th style="width:30%">از کجا</th><th>توضیح</th></tr>
+  <tr><td>گوشی اندرویدی با سیم‌کارت</td><td>خودتان</td><td>اندروید ۷ یا بالاتر. سیم‌کارت باید اعتبار پیامک داشته باشد. اینترنت لازم نیست.</td></tr>
+  <tr><td>برنامهٔ هم‌رسان</td><td>بازار، مایکت یا فایل <span class="en">APK</span></td><td>نسخهٔ بین‌سازمانی همان برنامهٔ فروشگاهی است.</td></tr>
+  <tr><td>کد فعال‌سازی</td><td>پشتیبانی هم‌رسان</td><td>یک کد ۱۰ نویسه‌ای مخصوص گوشی شما. برای گرفتنش «کد دستگاه» گوشی‌تان را به پشتیبانی می‌دهید (مرحلهٔ ۳).</td></tr>
+  <tr><td>فایل کلید (<code>.hkb</code>) و رمز آن</td><td>مسئول کلیدهای سازمان (مرجع کلید)</td><td>یک فایل حدود ۶ کیلوبایتی با نامی مثل <code>002-09356455230.hkb</code> و یک رمز ۲۰ نویسه‌ای. فایل و رمز را از دو راه جدا می‌گیرید، مثلاً فایل را روی فلش یا پیام‌رسان و رمز را حضوری.</td></tr>
+</table>
+<div class="box">دو نفر فقط وقتی می‌توانند پیام رمز رد و بدل کنند که <b>فایل کلید هر دو از یک سازمان</b> صادر شده باشد. یعنی نام هر دو در یک دفترچهٔ سازمانی باشد. اگر نام یکی را در فهرست گیرنده‌ها نمی‌بینید، فایل کلید جدیدتر را از مسئول کلیدها بگیرید.</div>
+
+<!-- ═════════════ 2 ═════════════ -->
+<h2 class="pb">۲. نصب و اولین اجرا</h2>
+<div class="step">
+<p><span class="num">۱</span>برنامه را از فروشگاه نصب کنید. اگر فایل <span class="en">APK</span> دارید، آن را باز کنید. اندروید ممکن است بپرسد که اجازهٔ نصب از این منبع را می‌دهید یا نه؛ اجازه دهید.</p>
+<p><span class="num">۲</span>در اولین اجرا، برنامه دسترسی به پیامک، تلفن و مخاطبین را می‌خواهد. همه را قبول کنید، چون هم‌رسان برنامهٔ پیامک و تلفن شماست.</p>
+<p><span class="num">۳</span>برنامه می‌خواهد <b>برنامهٔ پیش‌فرض پیامک</b> و <b>برنامهٔ پیش‌فرض تماس</b> شود. هر دو را قبول کنید. این کار برای امنیت مهم است: فقط وقتی هم‌رسان پیش‌فرض باشد، پیام‌های رمز و مخاطبین مخفی هیچ اثری در حافظهٔ پیامک و سوابق تماس اندروید باقی نمی‌گذارند.</p>
+</div>
+<div class="shots">
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m01_default_sms.jpg"><figcaption><b>۲-۱</b> درخواست پیش‌فرض شدن برای پیامک</figcaption></figure>
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m02_default_sms_dialog.jpg"><figcaption><b>۲-۲</b> پنجرهٔ اندروید: هم‌رسان را انتخاب و تأیید کنید</figcaption></figure>
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m03_default_dialer.jpg"><figcaption><b>۲-۳</b> همین کار برای برنامهٔ تماس</figcaption></figure>
+</div>
+<div class="step">
+<p><span class="num">۴</span>برنامه پیشنهاد می‌دهد یک <b>رمز ورود</b> بگذارید. در نسخهٔ فروشگاهی این رمز ۴ رقمی است. آن را بگذارید. بعداً در مرحلهٔ ۴ به رمز ۶ رقمی تبدیلش می‌کنید. بعد از ساختن رمز، برنامه یک <b>کد بازیابی</b> نشان می‌دهد که فقط همین یک بار دیده می‌شود. آن را روی کاغذ بنویسید و جای امنی نگه دارید.</p>
+</div>
+
+<!-- ═════════════ 3 ═════════════ -->
+<h2 class="pb">۳. تبدیل به نسخهٔ بین‌سازمانی</h2>
+<div class="step">
+<p><span class="num">۱</span>منوی سه‌نقطهٔ بالای صفحه ← «تنظیمات». صفحه را تا پایین بکشید تا به «درباره برنامه» برسید و روی «نسخه بین‌سازمانی» بزنید.</p>
+<p><span class="num">۲</span>صفحه‌ای باز می‌شود که <b>کد دستگاه</b> را نشان می‌دهد: ۶ نویسه از ارقام و حروف a تا f، مثل <code>4ccd9c</code>. این کد را با دکمهٔ «کپی» بردارید یا از روی صفحه بخوانید و به پشتیبانی بدهید. کد دستگاه محرمانه نیست.</p>
+<p><span class="num">۳</span>پشتیبانی یک <b>کد فعال‌سازی</b> ۱۰ نویسه‌ای به شما می‌دهد، مثل <code>585982eaf4</code>. آن را در کادر «کد فعال‌سازی» بنویسید و «فعال‌سازی» را بزنید. بزرگی و کوچکی حروف، فاصله و خط تیره اهمیتی ندارد.</p>
+<p><span class="num">۴</span>اگر کد اشتباه باشد، برنامه می‌گوید «کد فعال‌سازی درست نیست». اگر درست باشد، «نسخه بین‌سازمانی فعال است» نمایش داده می‌شود. از این لحظه آیکون قفل بالای صفحه‌ها ظاهر می‌شود.</p>
+</div>
+<div class="shots">
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m04_about.jpg"><figcaption><b>۳-۱</b> «درباره برنامه» ← «نسخه بین‌سازمانی»</figcaption></figure>
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m05_activation.jpg"><figcaption><b>۳-۲</b> کد دستگاه این گوشی: <span class="en">4ccd9c</span></figcaption></figure>
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m06_wrong_code.jpg"><figcaption><b>۳-۳</b> کد اشتباه رد می‌شود</figcaption></figure>
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m07_right_code.jpg"><figcaption><b>۳-۴</b> کد درست را وارد کنید</figcaption></figure>
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m08_activated.jpg"><figcaption><b>۳-۵</b> «نسخه بین‌سازمانی فعال است»</figcaption></figure>
+</div>
+<p class="small">کد فعال‌سازی فقط روی همان گوشی کار می‌کند. اگر گوشی را عوض کنید یا به تنظیمات کارخانه برگردانید، کد تازه لازم است. دکمهٔ «غیرفعال کردن» برنامه را به نسخهٔ فروشگاهی برمی‌گرداند، ولی محتوای امن شما پاک نمی‌شود و با همان کد دوباره برمی‌گردد.</p>
+
+<!-- ═════════════ 4 ═════════════ -->
+<h2 class="pb">۴. رمز ۶ رقمی و ساختن بخش امن</h2>
+<p>«بخش امن» جایی در برنامه است که پیام‌های رمز، کلیدها و مخاطبین مخفی در آن نگه داشته می‌شوند. این بخش با رمز برنامه باز می‌شود و برای همین به رمز ۶ رقمی نیاز دارد.</p>
+<div class="step">
+<p><span class="num">۱</span>اگر رمز برنامه‌تان ۴ رقمی است، با لمس آیکون قفل پیام «رمز ۶ رقمی لازم است» را می‌بینید. به تنظیمات ← امنیت ← «تغییر رمز عبور» بروید. اول رمز فعلی را وارد کنید، بعد یک رمز ۶ رقمی تازه بگذارید و تکرارش کنید.</p>
+<p><span class="num">۲</span>دوباره آیکون قفل را لمس کنید. برنامه می‌پرسد که بخش امن ساخته شود یا نه و هشدار می‌دهد: <b>اگر رمز را فراموش کنید، محتوای بخش امن قابل بازگرداندن نیست.</b> تأیید کنید و رمز را وارد کنید. ساختن کلیدها چند ثانیه طول می‌کشد.</p>
+</div>
+<div class="shots">
+  <figure><img src="img/03_pin_setup.jpg"><figcaption><b>۴-۱</b> رمز ۶ رقمی</figcaption></figure>
+  <figure><img src="img/05_after_pin.jpg"><figcaption><b>۴-۲</b> کد بازیابی، فقط یک بار</figcaption></figure>
+  <figure><img src="img/07_secure_create.jpg"><figcaption><b>۴-۳</b> ساختن بخش امن</figcaption></figure>
+  <figure><img src="img/07b_secure_creating.jpg"><figcaption><b>۴-۴</b> در حال ساختن کلید</figcaption></figure>
+</div>
+<p class="small">این چهار تصویر از شبیه‌ساز گرفته شده‌اند، چون دو گوشی آزمون این مراحل را قبلاً گذرانده بودند. صفحه‌ها روی گوشی واقعی همین شکل را دارند.</p>
+
+<!-- ═════════════ 5 ═════════════ -->
+<h2>۵. باز و بسته کردن بخش امن</h2>
+<p>بالای زبانه‌های «اخیر»، «مخاطبین» و «پیام‌ها» یک آیکون قفل هست:</p>
+<ul>
+  <li><b>قفل بسته:</b> هیچ اثری از بخش امن روی صفحه نیست. کسی که گوشی را در دست بگیرد، یک برنامهٔ پیامک و تلفن معمولی می‌بیند.</li>
+  <li><b>قفل باز:</b> ردیف‌های «پیام‌های رمز» در پیام‌ها، «دفترچه مخفی» و «مخاطبین رمز» در مخاطبین و «تماس‌های مخفی» در اخیر ظاهر می‌شوند.</li>
+</ul>
+<p>برای باز کردن، قفل را لمس و رمز ۶ رقمی را وارد کنید. برای بستن، دوباره قفل را لمس کنید. هر وقت از برنامه بیرون بروید، بخش امن خودش بسته می‌شود. وقتی برگردید و رمز را بزنید، همان صفحه‌ای که در آن بودید با محتوایش دوباره باز می‌شود.</p>
+<div class="shots">
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m10_contacts_locked.jpg"><figcaption><b>۵-۱</b> قفل بسته</figcaption></figure>
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m11_secure_unlock.jpg"><figcaption><b>۵-۲</b> وارد کردن رمز</figcaption></figure>
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m12_contacts_open.jpg"><figcaption><b>۵-۳</b> قفل باز در مخاطبین</figcaption></figure>
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m13_recents_open.jpg"><figcaption><b>۵-۴</b> قفل باز در «اخیر»: «تماس‌های مخفی»</figcaption></figure>
+</div>
+<p class="small">وقتی بخش امن باز است، گرفتن اسکرین‌شات و فیلم‌برداری از صفحه ممکن نیست و تصویر سیاه درمی‌آید. تصویرهای این راهنما با یک نسخهٔ مخصوص عکس‌برداری گرفته شده‌اند که بعد از کار از گوشی‌ها پاک شد.</p>
+
+<!-- ═════════════ 6 ═════════════ -->
+<h2 class="pb">۶. وارد کردن فایل کلید</h2>
+<p>فایل کلید شما را به عضو سازمان تبدیل می‌کند. بعد از وارد کردن آن، برنامه کلید خصوصی شما و کلید عمومی همهٔ هم‌سازمانی‌هایتان را دارد.</p>
+<h3>فایل کلید باید چه شکلی باشد</h3>
+<ul>
+  <li>پسوند <code>.hkb</code> دارد. اندازه‌اش برای یک سازمان کوچک حدود ۶ کیلوبایت است و با هر عضو حدود ۱٫۳ کیلوبایت بیشتر می‌شود.</li>
+  <li>نامش معمولاً <code>شمارهٔ ردیف-شمارهٔ تلفن.hkb</code> است، مثل <code>002-09356455230.hkb</code>. اگر نامش را عوض کنید اشکالی ندارد.</li>
+  <li>فایل را <b>مسئول کلیدهای سازمان</b> ساخته و امضا کرده است. برنامه فقط فایلی را می‌پذیرد که امضایش با کلید مرجعی که داخل برنامه است بخواند. فایل دستکاری‌شده یا ساخته‌شده توسط کس دیگر رد می‌شود.</li>
+  <li>فایل با یک رمز ۲۰ نویسه‌ای از حروف بزرگ لاتین و ارقام قفل است. موقع وارد کردن، حروف کوچک، فاصله و خط تیره اهمیتی ندارد.</li>
+  <li>فایل را می‌توانید از هر جایی روی گوشی بردارید: پوشهٔ دانلود، فلش، کارت حافظه، یا فایلی که از پیام‌رسان یا ایمیل ذخیره کرده‌اید.</li>
+</ul>
+<h3>مراحل</h3>
+<div class="step">
+<p><span class="num">۱</span>فایل <code>.hkb</code> را به گوشی منتقل کنید (مثلاً در پوشهٔ <span class="en">Download</span>).</p>
+<p><span class="num">۲</span>بخش امن را باز کنید. بعد منوی سه‌نقطه ← «تنظیمات» ← بخش «امنیت» ← «بانک کلید» را بزنید.</p>
+<p><span class="num">۳</span>«وارد کردن فایل کلید» را بزنید. پنجرهٔ انتخاب فایل خود اندروید باز می‌شود. به پوشه‌ای که فایل در آن است بروید و فایل را انتخاب کنید.</p>
+<p><span class="num">۴</span>رمز فایل را وارد کنید و «تأیید» را بزنید. اگر رمز اشتباه باشد، پیام «رمز فایل کلید اشتباه است» نمایش داده می‌شود و می‌توانید دوباره امتحان کنید.</p>
+<p><span class="num">۵</span>بعد از وارد شدن فایل، در «دفترچه‌های سازمانی» نام سازمان، تعداد اعضا، تاریخ صدور و «کلید شما: نام شما» نمایش داده می‌شود.</p>
+</div>
+<div class="shots">
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m14_settings_security.jpg"><figcaption><b>۶-۱</b> تنظیمات ← امنیت ← «بانک کلید»</figcaption></figure>
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m16_picker.jpg"><figcaption><b>۶-۲</b> انتخاب فایل <span class="en">.hkb</span> در پوشهٔ دانلود</figcaption></figure>
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m17_password.jpg"><figcaption><b>۶-۳</b> وارد کردن رمز فایل</figcaption></figure>
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m18_wrong_password.jpg"><figcaption><b>۶-۴</b> رمز اشتباه رد می‌شود</figcaption></figure>
+</div>
+<div class="shots">
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m15_keybank_s.jpg"><figcaption><b>۶-۵</b> بانک کلید گوشی اول: «کلید شما: علی رودی»</figcaption></figure>
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m15_keybank_x.jpg"><figcaption><b>۶-۶</b> بانک کلید گوشی دوم: «کلید شما: گوشی دوم»</figcaption></figure>
+</div>
+<p>هر دو نفر این مرحله را جداگانه و هر کدام با فایل خودشان انجام می‌دهند. هر دو گوشی یک سازمان (۲ عضو) را نشان می‌دهند، اما «کلید شما» در هر گوشی نام صاحب همان گوشی است.</p>
+<table>
+  <tr><th style="width:42%">پیامی که می‌بینید</th><th>یعنی چه و چه کنید</th></tr>
+  <tr><td>فایل کلید وارد شد</td><td>همه چیز درست است.</td></tr>
+  <tr><td>دفترچه کلید به‌روز شد</td><td>فایل جدیدتری از همان سازمان وارد کردید. اعضای جدید اضافه شدند.</td></tr>
+  <tr><td>این فایل قبلاً وارد شده است</td><td>کاری لازم نیست.</td></tr>
+  <tr><td>این فایل قدیمی‌تر از دفترچه فعلی است و وارد نشد</td><td>نسخهٔ جدیدتری روی گوشی دارید. فایل قدیمی را دور بیندازید.</td></tr>
+  <tr><td>رمز فایل کلید اشتباه است</td><td>رمز را دوباره و با دقت وارد کنید.</td></tr>
+  <tr><td>این فایل، فایل کلید هم‌رسان نیست</td><td>فایل اشتباهی را انتخاب کرده‌اید یا فایل در انتقال خراب شده است.</td></tr>
+  <tr><td>این فایل را مرجعی امضا کرده که این برنامه به آن اعتماد ندارد</td><td>فایل از مرجع دیگری است، یا نسخهٔ برنامه کلید این مرجع را ندارد. با مسئول کلیدها تماس بگیرید.</td></tr>
+  <tr><td>امضای فایل معتبر نیست؛ فایل دستکاری شده است</td><td>فایل را وارد نکنید و موضوع را به مسئول کلیدها خبر دهید.</td></tr>
+</table>
+
+<!-- ═════════════ 7 ═════════════ -->
+<h2 class="pb">۷. اولین پیام رمز بین دو نفر</h2>
+<div class="step">
+<p><span class="num">۱</span>در زبانهٔ «پیام‌ها»، بخش امن را باز کنید و ردیف «پیام‌های رمز» را بزنید. اگر تا حالا پیام رمزی نداشته‌اید، صفحه خالی است.</p>
+<p><span class="num">۲</span>دکمهٔ «گفتگوی رمز» را بزنید. فهرست «اعضای دفترچه‌ها» همهٔ هم‌سازمانی‌های شما را نشان می‌دهد. گیرنده را انتخاب کنید.</p>
+<p><span class="num">۳</span>عنوان گفتگو زیر نام طرف مقابل «رمزشده پساکوانتومی» را نشان می‌دهد. پیام را بنویسید و دکمهٔ ارسال را بزنید.</p>
+<p><span class="num">۴</span>بار اولی که به یک نفر پیام می‌دهید، برنامه پیش از پیام یک <b>کانال امن</b> با او می‌سازد. بالای گفتگو نوشته می‌شود «در حال برقراری کانال امن. پیام‌ها پس از پاسخ گوشی مقابل ارسال می‌شوند». لازم نیست کاری بکنید. گوشی مقابل خودش و بی‌صدا جواب می‌دهد. در آزمون ما این کار <b>۵۰ ثانیه</b> طول کشید و به ازای هر نفر فقط یک بار لازم است.</p>
+<p><span class="num">۵</span>بعد از ساخته شدن کانال، پیام فرستاده می‌شود و در گوشی مقابل ظاهر می‌شود.</p>
+</div>
+<div class="shots">
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m20_newconv.jpg"><figcaption><b>۷-۱</b> «گفتگوی رمز»: انتخاب «گوشی دوم» از اعضای دفترچه</figcaption></figure>
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m21_conv_empty.jpg"><figcaption><b>۷-۲</b> گفتگوی تازه</figcaption></figure>
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m22_typing.jpg"><figcaption><b>۷-۳</b> نوشتن پیام</figcaption></figure>
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m23_pending.jpg"><figcaption><b>۷-۴</b> «در حال برقراری کانال امن»</figcaption></figure>
+</div>
+<p>پنجاه ثانیه بعد، در گوشی دوم:</p>
+<div class="shots">
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m19_inbox_empty.jpg"><figcaption><b>۷-۵</b> پیش از رسیدن پیام</figcaption></figure>
+  <div class="arrow">←</div>
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m24_x_inbox_new.jpg"><figcaption><b>۷-۶</b> پیام از «علی رودی» رسید</figcaption></figure>
+  <div class="arrow">←</div>
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m25_x_conv.jpg"><figcaption><b>۷-۷</b> باز کردن گفتگو</figcaption></figure>
+  <div class="arrow">←</div>
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m26_s_seen.jpg"><figcaption><b>۷-۸</b> زیر پیام: «دیده شد»</figcaption></figure>
+</div>
+
+<!-- ═════════════ 8 ═════════════ -->
+<h2 class="pb">۸. پاسخ دادن و «دیده شد»</h2>
+<p>حالا کانال امن ساخته شده و هر پیام فقط یک پیامک است که معمولاً در <b>۳ تا ۶ ثانیه</b> می‌رسد. گوشی دوم جواب می‌دهد:</p>
+<div class="shots">
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m27_x_typing.jpg"><figcaption><b>۸-۱</b> نوشتن پاسخ</figcaption></figure>
+  <div class="arrow">←</div>
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m28_s_reply.jpg"><figcaption><b>۸-۲</b> پاسخ ۳ ثانیه بعد رسید</figcaption></figure>
+  <div class="arrow">←</div>
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m29_x_reply_seen.jpg"><figcaption><b>۸-۳</b> پاسخ «دیده شد» گرفت</figcaption></figure>
+</div>
+<table>
+  <tr><th style="width:30%">علامت زیر پیام شما</th><th>یعنی</th></tr>
+  <tr><td>آیکون ساعت</td><td>در صف یا در حال ارسال (مثلاً منتظر ساخته شدن کانال امن)</td></tr>
+  <tr><td>یک تیک ✓</td><td>پیامک به شبکهٔ اپراتور تحویل شد</td></tr>
+  <tr><td>دو تیک ✓✓</td><td>به گوشی طرف مقابل رسید</td></tr>
+  <tr><td>دو تیک آبی و «دیده شد»</td><td>طرف مقابل گفتگو را باز کرد و پیام را دید</td></tr>
+  <tr><td>علامت خطا و «ارسال نشد»</td><td>پیامک فرستاده نشد (مثلاً اعتبار سیم‌کارت تمام شده). پیام را نگه دارید و «ارسال دوباره» را بزنید.</td></tr>
+</table>
+
+<!-- ═════════════ 9 ═════════════ -->
+<h2>۹. وقتی پیام رمز می‌رسد</h2>
+<p>وقتی بیرون از برنامه هستید، پیام رمز با یک اعلان ساده خبر داده می‌شود: «<b>پیام رمز جدید</b> · برای خواندن، بخش امن را باز کنید». نه نام فرستنده در اعلان هست و نه متن پیام. پس کسی که صفحهٔ قفل گوشی شما را ببیند، چیزی نمی‌فهمد. برای خواندن پیام: اعلان را بزنید، رمز برنامه را وارد کنید، «باز کردن بخش امن» را بزنید و رمز را دوباره وارد کنید.</p>
+<div class="shots">
+  <figure class="wide gb"><span class="who B">گوشی دوم</span><img src="manual-img/m37_notification.jpg"><figcaption><b>۹-۱</b> اعلان پیام رمز: بدون نام و بدون متن</figcaption></figure>
+</div>
+<div class="shots">
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m38_x_applock.jpg"><figcaption><b>۹-۲</b> رمز برنامه</figcaption></figure>
+  <div class="arrow">←</div>
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m39_x_secure_unlock.jpg"><figcaption><b>۹-۳</b> رمز بخش امن</figcaption></figure>
+  <div class="arrow">←</div>
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m40_x_inbox.jpg"><figcaption><b>۹-۴</b> پیام تازه در «پیام‌های رمز»</figcaption></figure>
+</div>
+
+<!-- ═════════════ 10 ═════════════ -->
+<h2 class="pb">۱۰. پیام زمان‌دار</h2>
+<p>پیام زمان‌دار پس از مدتی که شما تعیین می‌کنید، خودش از هر دو گوشی پاک می‌شود. برای پیام‌هایی مثل رمز یا کدی که نباید روی گوشی بماند مناسب است.</p>
+<div class="step">
+<p><span class="num">۱</span>دکمهٔ تایمر کنار کادر نوشتن را بزنید و یکی از گزینه‌ها را انتخاب کنید: ۳۰ ثانیه، ۵ دقیقه، ۱ ساعت، ۱ روز یا ۱ هفته.</p>
+<p><span class="num">۲</span>بالای کادر نوشتن توضیح داده می‌شود که پیام کی پاک می‌شود. پیام را بنویسید و بفرستید.</p>
+<p><span class="num">۳</span>در <b>گوشی گیرنده</b>، زمان از لحظه‌ای شروع می‌شود که پیام را <b>می‌بیند</b>. در <b>گوشی فرستنده</b>، زمان از لحظهٔ <b>ارسال</b> شروع می‌شود. زیر پیام نوشته می‌شود تا چه ساعتی می‌ماند، مثلاً «تا ۱۶:۴۶».</p>
+</div>
+<div class="shots">
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m30_expiry_menu.jpg"><figcaption><b>۱۰-۱</b> انتخاب مدت</figcaption></figure>
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m31_timed_compose.jpg"><figcaption><b>۱۰-۲</b> توضیح بالای کادر: ۵ دقیقه</figcaption></figure>
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m32_timed_sent.jpg"><figcaption><b>۱۰-۳</b> ساعت ۱۶:۲۵ فرستاده شد: «تا ۱۶:۳۰»</figcaption></figure>
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m33_timed_gone.jpg"><figcaption><b>۱۰-۴</b> ساعت ۱۶:۳۰ خودش پاک شد</figcaption></figure>
+</div>
+<p>همین کار از طرف گوشی دوم، از دید هر دو نفر:</p>
+<div class="shots">
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m34_x_timed_sent.jpg"><figcaption><b>۱۰-۵</b> فرستنده: «تا ۱۶:۴۶» و «دیده شد»</figcaption></figure>
+  <div class="arrow">←</div>
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m35_s_timed_received.jpg"><figcaption><b>۱۰-۶</b> گیرنده: «تا ۱۶:۴۶». ساعت ۱۶:۴۶ از هر دو گوشی پاک شد.</figcaption></figure>
+</div>
+
+<!-- ═════════════ 11 ═════════════ -->
+<h2>۱۱. حذف پس از دیدن</h2>
+<p>این پیام فقط یک بار دیده می‌شود. همین که گیرنده آن را ببیند و از گفتگو بیرون برود، پاک می‌شود.</p>
+<div class="step"><p><span class="num">۱</span>دکمهٔ تایمر ← «پس از دیدن». بالای کادر نوشته می‌شود «این پیام پس از دیده شدن از گوشی گیرنده پاک می‌شود». پیام را بفرستید.</p></div>
+<div class="shots">
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m36_aftersee_compose.jpg"><figcaption><b>۱۱-۱</b> «پس از دیدن» روشن است</figcaption></figure>
+  <div class="arrow">←</div>
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m41_x_aftersee_open.jpg"><figcaption><b>۱۱-۲</b> گیرنده پیام را می‌بیند</figcaption></figure>
+  <div class="arrow">←</div>
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m42_s_aftersee_seen.jpg"><figcaption><b>۱۱-۳</b> فرستنده: «دیده شد»</figcaption></figure>
+  <div class="arrow">←</div>
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m43_x_aftersee_gone.jpg"><figcaption><b>۱۱-۴</b> با خروج و بازگشت: پیام دیگر نیست</figcaption></figure>
+</div>
+
+<!-- ═════════════ 12 ═════════════ -->
+<h2 class="pb">۱۲. حذف برای هر دو</h2>
+<p>اگر پیامی را اشتباهی فرستادید، می‌توانید آن را از گوشی طرف مقابل هم پاک کنید. انگشتتان را روی پیام خودتان نگه دارید و «حذف برای هر دو» را بزنید. چند ثانیه بعد پیام از گوشی دیگر هم پاک می‌شود. فقط پیام‌های خودتان را می‌توانید این‌طور پاک کنید. «حذف از این گوشی» فقط نسخهٔ خودتان را پاک می‌کند.</p>
+<div class="shots">
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m45_x_wrong_msg.jpg"><figcaption><b>۱۲-۱</b> پیام اشتباهی رسیده</figcaption></figure>
+  <div class="arrow">←</div>
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m44_msg_actions.jpg"><figcaption><b>۱۲-۲</b> نگه داشتن پیام ← «حذف برای هر دو»</figcaption></figure>
+  <div class="arrow">←</div>
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m46_x_deleted_both.jpg"><figcaption><b>۱۲-۳</b> ۳ ثانیه بعد از گوشی دوم هم پاک شد</figcaption></figure>
+</div>
+
+<!-- ═════════════ 13 ═════════════ -->
+<h2>۱۳. تنظیمات پیام‌های رمز</h2>
+<p>منوی سه‌نقطهٔ صفحهٔ «پیام‌های رمز» این گزینه‌ها را دارد:</p>
+<ul>
+  <li><b>ارسال «دیده شد»:</b> اگر خاموش کنید، طرف مقابل نمی‌فهمد که پیامش را دیده‌اید. هر رسید «دیده شد» یک پیامک هزینه دارد.</li>
+  <li><b>ارسال با سیم‌کارت …:</b> در گوشی دوسیم‌کارته، تعیین می‌کنید پیام‌های رمز با کدام سیم‌کارت بروند. اگر سیم‌کارت پیش‌فرض گوشی اعتبار ندارد، اینجا سیم‌کارت دیگر را انتخاب کنید.</li>
+  <li><b>متن پوششی:</b> فقط در نسخهٔ سازمانی (بخش ۱۸).</li>
+</ul>
+<div class="shots">
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m48_inbox_menu.jpg"><figcaption><b>۱۳-۱</b> منوی «پیام‌های رمز» در گوشی دوسیم‌کارته</figcaption></figure>
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m66_s_inbox.jpg"><figcaption><b>۱۳-۲</b> صندوق پیام‌های رمز با یک گفتگو و یک گروه</figcaption></figure>
+</div>
+
+<!-- ═════════════ 14 ═════════════ -->
+<h2 class="pb">۱۴. گروه رمز</h2>
+<div class="step">
+<p><span class="num">۱</span>«پیام‌های رمز» ← «گفتگوی رمز» ← «گروه رمز جدید».</p>
+<p><span class="num">۲</span>نام گروه را بنویسید و نوع آن را انتخاب کنید. این انتخاب بعداً عوض نمی‌شود:</p>
+<ul>
+  <li><b>گفتگوی گروهی:</b> پاسخ هر عضو به همهٔ اعضا می‌رسد.</li>
+  <li><b>اطلاع‌رسانی:</b> پاسخ اعضا فقط به شما (سازنده) می‌رسد. مناسب ابلاغ و اطلاعیه است.</li>
+</ul>
+<p><span class="num">۳</span>اعضا را از فهرست انتخاب کنید و «ساخت» را بزنید.</p>
+<p><span class="num">۴</span>زیر کادر نوشتن، هزینهٔ هر پیام نوشته شده است: هر پیام برای هر عضو یک پیامک جداست. زیر پیام شما نوشته می‌شود چند نفر آن را دیده‌اند، مثلاً «دیده شده ۱ از ۱». با نگه داشتن پیام و زدن «وضعیت برای هر عضو»، وضعیت هر عضو را جدا می‌بینید.</p>
+</div>
+<div class="shots">
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m49_new_group.jpg"><figcaption><b>۱۴-۱</b> گروه «تیم پروژه»، نوع «گفتگوی گروهی»</figcaption></figure>
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m50_new_group_announce.jpg"><figcaption><b>۱۴-۲</b> توضیح نوع «اطلاع‌رسانی»</figcaption></figure>
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m51_group_created.jpg"><figcaption><b>۱۴-۳</b> گروه ساخته شد</figcaption></figure>
+</div>
+<div class="shots">
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m52_x_inbox_group.jpg"><figcaption><b>۱۴-۴</b> گروه با اولین پیام در گوشی دوم ظاهر شد</figcaption></figure>
+  <div class="arrow">←</div>
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m53_x_group.jpg"><figcaption><b>۱۴-۵</b> پیام گروه با نام فرستنده</figcaption></figure>
+  <div class="arrow">←</div>
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m54_s_group_seen.jpg"><figcaption><b>۱۴-۶</b> «دیده شده ۱ از ۱»</figcaption></figure>
+</div>
+<div class="shots">
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m55_group_status.jpg"><figcaption><b>۱۴-۷</b> «وضعیت برای هر عضو»</figcaption></figure>
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m56_x_group_members.jpg"><figcaption><b>۱۴-۸</b> اعضای گروه از دید عضو</figcaption></figure>
+</div>
+<p class="small">فقط سازنده می‌تواند نام گروه یا اعضا را تغییر دهد. حذف گروه فقط آن را از گوشی خودتان پاک می‌کند.</p>
+
+<!-- ═════════════ 15 ═════════════ -->
+<h2 class="pb">۱۵. دفترچهٔ مخفی و تماس‌های مخفی</h2>
+<p>اگر نمی‌خواهید کسی بفهمد با یک نفر در ارتباط هستید، او را در «دفترچه مخفی» ذخیره کنید. از آن به بعد، تماس‌ها و پیامک‌های او فقط داخل بخش امن نگه داشته می‌شوند و در سوابق تماس و پیامک گوشی، دفترچهٔ تلفن گوشی و برنامه‌های دیگر هیچ اثری از او نیست.</p>
+<div class="step">
+<p><span class="num">۱</span>بخش امن را باز کنید و در زبانهٔ «مخاطبین» ردیف «دفترچه مخفی» را بزنید.</p>
+<p><span class="num">۲</span>«مخاطب مخفی» را بزنید. نام و شماره‌ها را بنویسید، یا با «از دفترچه تلفن گوشی» یک مخاطب موجود را انتخاب کنید. بعد «ذخیره» را بزنید.</p>
+<p><span class="num">۳</span>تماس‌ها و پیامک‌های قبلی این شماره‌ها هم از سوابق گوشی به بخش امن منتقل می‌شوند. اگر مخاطب را از دفترچهٔ تلفن گوشی آورده باشید، برنامه پیشنهاد می‌دهد اصلش را از دفترچهٔ گوشی پاک کنید.</p>
+</div>
+<div class="shots">
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m58_hidden_new.jpg"><figcaption><b>۱۵-۱</b> مخاطب مخفی جدید</figcaption></figure>
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m57_hidden_list.jpg"><figcaption><b>۱۵-۲</b> دفترچهٔ مخفی</figcaption></figure>
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m59_hidden_contact.jpg"><figcaption><b>۱۵-۳</b> صفحهٔ مخاطب و تماس‌هایش</figcaption></figure>
+  <figure class="ga"><span class="who A">گوشی اول</span><img src="manual-img/m60_hidden_calls.jpg"><figcaption><b>۱۵-۴</b> «تماس‌های مخفی» در «اخیر»</figcaption></figure>
+</div>
+<p><b>وقتی بخش امن قفل است و مخاطب مخفی زنگ می‌زند</b>، فقط شمارهٔ او نشان داده می‌شود، نه نامش. اگر جواب ندهید، اعلان فقط می‌گوید «تماس بی‌پاسخ» و حتی شماره را هم نشان نمی‌دهد. این دو تصویر لحظه‌ای را نشان می‌دهند که گوشی دوم به گوشی اول زنگ زد:</p>
+<div class="shots">
+  <figure class="wide ga"><span class="who A">گوشی اول</span><img src="manual-img/m61_call_in.jpg"><figcaption><b>۱۵-۵</b> تماس ورودی: فقط شماره</figcaption></figure>
+  <figure class="wide ga"><span class="who A">گوشی اول</span><img src="manual-img/m62_missed.jpg"><figcaption><b>۱۵-۶</b> «تماس بی‌پاسخ · برای دیدن، بخش امن را باز کنید»</figcaption></figure>
+</div>
+<p class="small">پیام دادن به مخاطب مخفی از صفحهٔ خود او و دکمهٔ «پیام» انجام می‌شود. اگر کلید او در بانک کلید باشد، گفتگو رمز است. اگر نباشد، پیامک عادی است که فقط داخل بخش امن ذخیره می‌شود.</p>
+
+<!-- ═════════════ 16 ═════════════ -->
+<h2 class="pb">۱۶. کنترل امنیت و عکس ورود ناموفق</h2>
+<p><b>کنترل امنیت سامانه</b> (تنظیمات ← امنیت) گوشی شما را بررسی می‌کند و می‌گوید چه چیزهایی امنیت را کم می‌کنند: روت بودن، ابزارهای نفوذ، روشن بودن اشکال‌زدایی <span class="en">USB</span>، نبودن قفل صفحه، قدیمی بودن به‌روزرسانی امنیتی، برنامه‌هایی که می‌توانند صفحه را بخوانند و پیش‌فرض نبودن هم‌رسان. کنار هر هشدار نوشته شده چه کاری انجام دهید. دکمهٔ بالای صفحه بررسی را تکرار می‌کند.</p>
+<p><b>عکس از ورود ناموفق</b> (تنظیمات ← امنیت) اگر روشن باشد، با هر سه بار پشت‌سرهم اشتباه وارد شدن رمز برنامه، بی‌صدا با دوربین جلو و پشت عکس می‌گیرد. دفعهٔ بعد که با رمز درست وارد شوید، برنامه خبر می‌دهد و عکس‌ها را با تاریخ و ساعت نشان می‌دهد. عکس‌ها فقط داخل بخش امن نگه داشته می‌شوند.</p>
+<div class="shots">
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m64_devsec.jpg"><figcaption><b>۱۶-۱</b> گزارش کنترل امنیت: ۳ هشدار، ۴ سالم</figcaption></figure>
+  <figure class="gb"><span class="who B">گوشی دوم</span><img src="manual-img/m65_intruder.jpg"><figcaption><b>۱۶-۲</b> عکس‌های ورود ناموفق</figcaption></figure>
+</div>
+
+<!-- ═════════════ 17 ═════════════ -->
+<h2>۱۷. گروه عبارت عبور (روش جایگزین)</h2>
+<p>اگر سازمان مرجع کلید ندارد و چند نفر فقط می‌خواهند سریع با هم پیام رمز رد و بدل کنند، می‌توانند بدون فایل کلید یک «گروه عبارت عبور» بسازند:</p>
+<ol>
+  <li>همه در بانک کلید ← «افزودن گروه» یک نام گروه و یک عبارت عبور مشترک (حداقل ۱۲ نویسه) را دقیقاً یکسان وارد می‌کنند.</li>
+  <li>برنامه یک «کد گروه» مثل <code>AF15-EC4C-2B89-D00B</code> نشان می‌دهد. اعضا این کد را تلفنی مقایسه می‌کنند. اگر یکی نبود، عبارت یا نام را متفاوت وارد کرده‌اند.</li>
+  <li>هر کس در «شماره‌های من» شمارهٔ سیم‌کارت خودش را وارد می‌کند.</li>
+  <li>برای شروع گفتگو، در «گفتگوی رمز» شمارهٔ کامل طرف مقابل را بنویسید.</li>
+</ol>
+<div class="shots">
+  <figure><img src="img/15_group_dialog.jpg"><figcaption><b>۱۷-۱</b> افزودن گروه</figcaption></figure>
+  <figure><img src="img/16a_own_number.jpg"><figcaption><b>۱۷-۲</b> شمارهٔ این گوشی</figcaption></figure>
+  <figure><img src="img/16_keybank_full.jpg"><figcaption><b>۱۷-۳</b> گروه با کد گروه</figcaption></figure>
+</div>
+<div class="box warn">هر کس عبارت عبور را بداند، می‌تواند پیام‌های همهٔ اعضا را بخواند و به نام هر کدام پیام بفرستد. این روش فقط برای گروه‌های کوچک و مورد اعتماد مناسب است. روش اصلی سازمان، فایل کلید است. <span class="small">(سه تصویر این بخش از شبیه‌ساز هستند.)</span></div>
+
+<!-- ═════════════ 18 ═════════════ -->
+<h2 class="pb">۱۸. دیگران چه می‌بینند</h2>
+<p>پیام رمز از مسیر پیامک معمولی اپراتور می‌گذرد. پس خوب است بدانید در این مسیر چه چیزی دیده می‌شود و چه چیزی نه.</p>
+<h3>اپراتور</h3>
+<p>اپراتور به‌جای متن شما چیزی شبیه این می‌بیند:</p>
+<pre>#E:EfVPANLwWegqLwhcwj75xMvt8l5JnJiYUp8epCJHFPyV5yxLMEeqNJDocOf9xtSk</pre>
+<p>یعنی یک رشتهٔ بی‌معنی از حروف و ارقام لاتین. اپراتور نمی‌تواند متن پیام را بخواند، آن را تغییر دهد یا به نام شما پیام بسازد. حتی نمی‌فهمد پیام زمان‌دار یا گروهی بوده است. اما این‌ها را می‌بیند: از چه شماره‌ای به چه شماره‌ای، چه ساعتی و چند پیامک رفته، و اینکه این پیامک‌ها رمزشده‌اند. اپراتور همچنین می‌تواند پیامک را دیر برساند. در آزمون ما یک پیامک ۱۷ دقیقه در شبکه ماند و بعد رسید.</p>
+<h3>برنامه‌های دیگر گوشی</h3>
+<ul>
+  <li><b>اگر هم‌رسان برنامهٔ پیش‌فرض پیامک باشد:</b> پیام‌های رمز اصلاً در حافظهٔ پیامک اندروید ثبت نمی‌شوند. برنامه‌هایی مثل <span class="en">Google Messages</span> یا برنامه‌های پشتیبان‌گیری هیچ اثری از آن‌ها نمی‌بینند.</li>
+  <li><b>اگر پیش‌فرض نباشد:</b> برنامهٔ پیامک دیگر همان رشتهٔ <code>#E:…</code> را به شکل یک پیامک نامفهوم نشان می‌دهد. متن پیدا نیست، اما معلوم است که پیام رمزی آمده. برای همین بهتر است هم‌رسان پیش‌فرض باشد.</li>
+  <li><b>اعلان‌ها:</b> فقط «پیام رمز جدید»، بدون فرستنده و متن.</li>
+</ul>
+<h3>متن پوششی (فقط نسخهٔ سازمانی)</h3>
+<p>در نسخهٔ سازمانی می‌توانید از منوی «پیام‌های رمز» گزینهٔ «متن پوششی: فارسی» یا «انگلیسی» را روشن کنید. در این حالت اپراتور به‌جای <code>#E:…</code> متنی مثل این می‌بیند:</p>
+<pre style="direction:rtl;text-align:right;font-family:Vazirmatn,Tahoma,sans-serif;font-size:9pt">معلم صدف تخت خانه کمی کشید قهوه خندید کارگر. تلفن دریا نمک آنجا برف قایق پایین نیمه افتاد. پخت گوشت چوب مسابقه بازی بازی در دکتر قطار. …</pre>
+<p>گوشی گیرنده خودش این متن را تشخیص می‌دهد و پیام اصلی را نشان می‌دهد. امنیت پیام تغییری نمی‌کند، فقط شکل ظاهری آن به یک پیامک معمولی شبیه‌تر می‌شود. هزینه‌اش این است که هر پیام ۲ تا ۴ پیامک می‌شود.</p>
+
+<!-- ═════════════ 19 ═════════════ -->
+<h2 class="pb">۱۹. برای مسئول کلیدهای سازمان</h2>
+<p>این بخش برای کسی است که در سازمان فایل کلید اعضا را صادر می‌کند. جزئیات کامل در بخش‌های ۹ و ۱۰ سند گزارش آمده است.</p>
+<h3>پوشهٔ مرجع (در این پروژه: <span class="en">C:\Users\hp\Hamresan-Authority</span>)</h3>
+<table>
+  <tr><th style="width:30%">فایل</th><th>چیست</th></tr>
+  <tr><td><code>authority.hka</code></td><td>کلید خصوصی مرجع، قفل با رمز مرجع. <b>مهم‌ترین فایل.</b> با آن می‌شود برای هر کسی کلید ساخت. روی رایانهٔ بدون اینترنت نگه داشته شود و یک پشتیبان جدا داشته باشد.</td></tr>
+  <tr><td><code>authority-password.txt</code></td><td>رمز فایل بالا. فقط برای دورهٔ آزمون کنار آن گذاشته شده و در استفادهٔ واقعی نباید باشد.</td></tr>
+  <tr><td><code>authority-public.txt</code></td><td>کلید عمومی مرجع، یک خط هگز. داخل برنامه قرار گرفته و محرمانه نیست.</td></tr>
+  <tr><td><code>roster.csv</code></td><td>فهرست اعضا: نام سازمان، و برای هر عضو نام، شماره‌ها و نسل.</td></tr>
+  <tr><td><code>issued\NNN-شماره.hkb</code></td><td>فایل کلید هر عضو. همین فایل به عضو داده می‌شود.</td></tr>
+  <tr><td><code>issued\passwords.csv</code></td><td>رمز فایل کلید هر عضو. محرمانه است.</td></tr>
+  <tr><td><code>README-FA.txt</code></td><td>یادداشت دورهٔ آزمون شامل رمزها و کدهای دو گوشی آزمون. محرمانه است و باید پاک شود.</td></tr>
+</table>
+<h3>کارهای رایج</h3>
+<table>
+  <tr><th style="width:28%">کار</th><th>چه کنید</th></tr>
+  <tr><td>صدور برای اعضای تازه</td><td>به <code>roster.csv</code> یک خط اضافه کنید و <code>hamresan-keybank issue authority.hka roster.csv issued</code> را اجرا کنید. کلید و رمز اعضای قبلی عوض نمی‌شود. به همه فایل تازه‌شان را بدهید تا عضو جدید را ببینند.</td></tr>
+  <tr><td>گوشی یک عضو گم شده</td><td>عدد ستون <code>generation</code> آن عضو را یکی زیاد کنید و دوباره صادر کنید. فایل تازه را به همه بدهید. کلید گوشی گم‌شده دیگر در دفترچه نیست.</td></tr>
+  <tr><td>تحویل فایل به عضو</td><td>فایل و رمز را از دو راه جدا بدهید. بعد از اینکه عضو فایل را وارد کرد، فایل را از پیام‌رسان‌ها و جاهای عمومی پاک کنید.</td></tr>
+  <tr><td>شمارهٔ عضو</td><td>کلید از اولین شمارهٔ هر عضو ساخته می‌شود. ترتیب شماره‌ها را عوض نکنید. پیام رمز به اولین شمارهٔ همراه فرستاده می‌شود.</td></tr>
+</table>
+
+<!-- ═════════════ 20 ═════════════ -->
+<h2 class="pb">۲۰. اشکال‌ها و پرسش‌های رایج</h2>
+<table>
+  <tr><th style="width:34%">مشکل</th><th>راه‌حل</th></tr>
+  <tr><td>نام طرف مقابل در «گفتگوی رمز» نیست.</td><td>فایل کلید شما قدیمی است یا او عضو سازمان شما نیست. فایل جدید را از مسئول کلیدها بگیرید.</td></tr>
+  <tr><td>«در حال برقراری کانال امن» بیشتر از چند دقیقه طول کشید.</td><td>گوشی مقابل باید روشن باشد، آنتن داشته باشد و فایل کلید را وارد کرده باشد. ساختن کانال حدود ۲۰ پیامک چندبخشی است و بعضی گوشی‌ها (مثلاً شیائومی) گاهی پیامک‌های بلند را مسدود می‌کنند. اگر طول کشید، گفتگو را از صندوق حذف کنید (انگشت را روی گفتگو نگه دارید) و دوباره شروع کنید.</td></tr>
+  <tr><td>پیام فقط یک تیک دارد و نمی‌رسد.</td><td>پیامک در شبکهٔ اپراتور مانده است. معمولاً چند ثانیه تا چند دقیقه بعد می‌رسد. در آزمون یک بار ۱۷ دقیقه طول کشید.</td></tr>
+  <tr><td>زیر پیام «ارسال نشد» آمد یا اپراتور گفت اعتبار کافی نیست.</td><td>در گوشی دوسیم‌کارته، از منوی «پیام‌های رمز» سیم‌کارتی را انتخاب کنید که اعتبار دارد. بعد پیام را نگه دارید و «ارسال دوباره» را بزنید.</td></tr>
+  <tr><td>پیام زمان‌دار زودتر از انتظار از گوشی من (فرستنده) پاک شد.</td><td>عادی است. در گوشی فرستنده زمان از لحظهٔ ارسال حساب می‌شود و در گوشی گیرنده از لحظهٔ دیدن.</td></tr>
+  <tr><td>از برنامه بیرون رفتم و برگشتم و صفحه از من رمز می‌خواهد.</td><td>بخش امن با هر خروج بسته می‌شود. رمز را وارد کنید تا همان گفتگو باز شود.</td></tr>
+  <tr><td>رمز را فراموش کرده‌ام.</td><td>در صفحهٔ رمز «رمز را فراموش کرده‌ام» را بزنید و کد بازیابی را وارد کنید. وارد برنامه می‌شوید، اما محتوای بخش امن از بین رفته است. باید بخش امن را دوباره بسازید و فایل کلید را دوباره وارد کنید.</td></tr>
+  <tr><td>گوشی‌ام را عوض کرده‌ام.</td><td>برنامه را روی گوشی جدید نصب کنید، کد فعال‌سازی تازه بگیرید و همان فایل کلید را وارد کنید. پیام‌های قبلی منتقل نمی‌شوند. این عمدی است، چون محتوای بخش امن به سخت‌افزار گوشی قبلی گره خورده است.</td></tr>
+  <tr><td>گوشی‌ام گم شده.</td><td>فوراً به مسئول کلیدها خبر دهید تا کلید شما را باطل کند و کلید تازه بدهد.</td></tr>
+  <tr><td>اسکرین‌شات سیاه است.</td><td>درست است. وقتی بخش امن باز است، اسکرین‌شات عمداً ممکن نیست.</td></tr>
+</table>
+
+<!-- ═════════════ 21 ═════════════ -->
+<h2>۲۱. خلاصهٔ یک‌صفحه‌ای: دو نفر چطور با هم ارتباط امن برقرار می‌کنند</h2>
+<p><b>مسئول کلیدها، یک بار:</b></p>
+<ul class="check">
+  <li>نام و شمارهٔ هر دو نفر را در <code>roster.csv</code> می‌نویسد و فایل‌های کلید را صادر می‌کند.</li>
+  <li>به هر نفر فایل <code>.hkb</code> خودش و رمز آن را از دو راه جدا می‌دهد.</li>
+</ul>
+<p><b>هر کدام از دو نفر، روی گوشی خودش:</b></p>
+<ul class="check">
+  <li>هم‌رسان را نصب می‌کند و آن را برنامهٔ پیش‌فرض پیامک و تماس می‌کند.</li>
+  <li>در «درباره برنامه» ← «نسخه بین‌سازمانی» کد دستگاه را به پشتیبانی می‌دهد و کد فعال‌سازی را وارد می‌کند.</li>
+  <li>رمز برنامه را ۶ رقمی می‌کند و با لمس قفل، بخش امن را می‌سازد.</li>
+  <li>در تنظیمات ← امنیت ← «بانک کلید» فایل کلید خودش را با رمزش وارد می‌کند.</li>
+</ul>
+<p><b>بعد:</b></p>
+<ul class="check">
+  <li>یکی از دو نفر در «پیام‌ها» ← «پیام‌های رمز» ← «گفتگوی رمز» نام دیگری را انتخاب می‌کند و پیام می‌فرستد.</li>
+  <li>حدود یک دقیقه طول می‌کشد تا کانال امن ساخته شود. از آن به بعد هر پیام در چند ثانیه می‌رسد.</li>
+  <li>گیرنده اعلان «پیام رمز جدید» را می‌بیند، بخش امن را باز می‌کند و پیام را می‌خواند. فرستنده «دیده شد» را می‌بیند.</li>
+</ul>
+
+</body>
+</html>
