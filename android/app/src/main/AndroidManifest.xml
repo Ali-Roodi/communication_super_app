@@ -66,6 +66,14 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
 
+    <!-- «عکس از ورود ناموفق» (secure editions, off by default): on every
+         third wrong app PIN in a row, one photo per camera, sealed to the
+         secure section's key; asked for only when the user turns it on in
+         Settings → امنیت. The camera is optional hardware for this app. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
+    <uses-feature android:name="android.hardware.camera.front" android:required="false"/>
+
     <!-- Exact alarms for background scheduled-SMS delivery (زمان‌بندی ارسال).
          USE_EXACT_ALARM is auto-granted on Android 13+; SCHEDULE_EXACT_ALARM
          covers 12 (the scheduler falls back to an inexact alarm if denied). -->
@@ -319,6 +327,10 @@
 
          In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
     <queries>
+        <!-- «کنترل امنیت سامانه»: name the apps that can read the screen. -->
+        <intent>
+            <action android:name="android.accessibilityservice.AccessibilityService"/>
+        </intent>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>

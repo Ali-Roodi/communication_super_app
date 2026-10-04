@@ -54,7 +54,11 @@ class IncomingSmsReceiver : BroadcastReceiver() {
         if (parts.isEmpty()) return
 
         val address = parts[0].originatingAddress ?: return
-        val body = parts.joinToString("") { it.messageBody ?: "" }
+        // A cover text («متن پوششی», row 31) is an encrypted SMS in words:
+        // from here on it is its #E: form.
+        val body = com.example.communication_super_app.smscrypto.CoverText.uncover(
+            parts.joinToString("") { it.messageBody ?: "" },
+        )
         val timestamp = parts[0].timestampMillis
         val threadId = normalizeToThreadId(address)
         // Which SIM took it. The broadcast carries it as the "subscription"

@@ -33,6 +33,12 @@ import java.nio.charset.CodingErrorAction
  * message is sealed once per member, over each member's own session — so the
  * id is all that makes it a group's.
  *
+ * A text kind with [FLAG_TIMED] set is «زمان‌دار» (matrix row 16): a varint
+ * lifetime in seconds follows (after the group id, if any), then the text.
+ * The receiver's copy goes that long after it is first shown, the sender's
+ * that long after it was sent. Builds before this flag drop such a message
+ * (an unknown kind): every phone of an organization runs the same build.
+ *
  * A message is named by the session and counter it travelled with — unique,
  * known to both sides, and free (no id on the wire).
  *
@@ -54,6 +60,12 @@ object Payload {
     const val FLAG_GROUP = 0x40
     const val GROUP_ID_BYTES = 8
 
+    /** On a text kind: a timed message; a varint lifetime in seconds follows. */
+    const val FLAG_TIMED = 0x20
+
+    /** A week: longer is not "timed" any more. */
+    const val MAX_TTL_SECONDS = 7L * 24 * 3600
+
     /** Every member reply goes to all members. */
     const val GROUP_MODE_CHAT = 0
 
@@ -71,6 +83,8 @@ object Payload {
         val deleteAfterSeen: Boolean = false,
         /** Set for a group message. */
         val groupId: ByteArray? = null,
+        /** Set for a timed message: its lifetime in seconds. */
+        val ttlSeconds: Long? = null,
     ) : Decoded()
 
     class GroupMember(val phone: String, val keyId: ByteArray)
@@ -94,20 +108,32 @@ object Payload {
     /** Delete the message [counter] of session [sid]. */
     class Delete(val sid: Int, val counter: Long) : Decoded()
 
-    fun text(text: String, deleteAfterSeen: Boolean = false): ByteArray {
-        val flag = if (deleteAfterSeen) FLAG_DELETE_AFTER_SEEN else 0
+    fun text(text: String, deleteAfterSeen: Boolean = false, ttlSeconds: Long? = null): ByteArray {
+        var flag = if (deleteAfterSeen) FLAG_DELETE_AFTER_SEEN else 0
+        val ttl = if (ttlSeconds != null) {
+            require(ttlSeconds in 1..MAX_TTL_SECONDS) { "bad lifetime" }
+            flag = flag or FLAG_TIMED
+            Wire.writeVarint(ttlSeconds)
+        } else {
+            ByteArray(0)
+        }
         val utf8 = text.toByteArray(Charsets.UTF_8)
         val compact = PersianCodePage.encode(text)
         return if (compact.size < utf8.size) {
-            byteArrayOf((KIND_TEXT_FA or flag).toByte()) + compact
+            byteArrayOf((KIND_TEXT_FA or flag).toByte()) + ttl + compact
         } else {
-            byteArrayOf((KIND_TEXT_UTF8 or flag).toByte()) + utf8
+            byteArrayOf((KIND_TEXT_UTF8 or flag).toByte()) + ttl + utf8
         }
     }
 
-    fun groupText(groupId: ByteArray, text: String, deleteAfterSeen: Boolean = false): ByteArray {
+    fun groupText(
+        groupId: ByteArray,
+        text: String,
+        deleteAfterSeen: Boolean = false,
+        ttlSeconds: Long? = null,
+    ): ByteArray {
         require(groupId.size == GROUP_ID_BYTES) { "group id must be $GROUP_ID_BYTES bytes" }
-        val plain = text(text, deleteAfterSeen)
+        val plain = text(text, deleteAfterSeen, ttlSeconds)
         return byteArrayOf(((plain[0].toInt() and 0xFF) or FLAG_GROUP).toByte()) +
             groupId + plain.copyOfRange(1, plain.size)
     }
@@ -165,17 +191,26 @@ object Payload {
         val body = payload.copyOfRange(1, payload.size)
         val flagged = kind and FLAG_DELETE_AFTER_SEEN != 0
         val group = kind and FLAG_GROUP != 0
-        val base = kind and (FLAG_DELETE_AFTER_SEEN or FLAG_GROUP).inv()
-        if (group && base != KIND_TEXT_UTF8 && base != KIND_TEXT_FA) badPayload()
-        val (groupId, textBytes) = if (group) {
+        val timed = kind and FLAG_TIMED != 0
+        val base = kind and (FLAG_DELETE_AFTER_SEEN or FLAG_GROUP or FLAG_TIMED).inv()
+        val isText = base == KIND_TEXT_UTF8 || base == KIND_TEXT_FA
+        if ((group || timed) && !isText) badPayload()
+        val (groupId, afterGroup) = if (group) {
             if (body.size < GROUP_ID_BYTES) badPayload()
             body.copyOf(GROUP_ID_BYTES) to body.copyOfRange(GROUP_ID_BYTES, body.size)
         } else {
             null to body
         }
+        val (ttl, textBytes) = if (timed) {
+            val (value, length) = Wire.readVarint(afterGroup, 0) ?: badPayload()
+            if (value !in 1..MAX_TTL_SECONDS) badPayload()
+            value to afterGroup.copyOfRange(length, afterGroup.size)
+        } else {
+            null to afterGroup
+        }
         return when (base) {
-            KIND_TEXT_UTF8 -> Text(strictUtf8(textBytes) ?: badPayload(), flagged, groupId)
-            KIND_TEXT_FA -> Text(PersianCodePage.decode(textBytes) ?: badPayload(), flagged, groupId)
+            KIND_TEXT_UTF8 -> Text(strictUtf8(textBytes) ?: badPayload(), flagged, groupId, ttl)
+            KIND_TEXT_FA -> Text(PersianCodePage.decode(textBytes) ?: badPayload(), flagged, groupId, ttl)
             KIND_SEEN -> if (flagged) badPayload() else parseReference(body) { sid, n -> Seen(sid, n) }
             KIND_DELETE -> if (flagged) badPayload() else parseReference(body) { sid, n -> Delete(sid, n) }
             KIND_GROUP_INFO -> if (flagged) badPayload() else parseGroupInfo(body)

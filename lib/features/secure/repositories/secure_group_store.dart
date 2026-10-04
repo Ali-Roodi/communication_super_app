@@ -145,6 +145,7 @@ class SecureGroupMessage extends Equatable {
     this.deleteAfterSeen = false,
     this.seenAt,
     this.deliveries = const [],
+    this.ttl,
   });
 
   final String id;
@@ -163,7 +164,18 @@ class SecureGroupMessage extends Equatable {
   final int? seenAt;
   final List<GroupDelivery> deliveries;
 
+  /// A timed message (row 16): its lifetime in seconds.
+  final int? ttl;
+
   bool get outgoing => sender == null;
+
+  /// See `SecureMessage.expiresAt`.
+  int? get expiresAt {
+    final t = ttl;
+    if (t == null) return null;
+    final from = outgoing ? timestamp : seenAt;
+    return from == null ? null : from + t * 1000;
+  }
 
   int count(SecureMessageStatus s) =>
       deliveries.where((d) => d.status == s).length;
@@ -181,6 +193,7 @@ class SecureGroupMessage extends Equatable {
     deleteAfterSeen,
     seenAt,
     deliveries,
+    ttl,
   ];
 }
 
@@ -525,6 +538,7 @@ class SecureGroupStore {
     deleteAfterSeen: r['delete_after_seen'] == 1,
     seenAt: r['seen_at'] as int?,
     deliveries: deliveries ?? const [],
+    ttl: r['ttl'] as int?,
   );
 
   Future<Map<String, List<GroupDelivery>>> _deliveries(
@@ -586,6 +600,7 @@ class SecureGroupStore {
     'counter': m.counter,
     'delete_after_seen': m.deleteAfterSeen ? 1 : 0,
     'seen_at': m.seenAt,
+    'ttl': m.ttl,
   };
 
   /// Deliveries to [phone] still waiting for a session, oldest first, with
@@ -595,7 +610,8 @@ class SecureGroupStore {
     final rows = await db.rawQuery(
       '''
       SELECT d.*, m.group_id, m.sender, m.body, m.timestamp, m.status AS m_status,
-             m.delete_after_seen, m.seen_at, m.sid AS m_sid, m.counter AS m_counter
+             m.delete_after_seen, m.seen_at, m.ttl, m.sid AS m_sid,
+             m.counter AS m_counter
         FROM sg_deliveries d JOIN sg_messages m ON m.id = d.message_id
        WHERE d.phone = ? AND d.status = ?
        ORDER BY m.timestamp, m.rowid

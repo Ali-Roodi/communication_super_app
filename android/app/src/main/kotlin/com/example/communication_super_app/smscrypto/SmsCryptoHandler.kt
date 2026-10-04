@@ -36,7 +36,8 @@ import kotlinx.coroutines.withContext
  * - `complete {secret, peer, pending, text}` → `{session, sid}`
  * - `ownInitWins {ownKid, peerKid}` → Boolean — crossed INITs
  * - `encryptText {session, text, deleteAfterSeen?}` → `{session, wire, parts, sid, counter}`
- * - `encryptText` also takes `groupId` (8 bytes): a group message
+ * - `encryptText` also takes `groupId` (8 bytes): a group message, and
+ *   `ttlSeconds`: a timed message (row 16)
  * - `encryptControl {session, control: seen|delete, refSid, refCounter}` → same
  * - `encryptGroupInfo {session, info: {groupId, version, mode, name,
  *   members: [{phone, keyId}]}}` → same (a control packet)
@@ -46,6 +47,7 @@ import kotlinx.coroutines.withContext
  *   the message itself (what a later seen/delete refers to)
  *
  * Sealed records (`SealedBox` — what Kotlin writes for the hidden phonebook):
+ * - `coverEncode {wire, persian}` → String — «متن پوششی» (row 31)
  * - `openSealed {secret, blobs}` → List of Uint8List?, one per blob, null
  *   for a blob that does not open with this key
  *
@@ -100,6 +102,18 @@ class SmsCryptoHandler {
                 "encryptControl" -> run(call, result) { encryptControl(call) }
                 "encryptGroupInfo" -> run(call, result) { encryptGroupInfo(call) }
                 "decrypt" -> run(call, result) { decrypt(call) }
+                "coverEncode" -> run(call, result) {
+                    val packet = Wire.packetBytes(call.string("wire"))
+                        ?: throw IllegalArgumentException("wire")
+                    CoverText.encode(
+                        packet,
+                        if (call.argument<Boolean>("persian") == true) {
+                            CoverText.Language.PERSIAN
+                        } else {
+                            CoverText.Language.ENGLISH
+                        },
+                    )
+                }
                 "openSealed" -> run(call, result) { openSealed(call) }
                 "canonicalPhone" -> run(call, result) { Canon.phone(call.string("phone")) }
                 "deriveGroup" -> run(call, result) {
@@ -194,10 +208,11 @@ class SmsCryptoHandler {
     private fun encryptText(call: MethodCall): Map<String, Any> {
         val deleteAfterSeen = call.argument<Boolean>("deleteAfterSeen") == true
         val groupId = call.argument<ByteArray>("groupId")
+        val ttl = call.argument<Number>("ttlSeconds")?.toLong()
         val payload = if (groupId == null) {
-            Payload.text(call.string("text"), deleteAfterSeen)
+            Payload.text(call.string("text"), deleteAfterSeen, ttl)
         } else {
-            Payload.groupText(groupId, call.string("text"), deleteAfterSeen)
+            Payload.groupText(groupId, call.string("text"), deleteAfterSeen, ttl)
         }
         return seal(Session.parse(call.bytes("session")), payload)
     }
@@ -268,6 +283,7 @@ class SmsCryptoHandler {
                 put("text", p.text)
                 put("deleteAfterSeen", p.deleteAfterSeen)
                 p.groupId?.let { put("groupId", it) }
+                p.ttlSeconds?.let { put("ttlSeconds", it) }
             }
             is Payload.GroupInfo -> mapOf(
                 "kind" to "groupInfo",

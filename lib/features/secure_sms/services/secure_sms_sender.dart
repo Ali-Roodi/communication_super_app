@@ -4,8 +4,14 @@ import 'package:communication_super_app/features/messages/services/native_sms_se
 /// without a radio.
 abstract class SecureSmsSender {
   /// Sends [wire] to [phone]; [trackingId] comes back on the status stream.
+  /// [subscriptionId] picks the SIM (null: the system's default SMS SIM).
   /// Throws when the SMS could not be handed to the radio.
-  Future<void> send(String phone, String wire, {required String trackingId});
+  Future<void> send(
+    String phone,
+    String wire, {
+    required String trackingId,
+    int? subscriptionId,
+  });
 }
 
 /// The real sender: the app's SMS channel, with `private` set so nothing is
@@ -22,11 +28,13 @@ class NativeSecureSmsSender implements SecureSmsSender {
     String phone,
     String wire, {
     required String trackingId,
+    int? subscriptionId,
   }) async {
     await _native.sendSms(
       phoneNumber: phone,
       message: wire,
       trackingId: trackingId,
+      subscriptionId: subscriptionId,
       private: true,
     );
   }

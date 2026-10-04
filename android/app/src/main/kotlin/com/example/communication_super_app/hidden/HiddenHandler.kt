@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.example.communication_super_app.security.SecurityHandler
 import io.flutter.plugin.common.MethodChannel
 import kotlin.concurrent.thread
 
@@ -21,6 +22,9 @@ import kotlin.concurrent.thread
  * - `isHidden {number}` → Boolean
  * - `forget` — the section was deleted
  * - `clearMissedNotice` — the hidden call history is on screen
+ * - `security.*` — device check and intruder photos, see [SecurityHandler]
+ * - `sendPrivately {number, body, subscriptionId}` → Boolean — a scheduled
+ *   message to a number hidden since: sent, sealed, never in the provider
  *
  * Nothing here is ever logged with a number or a name.
  */
@@ -50,6 +54,7 @@ class HiddenHandler(private val context: Context) {
     }
 
     private val main = Handler(Looper.getMainLooper())
+    private val security = SecurityHandler(context)
 
     fun setup(channel: MethodChannel) {
         channel.setMethodCallHandler { call, result ->
@@ -89,11 +94,22 @@ class HiddenHandler(private val context: Context) {
                         HiddenNumbers.forget(context)
                         result.success(null)
                     }
+                    "sendPrivately" -> {
+                        val number = call.argument<String>("number")
+                            ?: return@setMethodCallHandler result.error("BAD_ARGS", "number", null)
+                        val body = call.argument<String>("body") ?: ""
+                        val sub = call.argument<Int>("subscriptionId") ?: -1
+                        background(result) { HiddenSms.sendPrivately(context, number, body, sub) }
+                    }
                     "clearMissedNotice" -> {
                         cancelMissedNotice(context)
                         result.success(null)
                     }
-                    else -> result.notImplemented()
+                    else -> if (call.method.startsWith(SecurityHandler.PREFIX)) {
+                        security.handle(call, result)
+                    } else {
+                        result.notImplemented()
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "${call.method} failed: ${e.javaClass.simpleName}")

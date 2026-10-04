@@ -252,6 +252,7 @@ class SmsDecrypted {
     this.refCounter,
     this.groupId,
     this.groupInfo,
+    this.ttlSeconds,
   });
   final Uint8List session;
   final int sid;
@@ -267,6 +268,9 @@ class SmsDecrypted {
   /// [SmsPayloadKind.text] only.
   final String? text;
   final bool deleteAfterSeen;
+
+  /// A timed text (matrix row 16): how long it lives once shown.
+  final int? ttlSeconds;
 
   /// [SmsPayloadKind.seen] / [SmsPayloadKind.delete]: the message referred to.
   final int? refSid;
@@ -382,18 +386,20 @@ class SmsCryptoService {
   Future<bool> ownInitWins(Uint8List ownKid, Uint8List peerKid) =>
       _call<bool>('ownInitWins', {'ownKid': ownKid, 'peerKid': peerKid});
 
-  /// [groupId] (8 bytes) makes it a group message.
+  /// [groupId] (8 bytes) makes it a group message; [ttlSeconds] a timed one.
   Future<SmsSealed> encryptText({
     required Uint8List session,
     required String text,
     bool deleteAfterSeen = false,
     Uint8List? groupId,
+    int? ttlSeconds,
   }) async => _sealed(
     await _call<Map>('encryptText', {
       'session': session,
       'text': text,
       'deleteAfterSeen': deleteAfterSeen,
       'groupId': ?groupId,
+      'ttlSeconds': ?ttlSeconds,
     }),
     'session',
   );
@@ -435,6 +441,11 @@ class SmsCryptoService {
     'session',
   );
 
+  /// «متن پوششی» (row 31): [wire] as ordinary-looking words, which every
+  /// receiver turns back into [wire] before reading it.
+  Future<String> coverEncode(String wire, {required bool persian}) =>
+      _call<String>('coverEncode', {'wire': wire, 'persian': persian});
+
   Future<SmsDecrypted> decrypt({
     required Uint8List session,
     required String text,
@@ -451,6 +462,7 @@ class SmsCryptoService {
       refCounter: m['refCounter'] as int?,
       groupId: m['groupId'] as Uint8List?,
       groupInfo: m['kind'] == 'groupInfo' ? _groupInfo(m) : null,
+      ttlSeconds: (m['ttlSeconds'] as num?)?.toInt(),
     );
   }
 

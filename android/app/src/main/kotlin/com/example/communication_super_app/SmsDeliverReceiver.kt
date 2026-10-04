@@ -48,7 +48,11 @@ class SmsDeliverReceiver : BroadcastReceiver() {
         if (parts.isEmpty()) return
 
         val address = parts[0].originatingAddress ?: return
-        val body = parts.joinToString("") { it.messageBody ?: "" }
+        // A cover text («متن پوششی», row 31) is an encrypted SMS in words:
+        // from here on it is its #E: form.
+        val body = com.example.communication_super_app.smscrypto.CoverText.uncover(
+            parts.joinToString("") { it.messageBody ?: "" },
+        )
         val timestamp = parts[0].timestampMillis
 
         // An encrypted SMS is never written where other apps can read it
@@ -61,7 +65,7 @@ class SmsDeliverReceiver : BroadcastReceiver() {
 
         // A hidden contact's SMS, plain or not, is never written where other
         // apps can read it either — see HiddenSms.
-        if (com.example.communication_super_app.hidden.HiddenNumbers.isHidden(context, address)) {
+        if (com.example.communication_super_app.hidden.HiddenSms.concerns(context, address, body)) {
             Log.d(TAG, "Hidden contact's SMS kept out of the provider")
             return
         }

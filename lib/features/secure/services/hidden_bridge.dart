@@ -43,6 +43,20 @@ class HiddenBridge {
 
   Future<void> clearMissedNotice() => _call<void>('clearMissedNotice');
 
+  /// A scheduled message to a number hidden since it was scheduled: sent
+  /// with no provider row, the copy sealed for the secure section.
+  Future<bool> sendPrivately(
+    String number,
+    String body, {
+    int? subscriptionId,
+  }) async =>
+      await _call<bool>('sendPrivately', {
+        'number': number,
+        'body': body,
+        'subscriptionId': subscriptionId ?? -1,
+      }) ??
+      false;
+
   Future<T?> _call<T>(String method, [Map<String, Object?>? args]) async {
     try {
       return await _channel.invokeMethod<T>(method, args);
@@ -50,6 +64,9 @@ class HiddenBridge {
       return null;
     } on PlatformException catch (e) {
       debugPrint('Hidden bridge $method failed: ${e.code}');
+      return null;
+    } catch (e) {
+      // No platform at all (a plain unit test): nothing is hidden there.
       return null;
     }
   }

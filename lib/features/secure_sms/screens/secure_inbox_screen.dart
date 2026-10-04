@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:communication_super_app/core/edition/app_edition.dart';
+import 'package:communication_super_app/core/sim/sim_service.dart';
+
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
@@ -31,17 +34,61 @@ class SecureInboxScreen extends StatelessWidget {
               title: 'پیام‌های رمز',
               actions: [
                 if (ready)
-                  PopupMenuButton<bool>(
+                  PopupMenuButton<String>(
                     tooltip: 'گزینه‌های بیشتر',
-                    onSelected: (on) => context.read<SecureMessagesBloc>().add(
-                      SecureSetReceipts(on),
-                    ),
+                    onSelected: (v) {
+                      final bloc = context.read<SecureMessagesBloc>();
+                      if (v == 'receipts') {
+                        bloc.add(SecureSetReceipts(!state.sendsReceipts));
+                      } else if (v.startsWith('sim:')) {
+                        final id = int.tryParse(v.substring(4));
+                        bloc.add(SecureSetSim(id));
+                      } else {
+                        bloc.add(
+                          SecureSetCover(
+                            v == 'cover:off' ? null : v.substring(6),
+                          ),
+                        );
+                      }
+                    },
                     itemBuilder: (_) => [
-                      CheckedPopupMenuItem<bool>(
-                        value: !state.sendsReceipts,
+                      CheckedPopupMenuItem<String>(
+                        value: 'receipts',
                         checked: state.sendsReceipts,
                         child: const Text('ارسال «دیده شد»'),
                       ),
+                      // Dual-SIM: the number the key bank lists may be on
+                      // the SIM that is not the default for SMS.
+                      if (SimService.isMultiSim) ...[
+                        const PopupMenuDivider(),
+                        CheckedPopupMenuItem<String>(
+                          value: 'sim:',
+                          checked: state.smsSim == null,
+                          child: const Text('ارسال با سیم‌کارت پیش‌فرض گوشی'),
+                        ),
+                        for (final sim in SimService.cached)
+                          CheckedPopupMenuItem<String>(
+                            value: 'sim:${sim.subscriptionId}',
+                            checked: state.smsSim == sim.subscriptionId,
+                            child: Text(
+                              'ارسال با ${sim.slotLabel} · ${sim.name}',
+                            ),
+                          ),
+                      ],
+                      // «متن پوششی» (row 31): the organization edition only.
+                      if (kOrganizationBuild) ...[
+                        const PopupMenuDivider(),
+                        for (final (v, label) in const [
+                          ('cover:off', 'متن پوششی: خاموش'),
+                          ('cover:fa', 'متن پوششی: فارسی'),
+                          ('cover:en', 'متن پوششی: انگلیسی'),
+                        ])
+                          CheckedPopupMenuItem<String>(
+                            value: v,
+                            checked: v == 'cover:${state.cover ?? 'off'}',
+                            child: Text(label),
+                          ),
+                      ],
                     ],
                   ),
               ],

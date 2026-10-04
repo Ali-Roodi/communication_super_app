@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_contacts/flutter_contacts.dart' as device_contacts;
 import 'package:uuid/uuid.dart';
 
+import 'package:communication_super_app/core/services/app_handoff.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
@@ -12,6 +13,7 @@ import 'package:communication_super_app/features/contacts/models/contact_model.d
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/services/sim_contacts_service.dart';
 import 'package:communication_super_app/features/contacts/widgets/contact_picker_sheet.dart';
+import 'package:communication_super_app/features/messages/services/native_sms_service.dart';
 
 import '../bloc/hidden_bloc.dart';
 import '../repositories/hidden_contacts_repository.dart';
@@ -94,7 +96,48 @@ class _HiddenContactEditScreenState extends State<HiddenContactEditScreen> {
   Future<void> _onSaved() async {
     final imported = _imported;
     if (imported != null) await _offerDeviceDelete(imported);
+    if (mounted) await _offerSmsRole();
     if (mounted) Navigator.of(context).pop();
+  }
+
+  /// Only the default SMS app may delete from the phone's SMS store: without
+  /// the role this contact's past SMS stay there (hidden in هم‌رسان only),
+  /// and new ones land in the other app too.
+  Future<void> _offerSmsRole() async {
+    final sms = NativeSmsService();
+    if (await sms.isDefaultSmsApp() || !mounted) return;
+    final ask = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('هم‌رسان برنامه پیش‌فرض پیامک نیست'),
+          content: const Text(
+            'پیامک‌های این مخاطب فقط وقتی از حافظه پیامک گوشی پاک می‌شوند و '
+            'پیامک‌های تازه‌اش فقط وقتی به برنامه‌های دیگر نمی‌رسند که هم‌رسان '
+            'برنامه پیش‌فرض پیامک باشد.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('بعداً'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('پیش‌فرض کردن'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ask != true) return;
+    // The role dialog is another app's screen: it must not close the section.
+    final granted = await AppHandoff.run(sms.requestDefaultSmsRole);
+    if (!granted) return;
+    for (final c in _numbers) {
+      final number = c.text.trim();
+      if (number.isNotEmpty) await sms.deleteSmsThreadFromProvider(number);
+    }
   }
 
   /// The copy in the phone's address book is what other apps can read; the

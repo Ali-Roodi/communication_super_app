@@ -70,6 +70,29 @@ class KeystoreKeyWrapper(private val alias: String = DEFAULT_ALIAS) : KeyWrapper
         return generator.generateKey()
     }
 
+    /**
+     * Where the key lives — `strongbox`, `tee` or `software` — or null when
+     * there is no key yet (row 29, «کنترل امنیت سامانه»).
+     */
+    fun securityLevel(): String? = try {
+        val key = existingKey() ?: return null
+        val factory = javax.crypto.SecretKeyFactory.getInstance(key.algorithm, PROVIDER)
+        val info = factory.getKeySpec(key, android.security.keystore.KeyInfo::class.java)
+            as android.security.keystore.KeyInfo
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            when (info.securityLevel) {
+                KeyProperties.SECURITY_LEVEL_STRONGBOX -> "strongbox"
+                KeyProperties.SECURITY_LEVEL_TRUSTED_ENVIRONMENT -> "tee"
+                else -> "software"
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            if (info.isInsideSecureHardware) "tee" else "software"
+        }
+    } catch (e: Exception) {
+        null
+    }
+
     /** Sealing creates the key if there is none yet — only a new vault seals. */
     override fun wrap(plain: ByteArray): ByteArray {
         val key = existingKey() ?: createKey()

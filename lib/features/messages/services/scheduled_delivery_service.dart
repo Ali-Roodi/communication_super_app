@@ -2,6 +2,8 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
+import 'package:communication_super_app/features/secure/services/hidden_bridge.dart';
+
 import '../models/scheduled_message_model.dart';
 import '../repositories/scheduled_message_repository.dart';
 import 'sms_service.dart';
@@ -27,14 +29,17 @@ class ScheduledDeliveryService {
   final ScheduledMessageRepository _repository;
   final SmsService _smsService;
   final Random _random;
+  final HiddenBridge _hidden;
 
   ScheduledDeliveryService({
     ScheduledMessageRepository? repository,
     SmsService? smsService,
     Random? random,
+    HiddenBridge hidden = const HiddenBridge(),
   }) : _repository = repository ?? ScheduledMessageRepository(),
        _smsService = smsService ?? SmsService(),
-       _random = random ?? Random();
+       _random = random ?? Random(),
+       _hidden = hidden;
 
   /// Sends every schedule due at [now]. Never throws.
   ///
@@ -76,6 +81,22 @@ class ScheduledDeliveryService {
   /// until the stale-claim timeout — so every failure path ends in an upsert.
   Future<bool> _deliverOne(ScheduledMessage msg, DateTime now) async {
     try {
+      // A number hidden after this was scheduled (scheduling to a hidden
+      // number is refused): sent with no trace outside the secure section.
+      if (await _hidden.isHidden(msg.phoneNumber)) {
+        if (await _hidden.sendPrivately(
+          msg.phoneNumber,
+          msg.body,
+          subscriptionId: msg.subscriptionId,
+        )) {
+          await _repository.upsert(msg.advanceAfterSend(now: now));
+          return true;
+        }
+        await _repository.upsert(
+          msg.withFailedAttempt(errorCode: 'SMS_SEND_FAILED', now: now),
+        );
+        return false;
+      }
       final result = await _smsService.sendSms(
         msg.phoneNumber,
         msg.body,

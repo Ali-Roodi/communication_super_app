@@ -10,7 +10,8 @@ import 'package:communication_super_app/features/secure/repositories/secure_mess
 import 'package:communication_super_app/features/secure/widgets/secure_locked_view.dart';
 
 import '../bloc/secure_messages_bloc.dart';
-import 'secure_conversation_screen.dart' show SecureBanner, SecureComposer;
+import 'secure_conversation_screen.dart'
+    show SecureBanner, SecureComposer, SecureExpiry;
 import 'secure_group_edit_screen.dart';
 
 /// One encrypted group (matrix row 14). SMS has no multicast: every message
@@ -30,7 +31,7 @@ class SecureGroupScreen extends StatefulWidget {
 class _SecureGroupScreenState extends State<SecureGroupScreen> {
   final _controller = TextEditingController();
   late final SecureMessagesBloc _bloc;
-  bool _deleteAfterSeen = false;
+  SecureExpiry _expiry = SecureExpiry.none;
 
   @override
   void initState() {
@@ -50,9 +51,15 @@ class _SecureGroupScreenState extends State<SecureGroupScreen> {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
     HapticFeedback.selectionClick();
-    _bloc.add(SecureSendGroupText(text, deleteAfterSeen: _deleteAfterSeen));
+    _bloc.add(
+      SecureSendGroupText(
+        text,
+        deleteAfterSeen: _expiry.deleteAfterSeen,
+        ttl: _expiry.ttl,
+      ),
+    );
     _controller.clear();
-    setState(() => _deleteAfterSeen = false);
+    setState(() => _expiry = SecureExpiry.none);
   }
 
   Future<void> _confirmDelete(SecureGroup g) async {
@@ -239,9 +246,8 @@ class _SecureGroupScreenState extends State<SecureGroupScreen> {
                   SecureComposer(
                     controller: _controller,
                     plain: false,
-                    deleteAfterSeen: _deleteAfterSeen,
-                    onToggleDelete: () =>
-                        setState(() => _deleteAfterSeen = !_deleteAfterSeen),
+                    expiry: _expiry,
+                    onExpiry: (e) => setState(() => _expiry = e),
                     onSend: _send,
                     hint: 'پیام رمز گروه',
                     note: recipients <= 1
@@ -346,6 +352,22 @@ class _GroupBubble extends StatelessWidget {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (m.ttl != null) ...[
+                    Icon(
+                      Icons.av_timer,
+                      size: 13,
+                      color: fg.withValues(alpha: 0.7),
+                    ),
+                    const SizedBox(width: 3),
+                    Text(
+                      SecureExpiry.remaining(m.ttl!, m.expiresAt),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: fg.withValues(alpha: 0.7),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
                   if (m.deleteAfterSeen) ...[
                     Icon(
                       Icons.timer_outlined,

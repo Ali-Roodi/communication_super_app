@@ -49,7 +49,7 @@ class SecureStore {
   /// v1: `secure_meta` (phase C). v2: the key bank (phase E). v3: encrypted
   /// conversations (phase F). v4: the hidden phonebook, its calls, and plain
   /// SMS with hidden contacts (phase G). v5: encrypted groups (matrix row 14).
-  static const int _schemaVersion = 5;
+  static const int _schemaVersion = 6;
 
   /// The open database, or null while locked.
   cipher.Database? get database => _db;
@@ -144,6 +144,31 @@ class SecureStore {
     await _upgradeMessagesToV4(db);
     await _createHiddenPhonebook(db);
     await _createGroups(db);
+    await _upgradeToV6(db);
+  }
+
+  /// v6: timed messages (matrix row 16) and the photos taken after wrong PIN
+  /// entries (row 32).
+  ///
+  /// `ttl` is a message's lifetime in seconds. An outgoing copy goes `ttl`
+  /// after it was sent, an incoming one `ttl` after it was first shown
+  /// (`seen_at`) — see `SecureMessageStore.purgeExpired`.
+  static Future<void> _upgradeToV6(cipher.DatabaseExecutor db) async {
+    await db.execute('ALTER TABLE sm_messages ADD COLUMN ttl INTEGER');
+    await db.execute('ALTER TABLE sg_messages ADD COLUMN ttl INTEGER');
+    // Opened from what Kotlin sealed to the section's key while it was
+    // locked — see `IntruderRepository`.
+    await db.execute('''
+      CREATE TABLE ip_photos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        taken_at INTEGER NOT NULL,
+        camera TEXT NOT NULL,
+        failed_attempts INTEGER NOT NULL,
+        jpeg BLOB,
+        seen INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (taken_at, camera)
+      )
+    ''');
   }
 
   /// Encrypted groups (v5) — see `SecureGroupStore`, the only code that
@@ -450,6 +475,7 @@ class SecureStore {
       await _createHiddenPhonebook(db);
     }
     if (oldVersion < 5 && newVersion >= 5) await _createGroups(db);
+    if (oldVersion < 6 && newVersion >= 6) await _upgradeToV6(db);
   }
 
   Future<String> _path() async =>

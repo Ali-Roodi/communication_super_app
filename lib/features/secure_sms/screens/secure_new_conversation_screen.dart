@@ -15,7 +15,10 @@ import 'secure_group_edit_screen.dart';
 /// typed by hand is looked up in the passphrase groups (a group has no member
 /// list — any number has a key in it).
 class SecureNewConversationScreen extends StatefulWidget {
-  const SecureNewConversationScreen({super.key});
+  const SecureNewConversationScreen({super.key, this.title = 'گفتگوی رمز'});
+
+  /// «مخاطبین رمز» when reached from the Contacts tab (row 36).
+  final String title;
 
   @override
   State<SecureNewConversationScreen> createState() =>
@@ -176,7 +179,7 @@ class _SecureNewConversationScreenState
           ),
         ],
         child: Scaffold(
-          appBar: const RtlAppBar(title: 'گفتگوی رمز'),
+          appBar: RtlAppBar(title: widget.title),
           body: BlocBuilder<SecureMessagesBloc, SecureMessagesState>(
             builder: (context, state) {
               final peers = state.peers
