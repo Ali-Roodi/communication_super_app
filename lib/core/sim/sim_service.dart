@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleListener;
 
 import 'sim_card.dart';
 
@@ -91,7 +92,21 @@ class SimService {
       _listening = false;
       debugPrint('SIM event stream failed: $e');
     }
+    // The pinned defaults are not part of the roster and no event carries
+    // them, so a default re-pinned in Android's settings reached nothing:
+    // the dialer's process outlives the trip to Settings, and the old card
+    // went on being dialled and texted from. Coming back is the only way to
+    // have changed it, so coming back is when it is re-read.
+    try {
+      _lifecycle ??= AppLifecycleListener(
+        onResume: () => unawaited(refreshDefaults()),
+      );
+    } catch (e) {
+      debugPrint('SIM lifecycle listener failed: $e');
+    }
   }
+
+  AppLifecycleListener? _lifecycle;
 
   /// Reads the roster and the system defaults once.
   ///
@@ -194,6 +209,14 @@ class SimService {
   /// Re-reads what the roster event does not carry: the system's pinned
   /// defaults and the PhoneAccount↔subscription map.
   Future<void> _refreshDerived() async {
+    await refreshDefaults();
+    await loadPhoneAccounts();
+  }
+
+  /// Re-reads which cards Android has pinned for SMS and for voice — one
+  /// cheap platform call. [resolveVoiceSim] awaits it before every dial, and
+  /// it runs whenever the app comes back to the foreground.
+  Future<void> refreshDefaults() async {
     try {
       final defaults = await _method.invokeMapMethod<String, dynamic>(
         'getDefaults',
@@ -206,9 +229,8 @@ class SimService {
         }
       }
     } catch (e) {
-      debugPrint('getDefaults after roster change failed: $e');
+      debugPrint('getDefaults failed: $e');
     }
-    await loadPhoneAccounts();
   }
 
   /// Returns true when the roster actually changed.
@@ -271,6 +293,8 @@ class SimService {
   void dispose() {
     _subscription?.cancel();
     _subscription = null;
+    _lifecycle?.dispose();
+    _lifecycle = null;
     _listening = false;
   }
 }

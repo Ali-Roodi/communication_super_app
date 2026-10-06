@@ -18,11 +18,20 @@ import 'widgets/sim_picker.dart';
 ///   just calls, on the default (second-guessing the system setting is the
 ///   bug, not the feature);
 /// * two SIMs and «هر بار بپرس» → ask on the dial;
+/// * nothing else picks a card silently — not even the line a call in
+///   «اخیر» came in on, which put calls on SIM 2 of a phone pinned to SIM 1
+///   and gave the second number away;
 /// * **and, always, an explicit way to override for this one call** —
 ///   [placeCallPickingSim], reached by long-pressing any call affordance and
 ///   by the «تماس با سیم …» rows. Without it a pinned default meant the other
 ///   card was simply unreachable from the app, which is the whole complaint
 ///   dual-SIM support exists to answer.
+///
+/// [sim] is an explicit choice for this one call — the user picked it, or
+/// pinned it on the contact — and is never re-asked. [suggested] is only a
+/// hint: the card the picker opens on when it has to ask. «اخیر» passes the
+/// card a row's call used as the hint, never as the choice — see
+/// `docs/architecture/dual-sim.md`.
 ///
 /// Returns false when the user dismissed the picker, so a caller that also
 /// closes a sheet can leave it open instead.
@@ -30,6 +39,7 @@ Future<bool> placeCall(
   BuildContext context,
   String number, {
   SimCard? sim,
+  SimCard? suggested,
 }) async {
   if (number.trim().isEmpty) return false;
 
@@ -42,10 +52,14 @@ Future<bool> placeCall(
     return true;
   }
 
-  final resolved = await resolveVoiceSim(context, number);
+  final resolved = await resolveVoiceSim(
+    context,
+    number,
+    suggested: suggested,
+  );
   // A dismissed picker is a cancelled call — only on a phone that would have
   // asked can `null` mean that.
-  if (resolved == null && _wouldAsk) return false;
+  if (resolved == null && wouldAskForVoiceSim) return false;
   await NativeCallService.instance.makeCall(
     number,
     subscriptionId: resolved?.subscriptionId,
@@ -80,16 +94,30 @@ Future<bool> placeCallPickingSim(
 }
 
 /// Whether a plain dial would put a question in front of the user.
-bool get _wouldAsk =>
-    SimService.isMultiSim &&
-    SimService.defaults.voice == SimCard.invalidSubscriptionId;
+///
+/// Asked of the same [SimService.defaultFor] that [resolveVoiceSim] decides
+/// with. Comparing the raw id with "invalid" instead disagreed with it when
+/// the pinned id named a card no longer in the phone: the picker opened, and
+/// dismissing it placed the call anyway.
+bool get wouldAskForVoiceSim =>
+    SimService.isMultiSim && SimService.defaultFor(SimUse.voice) == null;
 
 /// The SIM a call should go out on, asking only when there is a real choice.
 ///
+/// The system default is re-read first. It used to be read once, at
+/// launch: this app is the default dialer and its process lives for days,
+/// so a default re-pinned in Android's settings went on being overridden —
+/// by an explicit handle for the *old* card — until the app was killed.
+///
 /// Null means "let telecom decide" *or* "the user backed out" — [placeCall]
-/// tells the two apart from the roster.
-Future<SimCard?> resolveVoiceSim(BuildContext context, String number) async {
+/// tells the two apart with [wouldAskForVoiceSim].
+Future<SimCard?> resolveVoiceSim(
+  BuildContext context,
+  String number, {
+  SimCard? suggested,
+}) async {
   if (!SimService.isMultiSim) return null;
+  await SimService.instance.refreshDefaults();
   final pinned = SimService.defaultFor(SimUse.voice);
   if (pinned != null) return pinned;
   if (!context.mounted) return null;
@@ -97,6 +125,7 @@ Future<SimCard?> resolveVoiceSim(BuildContext context, String number) async {
     context,
     title: 'تماس با کدام سیم‌کارت؟',
     subtitle: number,
+    selected: suggested,
   );
 }
 

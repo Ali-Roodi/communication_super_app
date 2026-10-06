@@ -9,6 +9,7 @@ import android.telecom.TelecomManager
 import android.telephony.SmsManager
 import android.telephony.SubscriptionInfo
 import android.telephony.SubscriptionManager
+import android.telephony.TelephonyManager
 import android.util.Log
 
 /**
@@ -230,17 +231,57 @@ object SimRegistry {
 
     // ── Telecom bridge ───────────────────────────────────────────────────
     // Calls are placed against a PhoneAccountHandle, not a subscription id,
-    // and the call log records the handle's *id string*. There is no public
-    // API mapping the two, so the mapping is rebuilt by matching a handle's id
-    // against everything telephony is known to put there.
+    // and the call log records the handle's *id string*. Telephony answers
+    // the mapping itself ([subscriptionOfHandle]); the id/ICC/label guesses
+    // below it are only for the builds where it cannot.
+
+    /**
+     * The subscription behind [handle], as telephony itself answers it, or
+     * null for a handle that is not a SIM (a VoIP account) or a build that
+     * cannot say.
+     *
+     * This is the authoritative mapping and it comes first. The guesses after
+     * it are not safe on every phone: the handle id is the subscription id
+     * only on newer AOSP (older and OEM builds use the ICC ID, which an app
+     * may not read since Android 10), and two cards from the same carrier —
+     * two Irancell or two MCI lines, the common case here — carry the same
+     * label, so a label match handed SIM 1's calls to whichever account was
+     * listed first. A call meant for one line went out on the other.
+     */
+    @SuppressLint("MissingPermission")
+    private fun subscriptionOfHandle(context: Context, handle: PhoneAccountHandle): Int? {
+        val telephony = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+            ?: return null
+        val id: Int? = try {
+            when {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ->
+                    telephony.getSubscriptionId(handle)
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ->
+                    // createForPhoneAccountHandle is public from API 26 but the
+                    // instance getSubscriptionId() only from 30; before that it
+                    // is a hidden method, so it is reached reflectively and a
+                    // build that refuses simply falls through to the guesses.
+                    telephony.createForPhoneAccountHandle(handle)?.let { scoped ->
+                        TelephonyManager::class.java
+                            .getMethod("getSubscriptionId")
+                            .invoke(scoped) as? Int
+                    }
+                else -> null
+            }
+        } catch (e: Exception) {
+            null
+        }
+        return id?.takeIf { it != INVALID_SUBSCRIPTION_ID }
+    }
 
     /**
      * The call-capable phone account that belongs to [subscriptionId].
      *
-     * The handle id is `String.valueOf(subId)` on modern AOSP and the SIM's
-     * ICC ID on older/OEM builds; the label is matched last because two SIMs
-     * from the same carrier share it. Null means "let telecom pick" — which is
-     * the correct behaviour, not an error.
+     * Telephony's own answer first ([subscriptionOfHandle]). Without one, the
+     * handle id is `String.valueOf(subId)` on modern AOSP and the SIM's ICC ID
+     * on older/OEM builds, and a label only counts when exactly one account
+     * carries it. Null means "let telecom pick" — which is the correct
+     * behaviour, not an error.
      */
     @SuppressLint("MissingPermission")
     fun phoneAccountFor(context: Context, subscriptionId: Int): PhoneAccountHandle? {
@@ -251,20 +292,26 @@ object SimRegistry {
             val handles = telecom.callCapablePhoneAccounts
             if (handles.isEmpty()) return null
 
-            val info = subscriptions(context)
-                .firstOrNull { it.subscriptionId == subscriptionId } ?: return null
+            val subs = subscriptions(context)
+            val info = subs.firstOrNull { it.subscriptionId == subscriptionId } ?: return null
+
+            val answered = handles.associateWith { subscriptionOfHandle(context, it) }
+            answered.entries.firstOrNull { it.value == subscriptionId }?.let { return it.key }
+            // Telephony named a card for every account and none is this one:
+            // it is not callable right now. Guessing could only pick the other.
+            if (answered.values.none { it == null }) return null
 
             handles.firstOrNull { it.id == subscriptionId.toString() }
                 ?: handles.firstOrNull { matchesIccId(context, it, subscriptionId) }
-                ?: handles.firstOrNull { handle ->
+                ?: handles.filter { handle ->
                     val label = telecom.getPhoneAccount(handle)?.label?.toString()
                     !label.isNullOrBlank() &&
                         (label == info.displayName || label == info.carrierName)
-                }
+                }.singleOrNull()
                 // Last resort: telecom hands the accounts back in slot order on
-                // every build we have seen, so index == slot is a better guess
-                // than dropping the user's choice on the floor.
-                ?: handles.getOrNull(info.slotIndex)
+                // every build we have seen. Only when there is one account per
+                // card — any other list has no order to trust.
+                ?: handles.takeIf { it.size == subs.size }?.getOrNull(info.slotIndex)
         } catch (e: SecurityException) {
             Log.w(TAG, "phoneAccountFor denied: ${e.message}")
             null
@@ -322,6 +369,15 @@ object SimRegistry {
         if (accountId.isNullOrBlank()) return null
         val subs = subscriptions(context)
         if (subs.isEmpty()) return null
+
+        // The live account with this id, asked of telephony — the same
+        // authoritative answer [phoneAccountFor] starts with, so a call is
+        // stamped with the card it was placed on.
+        callCapableAccounts(context)
+            .firstOrNull { (handle, _) -> handle.id == accountId }
+            ?.let { (handle, _) -> subscriptionOfHandle(context, handle) }
+            ?.takeIf { sub -> subs.any { it.subscriptionId == sub } }
+            ?.let { return it }
 
         accountId.toIntOrNull()?.let { asSubId ->
             if (subs.any { it.subscriptionId == asSubId }) return asSubId

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:communication_super_app/core/sim/sim_service.dart';
+import 'package:communication_super_app/core/sim/widgets/call_icon_button.dart';
 import 'package:communication_super_app/core/sim/widgets/sim_picker.dart';
 import 'package:communication_super_app/core/sim/sim_call.dart';
 import 'package:flutter/services.dart';
@@ -110,30 +111,24 @@ class CallLogTile extends StatelessWidget {
                   ),
                   const SizedBox(width: 14),
                   Expanded(child: _titleBlock(context)),
-                  // Tap dials back on **the card this call used**; long-press
-                  // asks which card. On a single-SIM phone the long-press is
-                  // simply absent.
+                  // Tap dials by the ordinary rules — the pinned default voice
+                  // SIM, else the picker; long-press asks which card. On a
+                  // single-SIM phone the long-press is simply absent.
                   //
-                  // `log.sim` is the whole point of the tap: Google Phone
-                  // redials a call-log row on the account the row was recorded
-                  // against, because "call them back" means on the line they
-                  // reached you on. Null (a row from before dual-SIM support, a
-                  // VoIP account, an OEM that never stamped one) falls straight
-                  // through to the ordinary rules inside [placeCall].
-                  GestureDetector(
+                  // `log.sim` is only the picker's starting card. It used to
+                  // be the card the call went out on: on a phone whose calls
+                  // mostly arrive on SIM 2, almost every call-back then left on
+                  // SIM 2 against a pinned SIM 1 — invisibly, and the second
+                  // number went with it. The badge on the row still says which
+                  // line the call used.
+                  CallIconButton(
+                    iconSize: 24,
+                    color: scheme.onSurfaceVariant,
+                    onPressed: () =>
+                        placeCall(context, log.phoneNumber, suggested: log.sim),
                     onLongPress: SimService.isMultiSim
                         ? () => placeCallPickingSim(context, log.phoneNumber)
                         : null,
-                    child: IconButton(
-                      icon: const Icon(Icons.call_outlined),
-                      iconSize: 24,
-                      color: scheme.onSurfaceVariant,
-                      tooltip: SimService.isMultiSim
-                          ? 'تماس · نگه‌داشتن برای انتخاب سیم‌کارت'
-                          : 'تماس',
-                      onPressed: () =>
-                          placeCall(context, log.phoneNumber, sim: log.sim),
-                    ),
                   ),
                 ],
               ),

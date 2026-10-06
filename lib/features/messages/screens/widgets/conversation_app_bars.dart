@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:communication_super_app/core/sim/widgets/call_icon_button.dart';
 import 'package:communication_super_app/core/widgets/phone_contact_avatar.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
@@ -78,16 +79,7 @@ class ConversationAppBar extends StatelessWidget
         ),
       ),
       actions: [
-        GestureDetector(
-          onLongPress: onCallPickingSim,
-          child: IconButton(
-            icon: const Icon(Icons.call_outlined),
-            tooltip: onCallPickingSim == null
-                ? 'تماس'
-                : 'تماس · نگه‌داشتن برای انتخاب سیم‌کارت',
-            onPressed: onCall,
-          ),
-        ),
+        CallIconButton(onPressed: onCall, onLongPress: onCallPickingSim),
         PopupMenuButton<String>(
           onSelected: onMenuSelected,
           itemBuilder: (_) => [

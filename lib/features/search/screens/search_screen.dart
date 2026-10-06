@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:communication_super_app/core/sim/sim_call.dart';
 import 'package:communication_super_app/core/sim/sim_service.dart';
+import 'package:communication_super_app/core/sim/widgets/call_icon_button.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
@@ -228,17 +229,13 @@ class _ContactResult extends StatelessWidget {
           query: SearchText.digits(query),
         ),
       ),
-      trailing: GestureDetector(
+      trailing: CallIconButton(
+        icon: Icons.call,
+        color: AppColors.callAnswerGreen,
+        onPressed: () => _call(context),
         onLongPress: SimService.isMultiSim
             ? () => _call(context, pickSim: true)
             : null,
-        child: IconButton(
-          icon: const Icon(Icons.call, color: AppColors.callAnswerGreen),
-          tooltip: SimService.isMultiSim
-              ? 'تماس · نگه‌داشتن برای انتخاب سیم‌کارت'
-              : 'تماس',
-          onPressed: () => _call(context),
-        ),
       ),
       onTap: () => Navigator.push(
         context,
