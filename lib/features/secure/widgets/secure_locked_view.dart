@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../screens/secure_unlock_screen.dart';
+import 'secure_lock_button.dart';
 
 /// What a screen of the secure section shows while the section is locked:
 /// why it is empty, and the one way to open it.
@@ -23,9 +23,9 @@ class SecureLockedView extends StatelessWidget {
             Text(message, textAlign: TextAlign.center),
             const SizedBox(height: 20),
             FilledButton(
-              onPressed: () => Navigator.of(context).push<bool>(
-                MaterialPageRoute(builder: (_) => const SecureUnlockScreen()),
-              ),
+              // Through the same door as the lock icon: a phone with no
+              // 6-digit PIN yet is asked to set one, not for a PIN it lacks.
+              onPressed: () => openSecureSection(context),
               child: const Text('باز کردن بخش امن'),
             ),
           ],
