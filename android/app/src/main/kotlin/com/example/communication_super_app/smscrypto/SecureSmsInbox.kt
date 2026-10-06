@@ -88,25 +88,27 @@ object SecureSmsInbox {
         return false
     }
 
-    /** How many packets wait in the queue (for the card's count). */
-    private fun pending(context: Context): Int = try {
+    /** What each waiting packet means to the user, for the card's text and count. */
+    private fun pending(context: Context): List<Arrival> = try {
         val dbFile = context.getDatabasePath(DB_NAME)
         if (!dbFile.exists()) {
-            0
+            emptyList()
         } else {
             SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
-                db.rawQuery("SELECT COUNT(*) FROM secure_queue", null).use { c ->
-                    if (c.moveToFirst()) c.getInt(0) else 0
+                db.rawQuery("SELECT body FROM secure_queue", null).use { c ->
+                    val out = ArrayList<Arrival>()
+                    while (c.moveToNext()) arrival(c.getString(0))?.let(out::add)
+                    out
                 }
             }
         }
     } catch (e: Exception) {
-        0
+        emptyList()
     }
 
     /**
-     * Posts (or refreshes) «پیام رمز جدید». Handshake packets are queued too
-     * but are not messages, so the caller decides whether to notify.
+     * Posts (or refreshes) the one encrypted-SMS card. Receipts are queued too
+     * but say nothing, so the caller asks [announces] first.
      */
     fun notifyArrived(context: Context) {
         try {
@@ -129,15 +131,24 @@ object SecureSmsInbox {
                 this.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 putExtra(EXTRA_OPEN_SECURE, true)
             }
+            val waiting = pending(context)
             // Sealed SMS from hidden contacts are «پیام رمز» to the user too.
-            val count = (pending(context) +
-                com.example.communication_super_app.hidden.SealedInbox.pendingSms(context))
-                .coerceAtLeast(1)
-            val text = if (count > 1) "${persianDigits(count)} پیام رمز جدید" else "پیام رمز جدید"
+            val messages = waiting.count { it == Arrival.MESSAGE } +
+                com.example.communication_super_app.hidden.SealedInbox.pendingSms(context)
+            // Only the other side's answer to our own request is waiting: our
+            // message goes out once the section is open — say so, rather than
+            // announce a message nobody sent us.
+            val readyOnly = messages == 0 && waiting.contains(Arrival.READY_TO_SEND)
+            val count = messages.coerceAtLeast(1)
+            val title = when {
+                readyOnly -> "پیام رمز شما آماده ارسال است"
+                count > 1 -> "${persianDigits(count)} پیام رمز جدید"
+                else -> "پیام رمز جدید"
+            }
             val notification = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_stat_message)
-                .setContentTitle(text)
-                .setContentText("برای خواندن، بخش امن را باز کنید")
+                .setContentTitle(title)
+                .setContentText(if (readyOnly) "برای ارسال، بخش امن را باز کنید" else "برای خواندن، بخش امن را باز کنید")
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                 .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
@@ -147,7 +158,7 @@ object SecureSmsInbox {
                         .setContentTitle("پیام جدید")
                         .build(),
                 )
-                .setNumber(count)
+                .setNumber(if (readyOnly) 0 else count)
                 .setOnlyAlertOnce(false)
                 .setAutoCancel(true)
                 .setContentIntent(PendingIntent.getActivity(context, NOTIFICATION_ID, launch ?: Intent(), flags))
@@ -170,13 +181,36 @@ object SecureSmsInbox {
     private fun persianDigits(n: Int): String =
         n.toString().map { c -> if (c in '0'..'9') '۰' + (c - '0') else c }.joinToString("")
 
-    /**
-     * Whether [body] should announce itself: a message to read — not a
-     * handshake packet and not a receipt ([Wire.TYPE_CONTROL]).
-     */
-    fun announces(body: String): Boolean = try {
-        (Wire.parse(body) as? Packet.Message)?.control == false
-    } catch (e: SmsCryptoException) {
-        false
+    /** What a waiting packet means to the person holding the phone. */
+    enum class Arrival {
+        /** Something to read: a message, or a request that carries one. */
+        MESSAGE,
+
+        /** The answer to our own request: our waiting message can now go. */
+        READY_TO_SEND,
     }
+
+    /**
+     * What [body] means to the user, or null for a receipt ([Wire.TYPE_CONTROL])
+     * and anything that is not ours.
+     *
+     * A handshake request ([Packet.Init]) counts as a message. It used to
+     * announce nothing, and that stalled every first conversation: the
+     * sender's message waits for the answer, the answer needs the private key
+     * inside the locked secure section, and the receiver — told nothing — had
+     * no reason to open it. The first message reached nobody until they
+     * happened to (found on two phones, 1405/07/14).
+     */
+    fun arrival(body: String): Arrival? = try {
+        when (val packet = Wire.parse(body)) {
+            is Packet.Message -> if (packet.control) null else Arrival.MESSAGE
+            is Packet.Init -> Arrival.MESSAGE
+            is Packet.Response -> Arrival.READY_TO_SEND
+        }
+    } catch (e: SmsCryptoException) {
+        null
+    }
+
+    /** Whether [body] should post (or refresh) the card at all. */
+    fun announces(body: String): Boolean = arrival(body) != null
 }
