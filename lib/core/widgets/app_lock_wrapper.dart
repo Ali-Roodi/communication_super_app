@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/services/app_handoff.dart';
+import 'package:communication_super_app/core/services/pin_handoff.dart';
 import 'package:communication_super_app/core/navigation/call_ui_coordinator.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_bloc.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_event.dart';
@@ -252,6 +253,9 @@ class _RelockScreenState extends State<RelockScreen> {
     final ok = await _repository.validatePin(_pin);
     if (!mounted) return;
     if (ok) {
+      // For «پیام رمز جدید» only: the secure section opens with this same
+      // PIN instead of asking for it a second time.
+      PinHandoff.instance.offer(_pin);
       await _repository.setAuthenticated(true);
       if (!mounted) return;
       // Over a call that cold-started the app («رمز برای پاسخ به تماس») the
