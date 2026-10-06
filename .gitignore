@@ -122,6 +122,7 @@ app.*.symbols
 # them).
 docs/mentor/img/
 docs/mentor/manual-img/
+docs/mentor/panel-img/
 
 # Exceptions to above rules.
 !**/ios/**/default.mode1v3
