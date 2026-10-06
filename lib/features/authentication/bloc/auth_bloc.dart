@@ -5,6 +5,7 @@ import '../models/auth_type.dart';
 import '../repositories/auth_repository.dart';
 import '../repositories/pin_attempt_limiter.dart';
 import 'package:communication_super_app/core/services/app_lock_service.dart';
+import 'package:communication_super_app/core/services/pin_handoff.dart';
 import 'package:communication_super_app/features/secure/repositories/secure_store.dart';
 
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
@@ -210,6 +211,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(const AuthLoading());
     final isValid = await _repository.validatePin(event.pin);
     if (isValid) {
+      // For «پیام رمز جدید» only: see PinHandoff.
+      PinHandoff.instance.offer(event.pin);
       await _repository.setAuthenticated(true);
       emit(const AuthAuthenticated());
     } else {
