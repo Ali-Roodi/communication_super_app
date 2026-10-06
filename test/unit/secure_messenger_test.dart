@@ -556,6 +556,56 @@ void main() {
   );
 
   test(
+    'a lost request does not deadlock the crossed one that follows',
+    () async {
+      // Seen on two phones (1405/07/14): Ali's request never reached Sara;
+      // minutes later Sara asked on her own. Ali wins the tie-break and used
+      // to drop hers silently, waiting for an answer to a request she never
+      // had — nothing moved for 24 hours.
+      await ali.messenger.startConversation(ali.identities.peer('sara'));
+      await ali.messenger.sendText(book['sara']!, 'از علی');
+      air.inFlight.clear(); // Ali's INIT is lost
+      air.clock += SecureMessenger.crossedGrace.inMilliseconds + 1000;
+      await sara.messenger.startConversation(sara.identities.peer('ali'));
+      await sara.messenger.sendText(book['ali']!, 'از سارا');
+      await settle();
+      expect((await ali.thread(book['sara']!)).map((m) => m.body).toSet(), {
+        'از علی',
+        'از سارا',
+      });
+      expect((await sara.thread(book['ali']!)).map((m) => m.body).toSet(), {
+        'از علی',
+        'از سارا',
+      });
+      expect(
+        (await ali.store.sessions(book['sara']!)).where((s) => s.pending),
+        isEmpty,
+      );
+      expect(
+        (await sara.store.sessions(book['ali']!)).where((s) => s.pending),
+        isEmpty,
+      );
+    },
+  );
+
+  test('a lost request is asked again on the next send', () async {
+    await ali.messenger.startConversation(ali.identities.peer('sara'));
+    await ali.messenger.sendText(book['sara']!, 'یک');
+    air.inFlight.clear(); // lost
+    await ali.messenger.sendText(book['sara']!, 'دو');
+    expect(air.inFlight, isEmpty); // too soon to ask again
+    air.clock += SecureMessenger.pendingTimeout.inMilliseconds + 1000;
+    await ali.messenger.sendText(book['sara']!, 'سه');
+    expect(air.inFlight, hasLength(1)); // a fresh INIT
+    await settle();
+    expect((await sara.thread(book['ali']!)).map((m) => m.body), [
+      'یک',
+      'دو',
+      'سه',
+    ]);
+  });
+
+  test(
     'a dual-SIM peer answering from its other number is still them',
     () async {
       // Sara's phone sends from a SIM whose number the key bank does not

@@ -84,8 +84,15 @@ class SecureMessenger {
   static const maxWait = Duration(days: 7);
   static const maxAttempts = 50;
 
-  /// Our session request is re-sent when unanswered this long.
-  static const pendingTimeout = Duration(hours: 24);
+  /// Our session request is re-sent (on the next send) when unanswered this
+  /// long. It was 24 hours: a request is ten SMS, one lost part loses all of
+  /// it, and the conversation then sat dead for a day (1405/07/14).
+  static const pendingTimeout = Duration(minutes: 15);
+
+  /// Crossed requests: when the peer's arrives while ours has waited longer
+  /// than this, ours is taken as lost — the peer sent its own because it never
+  /// saw ours — and is sent again even though it wins the tie-break.
+  static const crossedGrace = Duration(minutes: 3);
 
   /// `secure_meta` key: whether «دیده شد» receipts are sent (default on).
   static const sendSeenKey = 'send_seen_receipts';
@@ -308,22 +315,50 @@ class SecureMessenger {
     InboxPacket packet,
     SmsPacketInfo info,
   ) async {
+    // Every way out without an answer says why in the log: a dropped request
+    // stalls the conversation, and it used to leave no trace at all.
     final own = await _identities.ownByKeyId(keyHex(info.recipientKid!));
-    if (own == null) return _Outcome.done; // for a key this phone does not hold
+    if (own == null) {
+      debugPrint('Session request dropped: not for a key this phone holds');
+      return _Outcome.done;
+    }
     final peer = await _identities.byKeyId(keyHex(info.senderKid!), phone);
     if (peer == null) {
-      return _Outcome.done; // a sender the key bank does not know
+      debugPrint('Session request dropped: sender not in the key bank');
+      return _Outcome.done;
     }
 
     final sessions = await _store.sessions(phone);
     // The same request delivered twice: answered already.
     if (sessions.any((s) => s.sid == info.sid && !s.pending)) {
+      debugPrint('Session request already answered');
       return _Outcome.done;
     }
     // Both sides asked at once. Each phone decides the same way from the two
     // key ids; the loser drops its own request and answers the other one.
     for (final mine in sessions.where((s) => s.pending)) {
       if (await _crypto.ownInitWins(own.identity.keyId, info.senderKid!)) {
+        // The winner waits for its answer — unless its request is old: then
+        // the peer asked because ours never reached it, nobody would answer
+        // anybody, and the conversation deadlocked (two phones, 1405/07/14).
+        // A fresh request goes out; the peer, now the one crossed, answers.
+        if (_clock() - mine.createdAt > crossedGrace.inMilliseconds) {
+          debugPrint(
+            'Crossed session requests: ours went unanswered, asking again',
+          );
+          await _store.deleteSession(phone, mine.sid);
+          final conversation = await _store.conversation(phone);
+          if (conversation != null && conversation.encrypted) {
+            await _handshakeIfNeeded(
+              conversation,
+              await _store.sessions(phone),
+            );
+          }
+        } else {
+          debugPrint(
+            'Crossed session requests: ours wins, waiting for the answer',
+          );
+        }
         return _Outcome.done;
       }
       await _store.deleteSession(phone, mine.sid);
@@ -359,6 +394,7 @@ class SecureMessenger {
     );
     await _store.pruneSessions(phone);
     await _sendQuietly(phone, answer.wire, 'hs-${_newId()}');
+    debugPrint('Session request answered');
     _changed(null);
     await _flush(phone);
     return _Outcome.done;
