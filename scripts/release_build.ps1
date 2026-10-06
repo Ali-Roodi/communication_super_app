@@ -104,7 +104,10 @@ if ($dirty) {
 
 # --- build ------------------------------------------------------------------
 Write-Host ''
-flutter build apk --release --flavor $Flavor --build-name=$versionName --build-number=$buildNumber
+# Through Invoke-Native too: the JDK's "A restricted method in java.lang.System
+# has been called" warning arrives on stderr and, run bare, aborted the script
+# before the build had produced anything.
+Invoke-Native { flutter build apk --release --flavor $Flavor --build-name=$versionName --build-number=$buildNumber } | ForEach-Object { Write-Host $_ }
 if ($LASTEXITCODE -ne 0) { throw 'flutter build failed' }
 
 $apk = Join-Path $repo "build\app\outputs\flutter-apk\app-$Flavor-release.apk"
