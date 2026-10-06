@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:communication_super_app/core/sim/sim_call.dart';
 import 'package:communication_super_app/core/sim/sim_card.dart';
 import 'package:communication_super_app/core/sim/sim_service.dart';
+import 'package:communication_super_app/core/sim/widgets/call_icon_button.dart';
 import 'package:communication_super_app/core/sim/widgets/sim_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -567,11 +568,7 @@ class DialerCallPill extends StatelessWidget {
       chosen = await resolveVoiceSim(context, number);
       // Dismissed picker = cancelled call. Only distinguishable on a phone
       // that would have asked in the first place.
-      if (chosen == null &&
-          SimService.isMultiSim &&
-          SimService.defaults.voice == SimCard.invalidSubscriptionId) {
-        return;
-      }
+      if (chosen == null && wouldAskForVoiceSim) return;
     }
     bloc.add(MakeCall(subscriptionId: chosen?.subscriptionId));
     // The dialer lives in a modal bottom sheet (launched from the FAB);
@@ -737,7 +734,16 @@ class DialerContactRow extends StatelessWidget {
             // open the contact page (that's the row tap, outside add-call
             // mode). Filled green while adding to a call: it is the primary
             // action of that screen, not a secondary affordance.
-            GestureDetector(
+            CallIconButton(
+              icon: addCall ? Icons.add_call : Icons.call_outlined,
+              iconSize: 24,
+              color: addCall ? Colors.white : scheme.onSurfaceVariant,
+              style: addCall
+                  ? IconButton.styleFrom(
+                      backgroundColor: AppColors.callAnswerGreen,
+                    )
+                  : null,
+              onPressed: () => _dial(context),
               onLongPress: SimService.isMultiSim
                   ? () async {
                       final navigator = Navigator.of(context);
@@ -747,22 +753,6 @@ class DialerContactRow extends StatelessWidget {
                       if (called) navigator.maybePop();
                     }
                   : null,
-              child: IconButton(
-                icon: Icon(
-                  addCall ? Icons.add_call : Icons.call_outlined,
-                  size: 24,
-                ),
-                color: addCall ? Colors.white : scheme.onSurfaceVariant,
-                style: addCall
-                    ? IconButton.styleFrom(
-                        backgroundColor: AppColors.callAnswerGreen,
-                      )
-                    : null,
-                tooltip: SimService.isMultiSim
-                    ? 'تماس · نگه‌داشتن برای انتخاب سیم‌کارت'
-                    : 'تماس',
-                onPressed: () => _dial(context),
-              ),
             ),
           ],
         ),
