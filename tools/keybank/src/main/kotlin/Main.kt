@@ -18,6 +18,7 @@ import kotlin.system.exitProcess
  *   public  <authority.hka>
  *   issue   <authority.hka> <roster.csv> <output folder>
  *   inspect <key file .hkb> <authority public key .txt>
+ *   activation <device code>
  *
  * Passwords are asked on the console; HAMRESAN_KEYBANK_PASSWORD (authority
  * file) and HAMRESAN_KEYFILE_PASSWORD (inspect) are read instead when set,
@@ -32,6 +33,7 @@ fun main(args: Array<String>) {
             "public" -> public(args)
             "issue" -> issue(args)
             "inspect" -> inspect(args)
+            "activation" -> activation(args)
             else -> usage()
         }
     } catch (e: SmsCryptoException) {
@@ -69,6 +71,9 @@ private fun usage(): Nothing {
                   Existing passwords in passwords.csv are reused.
           inspect <file.hkb> <authority-public.txt>
                   Opens and verifies a key file.
+          activation <device code>
+                  The inter-organizational activation code for the 6-character
+                  device code a phone shows. Needs no authority.
 
         The roster is UTF-8 (Excel: «CSV UTF-8»); its first line names the
         organization: organization,<name>. For Persian text in the console,
@@ -128,39 +133,19 @@ private fun issue(args: Array<String>) {
     if (args.size != 4) usage()
     val authority = openAuthority(args[1])
     val roster = Issuer.parseRoster(File(args[2]).readText(Charsets.UTF_8))
-    val out = File(args[3]).apply { mkdirs() }
-    val passwordsFile = File(out, "passwords.csv")
-    val known = readPasswords(passwordsFile)
-    val issued = Issuer.issue(
-        authority.key,
-        authority.directoryId,
-        roster,
-        System.currentTimeMillis(),
-        random,
-    )
-    val lines = mutableListOf("name,phone,file,password")
-    roster.entries.forEachIndexed { i, entry ->
-        val phone = entry.phones.first()
-        val password = known[phone] ?: Issuer.password(random)
-        val name = "%03d-%s.hkb".format(i + 1, phone)
-        File(out, name).writeBytes(KeyFile.create(issued.signed, i to issued.identities[i], password, random))
-        lines += listOf(csv(entry.name), phone, name, password).joinToString(",")
-        println("  ${i + 1}/${roster.entries.size}  $phone  $name")
+    val out = File(args[3])
+    Issuance.issue(authority, roster, out, random) { done, total ->
+        val phone = roster.entries[done - 1].phones.first()
+        println("  $done/$total  $phone  ${Issuance.fileName(done - 1, phone)}")
     }
-    // With a BOM, so Excel opens the Persian names as UTF-8.
-    passwordsFile.writeText("\uFEFF" + lines.joinToString("\r\n") + "\r\n", Charsets.UTF_8)
-    println("Issued ${roster.entries.size} key files for ${roster.organization} to ${out.path}; passwords in ${passwordsFile.name}.")
+    println("Issued ${roster.entries.size} key files for ${roster.organization} to ${out.path}; passwords in ${Issuance.PASSWORDS_FILE}.")
     println("Hand each member their file and, separately, its password.")
 }
 
-private fun readPasswords(file: File): Map<String, String> {
-    if (!file.isFile) return emptyMap()
-    return file.readText(Charsets.UTF_8).removePrefix("\uFEFF").lines().drop(1)
-        .mapNotNull { line ->
-            val f = line.split(',')
-            // name may itself hold commas (quoted); the last three fields do not.
-            if (f.size >= 4) f[f.size - 3].trim() to f[f.size - 1].trim() else null
-        }.toMap()
+private fun activation(args: Array<String>) {
+    if (args.size != 2) usage()
+    val device = Activation.normalizeDeviceCode(args[1]) ?: fail("a device code is 6 hex characters, e.g. 4f339b")
+    println(Activation.activationCodeFor(device))
 }
 
 private fun inspect(args: Array<String>) {
@@ -180,8 +165,6 @@ private fun inspect(args: Array<String>) {
     }
     println("Signature: valid")
 }
-
-private fun csv(value: String) = if (',' in value || '"' in value) "\"" + value.replace("\"", "\"\"") + "\"" else value
 
 private fun hex(bytes: ByteArray) = bytes.joinToString("") { "%02x".format(it) }
 

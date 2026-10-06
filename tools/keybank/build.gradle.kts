@@ -23,6 +23,11 @@ sourceSets {
 dependencies {
     // Pinned to the app's version (android/app/build.gradle.kts).
     implementation("org.bouncycastle:bcprov-jdk18on:1.86")
+    testImplementation(kotlin("test"))
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 // Java 11 bytecode: runs on any Java 11+ the Windows machine has.
