@@ -8,8 +8,15 @@ import com.example.communication_super_app.smscrypto.keybank.AuthorityFile
 import com.example.communication_super_app.smscrypto.keybank.Canon
 import ir.hamrasan.keybank.Activation
 import ir.hamrasan.keybank.AuthorityFolder
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import javax.swing.SwingUtilities
+import kotlin.coroutines.CoroutineContext
 import java.io.File
 import java.security.SecureRandom
 
@@ -27,6 +34,9 @@ class KeysState(
         val authorityId: String = contents.key.public.authorityId.joinToString("") { "%02x".format(it) }
     }
 
+    /** What just happened to the member a [Delivery] is shown for. */
+    enum class Event { ADDED, EDITED, NEW_KEY }
+
     /** What the details dialog shows: one member's file, password and (when known) activation code. */
     class Delivery(
         val index: Int,
@@ -37,9 +47,51 @@ class KeysState(
         val activationCode: String?,
         /** Set right after an issue: how many other members got a fresh file. */
         val othersReissued: Int? = null,
+        val event: Event? = null,
+        /** Whether this member's key changed in that issue. */
+        val keyChanged: Boolean = false,
     )
 
+    /** A short result or error shown in its own dialog. */
+    class Notice(val title: String, val text: String, val isError: Boolean = false)
+
+    enum class View { MEMBERS, LOG }
+
+    /** A confirmation or form opened from a member's dialog. */
+    sealed class Dialog {
+        class Edit(val index: Int, val form: MemberForm) : Dialog()
+        class NewKey(val index: Int) : Dialog()
+        class Remove(val index: Int) : Dialog()
+
+        /** Recording for everyone: their own file ([update] false) or the update file. */
+        class MarkAll(val update: Boolean) : Dialog()
+    }
+
     private val random = SecureRandom()
+
+    /**
+     * Where every change the operator starts runs — never a composable's
+     * scope. A dialog's scope dies with the dialog: the confirmation of
+     * «گوشی گم شد» closed itself as it started the job, the job was
+     * cancelled half-way through, and the panel said «nothing changed» over
+     * a new key it had in fact issued, without ever showing its password
+     * (found driving the installed panel, 1405/07/15). Switching to the
+     * activation tab mid-issue did the same to «عضو جدید». It runs on the
+     * AWT event thread, the window's own (see [Edt]).
+     */
+    private val work = CoroutineScope(SupervisorJob() + Edt)
+
+    /**
+     * The AWT event thread as a dispatcher. kotlinx-coroutines-swing is not
+     * on the classpath (Compose Desktop does not bring it), and this is all
+     * it would add here.
+     */
+    private object Edt : CoroutineDispatcher() {
+        override fun dispatch(context: CoroutineContext, block: Runnable) = SwingUtilities.invokeLater(block)
+    }
+
+    /** Runs [block] to the end whatever happens to the screen that started it. */
+    fun launch(block: suspend () -> Unit): Job = work.launch { block() }
 
     var authorityFile by mutableStateOf(if (rememberFile) Platform.lastAuthorityFile?.takeIf { it.isFile } else null)
     var password by mutableStateOf("")
@@ -51,6 +103,13 @@ class KeysState(
     var snapshot by mutableStateOf<AuthorityFolder.Snapshot?>(null)
         private set
     var delivery by mutableStateOf<Delivery?>(null)
+    var notice by mutableStateOf<Notice?>(null)
+    var view by mutableStateOf(View.MEMBERS)
+    var dialog by mutableStateOf<Dialog?>(null)
+
+    /** True while a change started from a member's dialog is running (a blocking progress dialog). */
+    var modalBusy by mutableStateOf(false)
+        private set
     var lastActivity by mutableStateOf(System.currentTimeMillis())
         private set
 
@@ -62,6 +121,9 @@ class KeysState(
         unlocked = null
         snapshot = null
         delivery = null
+        notice = null
+        dialog = null
+        view = View.MEMBERS
         password = ""
         error = null
     }
@@ -139,7 +201,8 @@ class KeysState(
                     organization = form.organization,
                 ) { done, total -> progress = done.toFloat() / total }
             }
-            snapshot = withContext(Dispatchers.IO) { u.folder.snapshot() }
+            // Issued: a list that cannot be re-read now is not a failed issue.
+            snapshot = runCatching { withContext(Dispatchers.IO) { u.folder.snapshot() } }.getOrNull() ?: snapshot
             val mine = issued.last()
             delivery = Delivery(
                 mine.index,
@@ -149,6 +212,8 @@ class KeysState(
                 mine.password,
                 deviceCode?.let(Activation::activationCodeFor),
                 othersReissued = issued.size - 1,
+                event = Event.ADDED,
+                keyChanged = true,
             )
             form.clear()
         } catch (e: AuthorityFolder.MemberError) {
@@ -165,9 +230,160 @@ class KeysState(
     fun showMember(index: Int) {
         val u = unlocked ?: return
         val s = snapshot ?: return
-        val entry = s.entries[index]
+        val entry = s.entries.getOrNull(index) ?: return
         touch()
         delivery = Delivery(index, entry.name, entry.phones, u.folder.keyFileOf(index, entry), s.passwordOf(entry), null)
+    }
+
+    /** Where member [index] stands; null when there is no such member. */
+    fun statusOf(index: Int): AuthorityFolder.DeliveryStatus? =
+        snapshot?.let { s -> s.entries.getOrNull(index)?.let(s::statusOf) }
+
+    // ── Deliveries ───────────────────────────────────────────────────────
+
+    /** Records that member [index] now holds their current file. */
+    suspend fun markDelivered(index: Int) = markDelivered(listOf(index))
+
+    /** Records that every member now holds their current file. */
+    suspend fun markAllDelivered() = markDelivered(snapshot?.entries?.indices?.toList().orEmpty())
+
+    /** Records that member [index] imported the update file. */
+    suspend fun markUpdated(index: Int) = record { it.markUpdated(listOf(index)) }
+
+    /** Records that every member imported the update file. */
+    suspend fun markAllUpdated() = record { f -> f.markUpdated(snapshot?.entries?.indices?.toList().orEmpty()) }
+
+    private suspend fun markDelivered(indices: List<Int>) = record { it.markDelivered(indices) }
+
+    private suspend fun record(write: (AuthorityFolder) -> Unit) {
+        val u = unlocked ?: return
+        touch()
+        try {
+            snapshot = withContext(Dispatchers.IO) {
+                write(u.folder)
+                u.folder.snapshot()
+            }
+        } catch (e: Exception) {
+            notice = Notice("ثبت نشد", "تحویل در دفتر صدور ثبت نشد: ${e.message}", isError = true)
+        }
+    }
+
+    // ── Changing a member ────────────────────────────────────────────────
+
+    /** A form holding member [index] as it is now, for «ویرایش». */
+    fun editForm(index: Int): MemberForm? {
+        val entry = snapshot?.entries?.getOrNull(index) ?: return null
+        return MemberForm().apply {
+            name = entry.name
+            mobile = entry.phones.first()
+            others = entry.phones.drop(1).joinToString("؛ ")
+        }
+    }
+
+    /**
+     * Checks an edit without writing anything; null and [MemberForm.error]
+     * on a mistake, else whether the member's key would change.
+     */
+    fun checkEdit(index: Int, form: MemberForm): Boolean? {
+        val u = unlocked ?: return null
+        touch()
+        form.error = null
+        return try {
+            u.folder.prepareEdit(index, form.name, form.phones()).keyChanged
+        } catch (e: AuthorityFolder.MemberError) {
+            form.error = e.message
+            null
+        } catch (e: Exception) {
+            form.error = "فهرست اعضا خوانده نشد: ${e.message}"
+            null
+        }
+    }
+
+    suspend fun editMember(index: Int, form: MemberForm) {
+        val keyChanged = checkEdit(index, form) ?: return
+        change("در حال ساخت فایل‌ها…") { u, progress ->
+            val issued = u.folder.editMember(u.contents, index, form.name, form.phones(), random, progress = progress)
+            issued[index].let {
+                Delivery(it.index, it.entry.name, it.entry.phones, it.file, it.password, null,
+                    othersReissued = issued.size - 1, event = Event.EDITED, keyChanged = keyChanged)
+            }
+        }
+    }
+
+    /** Checks «گوشی گم شد» for member [index]; the error text, or null when it can go ahead. */
+    fun checkNewKey(index: Int): String? = check { it.folder.prepareNewKey(index) }
+
+    suspend fun newKey(index: Int) {
+        change("در حال ساخت کلید تازه…") { u, progress ->
+            val issued = u.folder.newKey(u.contents, index, random, progress = progress)
+            issued[index].let {
+                Delivery(it.index, it.entry.name, it.entry.phones, it.file, it.password, null,
+                    othersReissued = issued.size - 1, event = Event.NEW_KEY, keyChanged = true)
+            }
+        }
+    }
+
+    /** Checks removing member [index]; the error text, or null when it can go ahead. */
+    fun checkRemove(index: Int): String? = check { it.folder.prepareRemove(index) }
+
+    suspend fun removeMember(index: Int) {
+        val name = snapshot?.entries?.getOrNull(index)?.name ?: return
+        change("در حال ساخت فایل‌ها…") { u, progress ->
+            val issued = u.folder.removeMember(u.contents, index, random, progress = progress)
+            notice = Notice(
+                "«$name» حذف شد",
+                "فایل و رمز او از پوشهٔ issued برداشته شد. فایل ${fa(issued.size)} عضو دیگر تازه شد و رمزشان همان قبلی است. " +
+                    "تا وقتی فایل تازه را وارد نکرده‌اند، گوشی‌شان هنوز «$name» را می‌شناسد و با او پیام رمز رد و بدل می‌کند؛ " +
+                    "پس فایل تازه را زود به همه برسانید.",
+            )
+            null
+        }
+    }
+
+    private fun check(prepare: (Unlocked) -> Unit): String? {
+        val u = unlocked ?: return "بخش کلیدها قفل است."
+        touch()
+        return try {
+            prepare(u)
+            null
+        } catch (e: AuthorityFolder.MemberError) {
+            e.message
+        } catch (e: Exception) {
+            "فهرست اعضا خوانده نشد: ${e.message}"
+        }
+    }
+
+    /**
+     * Runs a change to the roster behind a blocking progress dialog, then
+     * shows the [Delivery] it returns (or nothing — a [Notice] it set).
+     */
+    private suspend fun change(label: String, block: (Unlocked, (Int, Int) -> Unit) -> Delivery?) {
+        val u = unlocked ?: return
+        delivery = null
+        busy = label
+        progress = 0f
+        modalBusy = true
+        val result = try {
+            withContext(Dispatchers.Default) {
+                block(u) { done, total -> progress = done.toFloat() / total }
+            }
+        } catch (e: AuthorityFolder.MemberError) {
+            notice = Notice("انجام نشد", e.message.orEmpty(), isError = true)
+            return
+        } catch (e: Exception) {
+            // Issuing is all or nothing (Issuance.issue), so this is true.
+            notice = Notice("انجام نشد", "ساخت فایل‌ها انجام نشد و چیزی تغییر نکرد: ${e.message}", isError = true)
+            return
+        } finally {
+            busy = null
+            progress = null
+            modalBusy = false
+            touch()
+        }
+        // The files are issued: a list that cannot be re-read now must not
+        // turn that into an error.
+        snapshot = runCatching { withContext(Dispatchers.IO) { u.folder.snapshot() } }.getOrNull() ?: snapshot
+        delivery = result
     }
 
     fun deliverySheet(d: Delivery): File? {

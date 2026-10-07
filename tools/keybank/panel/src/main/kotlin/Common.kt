@@ -58,7 +58,7 @@ fun Section(title: String, modifier: Modifier = Modifier, content: @Composable C
         shape = RoundedCornerShape(14.dp),
     ) {
         Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            if (title.isNotEmpty()) Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             content()
         }
     }
