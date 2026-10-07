@@ -7,6 +7,7 @@ import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/features/secure/repositories/key_bank_repository.dart';
+import 'package:communication_super_app/features/secure/services/sms_crypto_service.dart';
 import 'package:communication_super_app/features/secure/widgets/secure_locked_view.dart';
 
 import '../bloc/key_bank_bloc.dart';
@@ -40,6 +41,10 @@ class KeyBankScreen extends StatelessWidget {
       'این فایل را مرجعی امضا کرده که این برنامه به آن اعتماد ندارد',
     KeyBankNotice.badSignature => 'امضای فایل معتبر نیست؛ فایل دستکاری شده است',
     KeyBankNotice.badBundle => 'محتوای فایل کلید معتبر نیست',
+    KeyBankNotice.updateNotForThisPhone =>
+      'این فایل به‌روزرسانیِ سازمانی است که در این گوشی نیست؛ اول فایل کلید خودتان را وارد کنید',
+    KeyBankNotice.ownKeyRetired =>
+      'دفترچه به‌روز شد، ولی کلید شما در آن عوض شده است؛ فایل کلید تازه خودتان را با رمزش وارد کنید',
     KeyBankNotice.groupAdded => 'گروه اضافه شد',
     KeyBankNotice.groupExists => 'این گروه قبلاً اضافه شده است',
     KeyBankNotice.numberAdded => 'شماره اضافه شد',
@@ -112,7 +117,8 @@ class _Bank extends StatelessWidget {
             _ActionRow(
               icon: Icons.file_open_outlined,
               title: 'وارد کردن فایل کلید',
-              summary: 'فایلی که مرجع سازمان با ابزار بانک کلید ساخته',
+              summary:
+                  'فایل کلید شما، یا فایل به‌روزرسانی (update.hku) که مرجع سازمان فرستاده',
               onTap: state.busy ? null : () => _importFile(context),
             ),
             const Divider(height: 24),
@@ -173,6 +179,12 @@ class _Bank extends StatelessWidget {
       return;
     }
     if (file == null || !context.mounted) return;
+    // An update file carries no key of ours and is opened without asking
+    // anything: only a phone of that organization can open it.
+    if (SmsCryptoService.isUpdateFile(file)) {
+      bloc.add(KeyBankImportUpdate(file));
+      return;
+    }
     final password = await _askText(
       context,
       title: 'رمز فایل کلید',

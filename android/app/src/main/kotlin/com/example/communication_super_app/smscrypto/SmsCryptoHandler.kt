@@ -7,6 +7,7 @@ import com.example.communication_super_app.smscrypto.keybank.Directory
 import com.example.communication_super_app.smscrypto.keybank.KeyFile
 import com.example.communication_super_app.smscrypto.keybank.KeyGroup
 import com.example.communication_super_app.smscrypto.keybank.SignedDirectory
+import com.example.communication_super_app.smscrypto.keybank.UpdateFile
 import android.util.Log
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -56,6 +57,8 @@ import kotlinx.coroutines.withContext
  * - `deriveGroup {name, passphrase}` → `{group, groupId}` — Argon2id, ~1 s
  * - `groupMember {group, phone}` → `{secret, public, keyId}`
  * - `openKeyFile {file, password, anchors}` → `{signed, directory, member?}`
+ * - `openUpdateFile {file, directoryIds, anchors}` → `{signed, directory}` —
+ *   `update.hku`, sealed for a directory the phone holds; no password
  * - `verifyDirectory {signed, anchors}` → directory
  * - `authorityId {public}` → Uint8List
  *
@@ -124,6 +127,18 @@ class SmsCryptoHandler {
                     identity(KeyGroup.parse(call.bytes("group")).member(call.string("phone")))
                 }
                 "openKeyFile" -> run(call, result) { openKeyFile(call) }
+                "openUpdateFile" -> run(call, result) {
+                    val opened = UpdateFile.open(
+                        call.bytes("file"),
+                        call.argument<List<ByteArray>>("directoryIds") ?: emptyList(),
+                        anchors(call),
+                    )
+                    mapOf(
+                        "signed" to opened.signed.encode(),
+                        "directory" to directory(opened.directory),
+                        "member" to null,
+                    )
+                }
                 "verifyDirectory" -> run(call, result) {
                     directory(SignedDirectory.decode(call.bytes("signed")).verify(anchors(call)))
                 }

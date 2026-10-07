@@ -550,6 +550,38 @@ class SmsCryptoService {
     );
   }
 
+  /// Whether [file] is an update file (`update.hku`, `UpdateFile.kt`) rather
+  /// than a key file — told by its clear header, so no password is asked
+  /// for it.
+  static bool isUpdateFile(Uint8List file) {
+    const magic = 'HMRKU';
+    if (file.length <= magic.length) return false;
+    for (var i = 0; i < magic.length; i++) {
+      if (file[i] != magic.codeUnitAt(i)) return false;
+    }
+    return true;
+  }
+
+  /// Opens an update file with whichever of [directoryIds] (the directories
+  /// this phone holds) it was sealed for, and verifies it against
+  /// [anchors]. [SmsCryptoFailure.wrongPassword] when it is for none of
+  /// them. It never carries a member key.
+  Future<OpenedKeyFile> openUpdateFile({
+    required Uint8List file,
+    required List<Uint8List> directoryIds,
+    required List<Uint8List> anchors,
+  }) async {
+    final m = await _call<Map>('openUpdateFile', {
+      'file': file,
+      'directoryIds': directoryIds,
+      'anchors': anchors,
+    });
+    return OpenedKeyFile(
+      signed: m['signed'] as Uint8List,
+      directory: _directory(m['directory'] as Map),
+    );
+  }
+
   /// Verifies a stored signed directory again.
   Future<KeyDirectory> verifyDirectory({
     required Uint8List signed,
