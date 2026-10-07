@@ -412,6 +412,12 @@ class SecureMessenger {
     if (pending == null) return _Outcome.done; // not ours, or answered already
     final conversation = await _store.conversation(phone);
     if (conversation == null || !conversation.encrypted) return _Outcome.done;
+    // An answer to a request made with keys since retired: start over.
+    if (!await _keysCurrent(conversation)) {
+      await _current(conversation);
+      await _flush(phone);
+      return _Outcome.done;
+    }
     final own = await _identities.ownByKeyId(conversation.ownKeyId!);
     if (own == null) return _Outcome.done;
     final Uint8List session;
@@ -446,6 +452,17 @@ class SecureMessenger {
     InboxPacket packet,
     SmsPacketInfo info,
   ) async {
+    // A session made with a key the authority has since replaced (a lost
+    // phone's) is not read: the conversation moves to the current key and
+    // the old sessions go — see [_current].
+    final conversation = await _store.conversation(phone);
+    if (conversation != null &&
+        conversation.encrypted &&
+        !await _keysCurrent(conversation)) {
+      await _current(conversation);
+      debugPrint('Encrypted SMS dropped: its session uses a retired key');
+      return _Outcome.done;
+    }
     final session = (await _store.sessions(
       phone,
     )).where((s) => !s.pending && s.sid == info.sid).firstOrNull;
@@ -752,11 +769,60 @@ class SecureMessenger {
   /// Sends whatever is queued for [phone], or the handshake it needs first.
   Future<void> flush(String phone) => _serial(() => _flush(phone));
 
+  /// Whether the key bank still holds both keys [c] was made with.
+  Future<bool> _keysCurrent(SecureConversation c) async =>
+      await _identities.ownByKeyId(c.ownKeyId!) != null &&
+      await _identities.byKeyId(c.peerKeyId!, c.phone) != null;
+
+  /// [c] on the keys the key bank holds now.
+  ///
+  /// A conversation used to keep the keys it was started with for ever. So
+  /// after the authority gave a member a new key («گوشی گم شد» in the
+  /// issuance panel) and everyone imported the new directory, every existing
+  /// conversation went on encrypting to the LOST phone's key — over its old
+  /// sessions, and in any new handshake too — and the member's new phone
+  /// could read none of it. The same for our own key replaced. Now the
+  /// conversation is re-bound to the member's current key (same directory
+  /// first) and its old sessions are dropped; the next send starts a
+  /// handshake with the new key. Null when the bank has no key for the
+  /// number any more (the member was removed): nothing can be sent.
+  Future<SecureConversation?> _current(SecureConversation c) async {
+    if (!c.encrypted || await _keysCurrent(c)) return c;
+    final candidates = await _identities.forNumber(c.phone);
+    final next =
+        candidates.where((p) => p.source == c.ownSource).firstOrNull ??
+        candidates.where((p) => p.source.startsWith('directory:')).firstOrNull;
+    if (next == null) {
+      debugPrint('Conversation keys retired; the key bank has none for it');
+      return null;
+    }
+    debugPrint('Conversation keys retired; moving to the current key');
+    await _store.upsertConversation(
+      phone: c.phone,
+      name: c.name,
+      peerKeyId: next.keyId,
+      peerPublic: next.publicKey,
+      ownKeyId: next.own.keyId,
+      ownSource: next.own.source,
+      now: _clock(),
+      listed: false,
+    );
+    return _store.conversation(c.phone);
+  }
+
   Future<void> _flush(String phone) async {
-    final conversation = await _store.conversation(phone);
+    final stored = await _store.conversation(phone);
     // A keyless conversation has nothing to encrypt or queue: plain SMS go
     // out at once (sendPlain).
-    if (conversation == null || !conversation.encrypted) return;
+    if (stored == null || !stored.encrypted) return;
+    final conversation = await _current(stored);
+    if (conversation == null) {
+      for (final m in await _store.queued(phone)) {
+        await _store.advanceStatus(m.id, SecureMessageStatus.failed);
+      }
+      _changed(phone);
+      return;
+    }
     final queued = await _store.queued(phone);
     // Group work for this member: a definition they have not had (always
     // first, so they know the group before its messages), then messages.

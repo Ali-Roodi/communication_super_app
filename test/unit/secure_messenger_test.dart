@@ -265,11 +265,20 @@ class FakeIdentities implements SecureIdentities {
   /// name → number, the whole "directory".
   final Map<String, String> book;
 
+  /// name → the label their key is made from, when the authority gave them
+  /// a new one (default: the name). What importing a new directory changes.
+  final Map<String, String> keys = {};
+
+  /// Members the authority removed: no longer in this phone's directory.
+  final Set<String> removed = {};
+
+  String _key(String name) => keys[name] ?? name;
+
   OwnIdentity get _own => OwnIdentity(
     identity: SmsIdentity(
-      secret: _kid(me),
-      publicKey: _kid(me),
-      keyId: _kid(me),
+      secret: _kid(_key(me)),
+      publicKey: _kid(_key(me)),
+      keyId: _kid(_key(me)),
     ),
     source: 'directory:d',
   );
@@ -277,11 +286,17 @@ class FakeIdentities implements SecureIdentities {
   SecurePeer peer(String name) => SecurePeer(
     name: name,
     phone: book[name]!,
-    publicKey: _kid(name),
-    keyId: _hex(_kid(name)),
+    publicKey: _kid(_key(name)),
+    keyId: _hex(_kid(_key(name))),
     source: 'directory:d',
     own: _own,
   );
+
+  @override
+  Future<List<SecurePeer>> forNumber(String phone) async => [
+    for (final name in book.keys)
+      if (book[name] == phone && !removed.contains(name)) peer(name),
+  ];
 
   static String _hex(List<int> b) =>
       b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
@@ -296,7 +311,8 @@ class FakeIdentities implements SecureIdentities {
   @override
   Future<SecurePeer?> byKeyId(String keyId, String phone) async {
     for (final name in book.keys) {
-      if (_hex(_kid(name)) == keyId) return peer(name);
+      if (removed.contains(name)) continue;
+      if (_hex(_kid(_key(name))) == keyId) return peer(name);
     }
     return null;
   }
@@ -762,6 +778,116 @@ void main() {
     await sara.messenger.drain();
     expect(await sara.store.conversations(), isEmpty);
     expect(air.inFlight, isEmpty); // nothing answered
+  });
+
+  group('a key the authority replaced (issuance panel)', () {
+    /// Sara's new phone: her SIM, a fresh secure section, and the new key
+    /// from the file the panel issued after «گوشی گم شد».
+    Future<Phone> newPhone() async {
+      final db = await databaseFactoryFfi.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(singleInstance: false),
+      );
+      await SecureStore.createSchemaForTest(db);
+      addTearDown(db.close);
+      return Phone('sara', book['sara']!, db, air, book, 700)
+        ..identities.keys['sara'] = 'saranew';
+    }
+
+    Future<void> settleWith(Phone a, Phone b) async {
+      for (var i = 0; i < 10 && air.inFlight.isNotEmpty; i++) {
+        air.deliver();
+        await a.messenger.drain();
+        await b.messenger.drain();
+      }
+    }
+
+    test('«گوشی گم شد»: the new phone is reached, the lost one is not', () async {
+      await ali.messenger.startConversation(ali.identities.peer('sara'));
+      await ali.messenger.sendText(book['sara']!, 'یک');
+      await settle();
+      expect((await sara.thread(book['ali']!)).single.body, 'یک');
+
+      // Ali imports the new directory: Sara's key is now «saranew».
+      ali.identities.keys['sara'] = 'saranew';
+
+      // The lost phone writes over its old session: Ali does not read it.
+      await sara.messenger.sendText(book['ali']!, 'از گوشی گم‌شده');
+      air.deliver();
+      await ali.messenger.drain();
+      expect(
+        (await ali.thread(book['sara']!)).map((m) => m.body),
+        isNot(contains('از گوشی گم‌شده')),
+      );
+
+      // Ali writes again: a handshake with the NEW key, read on the new phone.
+      final saraNew = await newPhone();
+      await ali.messenger.sendText(book['sara']!, 'دو');
+      final init = air.inFlight.single;
+      expect(init.wire, contains('#E:'));
+      expect(_unwire(init.wire)['to'], 'saranew_');
+      await settleWith(ali, saraNew);
+      expect((await saraNew.thread(book['ali']!)).map((m) => m.body), ['دو']);
+
+      // And her answer arrives.
+      await saraNew.messenger.sendText(book['ali']!, 'سه');
+      await settleWith(ali, saraNew);
+      expect((await ali.thread(book['sara']!)).map((m) => m.body), [
+        'یک',
+        'دو',
+        'سه',
+      ]);
+      final conversation = (await ali.store.conversation(book['sara']!))!;
+      expect(conversation.peerKeyId, FakeIdentities._hex(_kid('saranew')));
+    });
+
+    test('our own key replaced: the conversation moves to it', () async {
+      await ali.messenger.startConversation(ali.identities.peer('sara'));
+      await ali.messenger.sendText(book['sara']!, 'یک');
+      await settle();
+      // Ali's number changed; both phones imported the new directory.
+      ali.identities.keys['ali'] = 'alinew';
+      sara.identities.keys['ali'] = 'alinew';
+      await ali.messenger.sendText(book['sara']!, 'دو');
+      expect(_unwire(air.inFlight.single.wire)['from'], 'alinew__');
+      await settle();
+      expect((await sara.thread(book['ali']!)).map((m) => m.body), [
+        'یک',
+        'دو',
+      ]);
+    });
+
+    test('a member the authority removed is not written to', () async {
+      await ali.messenger.startConversation(ali.identities.peer('sara'));
+      await ali.messenger.sendText(book['sara']!, 'یک');
+      await settle();
+      ali.identities.removed.add('sara');
+      await ali.messenger.sendText(book['sara']!, 'دو');
+      expect(air.inFlight, isEmpty);
+      expect(
+        (await ali.thread(book['sara']!)).last.status,
+        SecureMessageStatus.failed,
+      );
+      // And what the removed member still sends is not read.
+      await sara.messenger.sendText(book['ali']!, 'هنوز اینجام');
+      air.deliver();
+      await ali.messenger.drain();
+      expect(
+        (await ali.thread(book['sara']!)).map((m) => m.body),
+        isNot(contains('هنوز اینجام')),
+      );
+    });
+
+    test('nothing changes while the keys are current', () async {
+      await ali.messenger.startConversation(ali.identities.peer('sara'));
+      await ali.messenger.sendText(book['sara']!, 'یک');
+      await settle();
+      final sid = (await ali.store.sessions(book['sara']!)).single.sid;
+      await ali.messenger.sendText(book['sara']!, 'دو');
+      expect(_unwire(air.inFlight.single.wire)['t'], 'message');
+      await settle();
+      expect((await ali.store.sessions(book['sara']!)).single.sid, sid);
+    });
   });
 
   test(
