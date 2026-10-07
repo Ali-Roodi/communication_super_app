@@ -71,7 +71,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Msi)
             packageName = "HamresanPanel"
-            packageVersion = "1.0.0"
+            packageVersion = "1.1.0"
             description = "Hamresan issuance panel"
             vendor = "Hamresan"
             // From `suggestRuntimeModules`; java.prefs remembers the authority file's path (never its password).

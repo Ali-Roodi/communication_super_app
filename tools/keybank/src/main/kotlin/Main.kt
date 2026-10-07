@@ -140,6 +140,8 @@ private fun issue(args: Array<String>) {
     }
     println("Issued ${roster.entries.size} key files for ${roster.organization} to ${out.path}; passwords in ${Issuance.PASSWORDS_FILE}.")
     println("Hand each member their file and, separately, its password.")
+    println("${Issuance.UPDATE_FILE}: the same directory without anyone's key, for members who already")
+    println("imported a file of this organization and whose key did not change - no password needed.")
 }
 
 private fun activation(args: Array<String>) {

@@ -7,8 +7,10 @@ import com.example.communication_super_app.smscrypto.keybank.AuthorityFile
 import com.example.communication_super_app.smscrypto.keybank.AuthorityKey
 import com.example.communication_super_app.smscrypto.keybank.Directory
 import com.example.communication_super_app.smscrypto.keybank.KeyFile
+import com.example.communication_super_app.smscrypto.keybank.UpdateFile
 import ir.hamrasan.keybank.Activation
 import ir.hamrasan.keybank.AuthorityFolder
+import ir.hamrasan.keybank.Issuance
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.skia.EncodedImageFormat
 import java.io.File
@@ -53,6 +55,31 @@ object SelfTest {
                 check(opened.directory.members.size == 2 && opened.memberIndex == 1) { "key file does not open as issued" }
                 check(d.activationCode == "9c4a48e93a") { "delivery activation code" }
                 log.appendLine("issue + open: ok")
+
+                val update = UpdateFile.open(
+                    File(dir, "issued/${Issuance.UPDATE_FILE}").readBytes(),
+                    listOf(contents.directoryId),
+                    listOf(contents.key.public),
+                )
+                check(update.directory.members.size == 2 && update.identity == null) { "update file" }
+                log.appendLine("update file: ok")
+
+                runBlocking { keys.markAllDelivered() }
+                check(keys.snapshot!!.outdated.isEmpty()) { "deliveries not recorded" }
+                val oldPassword = keys.snapshot!!.passwordOf(keys.snapshot!!.entries[0])
+                runBlocking { keys.newKey(0) }
+                val renewed = keys.delivery ?: error("no new key: ${keys.notice?.text}")
+                check(renewed.password != oldPassword) { "new key password" }
+                KeyFile.open(renewed.file.readBytes(), renewed.password!!, listOf(contents.key.public))
+                check(keys.statusOf(0) == AuthorityFolder.DeliveryStatus.NEW_KEY) { "new key status" }
+                val edit = keys.editForm(1)!!.apply { name = "عضو دو ویرایش‌شده" }
+                runBlocking { keys.editMember(1, edit) }
+                check(keys.snapshot!!.entries[1].name == "عضو دو ویرایش‌شده") { "edit" }
+                runBlocking { keys.removeMember(0) }
+                check(keys.snapshot!!.entries.size == 1) { "remove: ${keys.notice?.text}" }
+                check(keys.snapshot!!.log.map { it.action.code }.takeLast(3) == listOf("new-key", "edit", "remove")) { "log" }
+                keys.notice = null
+                log.appendLine("new key + edit + remove + log: ok")
 
                 render(out, "keys-issued") { Panel(keys, start = Section.Keys) }
                 keys.delivery = null
