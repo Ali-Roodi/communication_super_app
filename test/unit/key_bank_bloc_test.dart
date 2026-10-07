@@ -176,6 +176,154 @@ void main() {
     await bloc.close();
   });
 
+  group('the update file (update.hku)', () {
+    /// The same organization, issued later: [members] as listed.
+    OpenedKeyFile update({required int serial, required bool listsMe}) =>
+        OpenedKeyFile(
+          signed: _b(40, serial),
+          directory: KeyDirectory(
+            authorityId: _b(8, 0xAA),
+            directoryId: _b(8, 1),
+            serial: serial,
+            name: 'سازمان',
+            members: [
+              DirectoryMember(
+                name: 'علی',
+                phones: const ['09121111111'],
+                publicKey: listsMe ? _b(1217, 1) : _b(1217, 5),
+                keyId: listsMe ? _b(8, 1) : _b(8, 5),
+              ),
+              DirectoryMember(
+                name: 'مریم',
+                phones: const ['09122222222'],
+                publicKey: _b(1217, 2),
+                keyId: _b(8, 2),
+              ),
+            ],
+          ),
+        );
+
+    void opensAs(OpenedKeyFile o) => when(
+      () => crypto.openUpdateFile(
+        file: any(named: 'file'),
+        directoryIds: any(named: 'directoryIds'),
+        anchors: any(named: 'anchors'),
+      ),
+    ).thenAnswer((_) async => o);
+
+    Future<KeyBankBloc> withMyKeyFile() async {
+      when(
+        () => crypto.openKeyFile(
+          file: any(named: 'file'),
+          password: any(named: 'password'),
+          anchors: any(named: 'anchors'),
+        ),
+      ).thenAnswer((_) async => _opened());
+      final bloc = build();
+      await settle(bloc, (s) => s.status == KeyBankStatus.ready);
+      bloc.add(KeyBankImportFile(_b(10, 1), 'ABCD'));
+      await settle(bloc, (s) => s.notice == KeyBankNotice.imported);
+      return bloc;
+    }
+
+    test('is told apart from a key file by its header', () {
+      expect(
+        SmsCryptoService.isUpdateFile(
+          Uint8List.fromList([...'HMRKU'.codeUnits, 1, 2]),
+        ),
+        isTrue,
+      );
+      expect(
+        SmsCryptoService.isUpdateFile(
+          Uint8List.fromList([...'HMRKB'.codeUnits, 1, 2]),
+        ),
+        isFalse,
+      );
+      expect(
+        SmsCryptoService.isUpdateFile(Uint8List.fromList('HMRKU'.codeUnits)),
+        isFalse,
+      );
+    });
+
+    test('brings the directory up to date and keeps our key', () async {
+      final bloc = await withMyKeyFile();
+      opensAs(update(serial: 200, listsMe: true));
+      bloc.add(KeyBankImportUpdate(_b(10, 7)));
+      final done = await settle(
+        bloc,
+        (s) => s.notice == KeyBankNotice.updated && !s.busy,
+      );
+      final d = done.snapshot.directories.single;
+      expect(d.memberCount, 2);
+      expect(d.serial, 200);
+      expect(d.ownName, 'علی');
+      final call = verify(
+        () => crypto.openUpdateFile(
+          file: any(named: 'file'),
+          directoryIds: captureAny(named: 'directoryIds'),
+          anchors: any(named: 'anchors'),
+        ),
+      )..called(1);
+      expect(call.captured.single, [_b(8, 1)]); // the directory we hold
+      await bloc.close();
+    });
+
+    test('says so when our own key was replaced', () async {
+      final bloc = await withMyKeyFile();
+      opensAs(update(serial: 200, listsMe: false));
+      bloc.add(KeyBankImportUpdate(_b(10, 7)));
+      final done = await settle(
+        bloc,
+        (s) => s.notice == KeyBankNotice.ownKeyRetired,
+      );
+      expect(done.snapshot.directories.single.hasOwnKey, isFalse);
+      await bloc.close();
+    });
+
+    test('an older one is refused', () async {
+      final bloc = await withMyKeyFile();
+      opensAs(update(serial: 50, listsMe: true));
+      bloc.add(KeyBankImportUpdate(_b(10, 7)));
+      final done = await settle(bloc, (s) => s.notice == KeyBankNotice.older);
+      expect(done.snapshot.directories.single.serial, 100);
+      await bloc.close();
+    });
+
+    test('a phone of another organization cannot use it', () async {
+      final bloc = build();
+      await settle(bloc, (s) => s.status == KeyBankStatus.ready);
+      bloc.add(KeyBankImportUpdate(_b(10, 7)));
+      await settle(
+        bloc,
+        (s) => s.notice == KeyBankNotice.updateNotForThisPhone,
+      );
+      verifyNever(
+        () => crypto.openUpdateFile(
+          file: any(named: 'file'),
+          directoryIds: any(named: 'directoryIds'),
+          anchors: any(named: 'anchors'),
+        ),
+      );
+      await bloc.close();
+
+      final member = await withMyKeyFile();
+      when(
+        () => crypto.openUpdateFile(
+          file: any(named: 'file'),
+          directoryIds: any(named: 'directoryIds'),
+          anchors: any(named: 'anchors'),
+        ),
+      ).thenThrow(const SmsCryptoException(SmsCryptoFailure.wrongPassword));
+      member.add(KeyBankImportUpdate(_b(10, 7)));
+      final s = await settle(
+        member,
+        (s) => s.notice == KeyBankNotice.updateNotForThisPhone && !s.busy,
+      );
+      expect(s.snapshot.directories.single.serial, 100);
+      await member.close();
+    });
+  });
+
   test('a group is derived and stored; its code is kept for display', () async {
     when(
       () => crypto.deriveGroup(
