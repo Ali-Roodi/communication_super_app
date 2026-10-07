@@ -297,6 +297,27 @@ class PreviewRender {
         dir.deleteRecursively()
     }
 
+    /** The operator names the folder; a Persian name with spaces, on a Persian-named file, must work. */
+    @Test
+    fun aFolderAndFileWithPersianNames() {
+        val root = Files.createTempDirectory("panel-fa").toFile()
+        val dir = File(root, "مرجع سازمان ما").apply { mkdirs() }
+        val contents = AuthorityFile.Contents(AuthorityKey.generate(random), ByteArray(Directory.ID_BYTES).also(random::nextBytes))
+        val file = File(dir, "کلید سازمان.hka").apply { writeBytes(AuthorityFile.create(contents, "persian-path-pw", random, cheap)) }
+        val keys = KeysState(rememberFile = false).apply { authorityFile = file; password = "persian-path-pw" }
+        runBlocking { keys.unlock() }
+        kotlin.test.assertNotNull(keys.unlocked, keys.error)
+        runBlocking { keys.addMember(MemberForm().apply { organization = "سازمان تست"; name = "علی"; mobile = "09120000001" }) }
+        val d = kotlin.test.assertNotNull(keys.delivery, keys.notice?.text)
+        kotlin.test.assertTrue(d.file.isFile)
+        kotlin.test.assertTrue(File(dir, "issued/update.hku").isFile)
+        kotlin.test.assertTrue(File(dir, "issuance-log.csv").isFile)
+        runBlocking { keys.markDelivered(0) }
+        kotlin.test.assertEquals(AuthorityFolder.DeliveryStatus.CURRENT, keys.statusOf(0))
+        kotlin.test.assertNotNull(keys.deliverySheet(d)?.takeIf { it.isFile })
+        root.deleteRecursively()
+    }
+
     @Test
     fun firstMember() {
         val (file, password) = authorityFolder(withMembers = false)
