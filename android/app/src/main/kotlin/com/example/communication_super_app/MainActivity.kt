@@ -95,6 +95,12 @@ class MainActivity : FlutterActivity() {
         @Volatile
         var isResumed = false
 
+        /** True between onStart and onStop — the app is on screen (see
+         *  [com.example.communication_super_app.security.AppLockSession]). */
+        @JvmStatic
+        @Volatile
+        var isStarted = false
+
         /**
          * Tells the running app that [threadId]'s rows changed underneath it —
          * a notification action (read, reply, block) wrote the database
@@ -501,11 +507,16 @@ class MainActivity : FlutterActivity() {
     // signal that the call UI really went away.
     override fun onStart() {
         super.onStart()
+        isStarted = true
         android.util.Log.d("CallUi", "MainActivity.onStart")
         CallInCallService.instance?.onCallUiVisible(true)
     }
 
     override fun onStop() {
+        isStarted = false
+        // «قفل خودکار» starts counting now, natively: Dart may not get to run
+        // again before the window is over.
+        com.example.communication_super_app.security.AppLockSession.backgrounded(applicationContext)
         android.util.Log.d("CallUi", "MainActivity.onStop")
         // Left the call screen with the phone still ringing — put the
         // notification back so the call stays reachable.
@@ -685,6 +696,8 @@ class MainActivity : FlutterActivity() {
         keyFilePicker = null
         appLockHandler?.dispose()
         appLockHandler = null
+        // The Dart session dies with the engine; the next one starts locked.
+        com.example.communication_super_app.security.AppLockSession.locked(applicationContext)
         // The engine is going away: the alarm receiver must go back to delivering
         // scheduled messages natively.
         ScheduledSmsChannel.channel = null

@@ -142,4 +142,27 @@ class AppLockPlatform {
       debugPrint('setHideNotificationContent failed: $e');
     }
   }
+
+  /// The app lock is open: notifications show their content until it locks
+  /// again — at once if the app is on screen, otherwise after [graceSeconds]
+  /// («قفل خودکار»), counted natively from when it left (`AppLockSession`).
+  static Future<void> sessionUnlocked(int graceSeconds) async {
+    try {
+      await _channel.invokeMethod<void>('sessionUnlocked', {
+        'graceSeconds': graceSeconds,
+      });
+    } catch (e) {
+      debugPrint('sessionUnlocked failed: $e');
+    }
+  }
+
+  /// The app lock closed: notifications hide their content again, and the
+  /// ones already up are folded.
+  static Future<void> sessionLocked() async {
+    try {
+      await _channel.invokeMethod<void>('sessionLocked');
+    } catch (e) {
+      debugPrint('sessionLocked failed: $e');
+    }
+  }
 }

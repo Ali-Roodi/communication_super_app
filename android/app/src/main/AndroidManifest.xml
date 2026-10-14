@@ -308,6 +308,11 @@
             </intent-filter>
         </service>
 
+        <!-- «پنهان کردن محتوای اعلان‌ها»: the «قفل خودکار» window ran out -->
+        <receiver
+            android:name=".security.AppLockSession$DeadlineReceiver"
+            android:exported="false"/>
+
         <!-- Scheduled-SMS background delivery (زمان‌بندی ارسال, PHASE 2) -->
         <receiver
             android:name=".scheduled.ScheduledSmsAlarmReceiver"
