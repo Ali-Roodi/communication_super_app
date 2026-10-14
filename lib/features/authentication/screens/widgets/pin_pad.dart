@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:communication_super_app/core/services/app_handoff.dart';
+import 'package:communication_super_app/features/dialer/bloc/dialer_bloc.dart';
+import 'package:communication_super_app/features/dialer/bloc/dialer_state.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
+import 'package:communication_super_app/features/authentication/services/app_lock_platform.dart';
+import 'package:communication_super_app/features/authentication/services/biometric_unlock.dart';
 import 'package:communication_super_app/features/dialer/widgets/dialer_widgets.dart'
     show DialKey;
 
@@ -49,11 +55,16 @@ class PinKeypad extends StatelessWidget {
   final VoidCallback onDelete;
   final bool enabled;
 
+  /// What sits left of ۰ — the fingerprint key on the lock screens
+  /// ([BiometricUnlockKey]); empty when null.
+  final Widget? leading;
+
   const PinKeypad({
     super.key,
     required this.onKey,
     required this.onDelete,
     this.enabled = true,
+    this.leading,
   });
 
   /// [Persian display, Latin value] — mirrors the dialer's `_keyRows`.
@@ -109,13 +120,167 @@ class PinKeypad extends StatelessWidget {
             ],
             Row(
               children: [
-                // Empty slot keeps 0 centred (dialer has * here; PIN doesn't).
-                cell(const SizedBox(height: 62)),
+                // Keeps 0 centred (the dialer has * here). Empty unless a
+                // lock screen puts its fingerprint key there.
+                cell(leading ?? const SizedBox(height: 62)),
                 cell(DialKey(display: '۰', onTap: () => press('0'))),
                 cell(_BackspaceKey(enabled: enabled, onDelete: onDelete)),
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// «باز کردن با اثر انگشت یا چهره» on a lock screen: the key left of ۰, and
+/// the prompt it raises by itself when the screen comes up.
+///
+/// Renders the empty slot when the setting is off, so the keypad is
+/// pixel-for-pixel what it was. The automatic prompt is shown once per
+/// appearance of the lock, and only while the app is in front **and** the lock
+/// is the top route — a lock that a ringing call's screen sits over must not
+/// throw a system prompt across the call. After that the key raises it again;
+/// a real trip out of the app (not the prompt itself, see [AppHandoff]) re-arms
+/// the automatic one.
+class BiometricUnlockKey extends StatefulWidget {
+  const BiometricUnlockKey({
+    super.key,
+    required this.onUnlocked,
+    required this.onMessage,
+    this.service,
+  });
+
+  /// The biometric matched. The screen opens the app exactly as for a PIN.
+  final Future<void> Function() onUnlocked;
+
+  /// Something the user has to be told («اثر انگشت گوشی تغییر کرده…»).
+  final void Function(String message) onMessage;
+
+  /// For tests.
+  final BiometricUnlock? service;
+
+  @override
+  State<BiometricUnlockKey> createState() => _BiometricUnlockKeyState();
+}
+
+class _BiometricUnlockKeyState extends State<BiometricUnlockKey>
+    with WidgetsBindingObserver {
+  late final BiometricUnlock _service = widget.service ?? BiometricUnlock();
+
+  bool _enabled = false;
+  bool _busy = false;
+
+  /// The automatic prompt was already shown for this appearance of the lock.
+  bool _autoShown = false;
+
+  /// The app went to the background for real since the last prompt.
+  bool _wentAway = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _service.isEnabled().then((enabled) {
+      if (!mounted || !enabled) return;
+      setState(() => _enabled = true);
+      WidgetsBinding.instance.addPostFrameCallback((_) => _maybeAuto());
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    // The PIN was typed while the prompt was up and the lock is gone: a
+    // system prompt left floating over the open app would be absurd.
+    if (_busy) AppLockPlatform.cancelAuthentication();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+        // The prompt the app raised itself is not "leaving".
+        if (!AppHandoff.active) _wentAway = true;
+      case AppLifecycleState.resumed:
+        if (_wentAway) {
+          _wentAway = false;
+          _autoShown = false;
+        }
+        _maybeAuto();
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.detached:
+        break;
+    }
+  }
+
+  void _maybeAuto() {
+    if (!mounted || !_enabled || _autoShown || _busy) return;
+    if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+      return;
+    }
+    if (ModalRoute.of(context)?.isCurrent == false) return;
+    // A call that cold-started the app may still be on its way to the screen
+    // (the route check above can run before its screen is pushed): never
+    // throw a system prompt in front of a ringing or live call.
+    if (_callUp()) return;
+    _autoShown = true;
+    _prompt();
+  }
+
+  bool _callUp() {
+    try {
+      final dialer = context.read<DialerBloc>().state;
+      return dialer.isInCall || dialer.callStatus == CallStatus.incoming;
+    } catch (_) {
+      // No DialerBloc above (a test, or a screen built outside the app).
+      return false;
+    }
+  }
+
+  Future<void> _prompt() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final outcome = await _service.unlock();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    switch (outcome) {
+      case BiometricUnlockOutcome.unlocked:
+        await widget.onUnlocked();
+        return;
+      case BiometricUnlockOutcome.enrollmentChanged:
+      case BiometricUnlockOutcome.notEnabled:
+        setState(() => _enabled = false);
+      case BiometricUnlockOutcome.cancelled:
+      case BiometricUnlockOutcome.unavailable:
+      case BiometricUnlockOutcome.lockedOut:
+      case BiometricUnlockOutcome.failed:
+        break;
+    }
+    final message = BiometricUnlock.messageFor(outcome);
+    if (message != null) widget.onMessage(message);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_enabled) return const SizedBox(height: 62);
+    final scheme = Theme.of(context).colorScheme;
+    return Semantics(
+      button: true,
+      label: 'ورود با اثر انگشت یا چهره',
+      child: Material(
+        color: scheme.keySurface,
+        borderRadius: BorderRadius.circular(34),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: _busy ? null : _prompt,
+          child: SizedBox(
+            height: 62,
+            child: Icon(Icons.fingerprint, size: 30, color: scheme.primary),
+          ),
         ),
       ),
     );

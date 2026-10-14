@@ -463,6 +463,28 @@ class NativeCallService {
     }
   }
 
+  /// Mirrors the «مسدود کردن تماس» rules natively — as one set, so the native
+  /// copy is never half-updated. Applied in `CallInCallService.onCallAdded`
+  /// with no engine (see `CallRules`); pushed on load and on change, like
+  /// [setBlockUnknownCallers].
+  Future<void> setCallBlockRules({
+    required bool nonContacts,
+    required bool international,
+    required bool advertising,
+    required List<String> adPrefixes,
+  }) async {
+    try {
+      await _method.invokeMethod('setCallBlockRules', {
+        'nonContacts': nonContacts,
+        'international': international,
+        'advertising': advertising,
+        'adPrefixes': adPrefixes,
+      });
+    } catch (e) {
+      debugPrint('setCallBlockRules failed: $e');
+    }
+  }
+
   /// Mirrors «رمز برای پاسخ به تماس» natively: the incoming card's «پاسخ» is
   /// built in `CallInCallService` when the call is added, usually with no
   /// engine. Pushed on load and on change, like [setBlockUnknownCallers].

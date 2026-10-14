@@ -79,7 +79,17 @@ class _PinAuthScreenState extends State<PinAuthScreen> {
                       PinDots(length: _length, filled: _pin.length),
                 ),
                 const SizedBox(height: 60),
-                PinKeypad(onKey: _onNumberPressed, onDelete: _onDelete),
+                PinKeypad(
+                  onKey: _onNumberPressed,
+                  onDelete: _onDelete,
+                  // «باز کردن با اثر انگشت یا چهره» — empty unless it is on.
+                  leading: BiometricUnlockKey(
+                    onUnlocked: () async =>
+                        context.read<AuthBloc>().add(const BiometricUnlocked()),
+                    onMessage: (message) => ScaffoldMessenger.of(context)
+                        .showSnackBar(SnackBar(content: Text(message))),
+                  ),
+                ),
                 const SizedBox(height: 8),
                 // A forgotten PIN used to be a permanent lockout — this is the
                 // way back in, via the code issued when the PIN was set.

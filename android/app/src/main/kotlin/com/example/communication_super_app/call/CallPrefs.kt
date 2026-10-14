@@ -44,6 +44,48 @@ object CallPrefs {
         }
     }
 
+    private const val KEY_BLOCK_NON_CONTACTS = "block_non_contacts"
+    private const val KEY_BLOCK_INTERNATIONAL = "block_international"
+    private const val KEY_BLOCK_ADVERTISING = "block_advertising"
+    private const val KEY_AD_PREFIXES = "advertising_prefixes"
+
+    /**
+     * The rule switches of «مسدود کردن تماس» (see [CallRules]) — all off by
+     * default. Written as one set by `NativeCallService.setCallBlockRules`, so
+     * the four values can never be half-updated.
+     */
+    fun callRules(context: Context): CallRules.Rules = try {
+        val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+        CallRules.Rules(
+            nonContacts = prefs.getBoolean(KEY_BLOCK_NON_CONTACTS, false),
+            international = prefs.getBoolean(KEY_BLOCK_INTERNATIONAL, false),
+            advertising = prefs.getBoolean(KEY_BLOCK_ADVERTISING, false),
+            adPrefixes = prefs.getStringSet(KEY_AD_PREFIXES, emptySet())
+                ?.mapNotNull { CallRules.normalizePrefix(it) }
+                ?.toSet()
+                ?: emptySet(),
+        )
+    } catch (e: Exception) {
+        CallRules.Rules()
+    }
+
+    fun setCallRules(context: Context, rules: CallRules.Rules) {
+        try {
+            context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(KEY_BLOCK_NON_CONTACTS, rules.nonContacts)
+                .putBoolean(KEY_BLOCK_INTERNATIONAL, rules.international)
+                .putBoolean(KEY_BLOCK_ADVERTISING, rules.advertising)
+                // A copy: the set handed to putStringSet must not be mutated
+                // afterwards, and Android never copies it.
+                .putStringSet(KEY_AD_PREFIXES, HashSet(rules.adPrefixes))
+                .apply()
+        } catch (e: Exception) {
+            // Stays at its previous value; failing the settings page over it
+            // would be worse.
+        }
+    }
+
     /**
      * «رمز برای پاسخ به تماس» — when on, «پاسخ» on the incoming-call card
      * opens the app's incoming screen (where the app lock is asked first)

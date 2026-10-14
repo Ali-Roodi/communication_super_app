@@ -74,6 +74,12 @@
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <uses-feature android:name="android.hardware.camera.front" android:required="false"/>
 
+    <!-- «باز کردن با اثر انگشت یا چهره» (Settings → امنیت): the platform
+         BiometricPrompt over the app lock. A normal permission — granted at
+         install, never asked for. The reader is optional hardware. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
+    <uses-feature android:name="android.hardware.fingerprint" android:required="false"/>
+
     <!-- Exact alarms for background scheduled-SMS delivery (زمان‌بندی ارسال).
          USE_EXACT_ALARM is auto-granted on Android 13+; SCHEDULE_EXACT_ALARM
          covers 12 (the scheduler falls back to an inexact alarm if denied). -->

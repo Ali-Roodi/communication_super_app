@@ -167,6 +167,21 @@ class CallHandler(
                     )
                     // «رمز برای پاسخ به تماس» — read when the incoming card is
                     // posted, usually with no engine. See [CallPrefs].
+                    "setCallBlockRules" -> {
+                        CallPrefs.setCallRules(
+                            context,
+                            CallRules.Rules(
+                                nonContacts = call.argument<Boolean>("nonContacts") ?: false,
+                                international = call.argument<Boolean>("international") ?: false,
+                                advertising = call.argument<Boolean>("advertising") ?: false,
+                                adPrefixes = (call.argument<List<String>>("adPrefixes")
+                                    ?: emptyList())
+                                    .mapNotNull { CallRules.normalizePrefix(it) }
+                                    .toSet(),
+                            ),
+                        )
+                        result.success(true)
+                    }
                     "setPinToAnswerCalls" -> {
                         CallPrefs.setPinToAnswerCalls(
                             context,

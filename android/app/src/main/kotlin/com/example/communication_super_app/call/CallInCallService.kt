@@ -24,6 +24,7 @@ import com.example.communication_super_app.R
 import com.example.communication_super_app.hidden.HiddenCallLog
 import com.example.communication_super_app.hidden.HiddenHandler
 import com.example.communication_super_app.hidden.HiddenNumbers
+import com.example.communication_super_app.security.NotificationPrivacy
 
 /**
  * The in-call UI binding for cellular calls — bound by telecom while this app
@@ -687,6 +688,36 @@ class CallInCallService : InCallService() {
             Log.d(TAG, "Rejecting call from an unidentified caller")
             call.reject(false, null)
             return
+        }
+
+        // «مسدود کردن تماس» — the rules beyond the list: callers not in the
+        // contacts, foreign numbers, advertising prefixes. Decided in
+        // [CallRules], read from a native mirror for the same no-engine reason
+        // as the switch above. A rule that cannot be evaluated lets the call
+        // ring: nothing here may cost the user a call they wanted.
+        if (call.state == Call.STATE_RINGING) {
+            val phone = phoneOf(call)
+            val started = android.os.SystemClock.elapsedRealtime()
+            val verdict = try {
+                CallRules.decide(
+                    phone,
+                    CallPrefs.callRules(applicationContext),
+                    isKnown = { isKnownCaller(phone) },
+                    calledRecently = { calledRecently(phone) },
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "Call rules failed: ${e.javaClass.simpleName}")
+                CallRules.Verdict.ALLOW
+            }
+            if (verdict != CallRules.Verdict.ALLOW) {
+                Log.d(
+                    TAG,
+                    "Rejecting call by rule $verdict " +
+                        "(${android.os.SystemClock.elapsedRealtime() - started} ms)",
+                )
+                call.reject(false, null)
+                return
+            }
         }
 
         trackedCalls.add(call)
@@ -1543,6 +1574,28 @@ class CallInCallService : InCallService() {
         } ?: Intent()
         val contentIntent = PendingIntent.getActivity(this, notifId, launch, piFlags)
 
+        // The app is behind a PIN («پنهان کردن محتوای اعلان‌ها»): the card says
+        // a call was missed and nothing about who — no name, number or photo,
+        // and no «تماس»/«پیامک» that would act on the caller from outside the
+        // lock. Tapping opens the app, behind the PIN screen.
+        if (NotificationPrivacy.hideContent(this)) {
+            nm.notify(
+                notifId,
+                NotificationCompat.Builder(this, MISSED_CHANNEL_ID)
+                    .setSmallIcon(R.drawable.ic_stat_call)
+                    .setContentTitle(if (count > 1) "$count تماس بی‌پاسخ" else "تماس بی‌پاسخ")
+                    .setContentText("برای دیدن، برنامه را باز کنید")
+                    .setCategory(NotificationCompat.CATEGORY_MISSED_CALL)
+                    .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                    .setNumber(count)
+                    .setAutoCancel(true)
+                    .setContentIntent(contentIntent)
+                    .build(),
+            )
+            markMissedCall(applicationContext, phone)
+            return
+        }
+
         val callBack = PendingIntent.getBroadcast(
             this, notifId + 1,
             Intent(CallActionReceiver.ACTION_CALL_BACK)
@@ -1653,6 +1706,71 @@ class CallInCallService : InCallService() {
             )
             .build()
         nm.notify(HiddenHandler.MISSED_NOTICE_ID, notification)
+    }
+
+    /**
+     * For [CallRules]: true when [phone] is a saved contact or in the hidden
+     * phonebook, false when it is neither, null when the address book cannot
+     * be read (no permission, provider error) — see [CallRules.decide].
+     */
+    private fun isKnownCaller(phone: String): Boolean? {
+        if (HiddenNumbers.isHidden(this, phone)) return true
+        if (checkSelfPermission(android.Manifest.permission.READ_CONTACTS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            return null
+        }
+        return try {
+            contentResolver.query(
+                Uri.withAppendedPath(
+                    ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(phone),
+                ),
+                arrayOf(ContactsContract.PhoneLookup._ID),
+                null, null, null,
+            )?.use { it.moveToFirst() }
+        } catch (e: Exception) {
+            Log.w(TAG, "Contact lookup failed: ${e.javaClass.simpleName}")
+            null
+        }
+    }
+
+    /**
+     * For [CallRules]: whether the user dialled [phone] in the last
+     * [CallRules.RECENT_OUTGOING_DAYS] days. Compared in the national form, so
+     * `+98912…` matches a call placed to `0912…`.
+     */
+    private fun calledRecently(phone: String): Boolean {
+        if (checkSelfPermission(android.Manifest.permission.READ_CALL_LOG) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            return false
+        }
+        val target = BlockedNumbers.normalizeToThreadId(phone)
+        if (target.isEmpty()) return false
+        val since = System.currentTimeMillis() -
+            CallRules.RECENT_OUTGOING_DAYS * 24L * 60 * 60 * 1000
+        return try {
+            contentResolver.query(
+                android.provider.CallLog.Calls.CONTENT_URI,
+                arrayOf(android.provider.CallLog.Calls.NUMBER),
+                "${android.provider.CallLog.Calls.TYPE} = ? AND " +
+                    "${android.provider.CallLog.Calls.DATE} > ?",
+                arrayOf(
+                    android.provider.CallLog.Calls.OUTGOING_TYPE.toString(),
+                    since.toString(),
+                ),
+                null,
+            )?.use { c ->
+                var found = false
+                while (!found && c.moveToNext()) {
+                    found = BlockedNumbers.normalizeToThreadId(c.getString(0) ?: "") == target
+                }
+                found
+            } ?: false
+        } catch (e: Exception) {
+            Log.w(TAG, "Call log lookup failed: ${e.javaClass.simpleName}")
+            false
+        }
     }
 
     /** The caller's photo thumbnail, for the missed-call card's large icon. */

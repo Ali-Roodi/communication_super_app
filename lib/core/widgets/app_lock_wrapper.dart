@@ -16,6 +16,7 @@ import 'package:communication_super_app/features/authentication/screens/widgets/
 import 'package:communication_super_app/features/dialer/bloc/dialer_bloc.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_state.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
+import 'package:communication_super_app/features/security/services/intruder_reporter.dart';
 
 /// «قفل خودکار» — asks for the PIN again when the app comes back after sitting
 /// in the background for longer than the user chose
@@ -277,6 +278,20 @@ class _RelockScreenState extends State<RelockScreen> {
     });
   }
 
+  /// The phone's fingerprint or face matched («باز کردن با اثر انگشت یا
+  /// چهره»): the same exit as a right PIN, minus [PinHandoff] — there is no
+  /// PIN to hand the secure section, which therefore still asks for it.
+  Future<void> _biometricUnlocked() async {
+    if (_checking) return;
+    _checking = true;
+    await _repository.setAuthenticated(true);
+    if (!mounted) return;
+    IntruderReporter.rightPin();
+    final auth = context.read<AuthBloc>();
+    if (auth.state is AuthSet) auth.add(const Authenticate());
+    Navigator.of(context).pop();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -304,13 +319,20 @@ class _RelockScreenState extends State<RelockScreen> {
                 // Said on the screen, not in a snack bar: this route sits above
                 // every Scaffold of the app, and a message that appears
                 // somewhere else is a message nobody reads.
-                SizedBox(
-                  height: 24,
+                // At least one line tall, so the keypad does not jump when a
+                // short error appears; the longer biometric notices wrap.
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 24),
                   child: _error != null
-                      ? Text(
-                          _error!,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: theme.colorScheme.error),
+                      ? Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Text(
+                            _error!,
+                            textAlign: TextAlign.center,
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(color: theme.colorScheme.error),
+                          ),
                         )
                       : null,
                 ),
@@ -324,6 +346,10 @@ class _RelockScreenState extends State<RelockScreen> {
                   onKey: _onKey,
                   onDelete: _onDelete,
                   enabled: !_checking,
+                  leading: BiometricUnlockKey(
+                    onUnlocked: _biometricUnlocked,
+                    onMessage: (message) => setState(() => _error = message),
+                  ),
                 ),
                 const SizedBox(height: 8),
                 const ForgotPinButton(),

@@ -59,6 +59,10 @@ class MainActivity : FlutterActivity() {
     /// Picks a key-bank file through the system document picker.
     private var keyFilePicker: KeyFilePicker? = null
 
+    /// The app lock's platform half: the biometric prompt and the
+    /// notification-privacy mirror (every edition).
+    private var appLockHandler: com.example.communication_super_app.security.AppLockHandler? = null
+
     /**
      * Whether this activity is currently asking to be shown over the keyguard.
      *
@@ -245,6 +249,18 @@ class MainActivity : FlutterActivity() {
         )
         keyFilePicker = KeyFilePicker(this).also {
             it.setup(MethodChannel(flutterEngine.dartExecutor.binaryMessenger, KeyFilePicker.CHANNEL))
+        }
+
+        // ── App lock (اثر انگشت / چهره، محتوای اعلان‌ها) ───────────────────
+        appLockHandler = com.example.communication_super_app.security.AppLockHandler(
+            applicationContext,
+        ) { this }.also {
+            it.setup(
+                MethodChannel(
+                    flutterEngine.dartExecutor.binaryMessenger,
+                    com.example.communication_super_app.security.AppLockHandler.CHANNEL,
+                )
+            )
         }
 
         // ── Contact photo (دوربین / گالری + برش و چرخش) ──────────────────
@@ -667,6 +683,8 @@ class MainActivity : FlutterActivity() {
         smsCryptoHandler?.dispose()
         smsCryptoHandler = null
         keyFilePicker = null
+        appLockHandler?.dispose()
+        appLockHandler = null
         // The engine is going away: the alarm receiver must go back to delivering
         // scheduled messages natively.
         ScheduledSmsChannel.channel = null

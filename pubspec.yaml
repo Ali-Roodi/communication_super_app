@@ -88,7 +88,9 @@ dependencies:
   flutter_secure_storage: ^9.2.4
   # Salted hashing of the PIN/pattern and the recovery code (AuthRepository).
   crypto: ^3.0.6
-  local_auth: ^3.0.1
+  # No local_auth: it needs MainActivity to be a FlutterFragmentActivity, which
+  # the call UI is not built on. Biometric unlock is the platform
+  # BiometricPrompt over our own channel (security/BiometricGate.kt).
 
   # Utilities
   uuid: ^4.5.2
