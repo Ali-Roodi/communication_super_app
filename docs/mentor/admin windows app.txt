@@ -1,0 +1,3 @@
+file path:  C:\Users\hp\StudioProjects\communication_super_app\tools\keybank\panel\build\compose\binaries\main-release\msi
+
+doc: C:\Users\hp\StudioProjects\communication_super_app\docs\mentor
