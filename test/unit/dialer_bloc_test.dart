@@ -254,6 +254,7 @@ void main() {
         () => callService.makeCall(
           any(),
           subscriptionId: any(named: 'subscriptionId'),
+          speakerphone: any(named: 'speakerphone'),
         ),
       ).thenAnswer((_) async {});
     });
@@ -614,5 +615,108 @@ void main() {
         await bloc.close();
       },
     );
+
+    // Telecom puts the output back on the earpiece when a call ends; the retry
+    // must come back on the speaker the user chose for the failed attempt.
+    group('speaker', () {
+      setUpAll(() => registerFallbackValue(CallAudioRoute.earpiece));
+
+      setUp(() {
+        when(
+          () => callService.setSpeakerphone(on: any(named: 'on')),
+        ).thenAnswer((_) async {});
+        when(() => callService.setAudioRoute(any())).thenAnswer((_) async {});
+      });
+
+      test('the retry starts on the speaker the attempt was on', () async {
+        final bloc = makeBloc();
+        bloc.add(const CallEventReceived(dialling));
+        await settle();
+        bloc.add(const ToggleSpeaker());
+        await settle();
+        // The teardown resets the route before the verdict.
+        bloc.add(const CallEventReceived(busy));
+        await settle();
+        expect(bloc.state.isSpeakerOn, isFalse);
+        expect(bloc.state.autoRedial?.speakerphone, isTrue);
+        await countdown();
+        verify(
+          () => callService.makeCall(
+            '+989120000000',
+            subscriptionId: 2,
+            speakerphone: true,
+          ),
+        ).called(1);
+
+        // Still on the speaker through the next attempt (its own RINGING
+        // does not forget it), until the series ends.
+        bloc.add(const CallEventReceived(dialling));
+        bloc.add(const CallEventReceived(busy));
+        await settle();
+        expect(bloc.state.autoRedial?.attempt, 2);
+        expect(bloc.state.autoRedial?.speakerphone, isTrue);
+        await bloc.close();
+      });
+
+      test('an attempt left at the ear is retried at the ear', () async {
+        final bloc = makeBloc();
+        bloc.add(const CallEventReceived(dialling));
+        await settle();
+        bloc.add(const ToggleSpeaker()); // on
+        await settle();
+        bloc.add(const ToggleSpeaker()); // and off again
+        await settle();
+        bloc.add(const CallEventReceived(busy));
+        await countdown();
+        verify(
+          () => callService.makeCall('+989120000000', subscriptionId: 2),
+        ).called(1);
+        await bloc.close();
+      });
+
+      test('a headset chosen from the picker is not the speaker', () async {
+        final bloc = makeBloc();
+        bloc.add(const CallEventReceived(dialling));
+        await settle();
+        bloc.add(const SelectAudioRoute(CallAudioRoute.speaker));
+        await settle();
+        bloc.add(const SelectAudioRoute(CallAudioRoute.bluetooth));
+        await settle();
+        bloc.add(const CallEventReceived(busy));
+        await settle();
+        expect(bloc.state.autoRedial?.speakerphone, isFalse);
+        await bloc.close();
+      });
+
+      test('the speaker from an earlier call does not carry over', () async {
+        final bloc = makeBloc();
+        // A call put on the speaker, connected and ended normally.
+        bloc.add(const CallEventReceived(dialling));
+        await settle();
+        bloc.add(const ToggleSpeaker());
+        await settle();
+        bloc.add(
+          const CallEventReceived(
+            CallInfo(event: NativeCallEvent.active, phone: '+989120000000'),
+          ),
+        );
+        bloc.add(
+          const CallEventReceived(
+            CallInfo(
+              event: NativeCallEvent.disconnected,
+              phone: '+989120000000',
+              disconnectCause: CallDisconnectCause.local,
+            ),
+          ),
+        );
+        await settle();
+        // A new call, left at the ear, that turns out busy.
+        bloc.add(const CallEventReceived(dialling));
+        bloc.add(const CallEventReceived(busy));
+        await settle();
+        expect(bloc.state.autoRedial?.speakerphone, isFalse);
+        await bloc.close();
+      });
+    });
   });
 }

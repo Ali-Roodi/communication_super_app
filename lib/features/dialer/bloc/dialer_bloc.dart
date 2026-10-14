@@ -24,6 +24,15 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
   /// A dialling call ended, but telecom has not said why yet — see
   /// [_redialAfter]. Cleared by every event that starts a call.
   bool _undecidedAttempt = false;
+
+  /// The user put the call that is dialling on the speaker («تماس مجدد
+  /// خودکار» carries it into the retry — [AutoRedial.speakerphone]).
+  ///
+  /// Taken from the user's own taps, not from telecom's AUDIO_STATE: by the
+  /// time a failed attempt is judged, its teardown has already wound the
+  /// route back to the earpiece ([_idleState], and telecom's own reset).
+  /// Cleared when a call the series did not place starts.
+  bool _speakerChosen = false;
   List<ContactModel> _allContacts = [];
   StreamSubscription<CallInfo>? _callSub;
 
@@ -267,6 +276,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
         // something the user wants more.
         _stopRedialTimers();
         _undecidedAttempt = false;
+        _speakerChosen = false;
         emit(
           state.copyWith(
             callStatus: CallStatus.incoming,
@@ -291,6 +301,15 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
         // has `dueAt` cleared before it is placed, so it passes.
         final foreign = _redialSupersededBy(info.phone);
         if (foreign) _stopRedialTimers();
+        // A new call (not a second RINGING of the same one) that the series
+        // did not place starts on whatever telecom chose, and the user's
+        // speaker tap from an earlier call must not ride along into a retry.
+        final newCall =
+            state.callStatus != CallStatus.ringing &&
+            state.callStatus != CallStatus.connecting;
+        if (newCall && (foreign || state.autoRedial == null)) {
+          _speakerChosen = false;
+        }
         emit(
           state.copyWith(
             callStatus: CallStatus.ringing,
@@ -416,6 +435,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     Emitter<DialerState> emit,
   ) async {
     final on = !state.isSpeakerOn;
+    _speakerChosen = on;
     await _callService.setSpeakerphone(on: on);
     emit(state.copyWith(isSpeakerOn: on));
   }
@@ -428,6 +448,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     SelectAudioRoute event,
     Emitter<DialerState> emit,
   ) async {
+    _speakerChosen = event.route == CallAudioRoute.speaker;
     try {
       await _callService.setAudioRoute(event.route);
     } catch (e) {
@@ -713,6 +734,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
         attempt: attempt,
         maxAttempts: maxAttempts,
         dueAt: DateTime.now().add(AutoRedialPolicy.delay),
+        speakerphone: _speakerChosen,
       ),
     );
   }
@@ -767,6 +789,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
       await _callService.makeCall(
         redial.phone,
         subscriptionId: redial.subscriptionId,
+        speakerphone: redial.speakerphone,
       );
     } catch (e) {
       debugPrint('[redial] makeCall failed: $e');

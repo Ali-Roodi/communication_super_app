@@ -290,11 +290,18 @@ class NativeCallService {
   /// "let telecom choose", which is what honours the user's system-wide default
   /// voice SIM. Prefer `placeCall` (`core/sim/sim_call.dart`) over calling this
   /// directly — it asks the user when there is a choice to make.
-  Future<void> makeCall(String phone, {int? subscriptionId}) =>
-      _method.invokeMethod('makeCall', {
-        'phone': phone,
-        'subscriptionId': subscriptionId ?? -1,
-      });
+  ///
+  /// [speakerphone] starts the call on the speaker — for «تماس مجدد خودکار»,
+  /// whose retry must come back on the output the failed attempt was on.
+  Future<void> makeCall(
+    String phone, {
+    int? subscriptionId,
+    bool speakerphone = false,
+  }) => _method.invokeMethod('makeCall', {
+    'phone': phone,
+    'subscriptionId': subscriptionId ?? -1,
+    if (speakerphone) 'speakerphone': true,
+  });
 
   Future<void> endCall() => _method.invokeMethod('endCall');
 
