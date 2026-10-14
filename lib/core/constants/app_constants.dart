@@ -108,6 +108,15 @@ class AppConstants {
   /// PIN saved before lengths were recorded, which is 4. See `PinPolicy`.
   static const String pinLengthKey = 'auth_pin_length';
 
+  /// «باز کردن با اثر انگشت یا چهره» is on (`'true'`). Only meaningful while a
+  /// PIN is set, and deleted with it. See `BiometricUnlock`.
+  static const String biometricUnlockKey = 'auth_biometric_unlock';
+
+  /// Set when the enrollment-change sentinel was created with the setting —
+  /// so a sentinel that has since *disappeared* reads as "the phone's
+  /// fingerprints changed", not as "never had one". See `BiometricGate`.
+  static const String biometricSentinelKey = 'auth_biometric_sentinel';
+
   /// The inter-organizational activation code (secure storage). The code
   /// itself, re-verified against the device on every read — never a flag.
   /// See `ActivationRepository`.

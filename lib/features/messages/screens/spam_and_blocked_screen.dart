@@ -11,9 +11,9 @@ import 'package:communication_super_app/core/widgets/undo_snack_bar.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
-import 'package:communication_super_app/features/settings/bloc/settings_event.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_state.dart';
 import 'package:communication_super_app/features/settings/models/blocked_number_model.dart';
+import 'package:communication_super_app/features/settings/screens/call_block_rules_page.dart';
 import '../models/template_wire.dart';
 import '../repositories/message_repository.dart';
 import 'conversation_screen.dart';
@@ -148,15 +148,10 @@ class _SpamAndBlockedScreenState extends State<SpamAndBlockedScreen> {
             ),
           ],
         ),
-        // The «تماس‌های ناشناس» rule sits above the list and outside the
-        // BlocBuilder on purpose: it is a rule rather than an entry — there is
-        // no number to list for a caller who withheld theirs — and it has to be
-        // reachable on the empty state, which is exactly when somebody comes
-        // here looking for it. Google Phone puts its «Unknown» switch in the
-        // same place, at the top of «Blocked numbers».
+        // The call rules sit above the list — see [_CallRulesRow].
         body: Column(
           children: [
-            const _UnknownCallersSwitch(),
+            const _CallRulesRow(),
             Expanded(child: _buildList(context)),
           ],
         ),
@@ -333,38 +328,48 @@ class _BlockedRow extends StatelessWidget {
   }
 }
 
-/// «تماس‌های ناشناس» — refuse calls that arrive with no number at all.
+/// «مسدود کردن تماس» — the rules that refuse a call by what kind of caller it
+/// is (no caller id, not a contact, foreign, advertising prefix), one row that
+/// opens [CallBlockRulesPage].
 ///
-/// The one nuisance call this app had no answer for: a withheld or private
-/// caller id cannot be added to the list below, because there is nothing to
-/// add. Off by default, like Google Phone's «Unknown» switch — the caller is
-/// never told they were blocked, and a withheld number is not always a nuisance
-/// (hospitals, banks and delivery drivers routinely present none).
-class _UnknownCallersSwitch extends StatelessWidget {
-  const _UnknownCallersSwitch();
+/// Above the list and outside its BlocBuilder on purpose: a rule is not an
+/// entry — there is no number to list for a caller who withheld theirs — and
+/// it has to be reachable on the empty state, which is exactly when somebody
+/// comes here looking for it. Google Phone puts its «Unknown» switch in the
+/// same place. The switches themselves moved to their own page when there
+/// came to be four of them: in a column above a list they left the list no
+/// room.
+class _CallRulesRow extends StatelessWidget {
+  const _CallRulesRow();
 
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<SettingsBloc, SettingsState>(
-      buildWhen: (a, b) => a.blockUnknownCallers != b.blockUnknownCallers,
-      builder: (context, state) => Padding(
-        padding: const EdgeInsets.only(top: 4),
-        child: GroupedList(
-          children: [
-            SwitchListTile(
-              secondary: const Icon(Icons.phone_disabled_outlined),
-              title: const Text('مسدود کردن تماس‌های ناشناس'),
-              subtitle: const Text(
-                'تماس‌هایی که شماره‌ای نشان نمی‌دهند (خصوصی یا مخفی) رد می‌شوند',
+      builder: (context, state) {
+        final active = [
+          state.blockUnknownCallers,
+          state.blockNonContacts,
+          state.blockInternational,
+          state.blockAdvertising,
+        ].where((on) => on).length;
+        return Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: GroupedList(
+            children: [
+              SettingsRow(
+                icon: Icons.phone_disabled_outlined,
+                title: 'مسدود کردن تماس',
+                summary: active == 0
+                    ? 'ناشناس، خارج از مخاطبین، بین‌المللی، تبلیغاتی'
+                    : '${PersianUtils.toPersianNumber('$active')} قانون فعال',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const CallBlockRulesPage()),
+                ),
               ),
-              value: state.blockUnknownCallers,
-              onChanged: (value) => context.read<SettingsBloc>().add(
-                SetBoolSetting(BoolSetting.blockUnknownCallers, value),
-              ),
-            ),
-          ],
-        ),
-      ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

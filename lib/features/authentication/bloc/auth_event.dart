@@ -56,6 +56,14 @@ class Authenticate extends AuthEvent {
   const Authenticate();
 }
 
+/// The launch PIN screen was passed with the phone's fingerprint or face
+/// (`BiometricUnlock`). Opens the app exactly as a right PIN would — except
+/// that no PIN is offered to `PinHandoff`, so the secure section still asks
+/// for it.
+class BiometricUnlocked extends AuthEvent {
+  const BiometricUnlocked();
+}
+
 class Logout extends AuthEvent {
   const Logout();
 }

@@ -19,6 +19,7 @@ import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
 import com.example.communication_super_app.call.CallInCallService
+import com.example.communication_super_app.security.NotificationPrivacy
 import com.example.communication_super_app.sim.SimRegistry
 
 /**
@@ -117,6 +118,15 @@ object SmsNotifier {
             val contentIntent = PendingIntent.getActivity(
                 context, threadId.hashCode(), launch ?: Intent(), piFlags,
             )
+
+            // The app is behind a PIN: say that something arrived and nothing
+            // else — no sender, no text, no photo, and no action that would
+            // reply, mark read or block from outside the lock. Tapping still
+            // opens the conversation, behind the PIN screen.
+            if (NotificationPrivacy.hideContent(context)) {
+                nm.notify(threadId, notifId, privateCard(context, threadId, timestamp, contentIntent))
+                return
+            }
 
             // Inline reply (RemoteInput requires a MUTABLE PendingIntent on 31+).
             val remoteInput = androidx.core.app.RemoteInput
@@ -260,6 +270,47 @@ object SmsNotifier {
     }
 
     /**
+     * The card [notifySms] posts while [NotificationPrivacy] is on: «پیام جدید»
+     * (or «۳ پیام جدید» for the conversation), the same shape as the secure
+     * section's «پیام رمز جدید». No MessagingStyle, no Person and no
+     * conversation shortcut — each of those would carry the sender's name into
+     * the shade or the launcher.
+     */
+    private fun privateCard(
+        context: Context,
+        threadId: String,
+        timestamp: Long,
+        contentIntent: PendingIntent,
+    ): Notification {
+        // `+ 1`: on the live receive path the message is not persisted yet —
+        // the same reason [notifySms] adds it by hand.
+        val unread = unreadCount(context, threadId, timestamp) + 1
+        return NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_message)
+            .setContentTitle(if (unread > 1) "$unread پیام جدید" else "پیام جدید")
+            .setContentText("برای خواندن، برنامه را باز کنید")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setCategory(Notification.CATEGORY_MESSAGE)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setAutoCancel(true)
+            .setContentIntent(contentIntent)
+            .setOnlyAlertOnce(false)
+            .setWhen(timestamp)
+            .setShowWhen(true)
+            .setNumber(unread)
+            .build()
+    }
+
+    /** Who a blocked/not-blocked confirmation names — nobody, while private. */
+    private fun displayName(context: Context, address: String): String =
+        if (NotificationPrivacy.hideContent(context)) {
+            "فرستنده"
+        } else {
+            lookupContactName(context, address) ?: address
+        }
+
+    /**
      * Whether the screen is on and the phone is unlocked — i.e. whether the
      * user can actually see what the app is showing.
      *
@@ -306,7 +357,7 @@ object SmsNotifier {
             val nm =
                 context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             ensureChannel(nm)
-            val who = lookupContactName(context, address) ?: address
+            val who = displayName(context, address)
             val builder = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_stat_message)
                 .setContentTitle("$who مسدود شد")
@@ -347,7 +398,7 @@ object SmsNotifier {
             val nm =
                 context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             ensureChannel(nm)
-            val who = lookupContactName(context, address) ?: address
+            val who = displayName(context, address)
             val notification = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_stat_message)
                 .setContentTitle("$who مسدود نشد")

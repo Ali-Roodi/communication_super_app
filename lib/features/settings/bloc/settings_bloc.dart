@@ -8,6 +8,7 @@ import 'package:communication_super_app/core/utils/contact_name_style.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/message_text_scale.dart';
 import 'package:communication_super_app/features/messages/services/sms_service.dart';
+import 'package:communication_super_app/features/authentication/services/notification_privacy_sync.dart';
 import 'settings_event.dart';
 import 'settings_state.dart';
 
@@ -40,6 +41,7 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     on<SetCalendarType>(_onSetCalendar);
     on<SetMessageTextScale>(_onSetMessageTextScale);
     on<SetAutoRedialAttempts>(_onSetAutoRedialAttempts);
+    on<SetAdPrefixes>(_onSetAdPrefixes);
   }
 
   static String _keyOf(BoolSetting k) => '$_prefix${k.name}';
@@ -65,6 +67,40 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(_keyOf(BoolSetting.pinToAnswerCalls)) ?? false;
   }
+
+  /// Reads «پنهان کردن محتوای اعلان‌ها» straight from storage, for
+  /// `NotificationPrivacySync`, which runs from `AuthBloc` as well as from
+  /// here and must not depend on whether `LoadSettings` has landed.
+  static Future<bool> readHideNotificationContent() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_keyOf(BoolSetting.hideNotificationContent)) ??
+        const SettingsState().hideNotificationContent;
+  }
+
+  static const _adPrefixesKey = '${_prefix}ad_prefixes';
+
+  /// The stored advertising prefixes, re-normalised (a list written by hand or
+  /// by an older build must not reach the native rule malformed); the default
+  /// list when nothing was ever stored.
+  static List<String> _readAdPrefixes(SharedPreferences prefs) {
+    final stored = prefs.getStringList(_adPrefixesKey);
+    if (stored == null) return CallBlockPrefixes.defaults;
+    final out = <String>[];
+    for (final p in stored) {
+      final n = CallBlockPrefixes.normalize(p);
+      if (n != null && !out.contains(n)) out.add(n);
+    }
+    return List.unmodifiable(out);
+  }
+
+  /// Pushes the «مسدود کردن تماس» rules to `CallPrefs` as one set.
+  static Future<void> _mirrorCallRules(SettingsState s) =>
+      NativeCallService.instance.setCallBlockRules(
+        nonContacts: s.blockNonContacts,
+        international: s.blockInternational,
+        advertising: s.blockAdvertising,
+        adPrefixes: s.adPrefixes,
+      );
 
   Future<void> _onLoad(LoadSettings event, Emitter<SettingsState> emit) async {
     final prefs = await SharedPreferences.getInstance();
@@ -110,6 +146,11 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
         blockUnknownCallers: b(BoolSetting.blockUnknownCallers),
         pinToAnswerCalls: b(BoolSetting.pinToAnswerCalls),
         autoRedial: b(BoolSetting.autoRedial),
+        blockNonContacts: b(BoolSetting.blockNonContacts),
+        blockInternational: b(BoolSetting.blockInternational),
+        blockAdvertising: b(BoolSetting.blockAdvertising),
+        hideNotificationContent: b(BoolSetting.hideNotificationContent),
+        adPrefixes: _readAdPrefixes(prefs),
         autoRedialAttempts: autoRedialAttempts,
         calendarType: calendar,
         // Clamped on read: a preference written by a future build with a wider
@@ -134,6 +175,8 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
         b(BoolSetting.pinToAnswerCalls),
       ),
     );
+    unawaited(_mirrorCallRules(state));
+    unawaited(NotificationPrivacySync.sync());
 
     for (final key in _retiredKeys) {
       if (prefs.containsKey(key)) await prefs.remove(key);
@@ -144,6 +187,7 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     SetBoolSetting event,
     Emitter<SettingsState> emit,
   ) async {
+    final previous = state;
     final next = state.withBool(event.key, event.value);
     if (event.key == BoolSetting.deliveryReports) {
       SmsService.deliveryReports = event.value;
@@ -170,6 +214,27 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     emit(next);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_boolKey(event.key), event.value);
+    if (next.callRulesChanged(previous)) unawaited(_mirrorCallRules(next));
+    // After the write: the sync reads the switch back from storage.
+    if (event.key == BoolSetting.hideNotificationContent) {
+      unawaited(NotificationPrivacySync.sync());
+    }
+  }
+
+  Future<void> _onSetAdPrefixes(
+    SetAdPrefixes event,
+    Emitter<SettingsState> emit,
+  ) async {
+    final clean = <String>[];
+    for (final p in event.prefixes) {
+      final n = CallBlockPrefixes.normalize(p);
+      if (n != null && !clean.contains(n)) clean.add(n);
+    }
+    final next = state.copyWith(adPrefixes: List.unmodifiable(clean));
+    emit(next);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_adPrefixesKey, clean);
+    unawaited(_mirrorCallRules(next));
   }
 
   Future<void> _onSetMessageTextScale(

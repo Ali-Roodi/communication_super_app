@@ -1,16 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'auth_event.dart';
 import 'auth_state.dart';
 import '../models/auth_type.dart';
 import '../repositories/auth_repository.dart';
 import '../repositories/pin_attempt_limiter.dart';
-import 'package:communication_super_app/core/services/app_lock_service.dart';
+import '../services/biometric_unlock.dart';
+import '../services/notification_privacy_sync.dart';
 import 'package:communication_super_app/core/services/pin_handoff.dart';
 import 'package:communication_super_app/features/secure/repositories/secure_store.dart';
+import 'package:communication_super_app/features/security/services/intruder_reporter.dart';
 
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final AuthRepository _repository;
-  final AppLockService _lockService = AppLockService();
 
   /// The secure section, which opens with the app PIN — so every change to
   /// that PIN has to keep it in step. Null only in tests that do not involve
@@ -33,6 +36,22 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<LockApp>(_onLockApp);
     on<RecoverWithCode>(_onRecoverWithCode);
     on<RegenerateRecoveryCode>(_onRegenerateRecoveryCode);
+    on<BiometricUnlocked>(_onBiometricUnlocked);
+  }
+
+  /// The PIN screen was passed with the phone's biometric. Re-checked here
+  /// rather than trusted: the event must not open an app whose setting was
+  /// switched off (or whose PIN was removed) in the meantime.
+  Future<void> _onBiometricUnlocked(
+    BiometricUnlocked event,
+    Emitter<AuthState> emit,
+  ) async {
+    if (!await BiometricUnlock(auth: _repository).isEnabled()) return;
+    await _repository.setAuthenticated(true);
+    // «گزارش در اولین ورود موفق» (row 32) — the owner coming in by finger is
+    // as much a first successful entry as by PIN.
+    IntruderReporter.rightPin();
+    emit(const AuthAuthenticated());
   }
 
   Future<void> _onCheckAuthStatus(
@@ -112,6 +131,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       // only moment it is readable. Without it, forgetting the PIN is a
       // permanent lockout: there is no account and no server to reset from.
       final code = await _repository.regenerateRecoveryCode();
+      // A PIN now exists: notifications stop naming senders (when the switch
+      // is on, which is its default).
+      unawaited(NotificationPrivacySync.sync());
       emit(AuthRecoveryCodeIssued(code, duringSetup: true));
       emit(const AuthAuthenticated());
     } catch (e) {
@@ -150,6 +172,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       } catch (_) {}
     }
     await _repository.clearAuth();
+    unawaited(NotificationPrivacySync.sync());
     emit(const AuthNotSet());
   }
 
@@ -201,6 +224,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     }
     await _repository.clearAuth();
     await _repository.setAuthSkipped(true);
+    unawaited(NotificationPrivacySync.sync());
     emit(const AuthAuthenticated());
   }
 
@@ -278,11 +302,11 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
   Future<void> _onClearAuth(ClearAuth event, Emitter<AuthState> emit) async {
     await _repository.clearAuth();
+    unawaited(NotificationPrivacySync.sync());
     emit(const AuthNotSet());
   }
 
   Future<void> _onLockApp(LockApp event, Emitter<AuthState> emit) async {
-    await _lockService.lock();
     await _repository.setAuthenticated(false);
     emit(const AuthUnauthenticated());
   }

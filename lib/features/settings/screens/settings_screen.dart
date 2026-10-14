@@ -16,6 +16,8 @@ import 'package:communication_super_app/features/authentication/repositories/aut
 import 'package:communication_super_app/features/authentication/screens/pin_setup_screen.dart';
 import 'package:communication_super_app/features/authentication/screens/recovery_code_screen.dart';
 import 'package:communication_super_app/features/authentication/screens/verify_pin_screen.dart';
+import 'package:communication_super_app/features/authentication/services/app_lock_platform.dart';
+import 'package:communication_super_app/features/authentication/services/biometric_unlock.dart';
 import 'package:communication_super_app/features/secure/bloc/secure_session_bloc.dart';
 import 'package:communication_super_app/features/keybank/screens/key_bank_screen.dart';
 import 'package:communication_super_app/features/security/screens/device_security_screen.dart';
@@ -30,6 +32,7 @@ import 'package:communication_super_app/features/settings/bloc/settings_bloc.dar
 import 'package:communication_super_app/features/settings/bloc/settings_event.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_state.dart';
 import 'package:communication_super_app/features/messages/screens/spam_and_blocked_screen.dart';
+import 'package:communication_super_app/features/settings/screens/call_block_rules_page.dart';
 import 'package:communication_super_app/features/settings/screens/privacy_policy_page.dart';
 import 'package:communication_super_app/features/settings/screens/settings_subpages.dart';
 
@@ -77,6 +80,15 @@ class SettingsScreen extends StatelessWidget {
                   // blocked list, not a settings copy and an inbox copy.
                   title: 'هرزنامه و مسدودشده',
                   onTap: () => _push(context, const SpamAndBlockedScreen()),
+                ),
+                SettingsRow(
+                  icon: Icons.phone_disabled_outlined,
+                  // The same page «هرزنامه و مسدودشده» opens from its top row;
+                  // listed here too because "block a kind of caller" is a
+                  // setting people look for under Settings.
+                  title: 'مسدود کردن تماس',
+                  summary: 'ناشناس، خارج از مخاطبین، بین‌المللی، تبلیغاتی',
+                  onTap: () => _push(context, const CallBlockRulesPage()),
                 ),
                 SettingsRow(
                   icon: Icons.list,
@@ -542,6 +554,8 @@ class _SecurityGroupState extends State<_SecurityGroup> {
             },
             onTap: () => _pickRelock(context),
           ),
+        if (hasPin) const _BiometricUnlockRow(),
+        if (hasPin) const _HideNotificationContentRow(),
         if (hasPin) const _PinToAnswerCallsRow(),
         if (hasPin)
           SettingsRow(
@@ -563,6 +577,170 @@ class _SecurityGroupState extends State<_SecurityGroup> {
             onTap: () => _confirmRemovePin(context),
           ),
       ],
+    );
+  }
+}
+
+/// «باز کردن با اثر انگشت یا چهره» — see `BiometricUnlock`. Every edition,
+/// only while a PIN is set. Turning it on raises a real prompt first, so it is
+/// never switched on for a biometric the phone cannot actually check. Re-read
+/// on resume: the usual way back here is from the phone's own settings, after
+/// enrolling a fingerprint.
+class _BiometricUnlockRow extends StatefulWidget {
+  const _BiometricUnlockRow();
+
+  @override
+  State<_BiometricUnlockRow> createState() => _BiometricUnlockRowState();
+}
+
+class _BiometricUnlockRowState extends State<_BiometricUnlockRow>
+    with WidgetsBindingObserver {
+  final BiometricUnlock _service = BiometricUnlock();
+  BiometricAvailability? _availability;
+  bool _enabled = false;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _load();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Not while our own prompt is up: it can pause the activity on some
+    // builds, and re-reading in the middle of [_set] would race it.
+    if (state == AppLifecycleState.resumed && !_busy) _load();
+  }
+
+  Future<void> _load() async {
+    final availability = await AppLockPlatform.biometricStatus();
+    final enabled = await _service.isEnabled();
+    if (mounted) {
+      setState(() {
+        _availability = availability;
+        _enabled = enabled;
+      });
+    }
+  }
+
+  void _say(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _set(bool on) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      if (!on) {
+        await _service.disable();
+        return;
+      }
+      final outcome = await _service.enable();
+      final hasSecureSection =
+          mounted &&
+          context.read<SecureSessionBloc>().state.status !=
+              SecureStatus.unavailable;
+      switch (outcome) {
+        case BiometricEnableOutcome.enabled:
+          _say(
+            hasSecureSection
+                ? 'فعال شد. بخش امن همچنان با رمز برنامه باز می‌شود'
+                : 'فعال شد',
+          );
+        case BiometricEnableOutcome.cancelled:
+          break;
+        case BiometricEnableOutcome.noneEnrolled:
+          _say('ابتدا در تنظیمات گوشی اثر انگشت یا چهره ثبت کنید');
+        case BiometricEnableOutcome.noDeviceLock:
+          _say('ابتدا برای خود گوشی قفل صفحه تعیین کنید');
+        case BiometricEnableOutcome.unsupported:
+          _say('این گوشی باز کردن برنامه با اثر انگشت را پشتیبانی نمی‌کند');
+        case BiometricEnableOutcome.failed:
+          _say('فعال نشد؛ دوباره امتحان کنید');
+      }
+    } finally {
+      _busy = false;
+      await _load();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final availability = _availability;
+    final usable =
+        availability == BiometricAvailability.available ||
+        // Already on: it must stay switchable off whatever the phone says now.
+        _enabled;
+    final String summary;
+    if (_enabled) {
+      summary = 'قفل برنامه با اثر انگشت یا چهرهٔ گوشی هم باز می‌شود';
+    } else {
+      summary = switch (availability) {
+        null => '…',
+        BiometricAvailability.available =>
+          'به‌جای رمز، با اثر انگشت یا چهره‌ای که روی گوشی ثبت است',
+        BiometricAvailability.noneEnrolled =>
+          'ابتدا در تنظیمات گوشی اثر انگشت یا چهره ثبت کنید',
+        BiometricAvailability.noDeviceLock =>
+          'گوشی قفل صفحه ندارد؛ ابتدا برای گوشی قفل تعیین کنید',
+        BiometricAvailability.unavailable =>
+          'حسگر گوشی در حال حاضر در دسترس نیست',
+        BiometricAvailability.unsupported =>
+          'این گوشی از این قابلیت پشتیبانی نمی‌کند',
+      };
+    }
+    return SettingsRow(
+      icon: Icons.fingerprint,
+      title: 'باز کردن با اثر انگشت یا چهره',
+      summary: summary,
+      onTap: usable && !_busy ? () => _set(!_enabled) : null,
+      trailing: Switch(
+        value: _enabled,
+        onChanged: usable && !_busy ? _set : null,
+      ),
+    );
+  }
+}
+
+/// «پنهان کردن محتوای اعلان‌ها» — see [BoolSetting.hideNotificationContent].
+/// Every edition, only while a PIN is set; on by default.
+class _HideNotificationContentRow extends StatelessWidget {
+  const _HideNotificationContentRow();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<SettingsBloc, SettingsState>(
+      buildWhen: (a, b) =>
+          a.hideNotificationContent != b.hideNotificationContent,
+      builder: (context, state) {
+        void set(bool value) => context.read<SettingsBloc>().add(
+          SetBoolSetting(BoolSetting.hideNotificationContent, value),
+        );
+        return SettingsRow(
+          icon: Icons.notifications_off_outlined,
+          title: 'پنهان کردن محتوای اعلان‌ها',
+          summary: state.hideNotificationContent
+              ? 'اعلان پیامک و تماس بی‌پاسخ فقط می‌گوید «پیام جدید»، بدون '
+                    'نام فرستنده و متن'
+              : 'اعلان‌ها نام فرستنده و متن پیام را نشان می‌دهند',
+          onTap: () => set(!state.hideNotificationContent),
+          trailing: Switch(
+            value: state.hideNotificationContent,
+            onChanged: set,
+          ),
+        );
+      },
     );
   }
 }

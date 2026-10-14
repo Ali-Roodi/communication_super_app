@@ -1,9 +1,12 @@
 import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:communication_super_app/core/utils/calendar_type.dart';
 import 'package:communication_super_app/core/utils/message_text_scale.dart';
 import 'package:communication_super_app/features/dialer/services/auto_redial_policy.dart';
+import 'package:communication_super_app/features/dialer/services/call_block_prefixes.dart';
 
 export 'package:communication_super_app/core/utils/calendar_type.dart';
+export 'package:communication_super_app/features/dialer/services/call_block_prefixes.dart';
 
 /// Which boolean setting an event targets (keeps the event surface small).
 ///
@@ -48,6 +51,31 @@ enum BoolSetting {
   /// bank) is not rare. Mirrored natively; see `CallPrefs`.
   blockUnknownCallers,
 
+  /// «مسدود کردن تماس از شماره‌های خارج از مخاطبین» — reject a ringing call
+  /// from a number that is not a saved (or hidden-phonebook) contact. Never a
+  /// number the user called in the last week or a service number; see
+  /// `CallRules`. Off by default. Mirrored natively together with the other
+  /// rules ([SettingsState.callRulesChanged]).
+  blockNonContacts,
+
+  /// «مسدود کردن تماس‌های بین‌المللی» — reject a ringing call dialled from
+  /// another country (`+`/`00` and not 98), unless it is a contact. Off by
+  /// default.
+  blockInternational,
+
+  /// «مسدود کردن تماس‌های تبلیغاتی» — reject a ringing call whose number
+  /// starts with one of [SettingsState.adPrefixes], unless it is a contact.
+  /// There is no official marker for advertising calls; the list is what the
+  /// user (and the default, `0942`) says. Off by default.
+  blockAdvertising,
+
+  /// «پنهان کردن محتوای اعلان‌ها» — while an app PIN is set, an SMS or
+  /// missed-call notification shows neither who nor what. On by default: the
+  /// point of a PIN is that the phone's lock screen does not read the inbox
+  /// out. Only meaningful with a PIN; mirrored natively as `PIN && this`
+  /// (`NotificationPrivacySync`).
+  hideNotificationContent,
+
   /// «رمز برای پاسخ به تماس» — whether a ringing call waits behind the app
   /// lock. Off by default: the call screen goes *over* the lock and the lock
   /// is still there when the call ends, because a phone that has to be
@@ -77,6 +105,14 @@ class SettingsState extends Equatable {
   final bool blockUnknownCallers;
   final bool pinToAnswerCalls;
   final bool autoRedial;
+  final bool blockNonContacts;
+  final bool blockInternational;
+  final bool blockAdvertising;
+  final bool hideNotificationContent;
+
+  /// The prefixes [BoolSetting.blockAdvertising] refuses, in the national form
+  /// (`0942`); see [CallBlockPrefixes].
+  final List<String> adPrefixes;
 
   /// «تعداد تلاش‌ها» for [autoRedial] — one of
   /// [AutoRedialPolicy.attemptChoices].
@@ -101,6 +137,11 @@ class SettingsState extends Equatable {
     this.blockUnknownCallers = false,
     this.pinToAnswerCalls = false,
     this.autoRedial = false,
+    this.blockNonContacts = false,
+    this.blockInternational = false,
+    this.blockAdvertising = false,
+    this.hideNotificationContent = true,
+    this.adPrefixes = CallBlockPrefixes.defaults,
     this.autoRedialAttempts = AutoRedialPolicy.defaultAttempts,
     this.calendarType = CalendarType.jalali,
     this.messageTextScale = MessageTextScale.normal,
@@ -130,6 +171,14 @@ class SettingsState extends Equatable {
         return pinToAnswerCalls;
       case BoolSetting.autoRedial:
         return autoRedial;
+      case BoolSetting.blockNonContacts:
+        return blockNonContacts;
+      case BoolSetting.blockInternational:
+        return blockInternational;
+      case BoolSetting.blockAdvertising:
+        return blockAdvertising;
+      case BoolSetting.hideNotificationContent:
+        return hideNotificationContent;
     }
   }
 
@@ -145,6 +194,11 @@ class SettingsState extends Equatable {
     bool? blockUnknownCallers,
     bool? pinToAnswerCalls,
     bool? autoRedial,
+    bool? blockNonContacts,
+    bool? blockInternational,
+    bool? blockAdvertising,
+    bool? hideNotificationContent,
+    List<String>? adPrefixes,
     int? autoRedialAttempts,
     CalendarType? calendarType,
     double? messageTextScale,
@@ -161,6 +215,12 @@ class SettingsState extends Equatable {
       blockUnknownCallers: blockUnknownCallers ?? this.blockUnknownCallers,
       pinToAnswerCalls: pinToAnswerCalls ?? this.pinToAnswerCalls,
       autoRedial: autoRedial ?? this.autoRedial,
+      blockNonContacts: blockNonContacts ?? this.blockNonContacts,
+      blockInternational: blockInternational ?? this.blockInternational,
+      blockAdvertising: blockAdvertising ?? this.blockAdvertising,
+      hideNotificationContent:
+          hideNotificationContent ?? this.hideNotificationContent,
+      adPrefixes: adPrefixes ?? this.adPrefixes,
       autoRedialAttempts: autoRedialAttempts ?? this.autoRedialAttempts,
       calendarType: calendarType ?? this.calendarType,
       messageTextScale: messageTextScale ?? this.messageTextScale,
@@ -191,8 +251,25 @@ class SettingsState extends Equatable {
         return copyWith(pinToAnswerCalls: value);
       case BoolSetting.autoRedial:
         return copyWith(autoRedial: value);
+      case BoolSetting.blockNonContacts:
+        return copyWith(blockNonContacts: value);
+      case BoolSetting.blockInternational:
+        return copyWith(blockInternational: value);
+      case BoolSetting.blockAdvertising:
+        return copyWith(blockAdvertising: value);
+      case BoolSetting.hideNotificationContent:
+        return copyWith(hideNotificationContent: value);
     }
   }
+
+  /// Whether the rules mirrored into `CallPrefs` differ between this state and
+  /// [other]. The four values travel to the native side as one set, so that a
+  /// half-written mirror can never exist.
+  bool callRulesChanged(SettingsState other) =>
+      blockNonContacts != other.blockNonContacts ||
+      blockInternational != other.blockInternational ||
+      blockAdvertising != other.blockAdvertising ||
+      !listEquals(adPrefixes, other.adPrefixes);
 
   @override
   List<Object?> get props => [
@@ -207,6 +284,11 @@ class SettingsState extends Equatable {
     blockUnknownCallers,
     pinToAnswerCalls,
     autoRedial,
+    blockNonContacts,
+    blockInternational,
+    blockAdvertising,
+    hideNotificationContent,
+    adPrefixes,
     autoRedialAttempts,
     calendarType,
     messageTextScale,

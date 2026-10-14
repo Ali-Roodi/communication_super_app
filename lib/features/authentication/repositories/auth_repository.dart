@@ -10,6 +10,7 @@ import '../models/pin_policy.dart';
 import 'package:communication_super_app/core/constants/app_constants.dart';
 import 'package:communication_super_app/features/security/services/intruder_reporter.dart';
 import 'pin_attempt_limiter.dart';
+import '../services/app_lock_platform.dart';
 
 class AuthRepository {
   AuthRepository({PinAttemptLimiter? limiter})
@@ -154,6 +155,12 @@ class AuthRepository {
     await _storage.delete(key: AppConstants.isAuthenticatedKey);
     await _storage.delete(key: AppConstants.recoveryCodeKey);
     await _storage.delete(key: AppConstants.pinLengthKey);
+    // «باز کردن با اثر انگشت یا چهره» stands in for the PIN; with no PIN there
+    // is nothing for it to stand in for, and a PIN set later must not inherit
+    // it without the user turning it on again.
+    await _storage.delete(key: AppConstants.biometricUnlockKey);
+    await _storage.delete(key: AppConstants.biometricSentinelKey);
+    await AppLockPlatform.deleteSentinel();
   }
 
   /// «ادامه بدون رمز»: when true, the app never re-prompts auth setup on

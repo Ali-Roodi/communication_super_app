@@ -40,6 +40,16 @@ class SetAutoRedialAttempts extends SettingsEvent {
   List<Object?> get props => [attempts];
 }
 
+/// The prefixes «مسدود کردن تماس‌های تبلیغاتی» refuses — the whole list, in
+/// the national form [CallBlockPrefixes.normalize] produces.
+class SetAdPrefixes extends SettingsEvent {
+  final List<String> prefixes;
+  const SetAdPrefixes(this.prefixes);
+
+  @override
+  List<Object?> get props => [prefixes];
+}
+
 /// «اندازه متن پیام». Dispatched by the settings row and by the pinch gesture
 /// on a conversation — one value, so the two can never disagree.
 class SetMessageTextScale extends SettingsEvent {
