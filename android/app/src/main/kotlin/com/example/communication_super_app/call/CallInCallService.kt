@@ -371,6 +371,37 @@ class CallInCallService : InCallService() {
          * off" from "never created", and the app cannot warn about the one
          * setting that makes every incoming call invisible.
          */
+        /**
+         * «تماس بی‌پاسخ» while the app is locked («پنهان کردن محتوای
+         * اعلان‌ها»): a call was missed and nothing about who — no name,
+         * number or photo, and no «تماس»/«پیامک» that would act on the caller
+         * from outside the lock. Also what a full card becomes when the app
+         * locks under it ([NotificationPrivacy.privatizeActive]); that
+         * replacement is [silent].
+         */
+        fun privateMissedCard(
+            context: Context,
+            count: Int,
+            whenMs: Long,
+            contentIntent: PendingIntent?,
+            silent: Boolean,
+        ): Notification {
+            ensureChannels(context)
+            return NotificationCompat.Builder(context, MISSED_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_stat_call)
+                .setContentTitle(if (count > 1) "$count تماس بی‌پاسخ" else "تماس بی‌پاسخ")
+                .setContentText("برای دیدن، برنامه را باز کنید")
+                .setCategory(NotificationCompat.CATEGORY_MISSED_CALL)
+                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                .setNumber(count)
+                .setWhen(whenMs)
+                .setShowWhen(true)
+                .setSilent(silent)
+                .setAutoCancel(true)
+                .setContentIntent(contentIntent)
+                .build()
+        }
+
         @JvmStatic
         fun ensureChannels(context: Context) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -1574,23 +1605,14 @@ class CallInCallService : InCallService() {
         } ?: Intent()
         val contentIntent = PendingIntent.getActivity(this, notifId, launch, piFlags)
 
-        // The app is behind a PIN («پنهان کردن محتوای اعلان‌ها»): the card says
-        // a call was missed and nothing about who — no name, number or photo,
-        // and no «تماس»/«پیامک» that would act on the caller from outside the
-        // lock. Tapping opens the app, behind the PIN screen.
+        // The app is locked behind its PIN («پنهان کردن محتوای اعلان‌ها»):
+        // see [privateMissedCard]. Tapping opens the app, behind the PIN screen.
         if (NotificationPrivacy.hideContent(this)) {
             nm.notify(
                 notifId,
-                NotificationCompat.Builder(this, MISSED_CHANNEL_ID)
-                    .setSmallIcon(R.drawable.ic_stat_call)
-                    .setContentTitle(if (count > 1) "$count تماس بی‌پاسخ" else "تماس بی‌پاسخ")
-                    .setContentText("برای دیدن، برنامه را باز کنید")
-                    .setCategory(NotificationCompat.CATEGORY_MISSED_CALL)
-                    .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-                    .setNumber(count)
-                    .setAutoCancel(true)
-                    .setContentIntent(contentIntent)
-                    .build(),
+                privateMissedCard(
+                    this, count, System.currentTimeMillis(), contentIntent, silent = false,
+                ),
             )
             markMissedCall(applicationContext, phone)
             return
@@ -1656,6 +1678,10 @@ class CallInCallService : InCallService() {
             .setCategory(NotificationCompat.CATEGORY_MISSED_CALL)
             .setAutoCancel(true)
             .setContentIntent(contentIntent)
+            // Folded into [privateMissedCard] if the app locks while it is up.
+            .addExtras(
+                NotificationPrivacy.revealing(NotificationPrivacy.KIND_MISSED_CALL, count),
+            )
         if (phone.isNotEmpty()) {
             builder.addAction(0, "تماس", callBack)
             builder.addAction(0, "پیامک", message)

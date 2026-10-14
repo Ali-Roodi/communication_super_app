@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
@@ -112,10 +113,40 @@ class AuthRepository {
 
   Future<void> setAuthenticated(bool value) async {
     _sessionUnlocked = value;
+    unawaited(reportSession());
     // The persisted flag older builds wrote is meaningless now and must not
     // linger where something could read it back.
     await _storage.delete(key: AppConstants.isAuthenticatedKey);
   }
+
+  static Future<void> _lastReport = Future<void>.value();
+
+  /// Tells the native side whether the app is open, for «پنهان کردن محتوای
+  /// اعلان‌ها»: a notification hides its content only while the app is
+  /// locked (`AppLockSession`). Called on every change of the flag, on a
+  /// return that did not re-lock, and when «قفل خودکار» changes.
+  ///
+  /// Chained, and the flag is read when each report actually runs: a lock
+  /// that follows an unlock within a frame must not be overtaken by the
+  /// unlock's slower settings read and leave the native side open.
+  static Future<void> reportSession() => _lastReport = _lastReport.then((_) async {
+    if (!_sessionUnlocked) {
+      await AppLockPlatform.sessionLocked();
+      return;
+    }
+    int grace;
+    try {
+      grace = await relockAfterSeconds();
+    } catch (_) {
+      grace = defaultRelockAfterSeconds;
+    }
+    // Re-read: the session may have closed during the settings read.
+    if (_sessionUnlocked) {
+      await AppLockPlatform.sessionUnlocked(grace);
+    } else {
+      await AppLockPlatform.sessionLocked();
+    }
+  });
 
   @visibleForTesting
   static void resetSessionForTest() => _sessionUnlocked = false;
@@ -146,6 +177,8 @@ class AuthRepository {
   static Future<void> setRelockAfterSeconds(int seconds) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_relockAfterKey, seconds);
+    // The native side counts the window with the value it was last given.
+    if (_sessionUnlocked) unawaited(reportSession());
   }
 
   Future<void> clearAuth() async {

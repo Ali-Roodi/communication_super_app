@@ -119,12 +119,20 @@ object SmsNotifier {
                 context, threadId.hashCode(), launch ?: Intent(), piFlags,
             )
 
-            // The app is behind a PIN: say that something arrived and nothing
-            // else — no sender, no text, no photo, and no action that would
-            // reply, mark read or block from outside the lock. Tapping still
-            // opens the conversation, behind the PIN screen.
+            // `+ 1`: on the live receive path the message is not persisted yet
+            // — the same reason [recentMessages] adds it by hand.
+            val unread = unreadCount(context, threadId, timestamp) + 1
+
+            // The app is locked behind its PIN: say that something arrived and
+            // nothing else — no sender, no text, no photo, and no action that
+            // would reply, mark read or block from outside the lock. Tapping
+            // still opens the conversation, behind the PIN screen.
             if (NotificationPrivacy.hideContent(context)) {
-                nm.notify(threadId, notifId, privateCard(context, threadId, timestamp, contentIntent))
+                nm.notify(
+                    threadId,
+                    notifId,
+                    privateCard(context, unread, timestamp, contentIntent, silent = false),
+                )
                 return
             }
 
@@ -245,7 +253,9 @@ object SmsNotifier {
                 // draw. `+ 1` because the message being announced is not
                 // persisted yet on the live receive path — the same reason
                 // [recentMessages] adds it by hand. See [unreadCount].
-                .setNumber(unreadCount(context, threadId, timestamp) + 1)
+                .setNumber(unread)
+                // Folded into [privateCard] if the app locks while it is up.
+                .addExtras(NotificationPrivacy.revealing(NotificationPrivacy.KIND_SMS, unread))
                 // «سیم ۲ · ایرانسل» under the sender on a dual-SIM phone —
                 // which card took the message is part of reading it. Null on a
                 // single-SIM phone (SimRegistry answers null for an unknown or
@@ -275,16 +285,20 @@ object SmsNotifier {
      * section's «پیام رمز جدید». No MessagingStyle, no Person and no
      * conversation shortcut — each of those would carry the sender's name into
      * the shade or the launcher.
+     *
+     * Also what a full card becomes when the app locks under it
+     * ([NotificationPrivacy.privatizeActive]); that replacement is [silent].
      */
-    private fun privateCard(
+    fun privateCard(
         context: Context,
-        threadId: String,
+        unread: Int,
         timestamp: Long,
-        contentIntent: PendingIntent,
+        contentIntent: PendingIntent?,
+        silent: Boolean,
     ): Notification {
-        // `+ 1`: on the live receive path the message is not persisted yet —
-        // the same reason [notifySms] adds it by hand.
-        val unread = unreadCount(context, threadId, timestamp) + 1
+        ensureChannel(
+            context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager,
+        )
         return NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_message)
             .setContentTitle(if (unread > 1) "$unread پیام جدید" else "پیام جدید")
@@ -296,6 +310,7 @@ object SmsNotifier {
             .setAutoCancel(true)
             .setContentIntent(contentIntent)
             .setOnlyAlertOnce(false)
+            .setSilent(silent)
             .setWhen(timestamp)
             .setShowWhen(true)
             .setNumber(unread)

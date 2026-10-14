@@ -78,6 +78,60 @@ void main() {
     });
   });
 
+  // «پنهان کردن محتوای اعلان‌ها» hides content only while the app is locked;
+  // the native side learns which from these reports (`AppLockSession`).
+  group('session reports to the native side', () {
+    const lockChannel = MethodChannel(
+      'com.example.communication_super_app/app_lock',
+    );
+    final calls = <MethodCall>[];
+
+    setUp(() {
+      calls.clear();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(lockChannel, (call) async {
+        calls.add(call);
+        return null;
+      });
+    });
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(lockChannel, null);
+    });
+
+    test('unlocking reports open, with the «قفل خودکار» window', () async {
+      await AuthRepository.setRelockAfterSeconds(300);
+      await AuthRepository().setAuthenticated(true);
+      await AuthRepository.reportSession();
+      expect(calls.last.method, 'sessionUnlocked');
+      expect(calls.last.arguments, {'graceSeconds': 300});
+    });
+
+    test('a lock right after an unlock is the last word', () async {
+      final repo = AuthRepository();
+      // Not awaited in between: the unlock's settings read is still pending
+      // when the lock lands, and must not report "open" after it.
+      final unlock = repo.setAuthenticated(true);
+      final lock = repo.setAuthenticated(false);
+      await Future.wait([unlock, lock]);
+      await AuthRepository.reportSession();
+      expect(calls, isNotEmpty);
+      expect(calls.map((c) => c.method), isNot(contains('sessionUnlocked')));
+      expect(calls.last.method, 'sessionLocked');
+    });
+
+    test('changing «قفل خودکار» while open re-reports the window', () async {
+      await AuthRepository().setAuthenticated(true);
+      await AuthRepository.reportSession();
+      calls.clear();
+      await AuthRepository.setRelockAfterSeconds(0);
+      await AuthRepository.reportSession();
+      expect(calls.last.method, 'sessionUnlocked');
+      expect(calls.last.arguments, {'graceSeconds': 0});
+    });
+  });
+
   group('«قفل خودکار» timeout', () {
     test('defaults to one minute', () async {
       expect(await AuthRepository.relockAfterSeconds(), 60);

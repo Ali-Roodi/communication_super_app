@@ -14,6 +14,7 @@ import io.flutter.plugin.common.MethodChannel
  * - `authenticate {title, subtitle, negative}` → see [BiometricGate.authenticate]
  * - `createSentinel` → bool, `sentinelState` → string, `deleteSentinel`
  * - `setHideNotificationContent {value}` → [NotificationPrivacy]
+ * - `sessionUnlocked {graceSeconds}`, `sessionLocked` → [AppLockSession]
  */
 class AppLockHandler(
     private val context: Context,
@@ -55,6 +56,18 @@ class AppLockHandler(
                 "sentinelState" -> result.success(BiometricGate.sentinelState())
                 "deleteSentinel" -> {
                     BiometricGate.deleteSentinel()
+                    result.success(null)
+                }
+                "sessionUnlocked" -> {
+                    AppLockSession.unlocked(
+                        context,
+                        call.argument<Int>("graceSeconds") ?: 0,
+                        inFront = com.example.communication_super_app.MainActivity.isStarted,
+                    )
+                    result.success(null)
+                }
+                "sessionLocked" -> {
+                    AppLockSession.locked(context)
                     result.success(null)
                 }
                 "setHideNotificationContent" -> {

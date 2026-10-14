@@ -82,8 +82,16 @@ class _AppLockWrapperState extends State<AppLockWrapper>
         final since = _backgroundedAt;
         _backgroundedAt = null;
         final excused = _handoff.onResumed() == HandoffResume.excused;
+        // Once it is decided whether this return locks, the native side hears
+        // the outcome: it started counting «قفل خودکار» when the app left
+        // (`AppLockSession`), and an app that came back open must go back to
+        // ordinary notifications. Until then it keeps what it counted.
         if (since != null && !excused) {
-          _maybeLock(DateTime.now().difference(since));
+          _maybeLock(
+            DateTime.now().difference(since),
+          ).whenComplete(AuthRepository.reportSession);
+        } else {
+          AuthRepository.reportSession();
         }
       case AppLifecycleState.inactive:
       case AppLifecycleState.detached:
