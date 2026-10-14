@@ -30,12 +30,19 @@ class AutoRedial extends Equatable {
   /// yet to answer (the ended-call screen reads «در حال تماس مجدد…» then).
   final DateTime? dueAt;
 
+  /// The user had the failed attempt on the speaker: the retry starts there
+  /// too. Telecom puts the output back on the earpiece when a call ends, so
+  /// without this a call the user was waiting on hands-free came back at the
+  /// ear.
+  final bool speakerphone;
+
   const AutoRedial({
     required this.phone,
     required this.subscriptionId,
     required this.attempt,
     required this.maxAttempts,
     required this.dueAt,
+    this.speakerphone = false,
   });
 
   bool get isCountingDown => dueAt != null;
@@ -46,6 +53,7 @@ class AutoRedial extends Equatable {
     attempt: attempt,
     maxAttempts: maxAttempts,
     dueAt: null,
+    speakerphone: speakerphone,
   );
 
   @override
@@ -55,6 +63,7 @@ class AutoRedial extends Equatable {
     attempt,
     maxAttempts,
     dueAt,
+    speakerphone,
   ];
 }
 

@@ -64,6 +64,7 @@ class CallHandler(
                     "makeCall"        -> makeCall(
                         call.argument<String>("phone") ?: "",
                         call.argument<Int>("subscriptionId") ?: -1,
+                        call.argument<Boolean>("speakerphone") ?: false,
                         result,
                     )
                     "endCall"         -> { endCall(); result.success(null) }
@@ -367,7 +368,12 @@ class CallHandler(
     // while this app is the default dialer); fall back to the legacy
     // CallConnection (self-managed VoIP path).
 
-    private fun makeCall(phone: String, subscriptionId: Int, result: MethodChannel.Result) {
+    private fun makeCall(
+        phone: String,
+        subscriptionId: Int,
+        speakerphone: Boolean,
+        result: MethodChannel.Result,
+    ) {
         // PhoneNumberUtils.stripSeparators, NOT a hand-rolled `[^+0-9]` strip.
         // The platform's own rule keeps every character that is actually
         // dialable — `*` `#` (USSD/MMI: «*100#», «*140*11#», call forwarding),
@@ -404,6 +410,12 @@ class CallHandler(
                 if (account != null) {
                     putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, account)
                 }
+                // «تماس مجدد خودکار» after an attempt the user had put on the
+                // speaker: telecom resets the output to the earpiece when a
+                // call ends, and the retry must come back where they left it.
+                if (speakerphone) {
+                    putBoolean(TelecomManager.EXTRA_START_CALL_WITH_SPEAKERPHONE, true)
+                }
             }
             tm.placeCall(uri, extras)
         } else {
@@ -415,6 +427,9 @@ class CallHandler(
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 if (account != null) {
                     putExtra(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, account)
+                }
+                if (speakerphone) {
+                    putExtra(TelecomManager.EXTRA_START_CALL_WITH_SPEAKERPHONE, true)
                 }
             }
             context.startActivity(intent)
