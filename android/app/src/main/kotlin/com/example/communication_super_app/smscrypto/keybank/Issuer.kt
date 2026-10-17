@@ -22,6 +22,9 @@ object Issuer {
         val signed: SignedDirectory,
         val directory: Directory,
         val identities: List<IdentityKeyPair>,
+        /** Each member's [MemberCert] (for their first mobile number); null for
+         *  a member who has none. */
+        val certs: List<MemberCert?>,
     )
 
     class RosterException(message: String) : Exception(message)
@@ -67,7 +70,7 @@ object Issuer {
                 if (first != null) throw RosterException("line $lineNo: $p is already on line $first")
             }
             val generation = fields.getOrNull(2)?.takeIf { it.isNotEmpty() }?.let {
-                it.toIntOrNull()?.takeIf { g -> g >= 0 } ?: throw RosterException("line $lineNo: bad generation")
+                it.toIntOrNull()?.takeIf { g -> g in 0..MemberCert.MAX_GENERATION } ?: throw RosterException("line $lineNo: bad generation")
             } ?: 0
             entries += Entry(fields[0], phones, generation)
         }
@@ -96,7 +99,12 @@ object Issuer {
             roster.organization,
             roster.entries.mapIndexed { i, e -> Directory.Member(e.name, e.phones, identities[i].public) },
         )
-        return Issued(SignedDirectory.sign(directory, authority, random), directory, identities)
+        val certs = roster.entries.mapIndexed { i, e ->
+            e.phones.firstOrNull(MemberCert::canName)?.let { phone ->
+                MemberCert.issue(authority, phone, e.generation, identities[i])
+            }
+        }
+        return Issued(SignedDirectory.sign(directory, authority, random), directory, identities, certs)
     }
 
     private const val ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"

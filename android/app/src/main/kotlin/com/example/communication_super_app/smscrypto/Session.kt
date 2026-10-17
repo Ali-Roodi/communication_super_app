@@ -36,9 +36,15 @@ class Session private constructor(
     private val receiveChain: ByteArray,
     val receiveCounter: Long,
     private val skipped: TreeMap<Long, ByteArray>,
+    /** Secret the handshake left for [Upgrade]; null on a session that needs none
+     *  (a v1 handshake is post-quantum already). Never on the wire. */
+    internal val root: ByteArray? = null,
 ) {
     companion object {
         private const val FORMAT: Byte = 1
+
+        /** [FORMAT] plus the [root] at the end. */
+        private const val FORMAT_WITH_ROOT: Byte = 2
         private const val CHAIN_BYTES = 32
 
         /** How far ahead a message may be: SMS delays, not thousands lost. */
@@ -59,12 +65,14 @@ class Session private constructor(
             peerKid: ByteArray,
             sendChain: ByteArray,
             receiveChain: ByteArray,
-        ) = Session(sid, ownKid, peerKid, sendChain, 0, receiveChain, 0, TreeMap())
+            root: ByteArray? = null,
+        ) = Session(sid, ownKid, peerKid, sendChain, 0, receiveChain, 0, TreeMap(), root)
 
         fun parse(bytes: ByteArray): Session {
             try {
                 val buf = ByteBuffer.wrap(bytes)
-                if (buf.get() != FORMAT) badState()
+                val format = buf.get()
+                if (format != FORMAT && format != FORMAT_WITH_ROOT) badState()
                 val sid = buf.short.toInt() and 0xFFFF
                 val own = ByteArray(PublicIdentity.KEY_ID_BYTES).also { buf.get(it) }
                 val peer = ByteArray(PublicIdentity.KEY_ID_BYTES).also { buf.get(it) }
@@ -79,8 +87,9 @@ class Session private constructor(
                     val n = buf.long
                     skipped[n] = ByteArray(CHAIN_BYTES).also { buf.get(it) }
                 }
+                val root = if (format == FORMAT_WITH_ROOT) ByteArray(CHAIN_BYTES).also { buf.get(it) } else null
                 if (buf.hasRemaining() || sendCounter < 0 || receiveCounter < 0) badState()
-                return Session(sid, own, peer, send, sendCounter, receive, receiveCounter, skipped)
+                return Session(sid, own, peer, send, sendCounter, receive, receiveCounter, skipped, root)
             } catch (e: java.nio.BufferUnderflowException) {
                 badState()
             }
@@ -124,7 +133,7 @@ class Session private constructor(
             Wire.writeSid(sid) + Wire.writeVarint(sendCounter)
         val sealed = cipher(Cipher.ENCRYPT_MODE, messageKey, header).doFinal(payload)
         return Sealed(
-            Session(sid, ownKid, peerKid, next, sendCounter + 1, receiveChain, receiveCounter, skipped),
+            Session(sid, ownKid, peerKid, next, sendCounter + 1, receiveChain, receiveCounter, skipped, root),
             Wire.encode(header + sealed),
         )
     }
@@ -141,7 +150,7 @@ class Session private constructor(
             val payload = decrypt(key, packet)
             val remaining = TreeMap(skipped).apply { remove(n) }
             return Opened(
-                Session(sid, ownKid, peerKid, sendChain, sendCounter, receiveChain, receiveCounter, remaining),
+                Session(sid, ownKid, peerKid, sendChain, sendCounter, receiveChain, receiveCounter, remaining, root),
                 payload,
             )
         }
@@ -159,7 +168,7 @@ class Session private constructor(
         val payload = decrypt(key, packet)
         while (kept.size > MAX_STORED_SKIPPED) kept.pollFirstEntry()
         return Opened(
-            Session(sid, ownKid, peerKid, sendChain, sendCounter, next, n + 1, kept),
+            Session(sid, ownKid, peerKid, sendChain, sendCounter, next, n + 1, kept, root),
             payload,
         )
     }
@@ -176,9 +185,9 @@ class Session private constructor(
 
     fun serialize(): ByteArray {
         val size = 1 + Wire.SID_BYTES + 2 * PublicIdentity.KEY_ID_BYTES +
-            2 * (CHAIN_BYTES + 8) + 2 + skipped.size * (8 + CHAIN_BYTES)
+            2 * (CHAIN_BYTES + 8) + 2 + skipped.size * (8 + CHAIN_BYTES) + (root?.size ?: 0)
         val buf = ByteBuffer.allocate(size)
-            .put(FORMAT)
+            .put(if (root == null) FORMAT else FORMAT_WITH_ROOT)
             .putShort(sid.toShort())
             .put(ownKid)
             .put(peerKid)
@@ -188,6 +197,7 @@ class Session private constructor(
             .putLong(receiveCounter)
             .putShort(skipped.size.toShort())
         for ((n, key) in skipped) buf.putLong(n).put(key)
+        root?.let { buf.put(it) }
         return buf.array()
     }
 }

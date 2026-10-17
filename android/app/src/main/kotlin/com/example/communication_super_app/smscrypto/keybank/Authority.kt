@@ -71,6 +71,16 @@ class AuthorityPublic internal constructor(
         }
         return edOk and mldsaOk
     }
+
+    /** A [MemberCert]'s Ed25519 signature over [body] (its own context). */
+    internal fun verifyCertificate(body: ByteArray, signature: ByteArray): Boolean {
+        if (signature.size != MemberCert.SIGNATURE_BYTES) return false
+        return Ed25519Signer().run {
+            init(false, ed25519)
+            update(body, 0, body.size)
+            verifySignature(signature)
+        }
+    }
 }
 
 /**
@@ -134,6 +144,17 @@ class AuthorityKey private constructor(
             generateSignature()
         }
         return byteArrayOf(1) + ed + ml
+    }
+
+    /**
+     * Ed25519 alone, over a [MemberCert] body — which starts with its own
+     * label, so it can never be mistaken for a directory signature (that one
+     * is over the directory context prefix, and needs ML-DSA as well).
+     */
+    internal fun signCertificate(body: ByteArray): ByteArray = Ed25519Signer().run {
+        init(true, ed25519)
+        update(body, 0, body.size)
+        generateSignature()
     }
 
     /** The identity of the member keyed by [phone] (canonical) at [generation]. */

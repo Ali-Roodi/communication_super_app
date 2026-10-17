@@ -27,6 +27,8 @@ import java.nio.charset.CodingErrorAction
  * - [KIND_GROUP_INFO] — a group's name, mode and members, from its creator
  *   ([GroupInfo]); sent before a member's first group message and whenever
  *   the group changes.
+ * - [KIND_PQ_OFFER] / [KIND_PQ_ACCEPT] — the two halves of [Upgrade], which
+ *   makes a certificate session post-quantum in the background.
  *
  * A text kind with [FLAG_GROUP] set is a **group message**: an 8-byte group
  * id follows the kind byte, then the text. SMS has no multicast — a group
@@ -52,6 +54,12 @@ object Payload {
     const val KIND_SEEN = 0x10
     const val KIND_DELETE = 0x11
     const val KIND_GROUP_INFO = 0x12
+
+    /** [Upgrade]: the offerer's ML-KEM-768 encapsulation key (1184 bytes). */
+    const val KIND_PQ_OFFER = 0x13
+
+    /** [Upgrade]: the new session's id (2 bytes) and the ML-KEM ciphertext (1088). */
+    const val KIND_PQ_ACCEPT = 0x14
 
     /** On a text kind: delete once seen. */
     const val FLAG_DELETE_AFTER_SEEN = 0x80
@@ -107,6 +115,10 @@ object Payload {
 
     /** Delete the message [counter] of session [sid]. */
     class Delete(val sid: Int, val counter: Long) : Decoded()
+
+    class PqOffer(val encapsulationKey: ByteArray) : Decoded()
+
+    class PqAccept(val sid: Int, val ciphertext: ByteArray) : Decoded()
 
     fun text(text: String, deleteAfterSeen: Boolean = false, ttlSeconds: Long? = null): ByteArray {
         var flag = if (deleteAfterSeen) FLAG_DELETE_AFTER_SEEN else 0
@@ -180,6 +192,16 @@ object Payload {
 
     fun delete(sid: Int, counter: Long): ByteArray = reference(KIND_DELETE, sid, counter)
 
+    fun pqOffer(encapsulationKey: ByteArray): ByteArray {
+        require(encapsulationKey.size == PublicIdentity.MLKEM_BYTES)
+        return byteArrayOf(KIND_PQ_OFFER.toByte()) + encapsulationKey
+    }
+
+    fun pqAccept(sid: Int, ciphertext: ByteArray): ByteArray {
+        require(sid in 0..0xFFFF && ciphertext.size == Wire.KEM_CIPHERTEXT_BYTES)
+        return byteArrayOf(KIND_PQ_ACCEPT.toByte()) + Wire.writeSid(sid) + ciphertext
+    }
+
     private fun reference(kind: Int, sid: Int, counter: Long): ByteArray {
         require(sid in 0..0xFFFF && counter in 0..Wire.MAX_COUNTER)
         return byteArrayOf(kind.toByte()) + Wire.writeSid(sid) + Wire.writeVarint(counter)
@@ -214,6 +236,15 @@ object Payload {
             KIND_SEEN -> if (flagged) badPayload() else parseReference(body) { sid, n -> Seen(sid, n) }
             KIND_DELETE -> if (flagged) badPayload() else parseReference(body) { sid, n -> Delete(sid, n) }
             KIND_GROUP_INFO -> if (flagged) badPayload() else parseGroupInfo(body)
+            KIND_PQ_OFFER -> if (flagged || body.size != PublicIdentity.MLKEM_BYTES) badPayload() else PqOffer(body)
+            KIND_PQ_ACCEPT -> if (flagged || body.size != Wire.SID_BYTES + Wire.KEM_CIPHERTEXT_BYTES) {
+                badPayload()
+            } else {
+                PqAccept(
+                    ((body[0].toInt() and 0xFF) shl 8) or (body[1].toInt() and 0xFF),
+                    body.copyOfRange(Wire.SID_BYTES, body.size),
+                )
+            }
             else -> badPayload()
         }
     }

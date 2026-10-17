@@ -204,8 +204,8 @@ object SecureSmsInbox {
     fun arrival(body: String): Arrival? = try {
         when (val packet = Wire.parse(body)) {
             is Packet.Message -> if (packet.control) null else Arrival.MESSAGE
-            is Packet.Init -> Arrival.MESSAGE
-            is Packet.Response -> Arrival.READY_TO_SEND
+            is Packet.Init, is Packet.CertInit -> Arrival.MESSAGE
+            is Packet.Response, is Packet.CertResponse -> Arrival.READY_TO_SEND
         }
     } catch (e: SmsCryptoException) {
         null
