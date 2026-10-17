@@ -6,6 +6,7 @@ import com.example.communication_super_app.smscrypto.keybank.Canon
 import com.example.communication_super_app.smscrypto.keybank.Directory
 import com.example.communication_super_app.smscrypto.keybank.KeyFile
 import com.example.communication_super_app.smscrypto.keybank.KeyGroup
+import com.example.communication_super_app.smscrypto.keybank.MemberCert
 import com.example.communication_super_app.smscrypto.keybank.SignedDirectory
 import com.example.communication_super_app.smscrypto.keybank.UpdateFile
 import android.util.Log
@@ -36,6 +37,17 @@ import kotlinx.coroutines.withContext
  * - `respond {secret, peer, text}` → `{session, sid, wire, parts}`
  * - `complete {secret, peer, pending, text}` → `{session, sid}`
  * - `ownInitWins {ownKid, peerKid}` → Boolean — crossed INITs
+ * - `certInitiate {cert, busySids}` → `{pending, sid, wire, parts}` — the
+ *   certificate handshake (`CertHandshake`); `inspect` reports its packets as
+ *   `init`/`response` with `cert: true`, `senderKid` (the certificate's key
+ *   id), `certPhone` and `certGeneration`
+ * - `certRespond {secret, cert, text, anchors}` → `{session, sid, wire, parts, peer}`
+ * - `certComplete {secret, cert, pending, text, anchors}` → `{session, sid, peer}`
+ * - `certInfo {cert}` → `{cert, keyId, phone, generation}` (what `peer` is) —
+ *   structure only, no signature check
+ * - `upgradeOffer {session, secret}` → like `encryptText` (`Upgrade`)
+ * - `upgradeAccept {session, key, busySids}` → `{answer: {…encryptText}, upgraded, upgradedSid}`
+ * - `upgradeComplete {session, secret, sid, ciphertext}` → `{session, sid}`
  * - `encryptText {session, text, deleteAfterSeen?}` → `{session, wire, parts, sid, counter}`
  * - `encryptText` also takes `groupId` (8 bytes): a group message, and
  *   `ttlSeconds`: a timed message (row 16)
@@ -43,8 +55,9 @@ import kotlinx.coroutines.withContext
  * - `encryptGroupInfo {session, info: {groupId, version, mode, name,
  *   members: [{phone, keyId}]}}` → same (a control packet)
  * - `decrypt {session, text}` → `{session, sid, counter, kind:
- *   text|seen|delete|groupInfo, text?, deleteAfterSeen?, groupId?, refSid?,
- *   refCounter?, version?, mode?, name?, members?}` — `sid`/`counter` name
+ *   text|seen|delete|groupInfo|pqOffer|pqAccept, text?, deleteAfterSeen?,
+ *   groupId?, refSid?, refCounter?, version?, mode?, name?, members?, pqKey?,
+ *   pqSid?, pqCiphertext?}` — `sid`/`counter` name
  *   the message itself (what a later seen/delete refers to)
  *
  * Sealed records (`SealedBox` — what Kotlin writes for the hidden phonebook):
@@ -100,6 +113,24 @@ class SmsCryptoHandler {
                 "complete" -> run(call, result) { complete(call) }
                 "ownInitWins" -> run(call, result) {
                     Handshake.ownInitWins(call.bytes("ownKid"), call.bytes("peerKid"))
+                }
+                "certInitiate" -> run(call, result) { certInitiate(call) }
+                "certRespond" -> run(call, result) { certRespond(call) }
+                "certComplete" -> run(call, result) { certComplete(call) }
+                "certInfo" -> run(call, result) { cert(MemberCert.parse(call.bytes("cert"))) }
+                "upgradeOffer" -> run(call, result) {
+                    val session = Session.parse(call.bytes("session"))
+                    sealed(Upgrade.offer(session, own(call)), session)
+                }
+                "upgradeAccept" -> run(call, result) { upgradeAccept(call) }
+                "upgradeComplete" -> run(call, result) {
+                    val upgraded = Upgrade.complete(
+                        Session.parse(call.bytes("session")),
+                        own(call),
+                        call.argument<Int>("sid") ?: throw IllegalArgumentException("missing sid"),
+                        call.bytes("ciphertext"),
+                    )
+                    mapOf("session" to upgraded.serialize(), "sid" to upgraded.sid)
                 }
                 "encryptText" -> run(call, result) { encryptText(call) }
                 "encryptControl" -> run(call, result) { encryptControl(call) }
@@ -182,7 +213,91 @@ class SmsCryptoHandler {
                 "senderKid" to packet.senderKid,
                 "recipientKid" to packet.recipientKid,
             )
+            is Packet.CertInit -> certPacket("init", packet.sid, packet.cert)
+            is Packet.CertResponse -> certPacket("response", packet.sid, packet.cert)
         }
+    }
+
+    /** A certificate packet as `inspect` reports it; null when its certificate is malformed. */
+    private fun certPacket(type: String, sid: Int, bytes: ByteArray): Map<String, Any>? {
+        val cert = try {
+            MemberCert.parse(bytes)
+        } catch (e: SmsCryptoException) {
+            return null
+        }
+        return mapOf(
+            "type" to type,
+            "sid" to sid,
+            "cert" to true,
+            "senderKid" to cert.keyId,
+            "certPhone" to cert.phone,
+            "certGeneration" to cert.generation,
+        )
+    }
+
+    private fun cert(c: MemberCert): Map<String, Any> = mapOf(
+        "cert" to c.encoded,
+        "keyId" to c.keyId,
+        "phone" to c.phone,
+        "generation" to c.generation,
+    )
+
+    private fun certInitiate(call: MethodCall): Map<String, Any> {
+        val busy = call.argument<List<Int>>("busySids")?.toSet() ?: emptySet()
+        val started = CertHandshake.initiate(MemberCert.parse(call.bytes("cert")), random, busy)
+        return mapOf(
+            "pending" to started.pending.serialize(),
+            "sid" to started.pending.sid,
+            "wire" to started.wire,
+            "parts" to Wire.smsParts(started.wire),
+        )
+    }
+
+    private fun certRespond(call: MethodCall): Map<String, Any> {
+        val init = Wire.parse(call.string("text")) as? Packet.CertInit
+            ?: cryptoError(SmsCryptoException.Code.WRONG_TYPE, "not a certificate session request")
+        val answered = CertHandshake.respond(
+            own(call),
+            MemberCert.parse(call.bytes("cert")),
+            init,
+            anchors(call),
+            random,
+        )
+        return mapOf(
+            "session" to answered.session.serialize(),
+            "sid" to answered.session.sid,
+            "wire" to answered.wire,
+            "parts" to Wire.smsParts(answered.wire),
+            "peer" to cert(answered.peer),
+        )
+    }
+
+    private fun certComplete(call: MethodCall): Map<String, Any> {
+        val response = Wire.parse(call.string("text")) as? Packet.CertResponse
+            ?: cryptoError(SmsCryptoException.Code.WRONG_TYPE, "not a certificate session response")
+        val done = CertHandshake.complete(
+            own(call),
+            MemberCert.parse(call.bytes("cert")),
+            CertHandshake.Pending.parse(call.bytes("pending")),
+            response,
+            anchors(call),
+        )
+        return mapOf(
+            "session" to done.session.serialize(),
+            "sid" to done.session.sid,
+            "peer" to cert(done.peer),
+        )
+    }
+
+    private fun upgradeAccept(call: MethodCall): Map<String, Any> {
+        val busy = call.argument<List<Int>>("busySids")?.toSet() ?: emptySet()
+        val session = Session.parse(call.bytes("session"))
+        val accepted = Upgrade.accept(session, call.bytes("key"), random, busy)
+        return mapOf(
+            "answer" to sealed(accepted.answer, session),
+            "upgraded" to accepted.upgraded.serialize(),
+            "upgradedSid" to accepted.upgraded.sid,
+        )
     }
 
     private fun initiate(call: MethodCall): Map<String, Any> {
@@ -267,15 +382,17 @@ class SmsCryptoHandler {
     }
 
     private fun seal(session: Session, payload: ByteArray, control: Boolean = false): Map<String, Any> {
-        val sealed = session.seal(payload, control)
-        return mapOf(
-            "session" to sealed.session.serialize(),
-            "wire" to sealed.wire,
-            "parts" to Wire.smsParts(sealed.wire),
-            "sid" to session.sid,
-            "counter" to session.sendCounter,
-        )
+        return sealed(session.seal(payload, control), session)
     }
+
+    /** [sealed] as `encryptText` returns it; [before] is the state that sealed it. */
+    private fun sealed(sealed: Session.Sealed, before: Session): Map<String, Any> = mapOf(
+        "session" to sealed.session.serialize(),
+        "wire" to sealed.wire,
+        "parts" to Wire.smsParts(sealed.wire),
+        "sid" to before.sid,
+        "counter" to before.sendCounter,
+    )
 
     private fun decrypt(call: MethodCall): Map<String, Any> {
         val message = Wire.parse(call.string("text")) as? Packet.Message
@@ -310,6 +427,12 @@ class SmsCryptoHandler {
             )
             is Payload.Seen -> mapOf("kind" to "seen", "refSid" to p.sid, "refCounter" to p.upTo)
             is Payload.Delete -> mapOf("kind" to "delete", "refSid" to p.sid, "refCounter" to p.counter)
+            is Payload.PqOffer -> mapOf("kind" to "pqOffer", "pqKey" to p.encapsulationKey)
+            is Payload.PqAccept -> mapOf(
+                "kind" to "pqAccept",
+                "pqSid" to p.sid,
+                "pqCiphertext" to p.ciphertext,
+            )
         }
     }
 
@@ -328,7 +451,7 @@ class SmsCryptoHandler {
     private fun openKeyFile(call: MethodCall): Map<String, Any?> {
         val opened = KeyFile.open(call.bytes("file"), call.string("password"), anchors(call))
         val member = opened.identity?.let {
-            identity(it) + ("index" to opened.memberIndex)
+            identity(it) + ("index" to opened.memberIndex) + ("cert" to opened.cert?.let(::cert))
         }
         return mapOf(
             "signed" to opened.signed.encode(),

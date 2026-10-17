@@ -5,6 +5,7 @@ import com.example.communication_super_app.smscrypto.keybank.Canon
 import com.example.communication_super_app.smscrypto.keybank.Directory
 import com.example.communication_super_app.smscrypto.keybank.Issuer
 import com.example.communication_super_app.smscrypto.keybank.KeyFile
+import com.example.communication_super_app.smscrypto.keybank.MemberCert
 import com.example.communication_super_app.smscrypto.keybank.PasswordKdf
 import com.example.communication_super_app.smscrypto.keybank.UpdateFile
 import java.io.File
@@ -63,7 +64,7 @@ object Issuance {
                 val phone = entry.phones.first()
                 val password = passwords[phone] ?: Issuer.password(random)
                 val name = fileName(i, phone)
-                File(scratch, name).writeBytes(KeyFile.create(issued.signed, i to issued.identities[i], password, random, kdf))
+                File(scratch, name).writeBytes(KeyFile.create(issued.signed, i to issued.identities[i], password, random, kdf, issued.certs[i]))
                 progress(i + 1, roster.entries.size)
                 IssuedFile(i, entry, File(out, name), password)
             }
@@ -309,6 +310,9 @@ class AuthorityFolder(val dir: File) {
         val (oldText, roster) = current()
         val old = roster.entries.getOrNull(index) ?: throw MemberError("این عضو دیگر در فهرست نیست.")
         val generation = maxOf(old.generation + 1, nextGeneration(old.phones.first()))
+        if (generation > MemberCert.MAX_GENERATION) {
+            throw MemberError("این عضو به سقف کلید تازه رسیده است؛ او را با شمارهٔ اول دیگری دوباره اضافه کنید.")
+        }
         val text = replaceMemberLine(oldText, index, memberLine(old.name, old.phones, generation))
         return Prepared(oldText, text, parse(text), index, keyChanged = true)
     }
