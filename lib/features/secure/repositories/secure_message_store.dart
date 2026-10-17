@@ -39,7 +39,20 @@ class SecureConversation extends Equatable {
     this.lastOutgoing = false,
     this.seenSid,
     this.seenCounter,
+    this.peerGeneration,
   });
+
+  /// The highest certificate generation seen for the peer; an older
+  /// certificate is refused (the issuance panel raised it for a lost phone).
+  final int? peerGeneration;
+
+  /// Reached over the certificate handshake (`CertHandshake`): [peerPublic]
+  /// is the peer's certificate, and [peerKeyId] is empty until the peer has
+  /// answered once (a member who is not in our directory).
+  bool get isCert => ownSource?.startsWith('cert:') == true;
+
+  /// The peer's key id is known (always, outside [isCert]).
+  bool get peerKnown => peerKeyId?.isNotEmpty == true;
 
   /// The peer's number, canonical — the conversation's key.
   final String phone;
@@ -83,6 +96,7 @@ class SecureConversation extends Equatable {
     lastOutgoing,
     seenSid,
     seenCounter,
+    peerGeneration,
   ];
 }
 
@@ -178,6 +192,8 @@ class StoredSession {
     required this.pending,
     required this.state,
     required this.createdAt,
+    this.kind = SessionKind.v1,
+    this.offeredAt,
   });
   final String phone;
   final int sid;
@@ -186,6 +202,34 @@ class StoredSession {
   final bool pending;
   final Uint8List state;
   final int createdAt;
+  final String kind;
+
+  /// [SessionKind.certInitiated]: when our upgrade offer went out.
+  final int? offeredAt;
+
+  /// Not sent on yet: see [SessionKind.pqStandby].
+  bool get sendable => !pending && kind != SessionKind.pqStandby;
+}
+
+/// `sm_sessions.kind` — how a session was made (secure.db v7).
+abstract final class SessionKind {
+  /// The full ML-KEM handshake (`Handshake`): post-quantum already.
+  static const v1 = 'v1';
+
+  /// A certificate handshake (`CertHandshake`) we started — we offer its
+  /// post-quantum upgrade.
+  static const certInitiated = 'cert-i';
+
+  /// A certificate handshake we answered — the peer offers the upgrade.
+  static const certResponded = 'cert-r';
+
+  /// Upgraded (`Upgrade`).
+  static const pq = 'pq';
+
+  /// Upgraded by us as the accepter, but not sent on until the offerer is
+  /// heard on it: our answer may have been lost, and the offerer would then
+  /// not have it.
+  static const pqStandby = 'pq-standby';
 }
 
 /// A packet taken from the main database's queue, not processed yet.
@@ -296,7 +340,54 @@ class SecureMessageStore {
         lastOutgoing: r['last_outgoing'] == 1,
         seenSid: r['seen_sid'] as int?,
         seenCounter: r['seen_counter'] as int?,
+        peerGeneration: r['peer_generation'] as int?,
       );
+
+  /// A certificate conversation ([SecureConversation.isCert]) learns who is
+  /// on the other side: the certificate the peer's request or answer carried.
+  ///
+  /// The first time — the key id was empty, or the one the directory let us
+  /// expect — nothing else changes. A **different** key is the peer's new
+  /// one (the issuance panel's «گوشی گم شد»): the conversation moves to it and
+  /// the sessions made with the old one go, as in [upsertConversation]. The
+  /// caller has already refused a certificate older than [peerGeneration].
+  Future<void> bindCertPeer({
+    required String phone,
+    required String peerKeyId,
+    required Uint8List cert,
+    required int generation,
+  }) => db.transaction((txn) async {
+    final existing = await txn.query(
+      'sm_conversations',
+      columns: ['peer_key_id', 'peer_generation'],
+      where: 'phone = ?',
+      whereArgs: [phone],
+    );
+    if (existing.isEmpty) return;
+    final known = existing.first['peer_key_id'] as String?;
+    final stored = existing.first['peer_generation'] as int?;
+    await txn.update(
+      'sm_conversations',
+      {
+        'peer_key_id': peerKeyId,
+        'peer_public': cert,
+        'peer_generation': stored == null || generation > stored
+            ? generation
+            : stored,
+      },
+      where: 'phone = ?',
+      whereArgs: [phone],
+    );
+    if (known != null && known.isNotEmpty && known != peerKeyId) {
+      await txn.update(
+        'sm_conversations',
+        {'seen_sid': null, 'seen_counter': null},
+        where: 'phone = ?',
+        whereArgs: [phone],
+      );
+      await txn.delete('sm_sessions', where: 'phone = ?', whereArgs: [phone]);
+    }
+  });
 
   /// Creates the conversation, or re-binds an existing one to [peerPublic]
   /// (the peer's key changed — a re-issued key file). Re-binding drops the
@@ -444,6 +535,8 @@ class SecureMessageStore {
           pending: r['pending'] == 1,
           state: r['state'] as Uint8List,
           createdAt: r['created_at'] as int,
+          kind: r['kind'] as String? ?? SessionKind.v1,
+          offeredAt: r['offered_at'] as int?,
         ),
     ];
   }
@@ -455,7 +548,36 @@ class SecureMessageStore {
         'pending': session.pending ? 1 : 0,
         'state': session.state,
         'created_at': session.createdAt,
+        'kind': session.kind,
+        'offered_at': session.offeredAt,
       }, conflictAlgorithm: cipher.ConflictAlgorithm.replace);
+
+  /// A [SessionKind.pqStandby] session the offerer was heard on: from now on
+  /// the one we send on.
+  Future<void> setSessionKind(
+    cipher.DatabaseExecutor txn,
+    String phone,
+    int sid,
+    String kind,
+  ) => txn.update(
+    'sm_sessions',
+    {'kind': kind},
+    where: 'phone = ? AND sid = ?',
+    whereArgs: [phone, sid],
+  );
+
+  /// Our upgrade offer went out on session [sid] at [at].
+  Future<void> setOfferedAt(
+    cipher.DatabaseExecutor txn,
+    String phone,
+    int sid,
+    int at,
+  ) => txn.update(
+    'sm_sessions',
+    {'offered_at': at},
+    where: 'phone = ? AND sid = ?',
+    whereArgs: [phone, sid],
+  );
 
   Future<void> saveSession(StoredSession session) => putSession(db, session);
 

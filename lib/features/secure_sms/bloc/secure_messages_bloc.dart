@@ -740,7 +740,11 @@ class SecureMessagesBloc
       final phone = await _crypto.canonicalPhone(e.number);
       emit(
         state.copyWith(
-          lookup: phone == null ? const [] : await _identities.forNumber(phone),
+          // A number the user typed may be a member added after our
+          // directory: offered over the certificate handshake.
+          lookup: phone == null
+              ? const []
+              : await _identities.forTypedNumber(phone),
         ),
       );
     } on KeyBankLockedException {

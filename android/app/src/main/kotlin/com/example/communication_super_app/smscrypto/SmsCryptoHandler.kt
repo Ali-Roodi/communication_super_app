@@ -370,13 +370,18 @@ class SmsCryptoHandler {
     }
 
     private fun encryptControl(call: MethodCall): Map<String, Any> {
-        val refSid = call.argument<Int>("refSid") ?: throw IllegalArgumentException("missing refSid")
-        val refCounter = call.argument<Number>("refCounter")?.toLong()
-            ?: throw IllegalArgumentException("missing refCounter")
-        val payload = when (call.string("control")) {
-            "seen" -> Payload.seen(refSid, refCounter)
-            "delete" -> Payload.delete(refSid, refCounter)
-            else -> throw IllegalArgumentException("unknown control")
+        val control = call.string("control")
+        val payload = if (control == "pqDone") {
+            Payload.pqDone()
+        } else {
+            val refSid = call.argument<Int>("refSid") ?: throw IllegalArgumentException("missing refSid")
+            val refCounter = call.argument<Number>("refCounter")?.toLong()
+                ?: throw IllegalArgumentException("missing refCounter")
+            when (control) {
+                "seen" -> Payload.seen(refSid, refCounter)
+                "delete" -> Payload.delete(refSid, refCounter)
+                else -> throw IllegalArgumentException("unknown control")
+            }
         }
         return seal(Session.parse(call.bytes("session")), payload, control = true)
     }
@@ -428,6 +433,7 @@ class SmsCryptoHandler {
             is Payload.Seen -> mapOf("kind" to "seen", "refSid" to p.sid, "refCounter" to p.upTo)
             is Payload.Delete -> mapOf("kind" to "delete", "refSid" to p.sid, "refCounter" to p.counter)
             is Payload.PqOffer -> mapOf("kind" to "pqOffer", "pqKey" to p.encapsulationKey)
+            is Payload.PqDone -> mapOf("kind" to "pqDone")
             is Payload.PqAccept -> mapOf(
                 "kind" to "pqAccept",
                 "pqSid" to p.sid,

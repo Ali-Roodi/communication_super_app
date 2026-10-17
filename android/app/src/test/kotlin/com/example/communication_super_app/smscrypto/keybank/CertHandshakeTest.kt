@@ -92,6 +92,14 @@ class CertHandshakeTest {
     }
 
     @Test
+    fun `the certificate key id is frozen (the Dart side computes it too)`() {
+        // Mirrored by `certKeyIdFor` (secure_identities.dart), which expects
+        // the same value for the same key.
+        val kid = MemberCert.keyIdOf(ByteArray(32) { 7 })
+        assertEquals("6d0190893fd7bb4f", kid.joinToString("") { "%02x".format(it) })
+    }
+
+    @Test
     fun `only mobile numbers get a certificate, and only a well-formed one parses`() {
         assertTrue(MemberCert.canName("09121234567"))
         assertFalse(MemberCert.canName("02188776655"))
@@ -294,6 +302,10 @@ class CertHandshakeTest {
         // And the upgraded state survives storage, root included.
         val stored = Session.parse(aliUp.serialize())
         assertEquals("دوباره", bobUp.receive(stored.send("دوباره").wire).second)
+        // «I have it», one SMS part on the new session.
+        val done = stored.seal(Payload.pqDone(), control = true)
+        assertEquals(1, Wire.smsParts(done.wire))
+        assertSame(Payload.PqDone, Payload.parse(bobUp.open(Wire.parse(done.wire) as Packet.Message).payload))
     }
 
     @Test

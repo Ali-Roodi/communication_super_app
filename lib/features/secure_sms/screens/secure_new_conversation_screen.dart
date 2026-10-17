@@ -67,7 +67,14 @@ class _SecureNewConversationScreenState
       return;
     }
     if (ways.length == 1) {
-      _start(ways.single);
+      final only = ways.single;
+      // A number no directory lists, reached over our certificate: a member
+      // who joined after our key file answers with theirs. Anybody else just
+      // gets an SMS they cannot read — the user should know before.
+      if (only.isCert && only.keyId.isEmpty && !await _confirmUnlisted()) {
+        return;
+      }
+      _start(only);
       return;
     }
     final picked = await showModalBottomSheet<SecurePeer>(
@@ -91,7 +98,9 @@ class _SecureNewConversationScreenState
                         : Icons.menu_book_outlined,
                   ),
                   title: Text(w.name),
-                  subtitle: Text(w.sourceName ?? ''),
+                  subtitle: Text(
+                    w.sourceName ?? (w.isCert ? 'عضو سازمان، با گواهی' : ''),
+                  ),
                   onTap: () => Navigator.of(sheetCtx).pop(w),
                 ),
               const SizedBox(height: 8),
@@ -102,6 +111,32 @@ class _SecureNewConversationScreenState
     );
     if (picked != null) _start(picked);
   }
+
+  Future<bool> _confirmUnlisted() async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (ctx) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('این شماره در دفترچهٔ کلید نیست'),
+            content: const Text(
+              'اگر عضو سازمان باشد، با اولین پیام کانال امن برقرار می‌شود. '
+              'اگر نباشد، فقط یک پیامک نامفهوم دریافت می‌کند.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('انصراف'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('ادامه'),
+              ),
+            ],
+          ),
+        ),
+      ) ==
+      true;
 
   List<Widget> _hiddenSection(BuildContext context, ColorScheme scheme) {
     final hidden = context.watch<HiddenBloc>().state.contacts;

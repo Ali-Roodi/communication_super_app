@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:communication_super_app/core/edition/app_edition.dart';
+import 'package:communication_super_app/features/keybank/services/trust_anchors.dart';
 import 'package:communication_super_app/features/secure/repositories/key_bank_repository.dart';
 import 'package:communication_super_app/features/secure/repositories/secure_group_store.dart';
 import 'package:communication_super_app/features/secure/repositories/secure_message_store.dart';
@@ -52,7 +53,9 @@ class SecureMessenger {
     int Function()? clock,
     String Function()? newId,
     bool? coverAllowed,
+    List<Uint8List> Function()? anchors,
   }) : _coverAllowed = coverAllowed ?? kOrganizationBuild,
+       _anchors = anchors ?? (() => TrustAnchors.all),
        _store = store ?? SecureMessageStore(),
        _groups = groups ?? SecureGroupStore(),
        _hidden = hidden,
@@ -78,6 +81,14 @@ class SecureMessenger {
   final HiddenSmsSource? _hidden;
   final int Function() _clock;
   final String Function() _newId;
+
+  /// The authorities a member certificate must be signed by.
+  final List<Uint8List> Function() _anchors;
+
+  /// Our post-quantum upgrade offer is sent again (on the next flush) when
+  /// no answer came in this long — it is eleven SMS parts, and one lost part
+  /// loses it.
+  static const upgradeRetry = Duration(minutes: 30);
 
   /// A packet that could not be used for this long, or this many tries, is
   /// dropped: its handshake is not coming.
@@ -265,6 +276,16 @@ class SecureMessenger {
     final phone = await _owner(from, info);
     try {
       return switch (info.type) {
+        SmsPacketType.init when info.cert => await _onCertInit(
+          phone,
+          packet,
+          info,
+        ),
+        SmsPacketType.response when info.cert => await _onCertResponse(
+          phone,
+          packet,
+          info,
+        ),
         SmsPacketType.init => await _onInit(phone, packet, info),
         SmsPacketType.response => await _onResponse(phone, packet, info),
         SmsPacketType.message => await _onMessage(phone, packet, info),
@@ -285,7 +306,9 @@ class SecureMessenger {
         final kid = info.senderKid;
         if (kid == null) return from;
         final known = await _store.phoneForPeerKey(keyHex(kid));
-        return known ?? from;
+        // A certificate names the member's number: a request from their
+        // other SIM still lands in the conversation with that number.
+        return known ?? info.certPhone ?? from;
       case SmsPacketType.response:
         if ((await _store.sessions(
           from,
@@ -447,6 +470,167 @@ class SecureMessenger {
     return _Outcome.done;
   }
 
+  /// A certificate session request (`CertHandshake`): from a member who may
+  /// never have been given our key, and whom we may never have been given.
+  /// Its certificate is checked against the authority **before** anything is
+  /// stored or answered — [phone] came from what it claims.
+  Future<_Outcome> _onCertInit(
+    String phone,
+    InboxPacket packet,
+    SmsPacketInfo info,
+  ) async {
+    final own = await _identities.ownCert(phone: phone);
+    if (own == null) {
+      debugPrint('Certificate request dropped: this phone has no certificate');
+      return _Outcome.done;
+    }
+    final conversation = await _store.conversation(phone);
+    final known = conversation?.peerGeneration;
+    if (known != null && (info.certGeneration ?? 0) < known) {
+      debugPrint('Certificate request dropped: an older key of this member');
+      return _Outcome.done;
+    }
+    final sessions = await _store.sessions(phone);
+    if (sessions.any((s) => s.sid == info.sid && !s.pending)) {
+      debugPrint('Session request already answered');
+      return _Outcome.done;
+    }
+    final SmsCertHandshake answer;
+    try {
+      answer = await _crypto.certRespond(
+        secret: own.identity.secret,
+        cert: own.cert!,
+        text: packet.body,
+        anchors: _anchors(),
+      );
+    } on SmsCryptoException catch (e) {
+      debugPrint('Certificate request refused: ${e.failure.name}');
+      return _Outcome.done;
+    }
+    // Both sides asked at once — the same rule as the full handshake, on the
+    // certificates' key ids.
+    for (final mine in sessions.where((s) => s.pending)) {
+      if (await _crypto.ownInitWins(own.identity.keyId, info.senderKid!)) {
+        if (_clock() - mine.createdAt > crossedGrace.inMilliseconds) {
+          debugPrint(
+            'Crossed session requests: ours went unanswered, asking again',
+          );
+          await _store.deleteSession(phone, mine.sid);
+          final c = await _store.conversation(phone);
+          if (c != null && c.encrypted) {
+            await _handshakeIfNeeded(c, await _store.sessions(phone));
+          }
+        } else {
+          debugPrint(
+            'Crossed session requests: ours wins, waiting for the answer',
+          );
+        }
+        return _Outcome.done;
+      }
+      await _store.deleteSession(phone, mine.sid);
+    }
+
+    final now = _clock();
+    if (conversation == null ||
+        !conversation.encrypted ||
+        !conversation.isCert) {
+      // A member who reached us first, or a conversation that ran on
+      // another key: from now on, the certificate one.
+      await _store.upsertConversation(
+        phone: phone,
+        name:
+            await _hidden?.nameFor(phone) ??
+            await _identities.nameFor(phone) ??
+            conversation?.name ??
+            phone,
+        peerKeyId: keyHex(answer.peer.keyId),
+        peerPublic: answer.peer.cert,
+        ownKeyId: own.keyId,
+        ownSource: own.source,
+        now: now,
+        listed: false,
+      );
+    }
+    await _store.bindCertPeer(
+      phone: phone,
+      peerKeyId: keyHex(answer.peer.keyId),
+      cert: answer.peer.cert,
+      generation: answer.peer.generation,
+    );
+    await _store.saveSession(
+      StoredSession(
+        phone: phone,
+        sid: answer.sid,
+        pending: false,
+        state: answer.session,
+        createdAt: now,
+        kind: SessionKind.certResponded,
+      ),
+    );
+    await _store.pruneSessions(phone);
+    await _sendQuietly(phone, answer.wire!, 'hs-${_newId()}');
+    debugPrint('Certificate request answered (${answer.parts} parts)');
+    _changed(null);
+    await _flush(phone);
+    return _Outcome.done;
+  }
+
+  /// The answer to our certificate request: who answered is learnt here.
+  Future<_Outcome> _onCertResponse(
+    String phone,
+    InboxPacket packet,
+    SmsPacketInfo info,
+  ) async {
+    final pending = (await _store.sessions(
+      phone,
+    )).where((s) => s.pending && s.sid == info.sid).firstOrNull;
+    if (pending == null) return _Outcome.done; // not ours, or answered already
+    final conversation = await _store.conversation(phone);
+    if (conversation == null || !conversation.isCert) return _Outcome.done;
+    final own = await _identities.ownByKeyId(conversation.ownKeyId!);
+    if (own == null || !own.isCert) return _Outcome.done;
+    final SmsCertHandshake done;
+    try {
+      done = await _crypto.certComplete(
+        secret: own.identity.secret,
+        cert: own.cert!,
+        pending: pending.state,
+        text: packet.body,
+        anchors: _anchors(),
+      );
+    } on SmsCryptoException catch (e) {
+      // Not signed by our authority, forged or damaged: keep waiting.
+      debugPrint('Certificate answer refused: ${e.failure.name}');
+      return _Outcome.done;
+    }
+    final known = conversation.peerGeneration;
+    if (known != null && done.peer.generation < known) {
+      debugPrint('Certificate answer refused: an older key of this member');
+      return _Outcome.done;
+    }
+    await _store.bindCertPeer(
+      phone: phone,
+      peerKeyId: keyHex(done.peer.keyId),
+      cert: done.peer.cert,
+      generation: done.peer.generation,
+    );
+    await _store.saveSession(
+      StoredSession(
+        phone: phone,
+        sid: pending.sid,
+        pending: false,
+        state: done.session,
+        createdAt: _clock(),
+        kind: SessionKind.certInitiated,
+      ),
+    );
+    await _store.pruneSessions(phone);
+    _changed(null);
+    // The queued messages first; the upgrade offer follows them (_flush).
+    await _flush(phone);
+    return _Outcome.done;
+  }
+
   Future<_Outcome> _onMessage(
     String phone,
     InboxPacket packet,
@@ -477,6 +661,34 @@ class SecureMessenger {
       if (e.failure == SmsCryptoFailure.duplicate) return _Outcome.done;
       rethrow;
     }
+    // The offerer was heard on the session we upgraded to: it has it, and
+    // from now on it is the one we send on.
+    if (session.kind == SessionKind.pqStandby) {
+      await _store.db.transaction(
+        (txn) => _store.setSessionKind(txn, phone, session.sid, SessionKind.pq),
+      );
+      debugPrint('Post-quantum upgrade confirmed');
+    }
+    switch (opened.kind) {
+      case SmsPayloadKind.pqOffer:
+        await _acceptUpgrade(phone, session, opened);
+        return _Outcome.done;
+      case SmsPayloadKind.pqAccept:
+        await _completeUpgrade(phone, session, opened);
+        return _Outcome.done;
+      case SmsPayloadKind.pqDone:
+        await _store.db.transaction(
+          (txn) => _store.updateSessionState(
+            txn,
+            phone,
+            session.sid,
+            opened.session,
+          ),
+        );
+        return _Outcome.done;
+      default:
+        break;
+    }
     // A group definition needs our key ids (to find ourselves in it) and
     // canonical numbers — read before the transaction: the key bank lives in
     // this same database.
@@ -484,16 +696,24 @@ class SecureMessenger {
     definition;
     final groupInfo = opened.groupInfo;
     if (groupInfo != null) {
-      final own = {for (final o in await _identities.own()) o.keyId};
+      final ours = await _identities.own();
+      final own = {for (final o in ours) o.keyId};
+      // A member the creator reaches over a certificate it has not had an
+      // answer for yet is listed with no key id (all zero): found by number.
+      final ownNumbers = {
+        for (final o in ours)
+          if (o.isCert && o.number != null) o.number!,
+      };
       final members = <({String phone, String keyId})>[];
       var me = false;
       for (final m in groupInfo.members) {
         final kid = keyHex(m.keyId);
-        if (own.contains(kid)) {
+        final canonical = await _crypto.canonicalPhone(m.phone) ?? m.phone;
+        if (own.contains(kid) ||
+            (kid == _unknownKid && ownNumbers.contains(canonical))) {
           me = true;
           continue;
         }
-        final canonical = await _crypto.canonicalPhone(m.phone) ?? m.phone;
         // The creator is added by every receiver itself.
         if (canonical == phone) continue;
         members.add((phone: canonical, keyId: kid));
@@ -594,11 +814,197 @@ class SecureMessenger {
                 opened.refCounter!,
               ) !=
               null;
+        case SmsPayloadKind.pqOffer:
+        case SmsPayloadKind.pqAccept:
+        case SmsPayloadKind.pqDone:
+          break; // handled above
       }
     });
     // A group change repaints the whole list (null); a pair's, that pair.
     _changed(groupChanged ? null : phone);
     return _Outcome.done;
+  }
+
+  // ── The post-quantum upgrade (`Upgrade`) ────────────────────────────────
+  //
+  // A certificate session is classical (two SMS parts instead of ten: the
+  // owner's trade). Its initiator then offers its ML-KEM key on it, in the
+  // background and after whatever was queued; the answer makes a new,
+  // post-quantum session on both sides. The accepter keeps it on standby —
+  // sends nothing on it — until the offerer is heard on it (`pqDone`, one
+  // part): an answer lost on the way would otherwise leave it writing on a
+  // session the other phone does not have.
+
+  /// A key id that names nobody: a group member reached over a certificate
+  /// that has not answered yet.
+  static const _unknownKid = '0000000000000000';
+
+  /// Offers the upgrade on our newest certificate session, once — and again
+  /// after [upgradeRetry] while no answer came.
+  Future<void> _maybeUpgrade(String phone) async {
+    final sessions = await _store.sessions(phone);
+    if (sessions.any((s) => s.kind == SessionKind.pq)) return;
+    final session = sessions.where((s) => s.sendable).firstOrNull;
+    if (session == null || session.kind != SessionKind.certInitiated) return;
+    final offered = session.offeredAt;
+    if (offered != null && _clock() - offered < upgradeRetry.inMilliseconds) {
+      return;
+    }
+    final conversation = await _store.conversation(phone);
+    final own = conversation?.ownKeyId == null
+        ? null
+        : await _identities.ownByKeyId(conversation!.ownKeyId!);
+    if (own == null) return;
+    final SmsSealed sealed;
+    try {
+      sealed = await _crypto.upgradeOffer(
+        session: session.state,
+        secret: own.identity.secret,
+      );
+    } on SmsCryptoException catch (e) {
+      debugPrint('Upgrade offer failed: ${e.failure.name}');
+      return;
+    }
+    await _store.db.transaction((txn) async {
+      await _store.updateSessionState(txn, phone, session.sid, sealed.state);
+      await _store.setOfferedAt(txn, phone, session.sid, _clock());
+    });
+    await _sendQuietly(phone, sealed.wire, 'pq-${_newId()}');
+    debugPrint('Post-quantum upgrade offered (${sealed.parts} parts)');
+  }
+
+  /// The peer offered its key on [session]: answer, and keep the upgraded
+  /// session on standby.
+  Future<void> _acceptUpgrade(
+    String phone,
+    StoredSession session,
+    SmsDecrypted opened,
+  ) async {
+    final sessions = await _store.sessions(phone);
+    final key = opened.pqKey;
+    if (key == null ||
+        session.kind != SessionKind.certResponded ||
+        sessions.any((s) => s.kind == SessionKind.pq)) {
+      // Upgraded and confirmed already (the offer came twice): just move on.
+      await _store.db.transaction(
+        (txn) =>
+            _store.updateSessionState(txn, phone, session.sid, opened.session),
+      );
+      return;
+    }
+    final SmsUpgradeAccepted accepted;
+    try {
+      accepted = await _crypto.upgradeAccept(
+        session: opened.session,
+        key: key,
+        busySids: {for (final s in sessions) s.sid},
+      );
+    } on SmsCryptoException catch (e) {
+      debugPrint('Upgrade offer refused: ${e.failure.name}');
+      await _store.db.transaction(
+        (txn) =>
+            _store.updateSessionState(txn, phone, session.sid, opened.session),
+      );
+      return;
+    }
+    await _store.db.transaction((txn) async {
+      // An earlier answer was lost — the offerer asked again — so the
+      // session it made is of no use to anybody.
+      await txn.delete(
+        'sm_sessions',
+        where: 'phone = ? AND kind = ?',
+        whereArgs: [phone, SessionKind.pqStandby],
+      );
+      await _store.updateSessionState(
+        txn,
+        phone,
+        session.sid,
+        accepted.answer.state,
+      );
+      await _store.putSession(
+        txn,
+        StoredSession(
+          phone: phone,
+          sid: accepted.upgradedSid,
+          pending: false,
+          state: accepted.upgraded,
+          createdAt: _clock(),
+          kind: SessionKind.pqStandby,
+        ),
+      );
+    });
+    await _sendQuietly(phone, accepted.answer.wire, 'pq-${_newId()}');
+    debugPrint(
+      'Post-quantum upgrade answered (${accepted.answer.parts} parts)',
+    );
+  }
+
+  /// The answer to our offer: the upgraded session, used from now on, and
+  /// `pqDone` on it so the peer starts using it too.
+  Future<void> _completeUpgrade(
+    String phone,
+    StoredSession session,
+    SmsDecrypted opened,
+  ) async {
+    Future<void> keepState() => _store.db.transaction(
+      (txn) =>
+          _store.updateSessionState(txn, phone, session.sid, opened.session),
+    );
+    final sessions = await _store.sessions(phone);
+    final sid = opened.pqSid;
+    final ciphertext = opened.pqCiphertext;
+    if (sid == null ||
+        ciphertext == null ||
+        session.kind != SessionKind.certInitiated ||
+        sessions.any((s) => s.kind == SessionKind.pq || s.sid == sid)) {
+      await keepState();
+      return;
+    }
+    final conversation = await _store.conversation(phone);
+    final own = conversation?.ownKeyId == null
+        ? null
+        : await _identities.ownByKeyId(conversation!.ownKeyId!);
+    if (own == null) {
+      await keepState();
+      return;
+    }
+    final Uint8List upgraded;
+    final SmsSealed done;
+    try {
+      upgraded = await _crypto.upgradeComplete(
+        session: opened.session,
+        secret: own.identity.secret,
+        sid: sid,
+        ciphertext: ciphertext,
+      );
+      done = await _crypto.encryptControl(
+        session: upgraded,
+        control: 'pqDone',
+        refSid: 0,
+        refCounter: 0,
+      );
+    } on SmsCryptoException catch (e) {
+      debugPrint('Upgrade answer refused: ${e.failure.name}');
+      await keepState();
+      return;
+    }
+    await _store.db.transaction((txn) async {
+      await _store.updateSessionState(txn, phone, session.sid, opened.session);
+      await _store.putSession(
+        txn,
+        StoredSession(
+          phone: phone,
+          sid: sid,
+          pending: false,
+          state: done.state,
+          createdAt: _clock(),
+          kind: SessionKind.pq,
+        ),
+      );
+    });
+    await _store.pruneSessions(phone);
+    await _sendQuietly(phone, done.wire, 'pq-${_newId()}');
+    debugPrint('Post-quantum upgrade complete');
   }
 
   // ── Sending ──────────────────────────────────────────────────────────────
@@ -769,10 +1175,14 @@ class SecureMessenger {
   /// Sends whatever is queued for [phone], or the handshake it needs first.
   Future<void> flush(String phone) => _serial(() => _flush(phone));
 
-  /// Whether the key bank still holds both keys [c] was made with.
-  Future<bool> _keysCurrent(SecureConversation c) async =>
-      await _identities.ownByKeyId(c.ownKeyId!) != null &&
-      await _identities.byKeyId(c.peerKeyId!, c.phone) != null;
+  /// Whether the key bank still holds both keys [c] was made with. A
+  /// certificate peer is not in the bank at all — its key was accepted on
+  /// the authority's signature — so only ours is checked.
+  Future<bool> _keysCurrent(SecureConversation c) async {
+    if (await _identities.ownByKeyId(c.ownKeyId!) == null) return false;
+    if (c.isCert) return true;
+    return await _identities.byKeyId(c.peerKeyId!, c.phone) != null;
+  }
 
   /// [c] on the keys the key bank holds now.
   ///
@@ -788,9 +1198,12 @@ class SecureMessenger {
   /// number any more (the member was removed): nothing can be sent.
   Future<SecureConversation?> _current(SecureConversation c) async {
     if (!c.encrypted || await _keysCurrent(c)) return c;
-    final candidates = await _identities.forNumber(c.phone);
+    final candidates = c.isCert
+        ? await _identities.forTypedNumber(c.phone)
+        : await _identities.forNumber(c.phone);
     final next =
         candidates.where((p) => p.source == c.ownSource).firstOrNull ??
+        candidates.where((p) => p.isCert).firstOrNull ??
         candidates.where((p) => p.source.startsWith('directory:')).firstOrNull;
     if (next == null) {
       debugPrint('Conversation keys retired; the key bank has none for it');
@@ -828,9 +1241,12 @@ class SecureMessenger {
     // first, so they know the group before its messages), then messages.
     final infos = await _groups.staleInfoFor(phone);
     final groupQueued = await _groups.queuedFor(phone);
-    if (queued.isEmpty && infos.isEmpty && groupQueued.isEmpty) return;
+    if (queued.isEmpty && infos.isEmpty && groupQueued.isEmpty) {
+      await _maybeUpgrade(phone);
+      return;
+    }
     final sessions = await _store.sessions(phone);
-    final session = sessions.where((s) => !s.pending).firstOrNull;
+    final session = sessions.where((s) => s.sendable).firstOrNull;
     if (session == null) {
       await _handshakeIfNeeded(conversation, sessions);
       return;
@@ -877,6 +1293,8 @@ class SecureMessenger {
     for (final q in groupQueued) {
       state = await _sendGroupText(phone, session.sid, state, q.message);
     }
+    // Behind what the user is waiting for, never in front of it.
+    await _maybeUpgrade(phone);
   }
 
   /// One member's copy of a group definition. Returns the session's next
@@ -898,7 +1316,10 @@ class SecureMessenger {
           name: g.name,
           members: [
             for (final m in g.members)
-              SmsGroupMember(phone: m.phone, keyId: _unhex(m.keyId)),
+              SmsGroupMember(
+                phone: m.phone,
+                keyId: _unhex(m.keyId.isEmpty ? _unknownKid : m.keyId),
+              ),
           ],
         ),
       );
@@ -990,11 +1411,18 @@ class SecureMessenger {
       debugPrint('No identity of ours for this conversation any more');
       return;
     }
-    final started = await _crypto.initiate(
-      secret: own.identity.secret,
-      peer: conversation.peerPublic!,
-      busySids: {for (final s in sessions) s.sid},
-    );
+    // A certificate conversation needs nothing of the peer's: the request
+    // carries our certificate, the answer brings theirs.
+    final started = own.isCert
+        ? await _crypto.certInitiate(
+            cert: own.cert!,
+            busySids: {for (final s in sessions) s.sid},
+          )
+        : await _crypto.initiate(
+            secret: own.identity.secret,
+            peer: conversation.peerPublic!,
+            busySids: {for (final s in sessions) s.sid},
+          );
     await _store.saveSession(
       StoredSession(
         phone: phone,
@@ -1002,9 +1430,11 @@ class SecureMessenger {
         pending: true,
         state: started.state,
         createdAt: _clock(),
+        kind: own.isCert ? SessionKind.certInitiated : SessionKind.v1,
       ),
     );
     await _sendQuietly(phone, started.wire, 'hs-${_newId()}');
+    debugPrint('Session request sent (${started.parts} parts)');
   }
 
   /// `secure_meta` key: the SIM every encrypted SMS goes out on (a
@@ -1074,7 +1504,7 @@ class SecureMessenger {
   ) async {
     final session = (await _store.sessions(
       phone,
-    )).where((s) => !s.pending).firstOrNull;
+    )).where((s) => s.sendable).firstOrNull;
     if (session == null) return false;
     final sealed = await _crypto.encryptControl(
       session: session.state,
@@ -1256,7 +1686,13 @@ class SecureMessenger {
     final existing = await _store.conversation(phone);
     if (existing != null && existing.encrypted) return true;
     if (keyId == null) return false;
-    final peer = await _identities.byKeyId(keyId, phone);
+    var peer = keyId == _unknownKid
+        ? null
+        : await _identities.byKeyId(keyId, phone);
+    // A member the group's creator reaches over a certificate: so can we.
+    peer ??= (await _identities.forTypedNumber(
+      phone,
+    )).where((p) => p.isCert).firstOrNull;
     if (peer == null) return false;
     await _ensurePeers([peer]);
     return true;

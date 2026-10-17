@@ -214,6 +214,41 @@ void main() {
     expect(s.ownNumbers, isEmpty);
   });
 
+  test('the member certificate is kept with the own key', () async {
+    final plain = _file(ownIndex: 1);
+    expect(await repo.importKeyFile(plain), KeyImportOutcome.added);
+    expect((await repo.ownDirectoryKeys()).single.cert, isNull);
+    // The same issue again, now with the certificate (a file re-issued by
+    // a panel that writes them): the key stays, the certificate is added.
+    final cert = MemberCertInfo(
+      cert: _b(103, 0x33),
+      keyId: _b(8, 0x44),
+      phone: '09122222222',
+      generation: 0,
+    );
+    final withCert = OpenedKeyFile(
+      signed: plain.signed,
+      directory: plain.directory,
+      memberIndex: plain.memberIndex,
+      member: plain.member,
+      cert: cert,
+    );
+    expect(await repo.importKeyFile(withCert), KeyImportOutcome.ownKeyAdded);
+    expect((await repo.ownDirectoryKeys()).single.cert, _b(103, 0x33));
+    expect(
+      await repo.importKeyFile(withCert),
+      KeyImportOutcome.alreadyImported,
+    );
+    expect(await repo.nameFor('09121111111'), 'علی');
+    expect(await repo.nameFor('09129999999'), isNull);
+  });
+
+  test('the certificate key id is the one Kotlin computes', () {
+    // Pinned on the Kotlin side by CertHandshakeTest.
+    final public = Uint8List(1217)..fillRange(1185, 1217, 7);
+    expect(certKeyIdFor(public), '6d0190893fd7bb4f');
+  });
+
   test('a phase C section (schema v1) gains the key bank tables', () async {
     // A file of its own: the in-memory database is shared with setUp's.
     final dir = await Directory.systemTemp.createTemp('kb_migration');

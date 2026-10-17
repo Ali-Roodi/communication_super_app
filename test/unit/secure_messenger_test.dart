@@ -39,6 +39,22 @@ Uint8List _state(Map<String, Object?> m) =>
 Map<String, dynamic> _unstate(Uint8List s) =>
     jsonDecode(utf8.decode(s)) as Map<String, dynamic>;
 
+Uint8List _bytes(String s) => Uint8List.fromList(utf8.encode(s));
+
+/// A fake member certificate (see [FakeCrypto]).
+Uint8List fakeCert(String who, String phone, {int gen = 0, bool ok = true}) =>
+    _bytes(jsonEncode({'who': who, 'phone': phone, 'gen': gen, 'ok': ok}));
+
+MemberCertInfo fakeCertInfo(Uint8List cert) {
+  final m = jsonDecode(utf8.decode(cert)) as Map;
+  return MemberCertInfo(
+    cert: cert,
+    keyId: _kid('${m['who']}#${m['gen']}'),
+    phone: m['phone'] as String,
+    generation: m['gen'] as int,
+  );
+}
+
 class FakeCrypto implements SmsCryptoService {
   FakeCrypto(this.seed);
   int seed;
@@ -56,12 +72,21 @@ class FakeCrypto implements SmsCryptoService {
       sid: m['sid'] as int,
       counter: m['n'] as int?,
       control: m['control'] == true,
-      senderKid: m['from'] == null
+      senderKid: m['cert'] != null
+          ? fakeCertInfo(_bytes(m['cert'] as String)).keyId
+          : m['from'] == null
           ? null
           : Uint8List.fromList(utf8.encode(m['from'] as String)),
       recipientKid: m['to'] == null
           ? null
           : Uint8List.fromList(utf8.encode(m['to'] as String)),
+      cert: m['cert'] != null,
+      certPhone: m['cert'] == null
+          ? null
+          : fakeCertInfo(_bytes(m['cert'] as String)).phone,
+      certGeneration: m['cert'] == null
+          ? null
+          : fakeCertInfo(_bytes(m['cert'] as String)).generation,
     );
   }
 
@@ -227,6 +252,9 @@ class FakeCrypto implements SmsCryptoService {
       refCounter: m['refCounter'] as int?,
       groupId: m['gid'] == null ? null : _unhex(m['gid'] as String),
       ttlSeconds: m['ttl'] as int?,
+      pqKey: m['key'] == null ? null : _bytes(m['key'] as String),
+      pqSid: m['pqSid'] as int?,
+      pqCiphertext: m['ct'] == null ? null : _bytes(m['ct'] as String),
       groupInfo: m['kind'] == 'groupInfo'
           ? SmsGroupInfo(
               groupId: _unhex(m['gid'] as String),
@@ -254,6 +282,140 @@ class FakeCrypto implements SmsCryptoService {
   Future<bool> ownInitWins(Uint8List ownKid, Uint8List peerKid) async =>
       utf8.decode(ownKid).compareTo(utf8.decode(peerKid)) <= 0;
 
+  // ── Certificates and the upgrade (fakes as transparent as the rest) ──────
+  //
+  // A certificate is JSON: who, phone, generation, and whether "the
+  // authority signed it" (`ok`). Its key id is `<who>#<gen>`.
+
+  /// Wire texts of every certificate request this crypto made, for a test
+  /// to replay.
+  final List<String> certInits = [];
+
+  @override
+  Future<MemberCertInfo> certInfo(Uint8List cert) async => fakeCertInfo(cert);
+
+  @override
+  Future<SmsSealed> certInitiate({
+    required Uint8List cert,
+    Set<int> busySids = const {},
+  }) async {
+    var sid = seed++;
+    while (busySids.contains(sid)) {
+      sid = seed++;
+    }
+    final wire = _wire({'t': 'init', 'sid': sid, 'cert': utf8.decode(cert)});
+    certInits.add(wire);
+    return SmsSealed(
+      state: _state({'sid': sid, 'own': fakeCertInfo(cert).phone}),
+      wire: wire,
+      parts: 2,
+      sid: sid,
+    );
+  }
+
+  void _checkTrusted(MemberCertInfo peer, Uint8List raw) {
+    if ((jsonDecode(utf8.decode(raw)) as Map)['ok'] != true) {
+      throw const SmsCryptoException(SmsCryptoFailure.untrusted);
+    }
+  }
+
+  @override
+  Future<SmsCertHandshake> certRespond({
+    required Uint8List secret,
+    required Uint8List cert,
+    required String text,
+    required List<Uint8List> anchors,
+  }) async {
+    final m = _unwire(text);
+    final raw = Uint8List.fromList(utf8.encode(m['cert'] as String));
+    final peer = fakeCertInfo(raw);
+    _checkTrusted(peer, raw);
+    final sid = m['sid'] as int;
+    return SmsCertHandshake(
+      session: _state({'sid': sid, 'send': 0, 'got': <int>[], 'root': true}),
+      sid: sid,
+      peer: peer,
+      wire: _wire({'t': 'response', 'sid': sid, 'cert': utf8.decode(cert)}),
+      parts: 2,
+    );
+  }
+
+  @override
+  Future<SmsCertHandshake> certComplete({
+    required Uint8List secret,
+    required Uint8List cert,
+    required Uint8List pending,
+    required String text,
+    required List<Uint8List> anchors,
+  }) async {
+    final m = _unwire(text);
+    final p = _unstate(pending);
+    if (m['sid'] != p['sid']) {
+      throw const SmsCryptoException(SmsCryptoFailure.wrongSession);
+    }
+    final raw = Uint8List.fromList(utf8.encode(m['cert'] as String));
+    final peer = fakeCertInfo(raw);
+    _checkTrusted(peer, raw);
+    return SmsCertHandshake(
+      session: _state({
+        'sid': p['sid'],
+        'send': 0,
+        'got': <int>[],
+        'root': true,
+      }),
+      sid: p['sid'] as int,
+      peer: peer,
+    );
+  }
+
+  @override
+  Future<SmsSealed> upgradeOffer({
+    required Uint8List session,
+    required Uint8List secret,
+  }) async {
+    if (_unstate(session)['root'] != true) {
+      throw const SmsCryptoException(SmsCryptoFailure.wrongSession);
+    }
+    return _seal(session, {
+      'kind': 'pqOffer',
+      'key': _who(secret),
+    }, control: true);
+  }
+
+  @override
+  Future<SmsUpgradeAccepted> upgradeAccept({
+    required Uint8List session,
+    required Uint8List key,
+    Set<int> busySids = const {},
+  }) async {
+    var sid = seed++;
+    while (busySids.contains(sid)) {
+      sid = seed++;
+    }
+    return SmsUpgradeAccepted(
+      answer: _seal(session, {
+        'kind': 'pqAccept',
+        'pqSid': sid,
+        'ct': 'ct-${utf8.decode(key)}',
+      }, control: true),
+      upgraded: _state({'sid': sid, 'send': 0, 'got': <int>[], 'pq': true}),
+      upgradedSid: sid,
+    );
+  }
+
+  @override
+  Future<Uint8List> upgradeComplete({
+    required Uint8List session,
+    required Uint8List secret,
+    required int sid,
+    required Uint8List ciphertext,
+  }) async {
+    if (utf8.decode(ciphertext) != 'ct-${_who(secret)}') {
+      throw const SmsCryptoException(SmsCryptoFailure.badPayload);
+    }
+    return _state({'sid': sid, 'send': 0, 'got': <int>[], 'pq': true});
+  }
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -272,7 +434,72 @@ class FakeIdentities implements SecureIdentities {
   /// Members the authority removed: no longer in this phone's directory.
   final Set<String> removed = {};
 
+  /// This phone's key came with a member certificate: every peer is reached
+  /// over the certificate handshake.
+  bool certs = false;
+
+  /// Our certificate's generation (raised for a "lost phone"), and whether
+  /// the authority signed it.
+  int gen = 0;
+  bool trusted = true;
+
+  /// The generation the directory says a member is at (default 0).
+  final Map<String, int> gens = {};
+
   String _key(String name) => keys[name] ?? name;
+
+  String _certKid(String name, int g) => _hex(_kid('$name#$g'));
+
+  OwnIdentity get _ownCert {
+    final cert = fakeCert(me, book[me]!, gen: gen, ok: trusted);
+    return OwnIdentity(
+      identity: SmsIdentity(
+        secret: _kid(_key(me)),
+        publicKey: cert,
+        keyId: fakeCertInfo(cert).keyId,
+      ),
+      source: 'cert:d',
+      number: book[me],
+      cert: cert,
+    );
+  }
+
+  SecurePeer certPeer(String name) => SecurePeer(
+    name: name,
+    phone: book[name]!,
+    publicKey: Uint8List(0),
+    keyId: _certKid(name, gens[name] ?? 0),
+    source: 'cert:d',
+    own: _ownCert,
+  );
+
+  @override
+  Future<OwnIdentity?> ownCert({String? phone}) async =>
+      certs ? _ownCert : null;
+
+  @override
+  Future<String?> nameFor(String phone) async {
+    for (final e in book.entries) {
+      if (e.value == phone && !removed.contains(e.key)) return e.key;
+    }
+    return null;
+  }
+
+  @override
+  Future<List<SecurePeer>> forTypedNumber(String phone) async {
+    final peers = await forNumber(phone);
+    if (!certs || peers.isNotEmpty) return peers;
+    return [
+      SecurePeer(
+        name: phone,
+        phone: phone,
+        publicKey: Uint8List(0),
+        keyId: '',
+        source: 'cert:d',
+        own: _ownCert,
+      ),
+    ];
+  }
 
   OwnIdentity get _own => OwnIdentity(
     identity: SmsIdentity(
@@ -295,24 +522,32 @@ class FakeIdentities implements SecureIdentities {
   @override
   Future<List<SecurePeer>> forNumber(String phone) async => [
     for (final name in book.keys)
-      if (book[name] == phone && !removed.contains(name)) peer(name),
+      if (book[name] == phone && !removed.contains(name))
+        certs ? certPeer(name) : peer(name),
   ];
 
   static String _hex(List<int> b) =>
       b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
 
   @override
-  Future<List<OwnIdentity>> own() async => [_own];
+  Future<List<OwnIdentity>> own() async => [_own, if (certs) _ownCert];
 
   @override
-  Future<OwnIdentity?> ownByKeyId(String keyId) async =>
-      keyId == _own.keyId ? _own : null;
+  Future<OwnIdentity?> ownByKeyId(String keyId) async {
+    for (final o in await own()) {
+      if (o.keyId == keyId) return o;
+    }
+    return null;
+  }
 
   @override
   Future<SecurePeer?> byKeyId(String keyId, String phone) async {
     for (final name in book.keys) {
       if (removed.contains(name)) continue;
       if (_hex(_kid(_key(name))) == keyId) return peer(name);
+      if (certs && _certKid(name, gens[name] ?? 0) == keyId) {
+        return certPeer(name);
+      }
     }
     return null;
   }
@@ -425,6 +660,7 @@ class Phone {
     int seed,
   ) : identities = FakeIdentities(name, book),
       queue = FakeQueue(),
+      crypto = FakeCrypto(seed),
       hidden = FakeHidden() {
     store = SecureMessageStore(database: () => db);
     air.queues[number] = queue;
@@ -434,7 +670,7 @@ class Phone {
       groups: groups,
       queue: queue,
       identities: identities,
-      crypto: FakeCrypto(seed),
+      crypto: crypto,
       sender: air.senderFor(number),
       hidden: hidden,
       clock: () => air.clock++,
@@ -447,6 +683,7 @@ class Phone {
   final Air air;
   final FakeIdentities identities;
   final FakeQueue queue;
+  final FakeCrypto crypto;
   final FakeHidden hidden;
   late final SecureMessageStore store;
   late final SecureGroupStore groups;
@@ -802,44 +1039,47 @@ void main() {
       }
     }
 
-    test('«گوشی گم شد»: the new phone is reached, the lost one is not', () async {
-      await ali.messenger.startConversation(ali.identities.peer('sara'));
-      await ali.messenger.sendText(book['sara']!, 'یک');
-      await settle();
-      expect((await sara.thread(book['ali']!)).single.body, 'یک');
+    test(
+      '«گوشی گم شد»: the new phone is reached, the lost one is not',
+      () async {
+        await ali.messenger.startConversation(ali.identities.peer('sara'));
+        await ali.messenger.sendText(book['sara']!, 'یک');
+        await settle();
+        expect((await sara.thread(book['ali']!)).single.body, 'یک');
 
-      // Ali imports the new directory: Sara's key is now «saranew».
-      ali.identities.keys['sara'] = 'saranew';
+        // Ali imports the new directory: Sara's key is now «saranew».
+        ali.identities.keys['sara'] = 'saranew';
 
-      // The lost phone writes over its old session: Ali does not read it.
-      await sara.messenger.sendText(book['ali']!, 'از گوشی گم‌شده');
-      air.deliver();
-      await ali.messenger.drain();
-      expect(
-        (await ali.thread(book['sara']!)).map((m) => m.body),
-        isNot(contains('از گوشی گم‌شده')),
-      );
+        // The lost phone writes over its old session: Ali does not read it.
+        await sara.messenger.sendText(book['ali']!, 'از گوشی گم‌شده');
+        air.deliver();
+        await ali.messenger.drain();
+        expect(
+          (await ali.thread(book['sara']!)).map((m) => m.body),
+          isNot(contains('از گوشی گم‌شده')),
+        );
 
-      // Ali writes again: a handshake with the NEW key, read on the new phone.
-      final saraNew = await newPhone();
-      await ali.messenger.sendText(book['sara']!, 'دو');
-      final init = air.inFlight.single;
-      expect(init.wire, contains('#E:'));
-      expect(_unwire(init.wire)['to'], 'saranew_');
-      await settleWith(ali, saraNew);
-      expect((await saraNew.thread(book['ali']!)).map((m) => m.body), ['دو']);
+        // Ali writes again: a handshake with the NEW key, read on the new phone.
+        final saraNew = await newPhone();
+        await ali.messenger.sendText(book['sara']!, 'دو');
+        final init = air.inFlight.single;
+        expect(init.wire, contains('#E:'));
+        expect(_unwire(init.wire)['to'], 'saranew_');
+        await settleWith(ali, saraNew);
+        expect((await saraNew.thread(book['ali']!)).map((m) => m.body), ['دو']);
 
-      // And her answer arrives.
-      await saraNew.messenger.sendText(book['ali']!, 'سه');
-      await settleWith(ali, saraNew);
-      expect((await ali.thread(book['sara']!)).map((m) => m.body), [
-        'یک',
-        'دو',
-        'سه',
-      ]);
-      final conversation = (await ali.store.conversation(book['sara']!))!;
-      expect(conversation.peerKeyId, FakeIdentities._hex(_kid('saranew')));
-    });
+        // And her answer arrives.
+        await saraNew.messenger.sendText(book['ali']!, 'سه');
+        await settleWith(ali, saraNew);
+        expect((await ali.thread(book['sara']!)).map((m) => m.body), [
+          'یک',
+          'دو',
+          'سه',
+        ]);
+        final conversation = (await ali.store.conversation(book['sara']!))!;
+        expect(conversation.peerKeyId, FakeIdentities._hex(_kid('saranew')));
+      },
+    );
 
     test('our own key replaced: the conversation moves to it', () async {
       await ali.messenger.startConversation(ali.identities.peer('sara'));
@@ -1320,5 +1560,183 @@ void main() {
       expect(after.count(SecureMessageStatus.delivered), 1);
       expect(after.count(SecureMessageStatus.sent), 1);
     });
+  });
+
+  // ── Member certificates (`CertHandshake`) and the upgrade (`Upgrade`) ──────
+  group('certificates', () {
+    setUp(() {
+      for (final p in [ali, sara, reza]) {
+        p.identities.certs = true;
+      }
+    });
+
+    Future<List<StoredSession>> sessionsOf(Phone p, String peer) =>
+        p.store.sessions(book[peer]!);
+
+    Future<Database> openDb() async {
+      final db = await databaseFactoryFfi.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(singleInstance: false),
+      );
+      await SecureStore.createSchemaForTest(db);
+      return db;
+    }
+
+    test(
+      'a first message goes over a certificate request, then the session turns post-quantum',
+      () async {
+        await ali.messenger.startConversation(ali.identities.certPeer('sara'));
+        await ali.messenger.sendText(book['sara']!, 'سلام');
+        // Ali never had Sara's key: the request carries his certificate.
+        final request = _unwire(air.inFlight.single.wire);
+        expect(request['t'], 'init');
+        expect(request['cert'], isNotNull);
+
+        await settle();
+        expect((await sara.thread(book['ali']!)).single.body, 'سلام');
+        expect(
+          (await ali.thread(book['sara']!)).single.status,
+          SecureMessageStatus.sent,
+        );
+        // The upgrade ran behind the message, and both sides use it.
+        final aliSessions = await sessionsOf(ali, 'sara');
+        final saraSessions = await sessionsOf(sara, 'ali');
+        expect(aliSessions.first.kind, SessionKind.pq);
+        expect(saraSessions.first.kind, SessionKind.pq);
+        expect(aliSessions.first.sid, saraSessions.first.sid);
+
+        await sara.messenger.sendText(book['ali']!, 'علیک سلام');
+        expect(
+          _unwire(air.inFlight.single.wire)['sid'],
+          saraSessions.first.sid,
+        );
+        await settle();
+        expect(
+          (await ali.thread(book['sara']!)).map((m) => m.body),
+          contains('علیک سلام'),
+        );
+        // Sara's name comes from the directory, the peer key from the answer.
+        final c = (await ali.store.conversation(book['sara']!))!;
+        expect(c.isCert, isTrue);
+        expect(c.peerKeyId, isNotEmpty);
+        expect(c.peerGeneration, 0);
+      },
+    );
+
+    test('a member in nobody\'s directory is reached by number', () async {
+      // Nima's key file was issued after everyone else's: only his own
+      // directory lists him. Nobody else got anything new.
+      const nimaNumber = '09124444444';
+      final nima = Phone('nima', nimaNumber, await openDb(), air, {
+        ...book,
+        'nima': nimaNumber,
+      }, 400)..identities.certs = true;
+      addTearDown(nima.db.close);
+
+      final ways = await ali.identities.forTypedNumber(nimaNumber);
+      expect(ways.single.isCert, isTrue);
+      expect(ways.single.keyId, isEmpty);
+      await ali.messenger.startConversation(ways.single);
+      await ali.messenger.sendText(nimaNumber, 'خوش آمدی');
+      for (var i = 0; i < 10 && air.inFlight.isNotEmpty; i++) {
+        air.deliver();
+        await ali.messenger.drain();
+        await nima.messenger.drain();
+      }
+      expect((await nima.thread(book['ali']!)).single.body, 'خوش آمدی');
+      expect((await nima.store.conversation(book['ali']!))!.name, 'ali');
+      // Who answered is known now.
+      expect((await ali.store.conversation(nimaNumber))!.peerKeyId, isNotEmpty);
+      expect((await ali.store.sessions(nimaNumber)).first.kind, SessionKind.pq);
+    });
+
+    test('a request the authority did not sign is not answered', () async {
+      sara.identities.trusted = false;
+      await sara.messenger.startConversation(sara.identities.certPeer('ali'));
+      await sara.messenger.sendText(book['ali']!, 'جعلی');
+      air.deliver();
+      await ali.messenger.drain();
+      expect(air.inFlight, isEmpty);
+      expect(await ali.store.conversation(book['sara']!), isNull);
+    });
+
+    test(
+      'a lost phone\'s older certificate is refused once a newer one is seen',
+      () async {
+        await ali.messenger.startConversation(ali.identities.certPeer('sara'));
+        await ali.messenger.sendText(book['sara']!, 'یک');
+        await settle();
+        final lostPhonesRequest = ali.crypto.certInits.first;
+
+        // «گوشی گم شد»: Ali's new key file is generation 1. His conversation
+        // moves to it and asks again; Sara follows.
+        ali.identities.gen = 1;
+        sara.identities.gens['ali'] = 1;
+        await ali.messenger.sendText(book['sara']!, 'دو');
+        await settle();
+        expect(
+          (await sara.thread(book['ali']!)).map((m) => m.body),
+          containsAll(['یک', 'دو']),
+        );
+        expect(
+          (await sara.store.conversation(book['ali']!))!.peerGeneration,
+          1,
+        );
+
+        // The lost phone asks again with its old certificate: no answer.
+        sara.queue.add(book['ali']!, lostPhonesRequest, air.clock++);
+        await sara.messenger.drain();
+        expect(air.inFlight, isEmpty);
+      },
+    );
+
+    test(
+      'a lost upgrade answer leaves both on the classical session until the offer is repeated',
+      () async {
+        await ali.messenger.startConversation(ali.identities.certPeer('sara'));
+        await ali.messenger.sendText(book['sara']!, 'سلام');
+        for (var i = 0; i < 10 && air.inFlight.isNotEmpty; i++) {
+          air.inFlight.removeWhere(
+            (p) => _unwire(p.wire)['kind'] == 'pqAccept',
+          );
+          air.deliver();
+          await ali.messenger.drain();
+          await sara.messenger.drain();
+        }
+        expect(
+          (await sessionsOf(ali, 'sara')).first.kind,
+          SessionKind.certInitiated,
+        );
+        expect(
+          (await sessionsOf(sara, 'ali')).map((s) => s.kind),
+          contains(SessionKind.pqStandby),
+        );
+
+        // Sara does not write on a session Ali never got.
+        await sara.messenger.sendText(book['ali']!, 'هنوز کلاسیک');
+        await settle();
+        expect(
+          (await ali.thread(book['sara']!)).map((m) => m.body),
+          contains('هنوز کلاسیک'),
+        );
+        expect(
+          (await sessionsOf(ali, 'sara')).first.kind,
+          SessionKind.certInitiated,
+        );
+
+        // Half an hour on, Ali's next flush offers again, and this time it works.
+        air.clock += SecureMessenger.upgradeRetry.inMilliseconds + 1;
+        await ali.messenger.flush(book['sara']!);
+        await settle();
+        expect((await sessionsOf(ali, 'sara')).first.kind, SessionKind.pq);
+        expect((await sessionsOf(sara, 'ali')).first.kind, SessionKind.pq);
+        await ali.messenger.sendText(book['sara']!, 'حالا کوانتومی');
+        await settle();
+        expect(
+          (await sara.thread(book['ali']!)).map((m) => m.body),
+          contains('حالا کوانتومی'),
+        );
+      },
+    );
   });
 }

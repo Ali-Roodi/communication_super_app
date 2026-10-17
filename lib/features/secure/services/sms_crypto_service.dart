@@ -112,6 +112,9 @@ class SmsPacketInfo {
     this.control = false,
     this.senderKid,
     this.recipientKid,
+    this.cert = false,
+    this.certPhone,
+    this.certGeneration,
   });
   final SmsPacketType type;
   final int sid;
@@ -122,9 +125,67 @@ class SmsPacketInfo {
   /// A receipt (seen / delete), not a message to read.
   final bool control;
 
-  /// Handshake packets only.
+  /// Handshake packets only. For a certificate handshake ([cert]),
+  /// [senderKid] is the key id of the certificate it carries and there is
+  /// no [recipientKid] — the request is for whoever holds the number.
   final Uint8List? senderKid;
   final Uint8List? recipientKid;
+
+  /// A certificate handshake (`CertHandshake`): what its certificate says,
+  /// **not yet verified** — `certRespond` / `certComplete` do that.
+  final bool cert;
+  final String? certPhone;
+  final int? certGeneration;
+}
+
+/// «گواهی عضو» (`MemberCert`): the authority's statement that a key belongs
+/// to the member at [phone]. [cert] is the 103 bytes as they travel.
+class MemberCertInfo {
+  const MemberCertInfo({
+    required this.cert,
+    required this.keyId,
+    required this.phone,
+    required this.generation,
+  });
+  final Uint8List cert;
+  final Uint8List keyId;
+
+  /// Canonical, always a mobile (`09…`).
+  final String phone;
+
+  /// Raised by the issuance panel's «گوشی گم شد»; a phone that has seen a
+  /// member's generation refuses an older one.
+  final int generation;
+}
+
+/// The result of a certificate handshake step: the state to store, the
+/// SMS to send (none for `certComplete`), and who is on the other side.
+class SmsCertHandshake {
+  const SmsCertHandshake({
+    required this.session,
+    required this.sid,
+    required this.peer,
+    this.wire,
+    this.parts,
+  });
+  final Uint8List session;
+  final int sid;
+  final MemberCertInfo peer;
+  final String? wire;
+  final int? parts;
+}
+
+/// `Upgrade`'s answer: [answer] is sealed on the old session (and carries
+/// its next state); [upgraded] is the new, post-quantum session [upgradedSid].
+class SmsUpgradeAccepted {
+  const SmsUpgradeAccepted({
+    required this.answer,
+    required this.upgraded,
+    required this.upgradedSid,
+  });
+  final SmsSealed answer;
+  final Uint8List upgraded;
+  final int upgradedSid;
 }
 
 /// An outgoing packet and the state to store in place of the old one.
@@ -195,14 +256,31 @@ class OpenedKeyFile {
     required this.directory,
     this.memberIndex,
     this.member,
+    this.cert,
   });
   final Uint8List signed;
   final KeyDirectory directory;
   final int? memberIndex;
   final SmsIdentity? member;
+
+  /// The member's certificate, verified — null in a file issued before
+  /// certificates, or for a member without a mobile number.
+  final MemberCertInfo? cert;
 }
 
-enum SmsPayloadKind { text, seen, delete, groupInfo }
+/// [pqOffer] / [pqAccept] are the two halves of the background post-quantum
+/// upgrade (`Upgrade`) — control packets, never shown.
+enum SmsPayloadKind {
+  text,
+  seen,
+  delete,
+  groupInfo,
+  pqOffer,
+  pqAccept,
+
+  /// The offerer has the upgraded session (sent on it).
+  pqDone,
+}
 
 /// How members answer in a group (`Payload.GROUP_MODE_*`).
 enum SmsGroupMode {
@@ -253,7 +331,17 @@ class SmsDecrypted {
     this.groupId,
     this.groupInfo,
     this.ttlSeconds,
+    this.pqKey,
+    this.pqSid,
+    this.pqCiphertext,
   });
+
+  /// [SmsPayloadKind.pqOffer]: the offerer's ML-KEM key.
+  final Uint8List? pqKey;
+
+  /// [SmsPayloadKind.pqAccept]: the upgraded session and the ciphertext.
+  final int? pqSid;
+  final Uint8List? pqCiphertext;
   final Uint8List session;
   final int sid;
   final int counter;
@@ -340,8 +428,127 @@ class SmsCryptoService {
       control: m['control'] == true,
       senderKid: m['senderKid'] as Uint8List?,
       recipientKid: m['recipientKid'] as Uint8List?,
+      cert: m['cert'] == true,
+      certPhone: m['certPhone'] as String?,
+      certGeneration: m['certGeneration'] as int?,
     );
   }
+
+  // ── The certificate handshake (`CertHandshake`) ───────────────────────────
+
+  /// Starts a session with whoever holds the number it goes to, carrying our
+  /// [cert]; [SmsSealed.state] is the pending handshake.
+  Future<SmsSealed> certInitiate({
+    required Uint8List cert,
+    Set<int> busySids = const {},
+  }) async => _sealed(
+    await _call<Map>('certInitiate', {
+      'cert': cert,
+      'busySids': busySids.toList(),
+    }),
+    'pending',
+  );
+
+  /// Answers a certificate request after checking its certificate against
+  /// [anchors]. [SmsCryptoFailure.untrusted] for one the authority did not
+  /// sign.
+  Future<SmsCertHandshake> certRespond({
+    required Uint8List secret,
+    required Uint8List cert,
+    required String text,
+    required List<Uint8List> anchors,
+  }) async {
+    final m = await _call<Map>('certRespond', {
+      'secret': secret,
+      'cert': cert,
+      'text': text,
+      'anchors': anchors,
+    });
+    return SmsCertHandshake(
+      session: m['session'] as Uint8List,
+      sid: m['sid'] as int,
+      peer: _cert(m['peer'] as Map),
+      wire: m['wire'] as String,
+      parts: m['parts'] as int,
+    );
+  }
+
+  /// Finishes our side of a certificate handshake.
+  Future<SmsCertHandshake> certComplete({
+    required Uint8List secret,
+    required Uint8List cert,
+    required Uint8List pending,
+    required String text,
+    required List<Uint8List> anchors,
+  }) async {
+    final m = await _call<Map>('certComplete', {
+      'secret': secret,
+      'cert': cert,
+      'pending': pending,
+      'text': text,
+      'anchors': anchors,
+    });
+    return SmsCertHandshake(
+      session: m['session'] as Uint8List,
+      sid: m['sid'] as int,
+      peer: _cert(m['peer'] as Map),
+    );
+  }
+
+  /// What a stored certificate says (structure only).
+  Future<MemberCertInfo> certInfo(Uint8List cert) async =>
+      _cert(await _call<Map>('certInfo', {'cert': cert}));
+
+  // ── The background post-quantum upgrade (`Upgrade`) ───────────────────────
+
+  /// Our ML-KEM key, sealed on [session] (a control packet, ~11 parts).
+  Future<SmsSealed> upgradeOffer({
+    required Uint8List session,
+    required Uint8List secret,
+  }) async => _sealed(
+    await _call<Map>('upgradeOffer', {'session': session, 'secret': secret}),
+    'session',
+  );
+
+  /// Answers an offer whose [key] arrived on [session] (the state after it).
+  Future<SmsUpgradeAccepted> upgradeAccept({
+    required Uint8List session,
+    required Uint8List key,
+    Set<int> busySids = const {},
+  }) async {
+    final m = await _call<Map>('upgradeAccept', {
+      'session': session,
+      'key': key,
+      'busySids': busySids.toList(),
+    });
+    return SmsUpgradeAccepted(
+      answer: _sealed(m['answer'] as Map, 'session'),
+      upgraded: m['upgraded'] as Uint8List,
+      upgradedSid: m['upgradedSid'] as int,
+    );
+  }
+
+  /// The offerer's upgraded session from the answer.
+  Future<Uint8List> upgradeComplete({
+    required Uint8List session,
+    required Uint8List secret,
+    required int sid,
+    required Uint8List ciphertext,
+  }) async =>
+      (await _call<Map>('upgradeComplete', {
+            'session': session,
+            'secret': secret,
+            'sid': sid,
+            'ciphertext': ciphertext,
+          }))['session']
+          as Uint8List;
+
+  MemberCertInfo _cert(Map m) => MemberCertInfo(
+    cert: m['cert'] as Uint8List,
+    keyId: m['keyId'] as Uint8List,
+    phone: m['phone'] as String,
+    generation: m['generation'] as int,
+  );
 
   /// Starts a session with [peer]; [SmsSealed.state] is the pending handshake.
   Future<SmsSealed> initiate({
@@ -463,6 +670,9 @@ class SmsCryptoService {
       groupId: m['groupId'] as Uint8List?,
       groupInfo: m['kind'] == 'groupInfo' ? _groupInfo(m) : null,
       ttlSeconds: (m['ttlSeconds'] as num?)?.toInt(),
+      pqKey: m['pqKey'] as Uint8List?,
+      pqSid: m['pqSid'] as int?,
+      pqCiphertext: m['pqCiphertext'] as Uint8List?,
     );
   }
 
@@ -547,6 +757,7 @@ class SmsCryptoService {
       directory: _directory(m['directory'] as Map),
       memberIndex: member?['index'] as int?,
       member: member == null ? null : _identity(member),
+      cert: member?['cert'] == null ? null : _cert(member!['cert'] as Map),
     );
   }
 
