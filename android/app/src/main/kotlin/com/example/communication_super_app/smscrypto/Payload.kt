@@ -61,6 +61,14 @@ object Payload {
     /** [Upgrade]: the new session's id (2 bytes) and the ML-KEM ciphertext (1088). */
     const val KIND_PQ_ACCEPT = 0x14
 
+    /**
+     * [Upgrade]: sent by the offerer on the NEW session, empty — "I have it".
+     * The accepter keeps sending on the old session until something arrives
+     * on the new one: an answer lost on the way would otherwise leave it
+     * sending on a session the offerer never got.
+     */
+    const val KIND_PQ_DONE = 0x15
+
     /** On a text kind: delete once seen. */
     const val FLAG_DELETE_AFTER_SEEN = 0x80
 
@@ -119,6 +127,8 @@ object Payload {
     class PqOffer(val encapsulationKey: ByteArray) : Decoded()
 
     class PqAccept(val sid: Int, val ciphertext: ByteArray) : Decoded()
+
+    object PqDone : Decoded()
 
     fun text(text: String, deleteAfterSeen: Boolean = false, ttlSeconds: Long? = null): ByteArray {
         var flag = if (deleteAfterSeen) FLAG_DELETE_AFTER_SEEN else 0
@@ -197,6 +207,8 @@ object Payload {
         return byteArrayOf(KIND_PQ_OFFER.toByte()) + encapsulationKey
     }
 
+    fun pqDone(): ByteArray = byteArrayOf(KIND_PQ_DONE.toByte())
+
     fun pqAccept(sid: Int, ciphertext: ByteArray): ByteArray {
         require(sid in 0..0xFFFF && ciphertext.size == Wire.KEM_CIPHERTEXT_BYTES)
         return byteArrayOf(KIND_PQ_ACCEPT.toByte()) + Wire.writeSid(sid) + ciphertext
@@ -237,6 +249,7 @@ object Payload {
             KIND_DELETE -> if (flagged) badPayload() else parseReference(body) { sid, n -> Delete(sid, n) }
             KIND_GROUP_INFO -> if (flagged) badPayload() else parseGroupInfo(body)
             KIND_PQ_OFFER -> if (flagged || body.size != PublicIdentity.MLKEM_BYTES) badPayload() else PqOffer(body)
+            KIND_PQ_DONE -> if (flagged || body.isNotEmpty()) badPayload() else PqDone
             KIND_PQ_ACCEPT -> if (flagged || body.size != Wire.SID_BYTES + Wire.KEM_CIPHERTEXT_BYTES) {
                 badPayload()
             } else {

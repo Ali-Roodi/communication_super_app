@@ -217,14 +217,16 @@ class KeyBankRepository {
         if (member == null) return KeyImportOutcome.alreadyImported;
         final own = await txn.query(
           'kb_own_keys',
-          columns: ['key_id'],
+          columns: ['key_id', '(cert IS NOT NULL) AS has_cert'],
           where: 'directory_id = ?',
           whereArgs: [id],
         );
-        if (own.isNotEmpty && own.first['key_id'] == keyHex(member.keyId)) {
+        if (own.isNotEmpty &&
+            own.first['key_id'] == keyHex(member.keyId) &&
+            (opened.cert == null || own.first['has_cert'] == 1)) {
           return KeyImportOutcome.alreadyImported;
         }
-        await _storeOwnKey(txn, id, member);
+        await _storeOwnKey(txn, id, member, opened.cert);
         return KeyImportOutcome.ownKeyAdded;
       }
 
@@ -266,7 +268,7 @@ class KeyBankRepository {
       await batch.commit(noResult: true);
 
       if (member != null) {
-        await _storeOwnKey(txn, id, member);
+        await _storeOwnKey(txn, id, member, opened.cert);
       } else {
         // A newer directory without this phone's key: keep the stored key
         // only while the authority still lists it.
@@ -288,11 +290,13 @@ class KeyBankRepository {
     cipher.DatabaseExecutor txn,
     String directoryId,
     SmsIdentity member,
+    MemberCertInfo? cert,
   ) => txn.insert('kb_own_keys', {
     'directory_id': directoryId,
     'key_id': keyHex(member.keyId),
     'secret': member.secret,
     'public_key': member.publicKey,
+    'cert': cert?.cert,
   }, conflictAlgorithm: cipher.ConflictAlgorithm.replace);
 
   Future<void> removeDirectory(String id) => _db.transaction((txn) async {
@@ -375,8 +379,10 @@ class KeyBankRepository {
     ];
   }
 
-  /// This phone's own directory keys, with their secrets.
-  Future<List<({String directoryId, SmsIdentity identity})>>
+  /// This phone's own directory keys, with their secrets — and, from a key
+  /// file issued with one, the member certificate ([cert]) that lets any
+  /// member reach this phone without having been given its key.
+  Future<List<({String directoryId, SmsIdentity identity, Uint8List? cert})>>
   ownDirectoryKeys() async {
     final rows = await _db.query('kb_own_keys');
     return [
@@ -388,8 +394,22 @@ class KeyBankRepository {
             publicKey: r['public_key'] as Uint8List,
             keyId: _unhex(r['key_id'] as String),
           ),
+          cert: r['cert'] as Uint8List?,
         ),
     ];
+  }
+
+  /// The name the directories give the holder of [phone], if any.
+  Future<String?> nameFor(String phone) async {
+    final rows = await _db.rawQuery(
+      '''
+      SELECT m.name FROM kb_member_phones p
+        JOIN kb_members m ON m.directory_id = p.directory_id AND m.key_id = p.key_id
+       WHERE p.phone = ? LIMIT 1
+      ''',
+      [phone],
+    );
+    return rows.isEmpty ? null : rows.first['name'] as String;
   }
 
   /// Every member of every directory — the people an encrypted conversation

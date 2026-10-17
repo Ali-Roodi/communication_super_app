@@ -49,7 +49,9 @@ class SecureStore {
   /// v1: `secure_meta` (phase C). v2: the key bank (phase E). v3: encrypted
   /// conversations (phase F). v4: the hidden phonebook, its calls, and plain
   /// SMS with hidden contacts (phase G). v5: encrypted groups (matrix row 14).
-  static const int _schemaVersion = 6;
+  /// v6: timed messages, intruder photos. v7: member certificates and the
+  /// post-quantum upgrade.
+  static const int _schemaVersion = 7;
 
   /// The open database, or null while locked.
   cipher.Database? get database => _db;
@@ -145,6 +147,31 @@ class SecureStore {
     await _createHiddenPhonebook(db);
     await _createGroups(db);
     await _upgradeToV6(db);
+    await _upgradeToV7(db);
+  }
+
+  /// v7: member certificates (`CertHandshake`) and the background
+  /// post-quantum upgrade (`Upgrade`).
+  ///
+  /// - `kb_own_keys.cert`: this phone's certificate for that key, from its
+  ///   key file (null in a file issued before certificates).
+  /// - `sm_conversations.peer_generation`: the highest certificate generation
+  ///   seen for the peer — an older one is refused. For a certificate
+  ///   conversation `peer_public` holds the peer's certificate, and
+  ///   `peer_key_id` is empty until its first answer names the key.
+  /// - `sm_sessions.kind`: `v1` (the full handshake), `cert-i` / `cert-r` (a
+  ///   certificate session we initiated / answered), `pq` (upgraded),
+  ///   `pq-standby` (upgraded by us as the accepter, not sent on until the
+  ///   offerer is heard on it); `offered_at`: when our upgrade offer went.
+  static Future<void> _upgradeToV7(cipher.DatabaseExecutor db) async {
+    await db.execute('ALTER TABLE kb_own_keys ADD COLUMN cert BLOB');
+    await db.execute(
+      'ALTER TABLE sm_conversations ADD COLUMN peer_generation INTEGER',
+    );
+    await db.execute(
+      "ALTER TABLE sm_sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'v1'",
+    );
+    await db.execute('ALTER TABLE sm_sessions ADD COLUMN offered_at INTEGER');
   }
 
   /// v6: timed messages (matrix row 16) and the photos taken after wrong PIN
@@ -476,6 +503,7 @@ class SecureStore {
     }
     if (oldVersion < 5 && newVersion >= 5) await _createGroups(db);
     if (oldVersion < 6 && newVersion >= 6) await _upgradeToV6(db);
+    if (oldVersion < 7 && newVersion >= 7) await _upgradeToV7(db);
   }
 
   Future<String> _path() async =>
