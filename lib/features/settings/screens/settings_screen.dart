@@ -731,8 +731,8 @@ class _HideNotificationContentRow extends StatelessWidget {
           icon: Icons.notifications_off_outlined,
           title: 'پنهان کردن محتوای اعلان‌ها',
           summary: state.hideNotificationContent
-              ? 'اعلان پیامک و تماس بی‌پاسخ فقط می‌گوید «پیام جدید»، بدون '
-                    'نام فرستنده و متن'
+              ? 'وقتی برنامه قفل است، اعلان پیامک و تماس بی‌پاسخ فقط می‌گوید '
+                    '«پیام جدید»، بدون نام فرستنده و متن'
               : 'اعلان‌ها نام فرستنده و متن پیام را نشان می‌دهند',
           onTap: () => set(!state.hideNotificationContent),
           trailing: Switch(

@@ -1591,6 +1591,11 @@ void main() {
         final request = _unwire(air.inFlight.single.wire);
         expect(request['t'], 'init');
         expect(request['cert'], isNotNull);
+        // Not «پساکوانتومی» yet: X25519 only until the upgrade lands.
+        expect(
+          (await ali.store.conversation(book['sara']!))!.quantumSafe,
+          isFalse,
+        );
 
         await settle();
         expect((await sara.thread(book['ali']!)).single.body, 'سلام');
@@ -1604,6 +1609,16 @@ void main() {
         expect(aliSessions.first.kind, SessionKind.pq);
         expect(saraSessions.first.kind, SessionKind.pq);
         expect(aliSessions.first.sid, saraSessions.first.sid);
+        expect(
+          (await ali.store.conversation(book['sara']!))!.quantumSafe,
+          isTrue,
+        );
+        expect(
+          (await sara.store.conversations())
+              .singleWhere((c) => c.phone == book['ali'])
+              .quantumSafe,
+          isTrue,
+        );
 
         await sara.messenger.sendText(book['ali']!, 'علیک سلام');
         expect(

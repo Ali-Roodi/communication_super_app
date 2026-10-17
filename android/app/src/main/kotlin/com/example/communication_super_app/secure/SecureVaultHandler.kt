@@ -46,6 +46,17 @@ class SecureVaultHandler(
         const val CHANNEL = "com.example.communication_super_app/secure_vault"
         private const val FILE_NAME = "secure_vault.txt"
         private const val TAG = "SecureVaultHandler"
+
+        /**
+         * The secure section is open in this process: Dart sets FLAG_SECURE
+         * before any secure content reaches the screen and clears it on every
+         * lock, so the flag is the section's state. Process memory only — a
+         * new process is locked.
+         */
+        @JvmStatic
+        @Volatile
+        var sectionOpen = false
+            private set
     }
 
     private val file = File(context.noBackupFilesDir, FILE_NAME)
@@ -115,6 +126,7 @@ class SecureVaultHandler(
     }
 
     private fun setSecureWindow(secure: Boolean, result: MethodChannel.Result) {
+        sectionOpen = secure
         val window = activity()?.window
         if (window == null) {
             result.success(false)

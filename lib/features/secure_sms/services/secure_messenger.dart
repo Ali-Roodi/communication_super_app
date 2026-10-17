@@ -668,6 +668,7 @@ class SecureMessenger {
         (txn) => _store.setSessionKind(txn, phone, session.sid, SessionKind.pq),
       );
       debugPrint('Post-quantum upgrade confirmed');
+      _changed(phone); // the header now says «پساکوانتومی»
     }
     switch (opened.kind) {
       case SmsPayloadKind.pqOffer:
@@ -1005,6 +1006,7 @@ class SecureMessenger {
     await _store.pruneSessions(phone);
     await _sendQuietly(phone, done.wire, 'pq-${_newId()}');
     debugPrint('Post-quantum upgrade complete');
+    _changed(phone);
   }
 
   // ── Sending ──────────────────────────────────────────────────────────────

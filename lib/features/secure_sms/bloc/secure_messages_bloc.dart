@@ -231,6 +231,7 @@ class SecureMessagesState extends Equatable {
     this.openMessages = const [],
     this.handshakePending = false,
     this.peers = const [],
+    this.hasCert = false,
     this.lookup,
     this.lookupSeq = 0,
     this.startedPhone,
@@ -260,6 +261,10 @@ class SecureMessagesState extends Equatable {
 
   /// Directory members an encrypted conversation can be started with.
   final List<SecurePeer> peers;
+
+  /// We hold a member certificate: a member the directories do not list is
+  /// reached by typing their number.
+  final bool hasCert;
 
   /// Result of [SecureLookupNumber]; bumped seq per answer.
   final List<SecurePeer>? lookup;
@@ -310,6 +315,7 @@ class SecureMessagesState extends Equatable {
     List<SecureMessage>? openMessages,
     bool? handshakePending,
     List<SecurePeer>? peers,
+    bool? hasCert,
     List<SecurePeer>? lookup,
     String? startedPhone,
     bool? sendsReceipts,
@@ -333,6 +339,7 @@ class SecureMessagesState extends Equatable {
         ? false
         : (handshakePending ?? this.handshakePending),
     peers: peers ?? this.peers,
+    hasCert: hasCert ?? this.hasCert,
     lookup: lookup ?? this.lookup,
     lookupSeq: lookup == null ? lookupSeq : lookupSeq + 1,
     startedPhone: startedPhone ?? this.startedPhone,
@@ -361,6 +368,7 @@ class SecureMessagesState extends Equatable {
     openMessages,
     handshakePending,
     peers,
+    hasCert,
     lookupSeq,
     startedSeq,
     sendsReceipts,
@@ -724,7 +732,12 @@ class SecureMessagesBloc
     if (!_open) return;
     _identities.reset(); // the key bank may have changed
     try {
-      emit(state.copyWith(peers: await _identities.directoryPeers()));
+      emit(
+        state.copyWith(
+          peers: await _identities.directoryPeers(),
+          hasCert: await _identities.ownCert() != null,
+        ),
+      );
     } on KeyBankLockedException {
       emit(const SecureMessagesState());
     }

@@ -85,12 +85,13 @@ class _SecureConversationScreenState extends State<SecureConversationScreen> {
               : const <SecureMessage>[];
           // A hidden contact the key bank has no key for: plain SMS, still
           // kept out of the system's message store (phase G).
-          final encrypted =
-              state.conversations
-                  .where((c) => c.phone == widget.phone)
-                  .firstOrNull
-                  ?.encrypted ??
-              true;
+          final conversation = state.conversations
+              .where((c) => c.phone == widget.phone)
+              .firstOrNull;
+          final encrypted = conversation?.encrypted ?? true;
+          // A member reached over a certificate is X25519 only until the
+          // background upgrade (`Upgrade`) lands — a few SMS later.
+          final quantumSafe = conversation?.quantumSafe ?? true;
           return Scaffold(
             appBar: RtlAppBar(
               titleWidget: Column(
@@ -113,7 +114,11 @@ class _SecureConversationScreenState extends State<SecureConversationScreen> {
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        encrypted ? 'رمزشده پساکوانتومی' : 'پیامک رمزنشده',
+                        !encrypted
+                            ? 'پیامک رمزنشده'
+                            : quantumSafe
+                            ? 'رمزشده پساکوانتومی'
+                            : 'رمزشده · در حال ارتقای پساکوانتومی',
                         style: TextStyle(
                           fontSize: 12,
                           color: encrypted ? scheme.primary : scheme.error,
