@@ -159,6 +159,49 @@ class AuthorityFolderTest {
     }
 
     @Test
+    fun aFolderFromBeforeCertificatesIsReissuedOnceAndItsDeliveriesNeedTheirOwnFile() {
+        val before = threeMembers()
+        // As panel 1.1 left it: delivered an hour ago, no marker.
+        folder.certificatesFile.delete()
+        val snapshot = folder.snapshot()
+        val anHourAgo = java.time.LocalDateTime.now().withNano(0).minusHours(1)
+        folder.log.append(
+            snapshot.entries.map {
+                IssuanceLog.Entry(
+                    anHourAgo, IssuanceLog.Action.DELIVERED, it.name, it.phones.first(),
+                    it.generation, snapshot.entries.size, snapshot.fingerprint!!,
+                )
+            },
+        )
+        assertTrue(folder.needsCertificates())
+
+        assertEquals(3, folder.issueCertificates(authority, random, cheap))
+        assertTrue(!folder.needsCertificates())
+        // Same keys, same passwords — and now a certificate in every file.
+        val after = folder.snapshot()
+        for ((i, old) in before.withIndex()) {
+            assertEquals(old.password, after.passwordOf(after.entries[i]))
+            val opened = KeyFile.open(folder.keyFileOf(i, after.entries[i]).readBytes(), old.password, listOf(authority.key.public))
+            assertContentEquals(open(old).identity!!.public.keyId, opened.identity!!.public.keyId)
+            assertEquals(after.entries[i].phones.first(), opened.cert!!.phone)
+            assertEquals(AuthorityFolder.DeliveryStatus.NO_CERT, status(i))
+        }
+        // The update file would not help (no certificate): only their own file.
+        folder.markUpdated(listOf(0))
+        assertEquals(AuthorityFolder.DeliveryStatus.NO_CERT, status(0))
+        folder.markDelivered(0)
+        assertEquals(AuthorityFolder.DeliveryStatus.CURRENT, status(0))
+        assertEquals(AuthorityFolder.DeliveryStatus.NO_CERT, status(1))
+    }
+
+    @Test
+    fun anEmptyNewFolderIsOnlyMarked() {
+        assertTrue(folder.needsCertificates())
+        assertEquals(0, folder.issueCertificates(authority, random, cheap))
+        assertTrue(!folder.needsCertificates())
+    }
+
+    @Test
     fun aNewKeyChangesOnlyThatMembersKeyAndPassword() {
         val before = threeMembers()
         val oldKeys = before.map { open(it).identity!!.public.keyId }

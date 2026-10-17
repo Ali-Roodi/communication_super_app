@@ -3,6 +3,10 @@ package ir.hamrasan.panel
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.unit.Density
+import com.example.communication_super_app.smscrypto.CertHandshake
+import com.example.communication_super_app.smscrypto.Packet
+import com.example.communication_super_app.smscrypto.Payload
+import com.example.communication_super_app.smscrypto.Wire
 import com.example.communication_super_app.smscrypto.keybank.AuthorityFile
 import com.example.communication_super_app.smscrypto.keybank.AuthorityKey
 import com.example.communication_super_app.smscrypto.keybank.Directory
@@ -54,7 +58,31 @@ object SelfTest {
                 val opened = KeyFile.open(d.file.readBytes(), d.password!!, listOf(contents.key.public))
                 check(opened.directory.members.size == 2 && opened.memberIndex == 1) { "key file does not open as issued" }
                 check(d.activationCode == "9c4a48e93a") { "delivery activation code" }
+                check(!keys.unlocked!!.folder.needsCertificates()) { "certificate marker" }
                 log.appendLine("issue + open: ok")
+
+                // The two members talk over their certificates alone, as two
+                // phones would — two SMS parts each way.
+                val anchors = listOf(contents.key.public)
+                val snap = keys.snapshot!!
+                val first = KeyFile.open(
+                    keys.unlocked!!.folder.keyFileOf(0, snap.entries[0]).readBytes(),
+                    snap.passwordOf(snap.entries[0])!!,
+                    anchors,
+                )
+                check(first.cert?.phone == "09120000001" && opened.cert?.phone == "09120000002") { "certificates" }
+                val started = CertHandshake.initiate(first.cert!!, random)
+                val answered = CertHandshake.respond(
+                    opened.identity!!, opened.cert!!, Wire.parse(started.wire) as Packet.CertInit, anchors, random,
+                )
+                val done = CertHandshake.complete(
+                    first.identity!!, first.cert!!, started.pending, Wire.parse(answered.wire) as Packet.CertResponse, anchors,
+                )
+                check(Wire.smsParts(started.wire) == 2 && Wire.smsParts(answered.wire) == 2) { "handshake size" }
+                val hello = done.session.seal(Payload.text("سلام"))
+                val heard = answered.session.open(Wire.parse(hello.wire) as Packet.Message)
+                check((Payload.parse(heard.payload) as Payload.Text).text == "سلام") { "certificate session" }
+                log.appendLine("certificate handshake: ok")
 
                 val update = UpdateFile.open(
                     File(dir, "issued/${Issuance.UPDATE_FILE}").readBytes(),
