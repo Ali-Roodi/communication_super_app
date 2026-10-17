@@ -140,6 +140,47 @@ class AuthorityFolder(val dir: File) {
     val issuedDir = File(dir, ISSUED_DIR)
     val passwordsFile = File(issuedDir, Issuance.PASSWORDS_FILE)
     val updateFile = File(issuedDir, Issuance.UPDATE_FILE)
+
+    /**
+     * When every file in `issued/` was first made with a member certificate
+     * — written by [issueCertificates]. Absent: the folder is from panel 1.1
+     * or older, and its files must be re-issued once before anything else.
+     */
+    val certificatesFile = File(dir, CERTIFICATES_FILE)
+
+    val certificatesSince: LocalDateTime?
+        get() = runCatching { LocalDateTime.parse(certificatesFile.readText(Charsets.UTF_8).trim()) }.getOrNull()
+
+    fun needsCertificates(): Boolean = certificatesSince == null
+
+    /**
+     * Re-issues every member's file with their certificate — the same keys and
+     * the same passwords, so nothing a member holds is broken — and records
+     * when. A file delivered before that moment is [DeliveryStatus.NO_CERT]
+     * until the member gets their own new one. Returns how many files were
+     * made (0 for a folder with no member yet, which is only marked).
+     */
+    fun issueCertificates(
+        authority: AuthorityFile.Contents,
+        random: SecureRandom,
+        kdf: PasswordKdf = PasswordKdf.KEY_FILE,
+        progress: (done: Int, total: Int) -> Unit = { _, _ -> },
+    ): Int {
+        val since = LocalDateTime.now().withNano(0)
+        val text = if (rosterFile.isFile) rosterFile.readText(Charsets.UTF_8) else ""
+        val count = if (text.removePrefix("﻿").lines().any { isMemberLine(it) }) {
+            val roster = parse(text)
+            Issuance.issue(
+                authority, roster, issuedDir, random,
+                kdf = kdf, known = Issuance.readPasswords(passwordsFile), progress = progress,
+            )
+            roster.entries.size
+        } else {
+            0
+        }
+        certificatesFile.writeText(since.toString(), Charsets.UTF_8)
+        return count
+    }
     val log = IssuanceLog(File(dir, IssuanceLog.FILE))
 
     class MemberError(message: String) : Exception(message)
@@ -155,6 +196,14 @@ class AuthorityFolder(val dir: File) {
         /** They were given a new key («گوشی گم شد») that has not been delivered. */
         NEW_KEY,
 
+        /**
+         * The file they hold was made before key files carried a member
+         * certificate (panel 1.1 and older): with it they cannot reach a member
+         * added later, nor be reached by one. Only their OWN new file fixes it —
+         * the update file carries no certificate.
+         */
+        NO_CERT,
+
         /** No delivery recorded — a new member, or a folder from before the log. */
         NOT_RECORDED,
     }
@@ -167,6 +216,8 @@ class AuthorityFolder(val dir: File) {
         val log: List<IssuanceLog.Entry> = emptyList(),
         /** [IssuanceLog.fingerprint] of the roster; null while it has no member. */
         val fingerprint: String? = null,
+        /** When this folder's files began carrying certificates ([AuthorityFolder.certificatesSince]). */
+        val certificatesSince: LocalDateTime? = null,
     ) {
         fun passwordOf(entry: Issuer.Entry): String? = passwords[entry.phones.first()]
 
@@ -175,6 +226,7 @@ class AuthorityFolder(val dir: File) {
             val mine = log.filter { it.phone == phone }
             val full = mine.lastOrNull { it.action == IssuanceLog.Action.DELIVERED } ?: return DeliveryStatus.NOT_RECORDED
             if (full.generation != entry.generation) return DeliveryStatus.NEW_KEY
+            if (certificatesSince != null && full.time < certificatesSince) return DeliveryStatus.NO_CERT
             val latest = mine.last {
                 it.action == IssuanceLog.Action.DELIVERED || it.action == IssuanceLog.Action.UPDATE_DELIVERED
             }
@@ -195,6 +247,7 @@ class AuthorityFolder(val dir: File) {
             Issuance.readPasswords(passwordsFile),
             log.read(),
             roster?.let(IssuanceLog::fingerprint),
+            certificatesSince,
         )
     }
 
@@ -503,6 +556,7 @@ class AuthorityFolder(val dir: File) {
         const val ROSTER_FILE = "roster.csv"
         const val ISSUED_DIR = "issued"
         const val BACKUP_DIR = "backups"
+        const val CERTIFICATES_FILE = "certificates.txt"
 
         private val STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS")
 

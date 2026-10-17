@@ -139,7 +139,24 @@ class PreviewRender {
         val (file, password) = authorityFolder(withMembers)
         val keys = KeysState(rememberFile = false).apply { authorityFile = file; this.password = password }
         runBlocking { keys.unlock() }
+        // The fixture is a folder from before member certificates: opening it
+        // re-issues every file once and says so.
+        if (withMembers) kotlin.test.assertEquals("فایل همهٔ اعضا با گواهی دوباره ساخته شد", keys.notice?.title)
+        keys.notice = null
         return keys to file.parentFile
+    }
+
+    @Test
+    fun aFolderFromBeforeCertificatesSaysWhatChanged() {
+        val (file, password) = authorityFolder(true)
+        val keys = KeysState(rememberFile = false).apply { authorityFile = file; this.password = password }
+        runBlocking { keys.unlock() }
+        render("00-certificates") { Panel(keys, start = Section.Keys) }
+        keys.notice = null
+        // Their files are re-issued; the deliveries recorded before are not enough.
+        runBlocking { keys.markAllDelivered() }
+        kotlin.test.assertTrue(keys.snapshot!!.outdated.isEmpty())
+        file.parentFile.deleteRecursively()
     }
 
     @Test
