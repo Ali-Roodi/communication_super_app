@@ -40,7 +40,16 @@ class SecureConversation extends Equatable {
     this.seenSid,
     this.seenCounter,
     this.peerGeneration,
+    this.upgraded = false,
   });
+
+  /// A certificate conversation has a post-quantum session (`Upgrade`); before
+  /// that it is X25519 only. Outside [isCert] the handshake itself is
+  /// ML-KEM + X25519.
+  final bool upgraded;
+
+  /// What the conversation header may claim: «رمزشده پساکوانتومی».
+  bool get quantumSafe => !isCert || upgraded;
 
   /// The highest certificate generation seen for the peer; an older
   /// certificate is refused (the issuance panel raised it for a lost phone).
@@ -97,6 +106,7 @@ class SecureConversation extends Equatable {
     seenSid,
     seenCounter,
     peerGeneration,
+    upgraded,
   ];
 }
 
@@ -268,7 +278,9 @@ class SecureMessageStore {
              (SELECT m.body FROM sm_messages m WHERE m.phone = c.phone
                ORDER BY m.timestamp DESC LIMIT 1) AS last_body,
              (SELECT m.outgoing FROM sm_messages m WHERE m.phone = c.phone
-               ORDER BY m.timestamp DESC LIMIT 1) AS last_outgoing
+               ORDER BY m.timestamp DESC LIMIT 1) AS last_outgoing,
+             EXISTS (SELECT 1 FROM sm_sessions s WHERE s.phone = c.phone
+               AND s.kind = 'pq') AS upgraded
         FROM sm_conversations c
        WHERE c.listed = 1
           OR EXISTS (SELECT 1 FROM sm_messages m WHERE m.phone = c.phone)
@@ -285,10 +297,15 @@ class SecureMessageStore {
   }
 
   Future<SecureConversation?> conversation(String phone) async {
-    final rows = await db.query(
-      'sm_conversations',
-      where: 'phone = ?',
-      whereArgs: [phone],
+    final rows = await db.rawQuery(
+      '''
+      SELECT c.*,
+             EXISTS (SELECT 1 FROM sm_sessions s WHERE s.phone = c.phone
+               AND s.kind = 'pq') AS upgraded
+        FROM sm_conversations c
+       WHERE c.phone = ?
+    ''',
+      [phone],
     );
     return rows.isEmpty ? null : _conversation(rows.first);
   }
@@ -341,6 +358,7 @@ class SecureMessageStore {
         seenSid: r['seen_sid'] as int?,
         seenCounter: r['seen_counter'] as int?,
         peerGeneration: r['peer_generation'] as int?,
+        upgraded: r['upgraded'] == 1,
       );
 
   /// A certificate conversation ([SecureConversation.isCert]) learns who is

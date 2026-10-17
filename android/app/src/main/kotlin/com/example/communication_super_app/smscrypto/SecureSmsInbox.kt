@@ -109,8 +109,15 @@ object SecureSmsInbox {
     /**
      * Posts (or refreshes) the one encrypted-SMS card. Receipts are queued too
      * but say nothing, so the caller asks [announces] first.
+     *
+     * [appHandlesIt]: the app is on screen with the secure section open and
+     * was just nudged to drain the queue. «پیام رمز شما آماده ارسال است — برای
+     * ارسال، بخش امن را باز کنید» is then wrong on both counts (the message goes
+     * out by itself, a second later) and it popped up, with sound, over the very
+     * conversation it was about — so an answer to our own request posts
+     * nothing. A real message still gets its card.
      */
-    fun notifyArrived(context: Context) {
+    fun notifyArrived(context: Context, appHandlesIt: Boolean = false) {
         try {
             val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -139,6 +146,7 @@ object SecureSmsInbox {
             // message goes out once the section is open — say so, rather than
             // announce a message nobody sent us.
             val readyOnly = messages == 0 && waiting.contains(Arrival.READY_TO_SEND)
+            if (readyOnly && appHandlesIt) return
             val count = messages.coerceAtLeast(1)
             val title = when {
                 readyOnly -> "پیام رمز شما آماده ارسال است"

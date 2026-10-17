@@ -267,7 +267,11 @@ class _SecureNewConversationScreenState
                   Padding(
                     padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
                     child: Text(
-                      'برای اعضای گروه‌های عبارت عبور، شماره را کامل وارد کنید.',
+                      // A member added after our directory answers over
+                      // their certificate: the full number is all it takes.
+                      state.hasCert
+                          ? 'عضوی که در فهرست نیست: شمارهٔ همراهش را کامل وارد کنید.'
+                          : 'برای اعضای گروه‌های عبارت عبور، شماره را کامل وارد کنید.',
                       style: TextStyle(
                         fontSize: 12,
                         color: scheme.onSurfaceVariant,
@@ -317,20 +321,23 @@ class _SecureNewConversationScreenState
                       child: Column(
                         children: [
                           Text(
-                            'هنوز دفترچه کلیدی با کلید شما وارد نشده است.',
+                            state.hasCert
+                                ? 'در دفترچهٔ شما هنوز عضو دیگری نیست. شمارهٔ همراه عضو سازمان را بالا وارد کنید.'
+                                : 'هنوز دفترچه کلیدی با کلید شما وارد نشده است.',
                             textAlign: TextAlign.center,
                             style: TextStyle(color: scheme.onSurfaceVariant),
                           ),
-                          const SizedBox(height: 12),
-                          OutlinedButton.icon(
-                            onPressed: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => const KeyBankScreen(),
+                          if (!state.hasCert) const SizedBox(height: 12),
+                          if (!state.hasCert)
+                            OutlinedButton.icon(
+                              onPressed: () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const KeyBankScreen(),
+                                ),
                               ),
+                              icon: const Icon(Icons.key_outlined),
+                              label: const Text('بانک کلید'),
                             ),
-                            icon: const Icon(Icons.key_outlined),
-                            label: const Text('بانک کلید'),
-                          ),
                         ],
                       ),
                     ),

@@ -170,7 +170,16 @@ class SmsHandler(
                                 Log.e(TAG, "Error nudging Flutter: ${e.message}")
                             }
                         }
-                        if (inbox.announces(body)) inbox.notifyArrived(context)
+                        if (inbox.announces(body)) {
+                            // On screen, section open, and Dart listening: the
+                            // nudge above is enough for an answer to our request.
+                            inbox.notifyArrived(
+                                context,
+                                appHandlesIt = eventSink != null &&
+                                    MainActivity.isStarted &&
+                                    com.example.communication_super_app.secure.SecureVaultHandler.sectionOpen,
+                            )
+                        }
                     }
                     return
                 }
