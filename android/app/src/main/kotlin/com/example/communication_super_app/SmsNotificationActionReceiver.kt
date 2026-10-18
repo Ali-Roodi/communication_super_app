@@ -216,9 +216,8 @@ class SmsNotificationActionReceiver : BroadcastReceiver() {
      *
      * The row is the one `BlockedNumbersRepository.block` writes — keyed by
      * the canonical thread id, which is what every check (Dart,
-     * [BlockedNumbers.isBlocked], `CallInCallService`) looks up — and only the
-     * four base columns are named, so a database an older build left behind
-     * (before `is_spam` existed) takes it too. Blocking a sender who is
+     * [BlockedNumbers.isBlocked], `CallInCallService`) looks up; the spam columns
+     * keep their defaults. Blocking a sender who is
      * already blocked adds nothing, and its undo must then remove nothing.
      *
      * A block is not something to do on a slip of the thumb, so the card is

@@ -595,17 +595,6 @@ class MessageRepository {
 
   // ── Device mirror-sync ────────────────────────────────────────────────────
 
-  /// One-time backfill: rows imported before the v11 migration used the device
-  /// provider row id as their `id`, so a numeric id IS the provider id.
-  Future<void> backfillDeviceSmsIds() async {
-    final db = await _dbHelper.database;
-    await db.rawUpdate('''
-      UPDATE ${AppConstants.messagesTable}
-      SET device_sms_id = CAST(id AS INTEGER)
-      WHERE device_sms_id IS NULL AND id GLOB '[0-9]*' AND id NOT GLOB '*[^0-9]*'
-    ''');
-  }
-
   /// Reconciles a batch of device-provider rows into the local store.
   ///
   /// Per row (all inside one transaction):
@@ -860,9 +849,9 @@ class MessageRepository {
   }
 
   /// Clears the unread flag on every row of the thread — every *type* of row,
-  /// including a sent one an older build's `markThreadAsUnread` had flagged on
-  /// a thread with no received message. Filtering on `type = 'received'` here
-  /// would leave such a thread bold for ever, with no way back.
+  /// to match the inbox's `unread_count`, which counts unread rows of any
+  /// type. Filtering on `type = 'received'` here would leave a thread bold
+  /// for ever that counts a row this never clears.
   ///
   /// It also drops the hand-mark ([markThreadAsUnread]): opening the
   /// conversation is the user dealing with it, which is the one thing the mark

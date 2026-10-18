@@ -159,50 +159,6 @@ class AuthorityFolderTest {
     }
 
     @Test
-    fun aFolderFromAnEarlierFormatIsReissuedOnceAndItsDeliveriesNeedTheirOwnFile() {
-        val before = threeMembers()
-        // As an earlier panel left it: delivered an hour ago, an older format.
-        folder.formatFile.writeText("1 2026-01-01T00:00:00")
-        val snapshot = folder.snapshot()
-        val anHourAgo = java.time.LocalDateTime.now().withNano(0).minusHours(1)
-        folder.log.append(
-            snapshot.entries.map {
-                IssuanceLog.Entry(
-                    anHourAgo, IssuanceLog.Action.DELIVERED, it.name, it.phones.first(),
-                    it.generation, snapshot.entries.size, snapshot.fingerprint!!,
-                )
-            },
-        )
-        assertTrue(folder.needsReissue())
-
-        assertEquals(3, folder.reissueAll(authority, random, cheap))
-        assertTrue(!folder.needsReissue())
-        // Same keys, same passwords.
-        val after = folder.snapshot()
-        for ((i, old) in before.withIndex()) {
-            assertEquals(old.password, after.passwordOf(after.entries[i]))
-            val opened = KeyFile.open(folder.keyFileOf(i, after.entries[i]).readBytes(), old.password, listOf(authority.key.public))
-            assertContentEquals(open(old).cert.keyId, opened.cert.keyId)
-            assertEquals(after.entries[i].phones.first(), opened.cert.phone)
-            assertEquals(AuthorityFolder.DeliveryStatus.OLD_FORMAT, status(i))
-        }
-        // The update file would not help: only their own file.
-        folder.markUpdated(listOf(0))
-        assertEquals(AuthorityFolder.DeliveryStatus.OLD_FORMAT, status(0))
-        folder.markDelivered(0)
-        assertEquals(AuthorityFolder.DeliveryStatus.CURRENT, status(0))
-        assertEquals(AuthorityFolder.DeliveryStatus.OLD_FORMAT, status(1))
-    }
-
-    @Test
-    fun anEmptyNewFolderIsOnlyMarked() {
-        assertTrue(folder.needsReissue())
-        assertEquals(0, folder.reissueAll(authority, random, cheap))
-        assertTrue(!folder.needsReissue())
-        assertTrue(folder.formatFile.readText().startsWith("${AuthorityFolder.KEY_FILE_FORMAT} "))
-    }
-
-    @Test
     fun aNewKeyChangesOnlyThatMembersKeyAndPassword() {
         val before = threeMembers()
         val oldKeys = before.map { open(it).cert.keyId }

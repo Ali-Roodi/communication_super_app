@@ -51,7 +51,6 @@ fun DeliveryStatus.label() = when (this) {
     DeliveryStatus.CURRENT -> "به‌روز"
     DeliveryStatus.STALE -> "فایل قدیمی"
     DeliveryStatus.NEW_KEY -> "کلید تازه تحویل نشده"
-    DeliveryStatus.OLD_FORMAT -> "فایل نسخهٔ قبلی"
     DeliveryStatus.NOT_RECORDED -> "تحویل ثبت نشده"
 }
 
@@ -59,7 +58,6 @@ private fun DeliveryStatus.color() = when (this) {
     DeliveryStatus.CURRENT -> Green
     DeliveryStatus.STALE -> Amber
     DeliveryStatus.NEW_KEY -> Red
-    DeliveryStatus.OLD_FORMAT -> Red
     DeliveryStatus.NOT_RECORDED -> Grey
 }
 
@@ -67,7 +65,6 @@ private fun DeliveryStatus.color() = when (this) {
 fun DeliveryStatus.explanation() = when (this) {
     DeliveryStatus.CURRENT -> "فایل فعلی را تحویل گرفته است."
     DeliveryStatus.STALE -> "فایلی که دارد قدیمی است: پیام رمز با همه — اعضای تازه هم — کار می‌کند، ولی نام اعضای تازه و تغییرهای بعد از آن را در فهرستش نمی‌بیند. فایل تازه‌اش یا فایل به‌روزرسانی را بدهید؛ رمزش عوض نشده."
-    DeliveryStatus.OLD_FORMAT -> "فایلی که دارد با نسخهٔ قبلی پنل ساخته شده و برنامه دیگر بازش نمی‌کند. فایل تازهٔ خودش را بدهید؛ رمزش عوض نشده."
     DeliveryStatus.NEW_KEY -> "کلید و رمز تازه گرفته که هنوز تحویل نشده است. فایل و رمز تازه را بدهید."
     DeliveryStatus.NOT_RECORDED -> "تحویل فایل به او هنوز ثبت نشده است."
 }
@@ -97,7 +94,6 @@ fun OutdatedBanner(state: KeysState, snapshot: AuthorityFolder.Snapshot, folder:
     val parts = listOfNotNull(
         counts[DeliveryStatus.STALE]?.let { "${fa(it)} عضو فایل قدیمی دارند" },
         counts[DeliveryStatus.NEW_KEY]?.let { "${fa(it)} عضو کلید تازه‌شان را نگرفته‌اند" },
-        counts[DeliveryStatus.OLD_FORMAT]?.let { "${fa(it)} عضو فایل نسخهٔ قبلی دارند" },
         counts[DeliveryStatus.NOT_RECORDED]?.let { "تحویل به ${fa(it)} عضو ثبت نشده" },
     )
     val names = outdated.take(8).joinToString("، ") { it.name } + if (outdated.size > 8) " و ${fa(outdated.size - 8)} نفر دیگر" else ""
@@ -112,10 +108,7 @@ fun OutdatedBanner(state: KeysState, snapshot: AuthorityFolder.Snapshot, folder:
                 Text(parts.joinToString(" · "), fontWeight = FontWeight.Bold, color = Color(0xFF2B3340))
                 Text(names, fontSize = 13.sp, color = Color(0xFF2B3340))
                 Hint(
-                    if ((counts[DeliveryStatus.OLD_FORMAT] ?: 0) > 0) {
-                        "کسی که فایل نسخهٔ قبلی دارد باید یک بار فایل تازهٔ خودش را از پوشهٔ issued وارد کند (رمزش همان قبلی است). " +
-                            "بعد از آن، با اضافه شدن عضو تازه، کسی جز خود او فایل لازم ندارد."
-                    } else if (stale > 0 && folder.updateFile.isFile) {
+                    if (stale > 0 && folder.updateFile.isFile) {
                         "فایل قدیمی جلوی پیام رمز را نمی‌گیرد؛ فقط نام اعضای تازه را در فهرست گوشی نشان نمی‌دهد. برای آن، " +
                             "به‌جای فایل خودش می‌تواند فایل update.hku را وارد کند: برای همه یکی است، رمز نمی‌خواهد و فقط گوشی اعضای همین سازمان بازش می‌کند."
                     } else {

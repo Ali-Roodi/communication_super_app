@@ -80,7 +80,7 @@ ContactModel _contact(
 
 void main() {
   setUpAll(() {
-    // Run the real schema/migrations against an in-memory SQLite database.
+    // Run the real schema against an in-memory SQLite database.
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
     DatabaseHelper.databasePathOverride = inMemoryDatabasePath;

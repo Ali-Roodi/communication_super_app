@@ -45,8 +45,6 @@ class PreviewRender {
             folder.addMember(contents, "گوشی دوم", listOf("09356455230"), random, kdf = cheap)
             folder.addMember(contents, "کاربر سوم", listOf("09981362436", "02188776655"), random, kdf = cheap)
         }
-        // A folder this panel made: its files are of the current format.
-        AuthorityFolder(dir).formatFile.writeText("${AuthorityFolder.KEY_FILE_FORMAT} ${java.time.LocalDateTime.now().withNano(0).minusDays(1)}")
         return File(dir, AuthorityFolder.AUTHORITY_FILE) to password
     }
 
@@ -143,21 +141,6 @@ class PreviewRender {
         runBlocking { keys.unlock() }
         kotlin.test.assertEquals(null, keys.notice)
         return keys to file.parentFile
-    }
-
-    @Test
-    fun aFolderFromAnEarlierFormatIsReissuedAndSaysSo() {
-        val (file, password) = authorityFolder(true)
-        AuthorityFolder(file.parentFile).formatFile.writeText("1 2026-01-01T00:00:00")
-        val keys = KeysState(rememberFile = false).apply { authorityFile = file; this.password = password }
-        runBlocking { keys.unlock() }
-        kotlin.test.assertEquals("فایل همهٔ اعضا دوباره ساخته شد", keys.notice?.title)
-        render("00-reissued") { Panel(keys, start = Section.Keys) }
-        keys.notice = null
-        // Their files are re-issued; the deliveries recorded before are not enough.
-        runBlocking { keys.markAllDelivered() }
-        kotlin.test.assertTrue(keys.snapshot!!.outdated.isEmpty())
-        file.parentFile.deleteRecursively()
     }
 
     @Test

@@ -56,8 +56,8 @@ class NativeCallLogService {
   ///
   /// Ids only: the mirror-sync needs this just to spot rows deleted elsewhere,
   /// and reading full rows for that is what made the sync O(history) in binder
-  /// traffic. Returns null when the native side can't answer (no permission,
-  /// older build without the method) — the caller then skips the deletion half
+  /// traffic. Returns null when the native side can't answer (no permission) —
+  /// the caller then skips the deletion half
   /// rather than wrongly purging.
   Future<Set<String>?> deviceCallLogIdsSince(int sinceMs) async {
     try {

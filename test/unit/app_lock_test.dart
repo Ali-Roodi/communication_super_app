@@ -57,24 +57,13 @@ void main() {
       'unlocking lasts for the process and is never written to disk',
       () async {
         final repo = AuthRepository();
+        final before = Map.of(store);
         await repo.setAuthenticated(true);
         expect(await repo.isAuthenticated(), isTrue);
         // Nothing that survives a restart may say "unlocked".
-        expect(store.containsKey('is_authenticated'), isFalse);
+        expect(store, before);
       },
     );
-
-    test('the flag an older build persisted is ignored and wiped', () async {
-      store['is_authenticated'] = 'true';
-      final repo = AuthRepository();
-      expect(
-        await repo.isAuthenticated(),
-        isFalse,
-        reason: 'a restart after the old build must still ask for the PIN',
-      );
-      await repo.setAuthenticated(false);
-      expect(store.containsKey('is_authenticated'), isFalse);
-    });
 
     test('a restart (new session) locks again', () async {
       await AuthRepository().setAuthenticated(true);

@@ -16,15 +16,13 @@ class CallLogModel extends Equatable {
 
   /// Subscription id of the SIM this call used.
   ///
-  /// This replaced a stored *slot* that was faked — `sim_slot` was written as
-  /// `simDisplayName != null ? 1 : null`, i.e. every call on either card came
-  /// back as «سیم ۱». The device call log records a `PHONE_ACCOUNT_ID`, which
-  /// `SimService.subscriptionForAccountId` resolves to the real subscription;
-  /// the slot is then *derived*, never stored, because a subscription id
-  /// changes when a card is re-inserted while the slot does not.
+  /// The device call log records a `PHONE_ACCOUNT_ID`, which
+  /// `SimService.subscriptionForAccountId` resolves to the subscription; the
+  /// slot is *derived*, never stored, because a subscription id changes when a
+  /// card is re-inserted while the slot does not.
   ///
-  /// Null means unknown: a row from before this existed, a call placed over a
-  /// VoIP account, or a card that has since been removed.
+  /// Null means unknown: a call placed over a VoIP account, or a card that has
+  /// since been removed.
   final int? subscriptionId;
 
   const CallLogModel({

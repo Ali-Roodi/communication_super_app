@@ -141,52 +141,6 @@ class AuthorityFolder(val dir: File) {
     val passwordsFile = File(issuedDir, Issuance.PASSWORDS_FILE)
     val updateFile = File(issuedDir, Issuance.UPDATE_FILE)
 
-    /**
-     * Which key-file format the files in `issued/` are and since when:
-     * `<format> <time>`, written by [reissueAll]. Missing or older than
-     * [KEY_FILE_FORMAT]: the files were made by an earlier panel, the app no
-     * longer opens them, and they are made again before anything else.
-     */
-    val formatFile = File(dir, FORMAT_FILE)
-
-    private val formatLine: List<String>
-        get() = runCatching { formatFile.readText(Charsets.UTF_8).trim().split(' ') }.getOrDefault(emptyList())
-
-    /** Since when the issued files are of the current format; null when they are not. */
-    val formatSince: LocalDateTime?
-        get() = formatLine.takeIf { it.size == 2 && it[0].toIntOrNull() == KEY_FILE_FORMAT }
-            ?.let { runCatching { LocalDateTime.parse(it[1]) }.getOrNull() }
-
-    fun needsReissue(): Boolean = formatSince == null
-
-    /**
-     * Re-issues every member's file in the current format — the same keys
-     * and the same passwords — and records when. A file delivered before that
-     * moment is [DeliveryStatus.OLD_FORMAT] until the member gets their new
-     * one. Returns how many files were made (0 for a folder with no member
-     * yet, which is only marked).
-     */
-    fun reissueAll(
-        authority: AuthorityFile.Contents,
-        random: SecureRandom,
-        kdf: PasswordKdf = PasswordKdf.KEY_FILE,
-        progress: (done: Int, total: Int) -> Unit = { _, _ -> },
-    ): Int {
-        val since = LocalDateTime.now().withNano(0)
-        val text = if (rosterFile.isFile) rosterFile.readText(Charsets.UTF_8) else ""
-        val count = if (text.removePrefix("﻿").lines().any { isMemberLine(it) }) {
-            val roster = parse(text)
-            Issuance.issue(
-                authority, roster, issuedDir, random,
-                kdf = kdf, known = Issuance.readPasswords(passwordsFile), progress = progress,
-            )
-            roster.entries.size
-        } else {
-            0
-        }
-        formatFile.writeText("$KEY_FILE_FORMAT $since", Charsets.UTF_8)
-        return count
-    }
     val log = IssuanceLog(File(dir, IssuanceLog.FILE))
 
     class MemberError(message: String) : Exception(message)
@@ -202,12 +156,6 @@ class AuthorityFolder(val dir: File) {
         /** They were given a new key («گوشی گم شد») that has not been delivered. */
         NEW_KEY,
 
-        /**
-         * The file they hold was made by an earlier panel in a format the app
-         * no longer opens. Only their OWN new file fixes it.
-         */
-        OLD_FORMAT,
-
         /** No delivery recorded — a new member, or a folder from before the log. */
         NOT_RECORDED,
     }
@@ -220,8 +168,6 @@ class AuthorityFolder(val dir: File) {
         val log: List<IssuanceLog.Entry> = emptyList(),
         /** [IssuanceLog.fingerprint] of the roster; null while it has no member. */
         val fingerprint: String? = null,
-        /** Since when this folder's files are of the current format ([AuthorityFolder.formatSince]). */
-        val formatSince: LocalDateTime? = null,
     ) {
         fun passwordOf(entry: Issuer.Entry): String? = passwords[entry.phones.first()]
 
@@ -230,7 +176,6 @@ class AuthorityFolder(val dir: File) {
             val mine = log.filter { it.phone == phone }
             val full = mine.lastOrNull { it.action == IssuanceLog.Action.DELIVERED } ?: return DeliveryStatus.NOT_RECORDED
             if (full.generation != entry.generation) return DeliveryStatus.NEW_KEY
-            if (formatSince != null && full.time < formatSince) return DeliveryStatus.OLD_FORMAT
             val latest = mine.last {
                 it.action == IssuanceLog.Action.DELIVERED || it.action == IssuanceLog.Action.UPDATE_DELIVERED
             }
@@ -251,7 +196,6 @@ class AuthorityFolder(val dir: File) {
             Issuance.readPasswords(passwordsFile),
             log.read(),
             roster?.let(IssuanceLog::fingerprint),
-            formatSince,
         )
     }
 
@@ -560,14 +504,6 @@ class AuthorityFolder(val dir: File) {
         const val ROSTER_FILE = "roster.csv"
         const val ISSUED_DIR = "issued"
         const val BACKUP_DIR = "backups"
-        const val FORMAT_FILE = "key-format.txt"
-
-        /**
-         * The key-file format this tool writes. Raised with every change the app
-         * does not read back; a folder marked with a lower one is re-issued.
-         */
-        const val KEY_FILE_FORMAT = 2
-
         private val STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS")
 
         /** The same rule as `Issuer.parseRoster` for the organization line. */
