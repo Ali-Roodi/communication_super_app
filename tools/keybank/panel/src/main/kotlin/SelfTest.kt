@@ -58,7 +58,6 @@ object SelfTest {
                 val opened = KeyFile.open(d.file.readBytes(), d.password!!, listOf(contents.key.public))
                 check(opened.directory.members.size == 2 && opened.memberIndex == 1) { "key file does not open as issued" }
                 check(d.activationCode == "9c4a48e93a") { "delivery activation code" }
-                check(!keys.unlocked!!.folder.needsReissue()) { "format marker" }
                 log.appendLine("issue + open: ok")
 
                 // The two members talk over their certificates alone, as two

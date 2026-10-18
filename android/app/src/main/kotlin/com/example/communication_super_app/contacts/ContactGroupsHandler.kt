@@ -332,15 +332,12 @@ class ContactGroupsHandler(private val context: Context) {
 
         val ops = ArrayList<ContentProviderOperation>()
 
-        // **Duplicate membership rows are dropped here**, because something
-        // else wrote them and the contact cannot be repaired anywhere else.
-        // `flutter_contacts` re-inserts one row per `contact.groups` entry on
-        // every `update()` without deleting the old ones, so a contact saved
-        // from the editor doubled its rows on each save (1 → 2 → 4 …) until the
-        // batch crossed ContactsProvider2's 500-operation ceiling and the
-        // provider threw, killing the process. The Dart side no longer sends
-        // groups at all (see `AddEditContactScreen._save`); this clears up what
-        // the earlier builds already wrote, on the next save of that contact.
+        // **Duplicate membership rows are dropped here**: another app (or
+        // `flutter_contacts`, which re-inserts one row per `contact.groups`
+        // entry on every `update()` — why the Dart side never sends groups,
+        // see `AddEditContactScreen._save`) can leave them, doubling on each
+        // save until a batch crosses ContactsProvider2's 500-operation ceiling
+        // and the provider throws. The contact cannot be repaired anywhere else.
         val current = LinkedHashMap<Long, Long>()
         val seen = HashSet<Pair<Long, Long>>()
         for (row in currentMemberships(raws.map { it.id })) {

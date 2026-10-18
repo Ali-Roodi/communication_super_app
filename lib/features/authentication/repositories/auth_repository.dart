@@ -35,8 +35,7 @@ class AuthRepository {
   // Keystore-backed storage already resists another *app* reading it, but the
   // PIN protects a database of the user's SMS — a plaintext copy of it is the
   // one thing that turns a device compromise into "and they can also unlock
-  // the app". Rows written by earlier versions are plaintext and are upgraded
-  // in place the first time they validate; see [_verify].
+  // the app". See [_verify].
 
   Future<void> setPin(String pin) async {
     await _storage.write(key: AppConstants.pinKey, value: _hash(pin));
@@ -48,8 +47,7 @@ class AuthRepository {
   }
 
   /// How many digits the stored PIN has — what every entry screen sizes its
-  /// dots from and submits at. A PIN saved before lengths were recorded is 4
-  /// digits: that was the only length there was.
+  /// dots from and submits at. Recorded with the PIN ([setPin]).
   Future<int> pinLength() async {
     final value = await _storage.read(key: AppConstants.pinLengthKey);
     return int.tryParse(value ?? '') ?? PinPolicy.standardLength;
@@ -114,9 +112,6 @@ class AuthRepository {
   Future<void> setAuthenticated(bool value) async {
     _sessionUnlocked = value;
     unawaited(reportSession());
-    // The persisted flag older builds wrote is meaningless now and must not
-    // linger where something could read it back.
-    await _storage.delete(key: AppConstants.isAuthenticatedKey);
   }
 
   static Future<void> _lastReport = Future<void>.value();
@@ -186,7 +181,6 @@ class AuthRepository {
     await _storage.delete(key: AppConstants.pinKey);
     await _storage.delete(key: AppConstants.patternKey);
     await _storage.delete(key: AppConstants.authTypeKey);
-    await _storage.delete(key: AppConstants.isAuthenticatedKey);
     await _storage.delete(key: AppConstants.recoveryCodeKey);
     await _storage.delete(key: AppConstants.pinLengthKey);
     // «باز کردن با اثر انگشت یا چهره» stands in for the PIN; with no PIN there
@@ -274,8 +268,7 @@ class AuthRepository {
 
   // ── Hashing ───────────────────────────────────────────────────────────
 
-  /// Marks a value as hashed. Anything without it is a plaintext secret
-  /// written by an earlier version.
+  /// The format tag of a stored credential; a value without it is refused.
   static const String _hashPrefix = 'v2:';
 
   /// Rounds of SHA-256. A 4-digit PIN has 10 000 possibilities, so stretching
@@ -298,21 +291,10 @@ class AuthRepository {
     return base64Url.encode(bytes);
   }
 
-  /// Compares [secret] against the value at [key], upgrading a legacy
-  /// plaintext row to a hash on the way through.
-  ///
-  /// The upgrade happens on a *successful* match only — a wrong guess must
-  /// never rewrite the stored credential.
+  /// Compares [secret] against the hashed value at [key].
   Future<bool> _verify(String key, String secret) async {
     final stored = await _storage.read(key: key);
-    if (stored == null || stored.isEmpty) return false;
-
-    if (!stored.startsWith(_hashPrefix)) {
-      // Legacy plaintext (<= the version that introduced hashing).
-      if (stored != secret) return false;
-      await _storage.write(key: key, value: _hash(secret));
-      return true;
-    }
+    if (stored == null || !stored.startsWith(_hashPrefix)) return false;
 
     final parts = stored.split(':');
     // 'v2', salt, hash — a malformed row is treated as no credential rather

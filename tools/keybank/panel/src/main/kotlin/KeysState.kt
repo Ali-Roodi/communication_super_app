@@ -147,7 +147,6 @@ class KeysState(
             password = ""
             if (rememberFile) Platform.lastAuthorityFile = file
             touch()
-            if (opened.first.folder.needsReissue()) reissueAll(opened.first)
         } catch (e: SmsCryptoException) {
             error = when (e.code) {
                 SmsCryptoException.Code.WRONG_PASSWORD -> "رمز مرجع اشتباه است."
@@ -158,46 +157,6 @@ class KeysState(
             error = "فایل مرجع باز نشد: ${e.message}"
         } finally {
             busy = null
-        }
-    }
-
-    /**
-     * A folder whose key files an earlier panel made, in a format this
-     * version of the app no longer opens: every file is made again once —
-     * same keys, same passwords — and the operator is told that each member
-     * needs their own new file this one time.
-     */
-    private suspend fun reissueAll(u: Unlocked) {
-        busy = "ساخت دوبارهٔ فایل‌های اعضا…"
-        progress = 0f
-        modalBusy = true
-        val made = try {
-            withContext(Dispatchers.Default) {
-                u.folder.reissueAll(u.contents, random) { done, total ->
-                    progress = done.toFloat() / total
-                }
-            }
-        } catch (e: Exception) {
-            notice = Notice(
-                "فایل‌ها دوباره ساخته نشد",
-                "فایل‌های اعضا دوباره ساخته نشد و چیزی تغییر نکرد: ${e.message}. پنل را دوباره باز کنید.",
-                isError = true,
-            )
-            return
-        } finally {
-            busy = null
-            progress = null
-            modalBusy = false
-            touch()
-        }
-        snapshot = runCatching { withContext(Dispatchers.IO) { u.folder.snapshot() } }.getOrNull() ?: snapshot
-        if (made > 0) {
-            notice = Notice(
-                "فایل همهٔ اعضا دوباره ساخته شد",
-                "فایل‌هایی که پیش‌تر از این پوشه صادر شده بود با این نسخهٔ برنامه باز نمی‌شوند. " +
-                    "فایل هر ${fa(made)} عضو با همان کلید و همان رمز دوباره ساخته شد؛ به هر عضو فایل تازهٔ خودش را بدهید. " +
-                    "از این به بعد، با اضافه شدن عضو تازه فقط خود او فایل لازم دارد.",
-            )
         }
     }
 

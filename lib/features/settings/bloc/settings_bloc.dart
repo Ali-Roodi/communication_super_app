@@ -79,9 +79,8 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
 
   static const _adPrefixesKey = '${_prefix}ad_prefixes';
 
-  /// The stored advertising prefixes, re-normalised (a list written by hand or
-  /// by an older build must not reach the native rule malformed); the default
-  /// list when nothing was ever stored.
+  /// The stored advertising prefixes, re-normalised so nothing malformed
+  /// reaches the native rule; the default list when nothing was ever stored.
   static List<String> _readAdPrefixes(SharedPreferences prefs) {
     final stored = prefs.getStringList(_adPrefixesKey);
     if (stored == null) return CallBlockPrefixes.defaults;

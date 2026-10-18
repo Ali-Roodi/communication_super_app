@@ -39,10 +39,10 @@ object SecureSmsInbox {
     const val EXTRA_OPEN_SECURE = "open_secure_inbox"
 
     /**
-     * MIRRORED in `DatabaseHelper` (v25) and `AppConstants.secureQueueTable`.
-     * Created here too, `IF NOT EXISTS`, because an SMS can arrive after an
-     * update and before the app was ever opened to run the migration — and a
-     * missing table would lose the message.
+     * MIRRORED in `DatabaseHelper` and `AppConstants.secureQueueTable`.
+     * Created here too, `IF NOT EXISTS`, because an SMS can arrive before the
+     * app was ever opened to create its database — and a missing table would
+     * lose the message.
      */
     private const val DDL = """
         CREATE TABLE IF NOT EXISTS secure_queue (

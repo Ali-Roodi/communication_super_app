@@ -49,8 +49,6 @@ class ThemeState {
 // ── Bloc ────────────────────────────────────────────────────────────────────
 
 class ThemeBloc extends Bloc<ThemeEvent, ThemeState> {
-  // Legacy bool key (pre-system support) — read once for migration.
-  static const _legacyKey = 'theme_mode_is_dark';
   static const _modeKey = 'theme_mode';
 
   ThemeBloc() : super(ThemeState.light) {
@@ -64,20 +62,14 @@ class ThemeBloc extends Bloc<ThemeEvent, ThemeState> {
   Future<void> _onLoad(LoadTheme event, Emitter<ThemeState> emit) async {
     final prefs = await SharedPreferences.getInstance();
     final stored = prefs.getString(_modeKey);
-    if (stored != null) {
-      emit(
-        ThemeState(
-          AppThemeMode.values.firstWhere(
-            (m) => m.name == stored,
-            orElse: () => AppThemeMode.light,
-          ),
+    emit(
+      ThemeState(
+        AppThemeMode.values.firstWhere(
+          (m) => m.name == stored,
+          orElse: () => AppThemeMode.light,
         ),
-      );
-      return;
-    }
-    // Migrate from the legacy bool key.
-    final isDark = prefs.getBool(_legacyKey) ?? false;
-    emit(ThemeState(isDark ? AppThemeMode.dark : AppThemeMode.light));
+      ),
+    );
   }
 
   Future<void> _persist(Emitter<ThemeState> emit, AppThemeMode mode) async {

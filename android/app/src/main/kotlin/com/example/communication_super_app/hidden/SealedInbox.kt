@@ -29,9 +29,9 @@ object SealedInbox {
     private val random = SecureRandom()
 
     /**
-     * MIRRORED in `DatabaseHelper._createSealedQueueTable` (v26) and
+     * MIRRORED in `DatabaseHelper._createSealedQueueTable` and
      * `AppConstants.sealedQueueTable`. Created here too, `IF NOT EXISTS`: a
-     * call can end after an update and before the app ran its migration.
+     * call can end before the app was ever opened to create its database.
      */
     private const val DDL = """
         CREATE TABLE IF NOT EXISTS sealed_queue (

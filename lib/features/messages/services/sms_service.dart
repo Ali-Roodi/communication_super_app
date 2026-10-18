@@ -772,10 +772,6 @@ class SmsService {
       throw Exception('SMS permissions not granted');
     }
 
-    // One-time: link rows imported before the v11 migration (their id IS the
-    // provider row id). Cheap idempotent UPDATE afterwards.
-    await _messageRepository.backfillDeviceSmsIds();
-
     // Preload contacts to map phone numbers quickly
     final contacts = await _contactRepository.getAllContacts();
     final contactMap = <String, dynamic>{};

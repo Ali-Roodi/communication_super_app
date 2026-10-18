@@ -3,7 +3,7 @@ class AppConstants {
 
   // Database
   static const String databaseName = 'communication_app.db';
-  static const int databaseVersion = 26;
+  static const int databaseVersion = 1;
 
   // Tables
   static const String contactsTable = 'contacts';
@@ -92,7 +92,6 @@ class AppConstants {
   static const String pinKey = 'app_pin';
   static const String patternKey = 'app_pattern';
   static const String authTypeKey = 'auth_type';
-  static const String isAuthenticatedKey = 'is_authenticated';
 
   /// Set when the user chose «ادامه بدون رمز» on first entry (or removed the
   /// PIN later). Auth setup is never re-prompted while this is true; the PIN
