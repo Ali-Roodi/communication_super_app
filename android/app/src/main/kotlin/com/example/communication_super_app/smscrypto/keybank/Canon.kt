@@ -1,20 +1,13 @@
 package com.example.communication_super_app.smscrypto.keybank
 
-import java.text.Normalizer
-import java.util.Locale
-
 /**
- * The one spelling of the text that keys are derived from.
+ * The one spelling of what keys and files are derived from: a phone number
+ * (a member's key is derived from their first number, a certificate names
+ * one) and a key-file password as read out to a member. Two machines must
+ * agree on it whatever keyboard typed it.
  *
- * Two phones must derive **the same key** from what two people typed on two
- * different keyboards. A Persian keyboard, an Arabic one and a phone's
- * autocorrect disagree on ی/ي, ک/ك, digits, half-spaces and a capital first
- * letter; each disagreement would silently produce a different key and
- * messages that simply never decrypt. Everything derived from typed text goes
- * through here first.
- *
- * **Frozen**, like the code page: changing a rule changes every group key.
- * `KeyBankTest` pins the output of both functions.
+ * **Frozen**: changing a rule changes every member's key. `KeyBankTest` pins
+ * the output.
  */
 object Canon {
     /**
@@ -44,34 +37,6 @@ object Canon {
     }
 
     /**
-     * A passphrase or group name: NFKC; Arabic letter forms folded to the
-     * Persian ones (ي ى → ی, ك → ک, ة → ه, أ إ آ → ا, ؤ → و); every digit to
-     * ASCII; half-spaces, bidi marks, tatweel and harakat dropped; Latin
-     * lowercased (a keyboard capitalises the first letter on its own); runs of
-     * white space to one space, trimmed.
-     */
-    fun text(raw: String): String {
-        val normalized = Normalizer.normalize(raw, Normalizer.Form.NFKC)
-        val out = StringBuilder(normalized.length)
-        var pendingSpace = false
-        for (c in normalized) {
-            val code = c.code
-            if (code in DROPPED || code in 0x064B..0x0652) continue
-            if (Character.isWhitespace(c) || code == 0x00A0) {
-                pendingSpace = out.isNotEmpty()
-                continue
-            }
-            if (pendingSpace) {
-                out.append(' ')
-                pendingSpace = false
-            }
-            val d = digit(c)
-            out.append(if (d >= 0) '0' + d else FOLD[code]?.toChar() ?: c)
-        }
-        return out.toString().lowercase(Locale.ROOT)
-    }
-
-    /**
      * A key-file password as typed: its letters and digits only (Persian
      * digits folded), uppercased — the tool prints it in dashed groups and
      * people read it out, so dashes, spaces and case must not matter.
@@ -94,23 +59,4 @@ object Canon {
         in 0x0660..0x0669 -> c.code - 0x0660
         else -> -1
     }
-
-    /** ZWNJ, ZWJ, LRM, RLM, the bidi embeddings and isolates, tatweel, superscript alef, hamza above, BOM. */
-    private val DROPPED: Set<Int> = setOf(
-        0x200C, 0x200D, 0x200E, 0x200F,
-        0x202A, 0x202B, 0x202C, 0x202D, 0x202E,
-        0x2066, 0x2067, 0x2068, 0x2069,
-        0x0640, 0x0670, 0x0654, 0xFEFF,
-    )
-
-    private val FOLD: Map<Int, Int> = mapOf(
-        0x064A to 0x06CC, // ي → ی
-        0x0649 to 0x06CC, // ى → ی
-        0x0643 to 0x06A9, // ك → ک
-        0x0629 to 0x0647, // ة → ه
-        0x0623 to 0x0627, // أ → ا
-        0x0625 to 0x0627, // إ → ا
-        0x0622 to 0x0627, // آ → ا
-        0x0624 to 0x0648, // ؤ → و
-    )
 }

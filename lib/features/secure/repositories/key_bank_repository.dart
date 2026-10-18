@@ -6,7 +6,7 @@ import 'package:sqflite_sqlcipher/sqflite.dart' as cipher;
 import '../services/sms_crypto_service.dart';
 import 'secure_store.dart';
 
-/// Lowercase hex — how every key, directory and group id is stored.
+/// Lowercase hex — how every key and directory id is stored.
 String keyHex(List<int> bytes) =>
     bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 
@@ -25,8 +25,8 @@ enum KeyImportOutcome {
   /// A newer copy of a directory it had.
   updated,
 
-  /// The same copy, now with this phone's own key (a directory-only file
-  /// came first).
+  /// The same copy, now with this phone's own key (the update file came
+  /// first).
   ownKeyAdded,
 
   /// Nothing new.
@@ -70,35 +70,16 @@ class DirectorySummary extends Equatable {
   ];
 }
 
-class GroupSummary extends Equatable {
-  const GroupSummary({
-    required this.id,
-    required this.name,
-    required this.createdAt,
-  });
-  final String id;
-  final String name;
-  final int createdAt;
-  @override
-  List<Object?> get props => [id, name, createdAt];
-}
-
 /// Everything the key bank screen shows — public data only; no secret ever
 /// leaves the repository in a snapshot.
 class KeyBankSnapshot extends Equatable {
-  const KeyBankSnapshot({
-    this.directories = const [],
-    this.groups = const [],
-    this.ownNumbers = const [],
-  });
+  const KeyBankSnapshot({this.directories = const []});
   final List<DirectorySummary> directories;
-  final List<GroupSummary> groups;
-  final List<String> ownNumbers;
 
-  bool get isEmpty => directories.isEmpty && groups.isEmpty;
+  bool get isEmpty => directories.isEmpty;
 
   @override
-  List<Object?> get props => [directories, groups, ownNumbers];
+  List<Object?> get props => [directories];
 }
 
 /// One member of a stored directory.
@@ -113,25 +94,30 @@ class DirectoryEntry {
   });
   final String directoryId;
   final String directoryName;
+
+  /// The key id the member's certificate carries.
   final String keyId;
   final String name;
+
+  /// The member's X25519 key.
   final Uint8List publicKey;
 
   /// Canonical.
   final List<String> phones;
 }
 
-/// A peer's public key as the key bank knows it.
+/// A directory member who owns a number, as the key bank knows them.
 class PeerKey {
   const PeerKey({
-    required this.source,
+    required this.directoryId,
+    required this.directoryName,
     required this.name,
     required this.publicKey,
     required this.keyId,
   });
 
-  /// `directory:<id>` or `group:<id>`.
-  final String source;
+  final String directoryId;
+  final String directoryName;
   final String name;
   final Uint8List publicKey;
   final Uint8List keyId;
@@ -140,8 +126,8 @@ class PeerKey {
 /// «بانک کلید» storage, in `secure.db` (tables made by [SecureStore]).
 ///
 /// Works only while the secure section is open; otherwise every call throws
-/// [KeyBankLockedException]. Secrets (own keys, group seeds) are written and
-/// read here and nowhere else.
+/// [KeyBankLockedException]. Secrets (own keys) are written and read here and
+/// nowhere else.
 class KeyBankRepository {
   KeyBankRepository({cipher.Database? Function()? database})
     : _database = database ?? (() => SecureStore.instance.database);
@@ -162,12 +148,6 @@ class KeyBankRepository {
         FROM kb_directories d
        ORDER BY d.name COLLATE NOCASE
     ''');
-    final groups = await db.query(
-      'kb_groups',
-      columns: ['id', 'name', 'created_at'],
-      orderBy: 'created_at',
-    );
-    final numbers = await db.query('kb_own_numbers', orderBy: 'added_at');
     return KeyBankSnapshot(
       directories: [
         for (final r in dirs)
@@ -180,15 +160,6 @@ class KeyBankRepository {
             ownName: r['own_name'] as String?,
           ),
       ],
-      groups: [
-        for (final r in groups)
-          GroupSummary(
-            id: r['id'] as String,
-            name: r['name'] as String,
-            createdAt: r['created_at'] as int,
-          ),
-      ],
-      ownNumbers: [for (final r in numbers) r['phone'] as String],
     );
   }
 
@@ -199,7 +170,7 @@ class KeyBankRepository {
   }) async {
     final d = opened.directory;
     final id = keyHex(d.directoryId);
-    final member = opened.member;
+    final own = opened.own;
     return _db.transaction((txn) async {
       final existing = await txn.query(
         'kb_directories',
@@ -214,19 +185,18 @@ class KeyBankRepository {
         return KeyImportOutcome.older;
       }
       if (storedSerial == d.serial) {
-        if (member == null) return KeyImportOutcome.alreadyImported;
-        final own = await txn.query(
+        if (own == null) return KeyImportOutcome.alreadyImported;
+        final stored = await txn.query(
           'kb_own_keys',
-          columns: ['key_id', '(cert IS NOT NULL) AS has_cert'],
+          columns: ['key_id'],
           where: 'directory_id = ?',
           whereArgs: [id],
         );
-        if (own.isNotEmpty &&
-            own.first['key_id'] == keyHex(member.keyId) &&
-            (opened.cert == null || own.first['has_cert'] == 1)) {
+        if (stored.isNotEmpty &&
+            stored.first['key_id'] == keyHex(own.identity.keyId)) {
           return KeyImportOutcome.alreadyImported;
         }
-        await _storeOwnKey(txn, id, member, opened.cert);
+        await _storeOwnKey(txn, id, own);
         return KeyImportOutcome.ownKeyAdded;
       }
 
@@ -267,8 +237,8 @@ class KeyBankRepository {
       }
       await batch.commit(noResult: true);
 
-      if (member != null) {
-        await _storeOwnKey(txn, id, member, opened.cert);
+      if (own != null) {
+        await _storeOwnKey(txn, id, own);
       } else {
         // A newer directory without this phone's key: keep the stored key
         // only while the authority still lists it.
@@ -289,14 +259,13 @@ class KeyBankRepository {
   Future<void> _storeOwnKey(
     cipher.DatabaseExecutor txn,
     String directoryId,
-    SmsIdentity member,
-    MemberCertInfo? cert,
+    OwnKey own,
   ) => txn.insert('kb_own_keys', {
     'directory_id': directoryId,
-    'key_id': keyHex(member.keyId),
-    'secret': member.secret,
-    'public_key': member.publicKey,
-    'cert': cert?.cert,
+    'key_id': keyHex(own.identity.keyId),
+    'secret': own.identity.secret,
+    'public_key': own.identity.publicKey,
+    'cert': own.cert.cert,
   }, conflictAlgorithm: cipher.ConflictAlgorithm.replace);
 
   Future<void> removeDirectory(String id) => _db.transaction((txn) async {
@@ -310,47 +279,17 @@ class KeyBankRepository {
     await txn.delete('kb_directories', where: 'id = ?', whereArgs: [id]);
   });
 
-  /// False when the group is already in the bank.
-  Future<bool> addGroup({
-    required Uint8List groupId,
-    required String name,
-    required Uint8List seed,
-    DateTime? now,
-  }) async {
-    final id = keyHex(groupId);
-    final inserted = await _db.insert('kb_groups', {
-      'id': id,
-      'name': name.trim(),
-      'seed': seed,
-      'created_at': (now ?? DateTime.now()).millisecondsSinceEpoch,
-    }, conflictAlgorithm: cipher.ConflictAlgorithm.ignore);
-    return inserted != 0;
-  }
-
-  Future<void> removeGroup(String id) =>
-      _db.delete('kb_groups', where: 'id = ?', whereArgs: [id]);
-
-  /// [phone] must be canonical. False when it is already listed.
-  Future<bool> addOwnNumber(String phone, {DateTime? now}) async {
-    final inserted = await _db.insert('kb_own_numbers', {
-      'phone': phone,
-      'added_at': (now ?? DateTime.now()).millisecondsSinceEpoch,
-    }, conflictAlgorithm: cipher.ConflictAlgorithm.ignore);
-    return inserted != 0;
-  }
-
-  Future<void> removeOwnNumber(String phone) =>
-      _db.delete('kb_own_numbers', where: 'phone = ?', whereArgs: [phone]);
-
   // ── Lookups for the encrypted-SMS path (phase F) ───────────────────────────
 
   /// Directory members who own [phone] (canonical).
   Future<List<PeerKey>> directoryKeysFor(String phone) async {
     final rows = await _db.rawQuery(
       '''
-      SELECT m.directory_id, m.name, m.public_key, m.key_id
+      SELECT m.directory_id, d.name AS directory_name, m.name, m.public_key,
+             m.key_id
         FROM kb_member_phones p
         JOIN kb_members m ON m.directory_id = p.directory_id AND m.key_id = p.key_id
+        JOIN kb_directories d ON d.id = m.directory_id
        WHERE p.phone = ?
       ''',
       [phone],
@@ -358,7 +297,8 @@ class KeyBankRepository {
     return [
       for (final r in rows)
         PeerKey(
-          source: 'directory:${r['directory_id']}',
+          directoryId: r['directory_id'] as String,
+          directoryName: r['directory_name'] as String,
           name: r['name'] as String,
           publicKey: r['public_key'] as Uint8List,
           keyId: _unhex(r['key_id'] as String),
@@ -366,23 +306,9 @@ class KeyBankRepository {
     ];
   }
 
-  /// Every group's secret seed (for deriving member keys).
-  Future<List<({String id, String name, Uint8List seed})>> groupSeeds() async {
-    final rows = await _db.query('kb_groups', orderBy: 'created_at');
-    return [
-      for (final r in rows)
-        (
-          id: r['id'] as String,
-          name: r['name'] as String,
-          seed: r['seed'] as Uint8List,
-        ),
-    ];
-  }
-
-  /// This phone's own directory keys, with their secrets — and, from a key
-  /// file issued with one, the member certificate ([cert]) that lets any
-  /// member reach this phone without having been given its key.
-  Future<List<({String directoryId, SmsIdentity identity, Uint8List? cert})>>
+  /// This phone's own keys, with their secrets and the member certificate
+  /// ([cert]) that names each.
+  Future<List<({String directoryId, SmsIdentity identity, Uint8List cert})>>
   ownDirectoryKeys() async {
     final rows = await _db.query('kb_own_keys');
     return [
@@ -394,7 +320,7 @@ class KeyBankRepository {
             publicKey: r['public_key'] as Uint8List,
             keyId: _unhex(r['key_id'] as String),
           ),
-          cert: r['cert'] as Uint8List?,
+          cert: r['cert'] as Uint8List,
         ),
     ];
   }

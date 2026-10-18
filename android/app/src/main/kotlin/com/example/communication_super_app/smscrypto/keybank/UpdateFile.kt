@@ -54,7 +54,9 @@ object UpdateFile {
      * WRONG_PASSWORD when it belongs to none of them; NOT_A_KEY_FILE,
      * UNTRUSTED, BAD_SIGNATURE or BAD_BUNDLE as for a key file.
      */
-    fun open(file: ByteArray, directoryIds: List<ByteArray>, anchors: List<AuthorityPublic>): KeyFile.Opened {
+    class Opened(val signed: SignedDirectory, val directory: Directory)
+
+    fun open(file: ByteArray, directoryIds: List<ByteArray>, anchors: List<AuthorityPublic>): Opened {
         for (id in directoryIds) {
             val plain = try {
                 SealedFile.open(MAGIC, file, password(id))
@@ -69,7 +71,7 @@ object UpdateFile {
             val directory = signed.verify(anchors)
             // Sealed for one directory, carrying another: not ours to trust.
             if (!MessageDigest.isEqual(directory.directoryId, id)) r.fail("update file names another directory")
-            return KeyFile.Opened(signed, directory, null, null)
+            return Opened(signed, directory)
         }
         // Also when the phone holds no directory at all: the header said
         // update file, so whether it is one is not in doubt — only whose.

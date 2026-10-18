@@ -176,7 +176,7 @@ object Payload {
         out.write(name)
         out.write(info.members.size)
         for (m in info.members) {
-            require(m.keyId.size == PublicIdentity.KEY_ID_BYTES) { "bad key id" }
+            require(m.keyId.size == com.example.communication_super_app.smscrypto.keybank.MemberCert.KEY_ID_BYTES) { "bad key id" }
             out.write(packDigits(m.phone))
             out.write(m.keyId)
         }
@@ -294,7 +294,7 @@ object Payload {
             val digits = body[at++].toInt() and 0xFF
             if (digits !in 1..MAX_PHONE_DIGITS) badPayload()
             val packed = (digits + 1) / 2
-            need(packed + PublicIdentity.KEY_ID_BYTES)
+            need(packed + com.example.communication_super_app.smscrypto.keybank.MemberCert.KEY_ID_BYTES)
             val phone = StringBuilder(digits)
             for (i in 0 until digits) {
                 val b = body[at + i / 2].toInt() and 0xFF
@@ -305,8 +305,8 @@ object Payload {
             // The pad nibble of an odd count must be the pad, nothing else.
             if (digits % 2 == 1 && (body[at + packed - 1].toInt() and 0x0F) != 0x0F) badPayload()
             at += packed
-            members.add(GroupMember(phone.toString(), body.copyOfRange(at, at + PublicIdentity.KEY_ID_BYTES)))
-            at += PublicIdentity.KEY_ID_BYTES
+            members.add(GroupMember(phone.toString(), body.copyOfRange(at, at + com.example.communication_super_app.smscrypto.keybank.MemberCert.KEY_ID_BYTES)))
+            at += com.example.communication_super_app.smscrypto.keybank.MemberCert.KEY_ID_BYTES
         }
         if (at != body.size) badPayload()
         return GroupInfo(groupId, version, mode, name, members)

@@ -24,9 +24,6 @@ class SecureStoreException implements Exception {
 /// notification reply) with no key available; nothing secret may ever be
 /// written there. This one only exists, open, between an unlock and the next
 /// lock.
-///
-/// Schema changes go through [_schemaVersion] / [_onUpgrade], exactly as in
-/// `DatabaseHelper`.
 class SecureStore {
   SecureStore({
     SecureVaultService vault = const SecureVaultService(),
@@ -46,12 +43,10 @@ class SecureStore {
 
   static const String fileName = 'secure.db';
 
-  /// v1: `secure_meta` (phase C). v2: the key bank (phase E). v3: encrypted
-  /// conversations (phase F). v4: the hidden phonebook, its calls, and plain
-  /// SMS with hidden contacts (phase G). v5: encrypted groups (matrix row 14).
-  /// v6: timed messages, intruder photos. v7: member certificates and the
-  /// post-quantum upgrade.
-  static const int _schemaVersion = 7;
+  /// The schema below is version 1: nothing earlier was ever installed
+  /// outside development, so there is nothing to migrate from. The next
+  /// change raises this and adds an `onUpgrade`, as `DatabaseHelper` does.
+  static const int _schemaVersion = 1;
 
   /// The open database, or null while locked.
   cipher.Database? get database => _db;
@@ -113,7 +108,6 @@ class SecureStore {
       password: "x'$keyHex'",
       version: _schemaVersion,
       onCreate: _onCreate,
-      onUpgrade: _onUpgrade,
     );
   }
 
@@ -121,14 +115,6 @@ class SecureStore {
   @visibleForTesting
   static Future<void> createSchemaForTest(cipher.Database db) =>
       _onCreate(db, _schemaVersion);
-
-  /// Runs the migrations from [from] to [to] (default: the current version).
-  @visibleForTesting
-  static Future<void> upgradeSchemaForTest(
-    cipher.Database db,
-    int from, {
-    int to = _schemaVersion,
-  }) => _onUpgrade(db, from, to);
 
   static Future<void> _onCreate(cipher.Database db, int version) async {
     await db.execute('''
@@ -142,74 +128,168 @@ class SecureStore {
       'value': DateTime.now().millisecondsSinceEpoch.toString(),
     });
     await _createKeyBank(db);
-    await _createSecureMessages(db);
-    await _upgradeMessagesToV4(db);
-    await _createHiddenPhonebook(db);
+    await _createConversations(db);
     await _createGroups(db);
-    await _upgradeToV6(db);
-    await _upgradeToV7(db);
+    await _createHiddenPhonebook(db);
+    await _createIntruderPhotos(db);
   }
 
-  /// v7: member certificates (`CertHandshake`) and the background
-  /// post-quantum upgrade (`Upgrade`).
+  /// «بانک کلید» — see `KeyBankRepository`, the only code that reads or
+  /// writes these tables.
   ///
-  /// - `kb_own_keys.cert`: this phone's certificate for that key, from its
-  ///   key file (null in a file issued before certificates).
-  /// - `sm_conversations.peer_generation`: the highest certificate generation
-  ///   seen for the peer — an older one is refused. For a certificate
-  ///   conversation `peer_public` holds the peer's certificate, and
-  ///   `peer_key_id` is empty until its first answer names the key.
-  /// - `sm_sessions.kind`: `v1` (the full handshake), `cert-i` / `cert-r` (a
-  ///   certificate session we initiated / answered), `pq` (upgraded),
-  ///   `pq-standby` (upgraded by us as the accepter, not sent on until the
-  ///   offerer is heard on it); `offered_at`: when our upgrade offer went.
-  static Future<void> _upgradeToV7(cipher.DatabaseExecutor db) async {
-    await db.execute('ALTER TABLE kb_own_keys ADD COLUMN cert BLOB');
-    await db.execute(
-      'ALTER TABLE sm_conversations ADD COLUMN peer_generation INTEGER',
-    );
-    await db.execute(
-      "ALTER TABLE sm_sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'v1'",
-    );
-    await db.execute('ALTER TABLE sm_sessions ADD COLUMN offered_at INTEGER');
-  }
-
-  /// v6: timed messages (matrix row 16) and the photos taken after wrong PIN
-  /// entries (row 32).
-  ///
-  /// `ttl` is a message's lifetime in seconds. An outgoing copy goes `ttl`
-  /// after it was sent, an incoming one `ttl` after it was first shown
-  /// (`seen_at`) — see `SecureMessageStore.purgeExpired`.
-  static Future<void> _upgradeToV6(cipher.DatabaseExecutor db) async {
-    await db.execute('ALTER TABLE sm_messages ADD COLUMN ttl INTEGER');
-    await db.execute('ALTER TABLE sg_messages ADD COLUMN ttl INTEGER');
-    // Opened from what Kotlin sealed to the section's key while it was
-    // locked — see `IntruderRepository`.
+  /// Every phone number here is canonical (`SmsCryptoService.canonicalPhone`
+  /// — the same spelling the keys are derived from), and every id is
+  /// lowercase hex. A member's `key_id` is the key id their certificate
+  /// carries (`MemberCert.keyIdOf`).
+  static Future<void> _createKeyBank(cipher.DatabaseExecutor db) async {
+    // One row per organization directory; `signed` is the directory exactly
+    // as the authority signed it, so it can be verified again at any time.
     await db.execute('''
-      CREATE TABLE ip_photos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        taken_at INTEGER NOT NULL,
-        camera TEXT NOT NULL,
-        failed_attempts INTEGER NOT NULL,
-        jpeg BLOB,
-        seen INTEGER NOT NULL DEFAULT 0,
-        UNIQUE (taken_at, camera)
+      CREATE TABLE kb_directories (
+        id TEXT PRIMARY KEY,
+        authority_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        serial INTEGER NOT NULL,
+        signed BLOB NOT NULL,
+        imported_at INTEGER NOT NULL
+      )
+    ''');
+    // `public_key`: the member's X25519 key (32 bytes) — what their
+    // certificate must carry.
+    await db.execute('''
+      CREATE TABLE kb_members (
+        directory_id TEXT NOT NULL,
+        key_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        public_key BLOB NOT NULL,
+        PRIMARY KEY (directory_id, key_id)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE kb_member_phones (
+        phone TEXT NOT NULL,
+        directory_id TEXT NOT NULL,
+        key_id TEXT NOT NULL,
+        PRIMARY KEY (phone, directory_id)
+      )
+    ''');
+    // This phone's own identity in a directory — the one private key a key
+    // file carries — and the member certificate (`MemberCert`) naming it.
+    await db.execute('''
+      CREATE TABLE kb_own_keys (
+        directory_id TEXT PRIMARY KEY,
+        key_id TEXT NOT NULL,
+        secret BLOB NOT NULL,
+        public_key BLOB NOT NULL,
+        cert BLOB NOT NULL
       )
     ''');
   }
 
-  /// Encrypted groups (v5) — see `SecureGroupStore`, the only code that
+  /// Encrypted conversations — see `SecureMessageStore`, the only code that
   /// reads or writes these tables.
+  static Future<void> _createConversations(cipher.DatabaseExecutor db) async {
+    // One conversation per peer number (canonical). With all four key
+    // columns null it is a hidden contact reached by plain SMS.
+    // `peer_public` is the peer's member certificate once they have
+    // answered; `peer_key_id` is empty until then for a member our
+    // directories do not list. `own_directory`: the key file of ours that
+    // talks to them. `peer_generation`: the highest certificate generation
+    // seen for the peer — an older one is refused. `listed`: a group makes a
+    // one-to-one conversation with every member, kept out of the list until
+    // something is said in it.
+    await db.execute('''
+      CREATE TABLE sm_conversations (
+        phone TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        peer_key_id TEXT,
+        peer_public BLOB,
+        own_key_id TEXT,
+        own_directory TEXT,
+        created_at INTEGER NOT NULL,
+        last_at INTEGER NOT NULL,
+        unread INTEGER NOT NULL DEFAULT 0,
+        seen_sid INTEGER,
+        seen_counter INTEGER,
+        listed INTEGER NOT NULL DEFAULT 1,
+        peer_generation INTEGER
+      )
+    ''');
+    // Ratchet states and our pending handshakes. Stored BEFORE the SMS that
+    // used them goes out, so a crash can never reuse a message key.
+    // `kind`: see `SessionKind`. `offered_at`: when our post-quantum upgrade
+    // offer went out on it.
+    await db.execute('''
+      CREATE TABLE sm_sessions (
+        phone TEXT NOT NULL,
+        sid INTEGER NOT NULL,
+        pending INTEGER NOT NULL,
+        state BLOB NOT NULL,
+        created_at INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        offered_at INTEGER,
+        PRIMARY KEY (phone, sid)
+      )
+    ''');
+    // Every session request we answered, by the SHA-256 of its text: one
+    // seen before is never answered again (`SecureMessageStore.answered`).
+    await db.execute('''
+      CREATE TABLE sm_answered_requests (
+        digest TEXT PRIMARY KEY,
+        answered_at INTEGER NOT NULL
+      )
+    ''');
+    // `sid`/`counter`: the session and counter the message travelled with —
+    // what a «دیده شد» or «حذف برای هر دو» names it by. `plain`: an
+    // unencrypted SMS with a hidden contact. `ttl`: a timed message's
+    // lifetime in seconds — an outgoing copy goes `ttl` after it was sent,
+    // an incoming one `ttl` after it was first shown (`seen_at`); see
+    // `SecureMessageStore.purgeExpired`.
+    await db.execute('''
+      CREATE TABLE sm_messages (
+        id TEXT PRIMARY KEY,
+        phone TEXT NOT NULL,
+        outgoing INTEGER NOT NULL,
+        body TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        sid INTEGER,
+        counter INTEGER,
+        delete_after_seen INTEGER NOT NULL DEFAULT 0,
+        seen_at INTEGER,
+        parts INTEGER,
+        plain INTEGER NOT NULL DEFAULT 0,
+        ttl INTEGER
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX sm_messages_thread ON sm_messages (phone, timestamp)',
+    );
+    await db.execute(
+      'CREATE UNIQUE INDEX sm_messages_wire ON sm_messages '
+      '(phone, outgoing, sid, counter) WHERE sid IS NOT NULL',
+    );
+    // Packets taken from the main database's `secure_queue` that cannot be
+    // processed yet (a message that arrived before its session's handshake).
+    await db.execute('''
+      CREATE TABLE sm_inbox (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        address TEXT NOT NULL,
+        body TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        received_at INTEGER NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (address, body)
+      )
+    ''');
+  }
+
+  /// Encrypted groups — see `SecureGroupStore`, the only code that reads or
+  /// writes these tables.
   ///
   /// SMS has no multicast: a group message is one row here and one delivery
-  /// per member, each sealed over that member's own session. That is also
-  /// why `sm_conversations` gains `listed`: a group makes a one-to-one
-  /// conversation (and a handshake) with every member, and those stay out of
-  /// the list until something is said in them.
+  /// per member, each sealed over that member's own session.
   static Future<void> _createGroups(cipher.DatabaseExecutor db) async {
-    await db.execute(
-      'ALTER TABLE sm_conversations ADD COLUMN listed INTEGER NOT NULL DEFAULT 1',
-    );
     // `creator` null = this phone. `pending_info`: a message arrived before
     // the group's definition; the first definition then decides the creator.
     // `left`: the creator's newest definition no longer lists this phone.
@@ -242,7 +322,8 @@ class SecureStore {
       )
     ''');
     // `sender` null = ours. Incoming: `sid`/`counter` of the pairwise
-    // session it came on (what a receipt or a delete names).
+    // session it came on (what a receipt or a delete names). `ttl` as in
+    // `sm_messages`.
     await db.execute('''
       CREATE TABLE sg_messages (
         id TEXT PRIMARY KEY,
@@ -254,7 +335,8 @@ class SecureStore {
         sid INTEGER,
         counter INTEGER,
         delete_after_seen INTEGER NOT NULL DEFAULT 0,
-        seen_at INTEGER
+        seen_at INTEGER,
+        ttl INTEGER
       )
     ''');
     await db.execute(
@@ -277,44 +359,9 @@ class SecureStore {
     );
   }
 
-  /// v4 on the phase F tables: a conversation may have **no key** (a hidden
-  /// contact without one talks in plain SMS), and a message may be plain.
-  /// SQLite cannot drop a NOT NULL, so `sm_conversations` is rebuilt.
-  static Future<void> _upgradeMessagesToV4(cipher.DatabaseExecutor db) async {
-    await db.execute('''
-      CREATE TABLE sm_conversations_v4 (
-        phone TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        peer_key_id TEXT,
-        peer_public BLOB,
-        own_key_id TEXT,
-        own_source TEXT,
-        created_at INTEGER NOT NULL,
-        last_at INTEGER NOT NULL,
-        unread INTEGER NOT NULL DEFAULT 0,
-        seen_sid INTEGER,
-        seen_counter INTEGER
-      )
-    ''');
-    await db.execute('''
-      INSERT INTO sm_conversations_v4
-        SELECT phone, name, peer_key_id, peer_public, own_key_id, own_source,
-               created_at, last_at, unread, seen_sid, seen_counter
-          FROM sm_conversations
-    ''');
-    await db.execute('DROP TABLE sm_conversations');
-    await db.execute(
-      'ALTER TABLE sm_conversations_v4 RENAME TO sm_conversations',
-    );
-    // A plain (unencrypted) SMS with a hidden contact.
-    await db.execute(
-      'ALTER TABLE sm_messages ADD COLUMN plain INTEGER NOT NULL DEFAULT 0',
-    );
-  }
-
-  /// «دفترچه مخفی» (v4) — see `HiddenContactsRepository`, the only code
-  /// that reads or writes these tables. Numbers are canonical, like
-  /// everything else in this database.
+  /// «دفترچه مخفی» — see `HiddenContactsRepository`, the only code that
+  /// reads or writes these tables. Numbers are canonical, like everything
+  /// else in this database.
   static Future<void> _createHiddenPhonebook(cipher.DatabaseExecutor db) async {
     await db.execute('''
       CREATE TABLE hc_contacts (
@@ -352,159 +399,21 @@ class SecureStore {
     await db.execute('CREATE INDEX hc_calls_time ON hc_calls (timestamp DESC)');
   }
 
-  /// Encrypted conversations (v3) — see `SecureMessageStore`, the only code
-  /// that reads or writes these tables.
-  static Future<void> _createSecureMessages(cipher.DatabaseExecutor db) async {
-    // One conversation per peer number (canonical). The peer's key and the
-    // identity of ours used with them are fixed when it is started, so a key
-    // bank change can never silently re-route an existing conversation.
-    await db.execute('''
-      CREATE TABLE sm_conversations (
-        phone TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        peer_key_id TEXT NOT NULL,
-        peer_public BLOB NOT NULL,
-        own_key_id TEXT NOT NULL,
-        own_source TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        last_at INTEGER NOT NULL,
-        unread INTEGER NOT NULL DEFAULT 0,
-        seen_sid INTEGER,
-        seen_counter INTEGER
-      )
-    ''');
-    // Ratchet states and our pending handshakes. Stored BEFORE the SMS that
-    // used them goes out, so a crash can never reuse a message key.
-    await db.execute('''
-      CREATE TABLE sm_sessions (
-        phone TEXT NOT NULL,
-        sid INTEGER NOT NULL,
-        pending INTEGER NOT NULL,
-        state BLOB NOT NULL,
-        created_at INTEGER NOT NULL,
-        PRIMARY KEY (phone, sid)
-      )
-    ''');
-    // `sid`/`counter`: the session and counter the message travelled with —
-    // what a «دیده شد» or «حذف برای هر دو» names it by.
-    await db.execute('''
-      CREATE TABLE sm_messages (
-        id TEXT PRIMARY KEY,
-        phone TEXT NOT NULL,
-        outgoing INTEGER NOT NULL,
-        body TEXT NOT NULL,
-        timestamp INTEGER NOT NULL,
-        status TEXT NOT NULL,
-        sid INTEGER,
-        counter INTEGER,
-        delete_after_seen INTEGER NOT NULL DEFAULT 0,
-        seen_at INTEGER,
-        parts INTEGER
-      )
-    ''');
-    await db.execute(
-      'CREATE INDEX sm_messages_thread ON sm_messages (phone, timestamp)',
-    );
-    await db.execute(
-      'CREATE UNIQUE INDEX sm_messages_wire ON sm_messages '
-      '(phone, outgoing, sid, counter) WHERE sid IS NOT NULL',
-    );
-    // Packets taken from the main database's `secure_queue` that cannot be
-    // processed yet (a message that arrived before its session's handshake).
-    await db.execute('''
-      CREATE TABLE sm_inbox (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        address TEXT NOT NULL,
-        body TEXT NOT NULL,
-        timestamp INTEGER NOT NULL,
-        received_at INTEGER NOT NULL,
-        attempts INTEGER NOT NULL DEFAULT 0,
-        UNIQUE (address, body)
-      )
-    ''');
-  }
-
-  /// «بانک کلید» (v2) — see `KeyBankRepository`, the only code that reads
-  /// or writes these tables.
-  ///
-  /// Every phone number here is canonical (`SmsCryptoService.canonicalPhone`
-  /// — the same spelling the keys are derived from), and every id is
-  /// lowercase hex.
-  static Future<void> _createKeyBank(cipher.DatabaseExecutor db) async {
-    // One row per organization directory; `signed` is the directory exactly
-    // as the authority signed it, so it can be verified again at any time.
-    await db.execute('''
-      CREATE TABLE kb_directories (
-        id TEXT PRIMARY KEY,
-        authority_id TEXT NOT NULL,
-        name TEXT NOT NULL,
-        serial INTEGER NOT NULL,
-        signed BLOB NOT NULL,
-        imported_at INTEGER NOT NULL
-      )
-    ''');
-    await db.execute('''
-      CREATE TABLE kb_members (
-        directory_id TEXT NOT NULL,
-        key_id TEXT NOT NULL,
-        name TEXT NOT NULL,
-        public_key BLOB NOT NULL,
-        PRIMARY KEY (directory_id, key_id)
-      )
-    ''');
-    await db.execute('''
-      CREATE TABLE kb_member_phones (
-        phone TEXT NOT NULL,
-        directory_id TEXT NOT NULL,
-        key_id TEXT NOT NULL,
-        PRIMARY KEY (phone, directory_id)
-      )
-    ''');
-    // This phone's own identity in a directory — the one private key a key
-    // file carries.
-    await db.execute('''
-      CREATE TABLE kb_own_keys (
-        directory_id TEXT PRIMARY KEY,
-        key_id TEXT NOT NULL,
-        secret BLOB NOT NULL,
-        public_key BLOB NOT NULL
-      )
-    ''');
-    // A passphrase group: `seed` is the Argon2id result, i.e. the group's
-    // secret; the passphrase itself is never stored.
-    await db.execute('''
-      CREATE TABLE kb_groups (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        seed BLOB NOT NULL,
-        created_at INTEGER NOT NULL
-      )
-    ''');
-    // This phone's own numbers: in a passphrase group a member's key is
-    // derived from their number, so the app must know which numbers are ours.
-    await db.execute('''
-      CREATE TABLE kb_own_numbers (
-        phone TEXT PRIMARY KEY,
-        added_at INTEGER NOT NULL
-      )
-    ''');
-  }
-
-  static Future<void> _onUpgrade(
-    cipher.Database db,
-    int oldVersion,
-    int newVersion,
-  ) async {
-    if (oldVersion < 2 && newVersion >= 2) await _createKeyBank(db);
-    if (oldVersion < 3 && newVersion >= 3) await _createSecureMessages(db);
-    if (oldVersion < 4 && newVersion >= 4) {
-      await _upgradeMessagesToV4(db);
-      await _createHiddenPhonebook(db);
-    }
-    if (oldVersion < 5 && newVersion >= 5) await _createGroups(db);
-    if (oldVersion < 6 && newVersion >= 6) await _upgradeToV6(db);
-    if (oldVersion < 7 && newVersion >= 7) await _upgradeToV7(db);
-  }
+  /// The photos taken after wrong PIN entries (matrix row 32), opened from
+  /// what Kotlin sealed to the section's key while it was locked — see
+  /// `IntruderRepository`.
+  static Future<void> _createIntruderPhotos(cipher.DatabaseExecutor db) =>
+      db.execute('''
+        CREATE TABLE ip_photos (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          taken_at INTEGER NOT NULL,
+          camera TEXT NOT NULL,
+          failed_attempts INTEGER NOT NULL,
+          jpeg BLOB,
+          seen INTEGER NOT NULL DEFAULT 0,
+          UNIQUE (taken_at, camera)
+        )
+      ''');
 
   Future<String> _path() async =>
       p.join(await cipher.getDatabasesPath(), fileName);

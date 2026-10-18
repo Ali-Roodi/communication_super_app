@@ -8,9 +8,12 @@ import org.bouncycastle.crypto.params.X25519PrivateKeyParameters
 import org.bouncycastle.crypto.params.X25519PublicKeyParameters
 
 /**
- * A member's long-term key pair: **ML-KEM-768** (FIPS 203, the post-quantum
- * half) plus **X25519** (RFC 7748, the classical half). Both halves take part
- * in every session, so a session stays secret unless *both* are broken.
+ * A long-term key pair: **ML-KEM-768** (FIPS 203, the post-quantum half) plus
+ * **X25519** (RFC 7748, the classical half). For a member, the X25519 key is
+ * what the authority certifies ([keybank.MemberCert]) and what the session
+ * request authenticates; the ML-KEM key is what the post-quantum [Upgrade]
+ * encapsulates to. The secure section's own sealing key ([SealedBox]) is one
+ * too.
  *
  * Stored as seeds, not expanded keys — 64 bytes of ML-KEM seed (`d || z`) and
  * the 32-byte X25519 scalar — so the secret is 97 bytes serialized. It is
@@ -31,10 +34,9 @@ class IdentityKeyPair private constructor(
         private val SEED_SALT = Kdf.label("hamresan.sms.identity.v1")
 
         /**
-         * The deterministic key pair of a 32-byte [seed]. This is how a key
-         * bank entry that is a *seed* (a passphrase run through a KDF, or a
-         * seed the authority issued) becomes a key pair: the same seed yields
-         * the same keys on every phone and in every edition.
+         * The deterministic key pair of a 32-byte [seed] — how the authority
+         * derives a member's key: the same seed yields the same keys on every
+         * machine and in every edition.
          */
         fun fromSeed(seed: ByteArray): IdentityKeyPair {
             if (seed.size != SEED_BYTES) {
@@ -68,6 +70,9 @@ class IdentityKeyPair private constructor(
         X25519PrivateKeyParameters(x25519Scalar)
     }
 
+    /** The X25519 public key — what a [keybank.MemberCert] and a [keybank.Directory] list. */
+    val x25519Public: ByteArray get() = public.x25519.encoded
+
     val public: PublicIdentity by lazy {
         PublicIdentity(
             MLKEMPublicKeyParameters(MLKEMParameters.ml_kem_768, mlkem.publicKey),
@@ -79,9 +84,10 @@ class IdentityKeyPair private constructor(
 }
 
 /**
- * What a member publishes: the ML-KEM-768 encapsulation key (1184 bytes) and
- * the X25519 public key (32). Its [keyId] — 8 bytes of a hash over both — is
- * how packets name a sender and a recipient.
+ * The public half of an [IdentityKeyPair]: the ML-KEM-768 encapsulation key
+ * (1184 bytes) and the X25519 public key (32). What [SealedBox] seals to —
+ * the secure section's own key. Members are named by their certificate's
+ * key id ([keybank.MemberCert.keyIdOf]), not by [keyId].
  */
 class PublicIdentity internal constructor(
     internal val mlkem: MLKEMPublicKeyParameters,

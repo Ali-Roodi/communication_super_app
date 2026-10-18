@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
@@ -39,8 +41,9 @@ enum _Outcome {
 /// send the next message under a key already used.
 ///
 /// Handshakes are automatic and invisible: the first message to someone
-/// sends a session request (about ten SMS parts) and waits in the conversation
-/// as «در انتظار برقراری کانال امن» until the answer arrives.
+/// sends a session request (`CertHandshake`, two SMS parts) and waits in the
+/// conversation as «در انتظار برقراری کانال امن» until the answer arrives;
+/// the post-quantum upgrade (`Upgrade`) then runs behind the messages.
 class SecureMessenger {
   SecureMessenger({
     SecureMessageStore? store,
@@ -96,8 +99,7 @@ class SecureMessenger {
   static const maxAttempts = 50;
 
   /// Our session request is re-sent (on the next send) when unanswered this
-  /// long. It was 24 hours: a request is ten SMS, one lost part loses all of
-  /// it, and the conversation then sat dead for a day (1405/07/14).
+  /// long: one lost part loses all of it.
   static const pendingTimeout = Duration(minutes: 15);
 
   /// Crossed requests: when the peer's arrives while ours has waited longer
@@ -276,16 +278,6 @@ class SecureMessenger {
     final phone = await _owner(from, info);
     try {
       return switch (info.type) {
-        SmsPacketType.init when info.cert => await _onCertInit(
-          phone,
-          packet,
-          info,
-        ),
-        SmsPacketType.response when info.cert => await _onCertResponse(
-          phone,
-          packet,
-          info,
-        ),
         SmsPacketType.init => await _onInit(phone, packet, info),
         SmsPacketType.response => await _onResponse(phone, packet, info),
         SmsPacketType.message => await _onMessage(phone, packet, info),
@@ -333,148 +325,13 @@ class SecureMessenger {
     }
   }
 
+  /// A session request (`CertHandshake`): from a member who may never have
+  /// been given our key, and whom we may never have been given. Its
+  /// certificate is checked against the authority **before** anything is
+  /// stored or answered — [phone] came from what it claims. Every way out
+  /// without an answer says why in the log: a dropped request stalls the
+  /// conversation.
   Future<_Outcome> _onInit(
-    String phone,
-    InboxPacket packet,
-    SmsPacketInfo info,
-  ) async {
-    // Every way out without an answer says why in the log: a dropped request
-    // stalls the conversation, and it used to leave no trace at all.
-    final own = await _identities.ownByKeyId(keyHex(info.recipientKid!));
-    if (own == null) {
-      debugPrint('Session request dropped: not for a key this phone holds');
-      return _Outcome.done;
-    }
-    final peer = await _identities.byKeyId(keyHex(info.senderKid!), phone);
-    if (peer == null) {
-      debugPrint('Session request dropped: sender not in the key bank');
-      return _Outcome.done;
-    }
-
-    final sessions = await _store.sessions(phone);
-    // The same request delivered twice: answered already.
-    if (sessions.any((s) => s.sid == info.sid && !s.pending)) {
-      debugPrint('Session request already answered');
-      return _Outcome.done;
-    }
-    // Both sides asked at once. Each phone decides the same way from the two
-    // key ids; the loser drops its own request and answers the other one.
-    for (final mine in sessions.where((s) => s.pending)) {
-      if (await _crypto.ownInitWins(own.identity.keyId, info.senderKid!)) {
-        // The winner waits for its answer — unless its request is old: then
-        // the peer asked because ours never reached it, nobody would answer
-        // anybody, and the conversation deadlocked (two phones, 1405/07/14).
-        // A fresh request goes out; the peer, now the one crossed, answers.
-        if (_clock() - mine.createdAt > crossedGrace.inMilliseconds) {
-          debugPrint(
-            'Crossed session requests: ours went unanswered, asking again',
-          );
-          await _store.deleteSession(phone, mine.sid);
-          final conversation = await _store.conversation(phone);
-          if (conversation != null && conversation.encrypted) {
-            await _handshakeIfNeeded(
-              conversation,
-              await _store.sessions(phone),
-            );
-          }
-        } else {
-          debugPrint(
-            'Crossed session requests: ours wins, waiting for the answer',
-          );
-        }
-        return _Outcome.done;
-      }
-      await _store.deleteSession(phone, mine.sid);
-    }
-
-    final answer = await _crypto.respond(
-      secret: own.identity.secret,
-      peer: peer.publicKey,
-      text: packet.body,
-    );
-    final now = _clock();
-    await _store.upsertConversation(
-      phone: phone,
-      // A hidden contact is called what the user named them.
-      name: await _hidden?.nameFor(phone) ?? peer.name,
-      peerKeyId: peer.keyId,
-      peerPublic: peer.publicKey,
-      ownKeyId: own.keyId,
-      ownSource: own.source,
-      now: now,
-      // A session request alone lists nothing: it may be for a group, and
-      // the first message in the pair lists the conversation.
-      listed: false,
-    );
-    await _store.saveSession(
-      StoredSession(
-        phone: phone,
-        sid: answer.sid!,
-        pending: false,
-        state: answer.state,
-        createdAt: now,
-      ),
-    );
-    await _store.pruneSessions(phone);
-    await _sendQuietly(phone, answer.wire, 'hs-${_newId()}');
-    debugPrint('Session request answered');
-    _changed(null);
-    await _flush(phone);
-    return _Outcome.done;
-  }
-
-  Future<_Outcome> _onResponse(
-    String phone,
-    InboxPacket packet,
-    SmsPacketInfo info,
-  ) async {
-    final sessions = await _store.sessions(phone);
-    final pending = sessions
-        .where((s) => s.pending && s.sid == info.sid)
-        .firstOrNull;
-    if (pending == null) return _Outcome.done; // not ours, or answered already
-    final conversation = await _store.conversation(phone);
-    if (conversation == null || !conversation.encrypted) return _Outcome.done;
-    // An answer to a request made with keys since retired: start over.
-    if (!await _keysCurrent(conversation)) {
-      await _current(conversation);
-      await _flush(phone);
-      return _Outcome.done;
-    }
-    final own = await _identities.ownByKeyId(conversation.ownKeyId!);
-    if (own == null) return _Outcome.done;
-    final Uint8List session;
-    try {
-      session = await _crypto.complete(
-        secret: own.identity.secret,
-        peer: conversation.peerPublic!,
-        pending: pending.state,
-        text: packet.body,
-      );
-    } on SmsCryptoException catch (e) {
-      // A forged or corrupted answer: keep waiting for the real one.
-      debugPrint('Session answer refused: ${e.failure.name}');
-      return _Outcome.done;
-    }
-    await _store.saveSession(
-      StoredSession(
-        phone: phone,
-        sid: pending.sid,
-        pending: false,
-        state: session,
-        createdAt: _clock(),
-      ),
-    );
-    await _store.pruneSessions(phone);
-    await _flush(phone);
-    return _Outcome.done;
-  }
-
-  /// A certificate session request (`CertHandshake`): from a member who may
-  /// never have been given our key, and whom we may never have been given.
-  /// Its certificate is checked against the authority **before** anything is
-  /// stored or answered — [phone] came from what it claims.
-  Future<_Outcome> _onCertInit(
     String phone,
     InboxPacket packet,
     SmsPacketInfo info,
@@ -490,16 +347,20 @@ class SecureMessenger {
       debugPrint('Certificate request dropped: an older key of this member');
       return _Outcome.done;
     }
-    final sessions = await _store.sessions(phone);
-    if (sessions.any((s) => s.sid == info.sid && !s.pending)) {
+    // A request is never sent twice — a lost one is asked again with a new
+    // one — so one seen before is a replay, or the radio delivering it
+    // again. Answered, it would make a session only we hold.
+    final digest = sha256.convert(utf8.encode(packet.body)).toString();
+    if (await _store.wasAnswered(digest)) {
       debugPrint('Session request already answered');
       return _Outcome.done;
     }
+    final sessions = await _store.sessions(phone);
     final SmsCertHandshake answer;
     try {
       answer = await _crypto.certRespond(
         secret: own.identity.secret,
-        cert: own.cert!,
+        cert: own.cert,
         text: packet.body,
         anchors: _anchors(),
       );
@@ -507,10 +368,14 @@ class SecureMessenger {
       debugPrint('Certificate request refused: ${e.failure.name}');
       return _Outcome.done;
     }
-    // Both sides asked at once — the same rule as the full handshake, on the
-    // certificates' key ids.
+    // Both sides asked at once. Each phone decides the same way from the two
+    // certificates' key ids; the loser drops its own request and answers.
     for (final mine in sessions.where((s) => s.pending)) {
       if (await _crypto.ownInitWins(own.identity.keyId, info.senderKid!)) {
+        // The winner waits for its answer — unless its request is old: then
+        // the peer asked because ours never reached it, and nobody would
+        // answer anybody. A fresh request goes out; the peer, now the one
+        // crossed, answers.
         if (_clock() - mine.createdAt > crossedGrace.inMilliseconds) {
           debugPrint(
             'Crossed session requests: ours went unanswered, asking again',
@@ -531,11 +396,9 @@ class SecureMessenger {
     }
 
     final now = _clock();
-    if (conversation == null ||
-        !conversation.encrypted ||
-        !conversation.isCert) {
-      // A member who reached us first, or a conversation that ran on
-      // another key: from now on, the certificate one.
+    if (conversation == null || !conversation.encrypted) {
+      // A member who reached us first, or a hidden contact we talked to in
+      // plain SMS: from now on, encrypted.
       await _store.upsertConversation(
         phone: phone,
         name:
@@ -546,7 +409,7 @@ class SecureMessenger {
         peerKeyId: keyHex(answer.peer.keyId),
         peerPublic: answer.peer.cert,
         ownKeyId: own.keyId,
-        ownSource: own.source,
+        ownDirectory: own.directoryId,
         now: now,
         listed: false,
       );
@@ -567,6 +430,7 @@ class SecureMessenger {
         kind: SessionKind.certResponded,
       ),
     );
+    await _store.recordAnswered(digest, now);
     await _store.pruneSessions(phone);
     await _sendQuietly(phone, answer.wire!, 'hs-${_newId()}');
     debugPrint('Certificate request answered (${answer.parts} parts)');
@@ -575,8 +439,8 @@ class SecureMessenger {
     return _Outcome.done;
   }
 
-  /// The answer to our certificate request: who answered is learnt here.
-  Future<_Outcome> _onCertResponse(
+  /// The answer to our session request: who answered is learnt here.
+  Future<_Outcome> _onResponse(
     String phone,
     InboxPacket packet,
     SmsPacketInfo info,
@@ -586,14 +450,14 @@ class SecureMessenger {
     )).where((s) => s.pending && s.sid == info.sid).firstOrNull;
     if (pending == null) return _Outcome.done; // not ours, or answered already
     final conversation = await _store.conversation(phone);
-    if (conversation == null || !conversation.isCert) return _Outcome.done;
+    if (conversation == null || !conversation.encrypted) return _Outcome.done;
     final own = await _identities.ownByKeyId(conversation.ownKeyId!);
-    if (own == null || !own.isCert) return _Outcome.done;
+    if (own == null) return _Outcome.done;
     final SmsCertHandshake done;
     try {
       done = await _crypto.certComplete(
         secret: own.identity.secret,
-        cert: own.cert!,
+        cert: own.cert,
         pending: pending.state,
         text: packet.body,
         anchors: _anchors(),
@@ -701,10 +565,7 @@ class SecureMessenger {
       final own = {for (final o in ours) o.keyId};
       // A member the creator reaches over a certificate it has not had an
       // answer for yet is listed with no key id (all zero): found by number.
-      final ownNumbers = {
-        for (final o in ours)
-          if (o.isCert && o.number != null) o.number!,
-      };
+      final ownNumbers = {for (final o in ours) o.number};
       final members = <({String phone, String keyId})>[];
       var me = false;
       for (final m in groupInfo.members) {
@@ -1017,9 +878,9 @@ class SecureMessenger {
       phone: peer.phone,
       name: await _hidden?.nameFor(peer.phone) ?? peer.name,
       peerKeyId: peer.keyId,
-      peerPublic: peer.publicKey,
+      peerPublic: Uint8List(0),
       ownKeyId: peer.own.keyId,
-      ownSource: peer.own.source,
+      ownDirectory: peer.own.directoryId,
       now: _clock(),
     );
     _changed(null);
@@ -1177,36 +1038,26 @@ class SecureMessenger {
   /// Sends whatever is queued for [phone], or the handshake it needs first.
   Future<void> flush(String phone) => _serial(() => _flush(phone));
 
-  /// Whether the key bank still holds both keys [c] was made with. A
-  /// certificate peer is not in the bank at all — its key was accepted on
-  /// the authority's signature — so only ours is checked.
-  Future<bool> _keysCurrent(SecureConversation c) async {
-    if (await _identities.ownByKeyId(c.ownKeyId!) == null) return false;
-    if (c.isCert) return true;
-    return await _identities.byKeyId(c.peerKeyId!, c.phone) != null;
-  }
+  /// Whether the key bank still holds the key of ours [c] was made with. The
+  /// peer's key is not in the bank at all — it was accepted on the
+  /// authority's signature — so only ours is checked.
+  Future<bool> _keysCurrent(SecureConversation c) async =>
+      c.encrypted && await _identities.ownByKeyId(c.ownKeyId!) != null;
 
-  /// [c] on the keys the key bank holds now.
+  /// [c] on the key the key bank holds now.
   ///
-  /// A conversation used to keep the keys it was started with for ever. So
-  /// after the authority gave a member a new key («گوشی گم شد» in the
-  /// issuance panel) and everyone imported the new directory, every existing
-  /// conversation went on encrypting to the LOST phone's key — over its old
-  /// sessions, and in any new handshake too — and the member's new phone
-  /// could read none of it. The same for our own key replaced. Now the
-  /// conversation is re-bound to the member's current key (same directory
-  /// first) and its old sessions are dropped; the next send starts a
-  /// handshake with the new key. Null when the bank has no key for the
-  /// number any more (the member was removed): nothing can be sent.
+  /// Our own key can be replaced: the authority gave us a new one («گوشی گم
+  /// شد» in the issuance panel), or a key file was removed. The conversation
+  /// is then re-bound to the identity we hold now for that number (same
+  /// organization first) and its old sessions are dropped; the next send
+  /// starts a handshake with it. Null when we hold no key file any more:
+  /// nothing can be sent.
   Future<SecureConversation?> _current(SecureConversation c) async {
     if (!c.encrypted || await _keysCurrent(c)) return c;
-    final candidates = c.isCert
-        ? await _identities.forTypedNumber(c.phone)
-        : await _identities.forNumber(c.phone);
+    final candidates = await _identities.forTypedNumber(c.phone);
     final next =
-        candidates.where((p) => p.source == c.ownSource).firstOrNull ??
-        candidates.where((p) => p.isCert).firstOrNull ??
-        candidates.where((p) => p.source.startsWith('directory:')).firstOrNull;
+        candidates.where((p) => p.directoryId == c.ownDirectory).firstOrNull ??
+        candidates.firstOrNull;
     if (next == null) {
       debugPrint('Conversation keys retired; the key bank has none for it');
       return null;
@@ -1216,9 +1067,9 @@ class SecureMessenger {
       phone: c.phone,
       name: c.name,
       peerKeyId: next.keyId,
-      peerPublic: next.publicKey,
+      peerPublic: Uint8List(0),
       ownKeyId: next.own.keyId,
-      ownSource: next.own.source,
+      ownDirectory: next.own.directoryId,
       now: _clock(),
       listed: false,
     );
@@ -1413,18 +1264,12 @@ class SecureMessenger {
       debugPrint('No identity of ours for this conversation any more');
       return;
     }
-    // A certificate conversation needs nothing of the peer's: the request
-    // carries our certificate, the answer brings theirs.
-    final started = own.isCert
-        ? await _crypto.certInitiate(
-            cert: own.cert!,
-            busySids: {for (final s in sessions) s.sid},
-          )
-        : await _crypto.initiate(
-            secret: own.identity.secret,
-            peer: conversation.peerPublic!,
-            busySids: {for (final s in sessions) s.sid},
-          );
+    // The request needs nothing of the peer's: it carries our certificate,
+    // the answer brings theirs.
+    final started = await _crypto.certInitiate(
+      cert: own.cert,
+      busySids: {for (final s in sessions) s.sid},
+    );
     await _store.saveSession(
       StoredSession(
         phone: phone,
@@ -1432,7 +1277,7 @@ class SecureMessenger {
         pending: true,
         state: started.state,
         createdAt: _clock(),
-        kind: own.isCert ? SessionKind.certInitiated : SessionKind.v1,
+        kind: SessionKind.certInitiated,
       ),
     );
     await _sendQuietly(phone, started.wire, 'hs-${_newId()}');
@@ -1673,9 +1518,9 @@ class SecureMessenger {
         phone: p.phone,
         name: await _hidden?.nameFor(p.phone) ?? p.name,
         peerKeyId: p.keyId,
-        peerPublic: p.publicKey,
+        peerPublic: Uint8List(0),
         ownKeyId: p.own.keyId,
-        ownSource: p.own.source,
+        ownDirectory: p.own.directoryId,
         now: _clock(),
         listed: false,
       );
@@ -1688,13 +1533,9 @@ class SecureMessenger {
     final existing = await _store.conversation(phone);
     if (existing != null && existing.encrypted) return true;
     if (keyId == null) return false;
-    var peer = keyId == _unknownKid
-        ? null
-        : await _identities.byKeyId(keyId, phone);
-    // A member the group's creator reaches over a certificate: so can we.
-    peer ??= (await _identities.forTypedNumber(
-      phone,
-    )).where((p) => p.isCert).firstOrNull;
+    // A member of a directory we hold, or one the group's creator reaches by
+    // number: so can we.
+    final peer = (await _identities.forTypedNumber(phone)).firstOrNull;
     if (peer == null) return false;
     await _ensurePeers([peer]);
     return true;

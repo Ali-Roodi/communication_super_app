@@ -31,7 +31,7 @@ class SecureConversation extends Equatable {
     this.peerKeyId,
     this.peerPublic,
     this.ownKeyId,
-    this.ownSource,
+    this.ownDirectory,
     required this.createdAt,
     required this.lastAt,
     this.unread = 0,
@@ -43,39 +43,33 @@ class SecureConversation extends Equatable {
     this.upgraded = false,
   });
 
-  /// A certificate conversation has a post-quantum session (`Upgrade`); before
-  /// that it is X25519 only. Outside [isCert] the handshake itself is
-  /// ML-KEM + X25519.
+  /// The conversation has a post-quantum session (`Upgrade`); until then it
+  /// runs on the X25519 session of the handshake.
   final bool upgraded;
 
   /// What the conversation header may claim: «رمزشده پساکوانتومی».
-  bool get quantumSafe => !isCert || upgraded;
+  bool get quantumSafe => upgraded;
 
   /// The highest certificate generation seen for the peer; an older
   /// certificate is refused (the issuance panel raised it for a lost phone).
   final int? peerGeneration;
-
-  /// Reached over the certificate handshake (`CertHandshake`): [peerPublic]
-  /// is the peer's certificate, and [peerKeyId] is empty until the peer has
-  /// answered once (a member who is not in our directory).
-  bool get isCert => ownSource?.startsWith('cert:') == true;
-
-  /// The peer's key id is known (always, outside [isCert]).
-  bool get peerKnown => peerKeyId?.isNotEmpty == true;
 
   /// The peer's number, canonical — the conversation's key.
   final String phone;
   final String name;
 
   /// Null for a conversation without a key: a hidden contact the key bank
-  /// does not know, reached by plain SMS (phase G).
+  /// does not know, reached by plain SMS (phase G). Otherwise
+  /// [peerPublic] is the peer's member certificate once they have
+  /// answered, and [peerKeyId] is empty until then for a member our
+  /// directories do not list.
   final String? peerKeyId;
   final Uint8List? peerPublic;
 
-  /// Which of our identities talks to this peer, and where it comes from
-  /// (`directory:<id>` or `group:<id>`); null without a key.
+  /// Which of our identities talks to this peer, and the directory of the
+  /// key file it comes from; null without a key.
   final String? ownKeyId;
-  final String? ownSource;
+  final String? ownDirectory;
 
   /// Whether messages here are encrypted (else plain SMS).
   bool get encrypted =>
@@ -98,7 +92,7 @@ class SecureConversation extends Equatable {
     name,
     peerKeyId,
     ownKeyId,
-    ownSource,
+    ownDirectory,
     lastAt,
     unread,
     lastBody,
@@ -202,7 +196,7 @@ class StoredSession {
     required this.pending,
     required this.state,
     required this.createdAt,
-    this.kind = SessionKind.v1,
+    required this.kind,
     this.offeredAt,
   });
   final String phone;
@@ -223,14 +217,11 @@ class StoredSession {
 
 /// `sm_sessions.kind` — how a session was made (secure.db v7).
 abstract final class SessionKind {
-  /// The full ML-KEM handshake (`Handshake`): post-quantum already.
-  static const v1 = 'v1';
-
-  /// A certificate handshake (`CertHandshake`) we started — we offer its
-  /// post-quantum upgrade.
+  /// A handshake (`CertHandshake`) we started — we offer its post-quantum
+  /// upgrade.
   static const certInitiated = 'cert-i';
 
-  /// A certificate handshake we answered — the peer offers the upgrade.
+  /// A handshake we answered — the peer offers the upgrade.
   static const certResponded = 'cert-r';
 
   /// Upgraded (`Upgrade`).
@@ -349,7 +340,7 @@ class SecureMessageStore {
         peerKeyId: r['peer_key_id'] as String?,
         peerPublic: r['peer_public'] as Uint8List?,
         ownKeyId: r['own_key_id'] as String?,
-        ownSource: r['own_source'] as String?,
+        ownDirectory: r['own_directory'] as String?,
         createdAt: r['created_at'] as int,
         lastAt: r['last_at'] as int,
         unread: r['unread'] as int,
@@ -361,8 +352,8 @@ class SecureMessageStore {
         upgraded: r['upgraded'] == 1,
       );
 
-  /// A certificate conversation ([SecureConversation.isCert]) learns who is
-  /// on the other side: the certificate the peer's request or answer carried.
+  /// An encrypted conversation learns who is on the other side: the
+  /// certificate the peer's request or answer carried.
   ///
   /// The first time — the key id was empty, or the one the directory let us
   /// expect — nothing else changes. A **different** key is the peer's new
@@ -416,7 +407,7 @@ class SecureMessageStore {
     required String peerKeyId,
     required Uint8List peerPublic,
     required String ownKeyId,
-    required String ownSource,
+    required String ownDirectory,
     required int now,
     bool listed = true,
   }) => db.transaction((txn) async {
@@ -433,7 +424,7 @@ class SecureMessageStore {
         'peer_key_id': peerKeyId,
         'peer_public': peerPublic,
         'own_key_id': ownKeyId,
-        'own_source': ownSource,
+        'own_directory': ownDirectory,
         'created_at': now,
         'last_at': now,
         'listed': listed ? 1 : 0,
@@ -457,7 +448,7 @@ class SecureMessageStore {
         'peer_key_id': peerKeyId,
         'peer_public': peerPublic,
         'own_key_id': ownKeyId,
-        'own_source': ownSource,
+        'own_directory': ownDirectory,
         'seen_sid': null,
         'seen_counter': null,
       },
@@ -553,7 +544,7 @@ class SecureMessageStore {
           pending: r['pending'] == 1,
           state: r['state'] as Uint8List,
           createdAt: r['created_at'] as int,
-          kind: r['kind'] as String? ?? SessionKind.v1,
+          kind: r['kind'] as String,
           offeredAt: r['offered_at'] as int?,
         ),
     ];
@@ -617,6 +608,40 @@ class SecureMessageStore {
     where: 'phone = ? AND sid = ?',
     whereArgs: [phone, sid],
   );
+
+  /// How many answered session requests [recordAnswered] remembers. A few
+  /// per conversation are made in its whole life; this bounds the table
+  /// against a flood of forged ones, which are never recorded anyway — only
+  /// a request whose certificate the authority signed is answered.
+  static const answeredLimit = 10000;
+
+  /// Whether a session request with this [digest] (SHA-256 of its text) was
+  /// answered before. A request is never sent twice — a lost one is asked
+  /// again with a new one — so a request seen before is a replay: answered,
+  /// it would make a session only we hold, and every message after it would
+  /// go out on that session, unreadable to the peer.
+  Future<bool> wasAnswered(String digest) async => (await db.query(
+    'sm_answered_requests',
+    columns: ['digest'],
+    where: 'digest = ?',
+    whereArgs: [digest],
+  )).isNotEmpty;
+
+  Future<void> recordAnswered(String digest, int at) =>
+      db.transaction((txn) async {
+        await txn.insert('sm_answered_requests', {
+          'digest': digest,
+          'answered_at': at,
+        }, conflictAlgorithm: cipher.ConflictAlgorithm.ignore);
+        await txn.rawDelete(
+          '''
+          DELETE FROM sm_answered_requests WHERE digest NOT IN
+            (SELECT digest FROM sm_answered_requests
+              ORDER BY answered_at DESC LIMIT ?)
+          ''',
+          [answeredLimit],
+        );
+      });
 
   /// Keeps the newest [keep] established sessions (delayed messages of an
   /// older one can still be read) and every pending handshake.

@@ -1,19 +1,21 @@
 package com.example.communication_super_app.smscrypto.keybank
 
-import com.example.communication_super_app.smscrypto.PublicIdentity
 import com.example.communication_super_app.smscrypto.SmsCryptoException
 import com.example.communication_super_app.smscrypto.cryptoError
 import java.security.MessageDigest
 import java.security.SecureRandom
 
 /**
- * «دفترچهٔ کلید»: an organization's members and their public identities, as
- * the authority signed it.
+ * «دفترچهٔ کلید»: an organization's members — name, numbers and X25519
+ * public key each — as the authority signed it. It is the phone's list of
+ * colleagues and what a [MemberCert] from one of them is checked against;
+ * the session itself is made from the certificates ([MemberCert]).
+ * A member's [Member.keyId] is the key id their certificate carries.
  *
  * [directoryId] is fixed for an organization; [serial] grows with every
  * issue (the tool uses the issue time), so a phone keeps the newest copy of a
  * directory and refuses to go back to an older one — an old copy may still
- * list a member whose key was revoked.
+ * list a key the authority has since replaced.
  */
 class Directory(
     val authorityId: ByteArray,
@@ -22,10 +24,17 @@ class Directory(
     val name: String,
     val members: List<Member>,
 ) {
-    class Member(val name: String, val phones: List<String>, val identity: PublicIdentity)
+    class Member(val name: String, val phones: List<String>, val x25519: ByteArray) {
+        init {
+            require(x25519.size == MemberCert.X25519_BYTES) { "an X25519 key is 32 bytes" }
+        }
+
+        /** What packets and certificates name this member by ([MemberCert.keyIdOf]). */
+        val keyId: ByteArray by lazy { MemberCert.keyIdOf(x25519) }
+    }
 
     companion object {
-        private const val FORMAT = 1
+        private const val FORMAT = 2
         const val ID_BYTES = 8
         const val MAX_MEMBERS = 5000
         const val MAX_PHONES = 8
@@ -44,12 +53,7 @@ class Directory(
                 val phoneCount = r.u8()
                 if (phoneCount == 0 || phoneCount > MAX_PHONES) r.fail("bad phone count")
                 val phones = List(phoneCount) { r.text() }
-                val identity = try {
-                    PublicIdentity.parse(r.bytes16())
-                } catch (e: SmsCryptoException) {
-                    r.fail("invalid member key")
-                }
-                Member(memberName, phones, identity)
+                Member(memberName, phones, r.raw(MemberCert.X25519_BYTES))
             }
             r.end()
             return Directory(authorityId, directoryId, serial, name, members).also { it.check() }
@@ -65,7 +69,7 @@ class Directory(
                 if (Canon.phone(p) != p) bad("phone number not canonical")
                 if (!phones.add(p)) bad("phone number listed twice")
             }
-            if (!keys.add(m.identity.keyId.joinToString("") { "%02x".format(it) })) bad("key listed twice")
+            if (!keys.add(m.keyId.joinToString("") { "%02x".format(it) })) bad("key listed twice")
         }
     }
 
@@ -83,7 +87,7 @@ class Directory(
         for (m in members) {
             w.text(m.name).u8(m.phones.size)
             for (p in m.phones) w.text(p)
-            w.bytes16(m.identity.encoded)
+            w.raw(m.x25519)
         }
         return w.toByteArray()
     }

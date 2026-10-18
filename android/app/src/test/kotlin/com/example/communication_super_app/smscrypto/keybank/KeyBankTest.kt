@@ -1,7 +1,7 @@
 package com.example.communication_super_app.smscrypto.keybank
 
+import com.example.communication_super_app.smscrypto.CertHandshake
 import com.example.communication_super_app.smscrypto.FixedRandom
-import com.example.communication_super_app.smscrypto.Handshake
 import com.example.communication_super_app.smscrypto.IdentityKeyPair
 import com.example.communication_super_app.smscrypto.Packet
 import com.example.communication_super_app.smscrypto.SmsCryptoException
@@ -25,10 +25,6 @@ class KeyBankTest {
     /** Cheap Argon2id for tests that are about the format, not the cost. */
     private val cheap = PasswordKdf(iterations = 1, memoryKiB = 64, parallelism = 1)
 
-    private val zwnj = 0x200C.toChar()
-    private val arabicYeh = 0x064A.toChar()
-    private val arabicKaf = 0x0643.toChar()
-
     // ── Canon ───────────────────────────────────────────────────────────────
 
     @Test
@@ -43,16 +39,7 @@ class KeyBankTest {
     }
 
     @Test
-    fun `text typed on different keyboards is one text`() {
-        val persian = "رمز یک گروه ۱۲۳"
-        val variants = listOf(
-            "رمز ${arabicYeh}ک گروه 123",
-            "رمز ی${arabicKaf} گروه ١٢٣",
-            "  رمز   یک گروه ۱۲۳ ",
-            "رمز یک گر${zwnj}وه ۱۲۳",
-        )
-        for (v in variants) assertEquals(Canon.text(persian), Canon.text(v))
-        assertEquals("secret group", Canon.text("Secret  GROUP"))
+    fun `a key-file password is its letters and digits`() {
         assertEquals("ABCD2345EFGH", Canon.keyFilePassword("abcd-2345 efgh"))
         assertEquals("AB12", Canon.keyFilePassword("ab-۱۲"))
     }
@@ -61,47 +48,7 @@ class KeyBankTest {
     fun `canonical forms are frozen`() {
         // Keys are derived from these strings: a change here changes keys.
         assertEquals("09121234567", Canon.phone("+98 912 123 4567"))
-        assertEquals("کلید ی گروه 12", Canon.text("كليد ي گروه ۱۲"))
-        assertEquals("امن", Canon.text("آمن"))
-    }
-
-    // ── Passphrase groups ───────────────────────────────────────────────────
-
-    @Test
-    fun `the same name and passphrase give the same group on every phone`() {
-        val a = KeyGroup.derive("گروه یک", "عبارت عبور طولانی ۱۲۳", cheap)
-        val b = KeyGroup.derive("گروه ${arabicYeh}ک", "عبارت عبور طولانی 123", cheap)
-        assertArrayEquals(a.groupId, b.groupId)
-        assertArrayEquals(a.member("09121234567").public.encoded, b.member("+989121234567").public.encoded)
-        val other = KeyGroup.derive("گروه یک", "عبارت عبور دیگر", cheap)
-        assertFalse(a.groupId.contentEquals(other.groupId))
-        val otherName = KeyGroup.derive("گروه دو", "عبارت عبور طولانی ۱۲۳", cheap)
-        assertFalse(a.groupId.contentEquals(otherName.groupId))
-        assertArrayEquals(a.serialize(), KeyGroup.parse(a.serialize()).serialize())
-        expectError(SmsCryptoException.Code.BAD_KEY) { KeyGroup.derive("  ", "x", cheap) }
-        expectError(SmsCryptoException.Code.BAD_KEY) { a.member("not a number") }
-    }
-
-    @Test
-    fun `group members talk with nothing exchanged but their numbers`() {
-        val group = KeyGroup.derive("گروه", "عبارت عبور مشترک", cheap)
-        val aliceOwn = group.member("09121111111")
-        val bobOwn = group.member("09122222222")
-        // Each derives the other's public key from the number alone.
-        val bobSeenByAlice = group.member("+989122222222").public
-        val aliceSeenByBob = group.member("9121111111").public
-        val started = Handshake.initiate(aliceOwn, bobSeenByAlice, random)
-        val responded = Handshake.respond(bobOwn, aliceSeenByBob, Wire.parse(started.wire) as Packet.Init, random)
-        val alice = Handshake.complete(aliceOwn, bobSeenByAlice, started.pending, Wire.parse(responded.wire) as Packet.Response)
-        assertEquals("سلام گروه", responded.session.receive(alice.send("سلام گروه").wire).second)
-    }
-
-    @Test
-    fun `group derivation is frozen`() {
-        // Real cost (64 MiB): the exact key every phone derives for this group.
-        val group = KeyGroup.derive("گروه آزمایشی", "عبارت عبور آزمایشی ۱۲۳")
-        assertEquals(GOLDEN_GROUP_ID, Hex.toHexString(group.groupId))
-        assertEquals(GOLDEN_MEMBER_KID, Hex.toHexString(group.member("09121234567").public.keyId))
+        assertEquals("ABCD2345EFGH", Canon.keyFilePassword("abcd-2345 efgh"))
     }
 
     // ── Authority signatures ────────────────────────────────────────────────
@@ -134,7 +81,7 @@ class KeyBankTest {
             name,phones,generation
             علی رضایی,09121111111;02188776655
             مریم احمدی,+989122222222
-            Operator,09123333333,2
+            Operator,02133334444;09123333333,2
             """.trimIndent(),
         )
     }
@@ -142,24 +89,34 @@ class KeyBankTest {
     private fun issue(org: Org, serial: Long = 1000L) =
         Issuer.issue(org.authority, org.directoryId, org.roster, serial, random)
 
+    private fun keyFile(issued: Issuer.Issued, i: Int, password: String) =
+        KeyFile.create(issued.signed, i to issued.identities[i], password, random, cheap, issued.certs[i])
+
     @Test
-    fun `a member imports their key file and gets the directory and their key`() {
+    fun `a member imports their key file and gets the directory, their key and their certificate`() {
         val org = Org(random)
         val issued = issue(org)
-        val file = KeyFile.create(issued.signed, 1 to issued.identities[1], "ABCD-EFGH-2345-6789-JKLM", random, cheap)
+        val file = keyFile(issued, 1, "ABCD-EFGH-2345-6789-JKLM")
         val opened = KeyFile.open(file, "abcd efgh 2345 6789 jklm", listOf(org.authority.public))
         assertEquals("سازمان آزمایشی", opened.directory.name)
         assertEquals(3, opened.directory.members.size)
         assertEquals(listOf("09121111111", "02188776655"), opened.directory.members[0].phones)
         assertEquals(1, opened.memberIndex)
-        assertArrayEquals(issued.identities[1].serialize(), opened.identity!!.serialize())
+        assertArrayEquals(issued.identities[1].serialize(), opened.identity.serialize())
         assertArrayEquals(org.directoryId, opened.directory.directoryId)
         assertEquals(1000L, opened.directory.serial)
-        // Directory-only file.
-        val update = KeyFile.create(issued.signed, null, "PASSWORD22", random, cheap)
-        val u = KeyFile.open(update, "password22", listOf(org.authority.public))
-        assertNull(u.identity)
-        assertNull(u.memberIndex)
+        assertEquals("09122222222", opened.cert.phone)
+        // The member is named by the same key id in the directory and in the certificate.
+        assertArrayEquals(opened.directory.members[1].keyId, opened.cert.keyId)
+        assertArrayEquals(issued.identities[1].x25519Public, opened.directory.members[1].x25519)
+    }
+
+    @Test
+    fun `the certificate names the first mobile, whatever comes before it`() {
+        val issued = issue(Org(random))
+        assertEquals("09121111111", issued.certs[0].phone)
+        assertEquals("09123333333", issued.certs[2].phone)
+        assertEquals(2, issued.certs[2].generation)
     }
 
     @Test
@@ -167,14 +124,18 @@ class KeyBankTest {
         val org = Org(random)
         val issued = issue(org)
         val anchors = listOf(org.authority.public)
-        val ali = KeyFile.open(KeyFile.create(issued.signed, 0 to issued.identities[0], "PW1", random, cheap), "PW1", anchors)
-        val maryam = KeyFile.open(KeyFile.create(issued.signed, 1 to issued.identities[1], "PW2", random, cheap), "PW2", anchors)
-        val maryamPublic = ali.directory.members[1].identity
-        val aliPublic = maryam.directory.members[0].identity
-        val started = Handshake.initiate(ali.identity!!, maryamPublic, random)
-        val responded = Handshake.respond(maryam.identity!!, aliPublic, Wire.parse(started.wire) as Packet.Init, random)
-        val session = Handshake.complete(ali.identity!!, maryamPublic, started.pending, Wire.parse(responded.wire) as Packet.Response)
-        assertEquals("جلسه ساعت ۱۰", responded.session.receive(session.send("جلسه ساعت ۱۰").wire).second)
+        val ali = KeyFile.open(keyFile(issued, 0, "PW1"), "PW1", anchors)
+        val maryam = KeyFile.open(keyFile(issued, 1, "PW2"), "PW2", anchors)
+        val started = CertHandshake.initiate(ali.cert, random)
+        val responded = CertHandshake.respond(
+            maryam.identity, maryam.cert, Wire.parse(started.wire) as Packet.Init, anchors, random,
+        )
+        val done = CertHandshake.complete(
+            ali.identity, ali.cert, started.pending, Wire.parse(responded.wire) as Packet.Response, anchors,
+        )
+        // Who answered is the member the directory lists.
+        assertArrayEquals(ali.directory.members[1].keyId, done.peer.keyId)
+        assertEquals("جلسه ساعت ۱۰", responded.session.receive(done.session.send("جلسه ساعت ۱۰").wire).second)
     }
 
     @Test
@@ -183,15 +144,15 @@ class KeyBankTest {
         val first = issue(org, 1000)
         val again = issue(org, 2000)
         for (i in 0..2) assertArrayEquals(first.identities[i].serialize(), again.identities[i].serialize())
-        val rotated = org.authority.memberIdentity("09123333333", 3)
-        assertFalse(rotated.public.keyId.contentEquals(first.identities[2].public.keyId))
+        val rotated = org.authority.memberIdentity("02133334444", 3)
+        assertFalse(rotated.x25519Public.contentEquals(first.identities[2].x25519Public))
     }
 
     @Test
     fun `wrong password, wrong authority, not a key file`() {
         val org = Org(random)
         val issued = issue(org)
-        val file = KeyFile.create(issued.signed, 0 to issued.identities[0], "RIGHT", random, cheap)
+        val file = keyFile(issued, 0, "RIGHT")
         val anchors = listOf(org.authority.public)
         expectError(SmsCryptoException.Code.WRONG_PASSWORD) { KeyFile.open(file, "WRONG", anchors) }
         expectError(SmsCryptoException.Code.UNTRUSTED) { KeyFile.open(file, "RIGHT", listOf(AuthorityKey.generate(random).public)) }
@@ -216,10 +177,12 @@ class KeyBankTest {
         val mallory = IdentityKeyPair.generate(random)
         val forged = Directory(
             issued.directory.authorityId, issued.directory.directoryId, issued.directory.serial, issued.directory.name,
-            issued.directory.members.mapIndexed { i, m -> if (i == 1) Directory.Member(m.name, m.phones, mallory.public) else m },
+            issued.directory.members.mapIndexed { i, m ->
+                if (i == 1) Directory.Member(m.name, m.phones, mallory.x25519Public) else m
+            },
         )
         val signed = SignedDirectory(forged.encode(), issued.signed.signature)
-        val file = KeyFile.create(signed, 1 to mallory, "PW", random, cheap)
+        val file = KeyFile.create(signed, 1 to mallory, "PW", random, cheap, issued.certs[1])
         expectError(SmsCryptoException.Code.BAD_SIGNATURE) { KeyFile.open(file, "PW", listOf(org.authority.public)) }
     }
 
@@ -227,15 +190,19 @@ class KeyBankTest {
     fun `a secret that is not the listed member's is refused`() {
         val org = Org(random)
         val issued = issue(org)
-        val file = KeyFile.create(issued.signed, 0 to issued.identities[1], "PW", random, cheap)
-        expectError(SmsCryptoException.Code.BAD_BUNDLE) { KeyFile.open(file, "PW", listOf(org.authority.public)) }
-        val outOfRange = KeyFile.create(issued.signed, 7 to issued.identities[1], "PW", random, cheap)
-        expectError(SmsCryptoException.Code.BAD_BUNDLE) { KeyFile.open(outOfRange, "PW", listOf(org.authority.public)) }
+        val anchors = listOf(org.authority.public)
+        val swapped = KeyFile.create(issued.signed, 0 to issued.identities[1], "PW", random, cheap, issued.certs[1])
+        expectError(SmsCryptoException.Code.BAD_BUNDLE) { KeyFile.open(swapped, "PW", anchors) }
+        val outOfRange = KeyFile.create(issued.signed, 7 to issued.identities[1], "PW", random, cheap, issued.certs[1])
+        expectError(SmsCryptoException.Code.BAD_BUNDLE) { KeyFile.open(outOfRange, "PW", anchors) }
+        // The member's key with somebody else's certificate.
+        val otherCert = KeyFile.create(issued.signed, 1 to issued.identities[1], "PW", random, cheap, issued.certs[0])
+        expectError(SmsCryptoException.Code.BAD_BUNDLE) { KeyFile.open(otherCert, "PW", anchors) }
     }
 
     @Test
     fun `the roster parser takes what a spreadsheet saves and refuses mistakes`() {
-        val roster = Issuer.parseRoster("\uFEFFسازمان,اداره، شعبه ۲\r\nنام,شماره\r\nرضا\t۰۹۱۲۴۴۴۴۴۴۴\r\n# comment\r\n\r\nسارا,9125555555 02133334444,1\r\n")
+        val roster = Issuer.parseRoster("﻿سازمان,اداره، شعبه ۲\r\nنام,شماره\r\nرضا\t۰۹۱۲۴۴۴۴۴۴۴\r\n# comment\r\n\r\nسارا,9125555555 02133334444,1\r\n")
         assertEquals("اداره، شعبه ۲", roster.organization)
         assertEquals(2, roster.entries.size)
         assertEquals(listOf("09124444444"), roster.entries[0].phones)
@@ -250,9 +217,11 @@ class KeyBankTest {
             org + "رضا,12",
             org + "رضا,09121111111\nسارا,+989121111111",
             org + "رضا,09121111111,-1",
+            org + "رضا,09121111111,256",
             org + ",09121111111",
             org + org + "رضا,09121111111",
             "organization,\nرضا,09121111111",
+            org + "رضا,02188776655", // no mobile: nobody could reach them
         )
         for (bad in bads) {
             assertThrows(bad, Issuer.RosterException::class.java) { Issuer.parseRoster(bad) }
@@ -275,7 +244,7 @@ class KeyBankTest {
         assertArrayEquals(contents.key.serialize(), opened.key.serialize())
         assertArrayEquals(contents.directoryId, opened.directoryId)
         expectError(SmsCryptoException.Code.WRONG_PASSWORD) { AuthorityFile.open(file, "A long passphrase") }
-        expectError(SmsCryptoException.Code.NOT_A_KEY_FILE) { AuthorityFile.open(KeyFile.create(issue(Org(random)).signed, null, "x", random, cheap), "x") }
+        expectError(SmsCryptoException.Code.NOT_A_KEY_FILE) { AuthorityFile.open(keyFile(issue(Org(random)), 0, "x"), "x") }
         assertThrows(IllegalArgumentException::class.java) { AuthorityFile.create(contents, "short", random, cheap) }
     }
 
@@ -286,6 +255,7 @@ class KeyBankTest {
         val roster = Issuer.parseRoster("organization,سازمان\nعلی,09121111111\nمریم,09122222222;02188776655,1")
         val issued = Issuer.issue(authority, ByteArray(8) { 9 }, roster, 1_790_000_000_000L, r)
         assertEquals(GOLDEN_AUTHORITY_ID, Hex.toHexString(authority.public.authorityId))
+        assertEquals(GOLDEN_MEMBER_KID, Hex.toHexString(issued.directory.members[1].keyId))
         assertEquals(GOLDEN_DIRECTORY_SHA, sha(issued.signed.bytes))
         assertTrue(authority.public.verify(issued.signed.bytes, issued.signed.signature))
     }
@@ -294,9 +264,8 @@ class KeyBankTest {
         Hex.toHexString(java.security.MessageDigest.getInstance("SHA-256").digest(b))
 
     private companion object {
-        const val GOLDEN_GROUP_ID = "6137c0d2134ef047"
-        const val GOLDEN_MEMBER_KID = "cc4b8b6a23267e91"
         const val GOLDEN_AUTHORITY_ID = "e09334807b8501e0"
-        const val GOLDEN_DIRECTORY_SHA = "b486f609f59e4e8a901872a8d7d30d231d8763e171bedc08f038220b8946cc0a"
+        const val GOLDEN_MEMBER_KID = "72cadfdd2e2336fe"
+        const val GOLDEN_DIRECTORY_SHA = "e342a8e46c1fa2f03eb1261dc9568dad7b012b06fb64e43dc2e0a734e24629b2"
     }
 }

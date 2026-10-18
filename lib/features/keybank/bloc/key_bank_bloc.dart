@@ -40,30 +40,9 @@ class KeyBankImportUpdate extends KeyBankEvent {
   final Uint8List file;
 }
 
-class KeyBankAddGroup extends KeyBankEvent {
-  const KeyBankAddGroup(this.name, this.passphrase);
-  final String name;
-  final String passphrase;
-}
-
 class KeyBankRemoveDirectory extends KeyBankEvent {
   const KeyBankRemoveDirectory(this.id);
   final String id;
-}
-
-class KeyBankRemoveGroup extends KeyBankEvent {
-  const KeyBankRemoveGroup(this.id);
-  final String id;
-}
-
-class KeyBankAddOwnNumber extends KeyBankEvent {
-  const KeyBankAddOwnNumber(this.phone);
-  final String phone;
-}
-
-class KeyBankRemoveOwnNumber extends KeyBankEvent {
-  const KeyBankRemoveOwnNumber(this.phone);
-  final String phone;
 }
 
 // ── State ────────────────────────────────────────────────────────────────────
@@ -94,11 +73,6 @@ enum KeyBankNotice {
   /// The update was imported, but it no longer lists this phone's key: the
   /// authority gave this member a new one, which only their own file has.
   ownKeyRetired,
-  groupAdded,
-  groupExists,
-  numberAdded,
-  numberExists,
-  notANumber,
   failed,
 }
 
@@ -109,7 +83,6 @@ class KeyBankState extends Equatable {
     this.busy = false,
     this.notice,
     this.noticeSeq = 0,
-    this.lastGroupId,
   });
 
   final KeyBankStatus status;
@@ -117,40 +90,28 @@ class KeyBankState extends Equatable {
   /// Public data only — see [KeyBankSnapshot].
   final KeyBankSnapshot snapshot;
 
-  /// An import or a group derivation is running (Argon2id: about a second).
+  /// An import is running (Argon2id: about a second).
   final bool busy;
   final KeyBankNotice? notice;
 
   /// Bumped with every notice, so the same notice twice is two states.
   final int noticeSeq;
 
-  /// The id of the group just added — shown so members can compare codes.
-  final String? lastGroupId;
-
   KeyBankState copyWith({
     KeyBankStatus? status,
     KeyBankSnapshot? snapshot,
     bool? busy,
     KeyBankNotice? notice,
-    String? lastGroupId,
   }) => KeyBankState(
     status: status ?? this.status,
     snapshot: snapshot ?? this.snapshot,
     busy: busy ?? this.busy,
     notice: notice ?? this.notice,
     noticeSeq: notice == null ? noticeSeq : noticeSeq + 1,
-    lastGroupId: lastGroupId ?? this.lastGroupId,
   );
 
   @override
-  List<Object?> get props => [
-    status,
-    snapshot,
-    busy,
-    notice,
-    noticeSeq,
-    lastGroupId,
-  ];
+  List<Object?> get props => [status, snapshot, busy, notice, noticeSeq];
 }
 
 // ── Bloc ─────────────────────────────────────────────────────────────────────
@@ -159,10 +120,9 @@ class KeyBankState extends Equatable {
 /// secure section — it loads when the section opens and drops everything
 /// when it closes, so a locked phone holds no key-bank data in memory.
 ///
-/// Three sources (owner's decisions, 1405/07/05; see `editions.md`):
-/// - the authority's public key, hardcoded ([TrustAnchors]);
-/// - key files the authority's tool issues, imported here;
-/// - passphrase groups, derived here.
+/// Its sources (see `editions.md`): the authority's public key, hardcoded
+/// ([TrustAnchors]), and the key files and update files the authority's
+/// panel issues, imported here.
 class KeyBankBloc extends Bloc<KeyBankEvent, KeyBankState> {
   KeyBankBloc({
     required SecureSessionBloc session,
@@ -177,16 +137,8 @@ class KeyBankBloc extends Bloc<KeyBankEvent, KeyBankState> {
     on<KeyBankRefresh>(_onRefresh);
     on<KeyBankImportFile>(_onImport);
     on<KeyBankImportUpdate>(_onImportUpdate);
-    on<KeyBankAddGroup>(_onAddGroup);
     on<KeyBankRemoveDirectory>(
       (e, emit) => _mutate(emit, () => _repository.removeDirectory(e.id)),
-    );
-    on<KeyBankRemoveGroup>(
-      (e, emit) => _mutate(emit, () => _repository.removeGroup(e.id)),
-    );
-    on<KeyBankAddOwnNumber>(_onAddOwnNumber);
-    on<KeyBankRemoveOwnNumber>(
-      (e, emit) => _mutate(emit, () => _repository.removeOwnNumber(e.phone)),
     );
 
     _sessionSub = session.stream
@@ -345,56 +297,6 @@ class KeyBankBloc extends Bloc<KeyBankEvent, KeyBankState> {
     for (var i = 0; i + 1 < hex.length; i += 2)
       int.parse(hex.substring(i, i + 2), radix: 16),
   ]);
-
-  Future<void> _onAddGroup(
-    KeyBankAddGroup e,
-    Emitter<KeyBankState> emit,
-  ) async {
-    if (!_open || state.busy) return;
-    emit(state.copyWith(busy: true));
-    try {
-      final derived = await _crypto.deriveGroup(
-        name: e.name,
-        passphrase: e.passphrase,
-      );
-      final added = await _repository.addGroup(
-        groupId: derived.groupId,
-        name: e.name,
-        seed: derived.group,
-      );
-      emit(state.copyWith(lastGroupId: keyHex(derived.groupId)));
-      await _reload(
-        emit,
-        notice: added ? KeyBankNotice.groupAdded : KeyBankNotice.groupExists,
-      );
-    } on KeyBankLockedException {
-      emit(const KeyBankState());
-    } catch (x) {
-      debugPrint('Adding a group failed: ${x.runtimeType}');
-      emit(state.copyWith(busy: false, notice: KeyBankNotice.failed));
-    }
-  }
-
-  Future<void> _onAddOwnNumber(
-    KeyBankAddOwnNumber e,
-    Emitter<KeyBankState> emit,
-  ) async {
-    if (!_open) return;
-    final phone = await _crypto.canonicalPhone(e.phone);
-    if (phone == null) {
-      emit(state.copyWith(notice: KeyBankNotice.notANumber));
-      return;
-    }
-    try {
-      final added = await _repository.addOwnNumber(phone);
-      await _reload(
-        emit,
-        notice: added ? KeyBankNotice.numberAdded : KeyBankNotice.numberExists,
-      );
-    } on KeyBankLockedException {
-      emit(const KeyBankState());
-    }
-  }
 
   Future<void> _mutate(
     Emitter<KeyBankState> emit,

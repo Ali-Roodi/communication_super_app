@@ -37,7 +37,7 @@ void main() {
     expect(find.text('وارد کردن فایل کلید'), findsNothing);
   });
 
-  testWidgets('an open bank lists directories, groups and numbers', (
+  testWidgets('an open bank lists its directories and the own key', (
     tester,
   ) async {
     await pump(
@@ -55,59 +55,39 @@ void main() {
               ownName: 'علی',
             ),
           ],
-          groups: [
-            GroupSummary(id: '6137c0d2134ef047', name: 'گروه یک', createdAt: 0),
-          ],
-          ownNumbers: ['09121111111'],
         ),
       ),
     );
     expect(find.text('سازمان آزمایشی'), findsOneWidget);
     expect(find.textContaining('کلید شما: علی'), findsOneWidget);
-    expect(find.text('گروه یک'), findsOneWidget);
-    expect(find.textContaining('6137-C0D2-134E-F047'), findsOneWidget);
     expect(find.text('وارد کردن فایل کلید'), findsOneWidget);
+    // Nothing of the passphrase groups is left on the screen.
+    expect(find.textContaining('گروه'), findsNothing);
+    expect(find.textContaining('شماره‌های من'), findsNothing);
   });
 
-  testWidgets('the group dialog insists on a long, repeated passphrase', (
-    tester,
-  ) async {
-    await pump(tester, const KeyBankState(status: KeyBankStatus.ready));
-    await tester.tap(find.text('افزودن گروه'));
-    await tester.pumpAndSettle();
-    final fields = find.byType(TextField);
-    await tester.enterText(fields.at(0), 'گروه');
-    await tester.enterText(fields.at(1), 'کوتاه');
-    await tester.enterText(fields.at(2), 'کوتاه');
-    await tester.tap(find.text('افزودن').last);
-    await tester.pump();
-    expect(find.textContaining('دست‌کم'), findsOneWidget);
-
-    await tester.enterText(fields.at(1), 'یک عبارت عبور طولانی');
-    await tester.enterText(fields.at(2), 'یک عبارت عبور دیگر');
-    await tester.tap(find.text('افزودن').last);
-    await tester.pump();
-    expect(find.text('دو عبارت عبور یکسان نیستند'), findsOneWidget);
-
-    await tester.enterText(fields.at(2), 'یک عبارت عبور طولانی');
-    await tester.tap(find.text('افزودن').last);
-    await tester.pumpAndSettle();
-    verify(
-      () => bloc.add(
-        any(
-          that: isA<KeyBankAddGroup>()
-              .having((e) => e.name, 'name', 'گروه')
-              .having(
-                (e) => e.passphrase,
-                'passphrase',
-                'یک عبارت عبور طولانی',
-              ),
+  testWidgets('removing a directory asks first', (tester) async {
+    await pump(
+      tester,
+      const KeyBankState(
+        status: KeyBankStatus.ready,
+        snapshot: KeyBankSnapshot(
+          directories: [
+            DirectorySummary(
+              id: '01',
+              authorityId: 'aa',
+              name: 'سازمان آزمایشی',
+              serial: 1790000000000,
+              memberCount: 3,
+            ),
+          ],
         ),
       ),
-    ).called(1);
-  });
-
-  test('ids read in groups of four', () {
-    expect(KeyBankScreen.formatId('6137c0d2134ef047'), '6137-C0D2-134E-F047');
+    );
+    expect(find.textContaining('بدون کلید شما'), findsOneWidget);
+    await tester.tap(find.byTooltip('حذف'));
+    await tester.pumpAndSettle();
+    expect(find.text('حذف دفترچه؟'), findsOneWidget);
+    verifyNever(() => bloc.add(any(that: isA<KeyBankRemoveDirectory>())));
   });
 }

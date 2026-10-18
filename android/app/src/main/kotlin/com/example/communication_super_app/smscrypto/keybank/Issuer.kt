@@ -22,9 +22,8 @@ object Issuer {
         val signed: SignedDirectory,
         val directory: Directory,
         val identities: List<IdentityKeyPair>,
-        /** Each member's [MemberCert] (for their first mobile number); null for
-         *  a member who has none. */
-        val certs: List<MemberCert?>,
+        /** Each member's [MemberCert], for their first mobile number. */
+        val certs: List<MemberCert>,
     )
 
     class RosterException(message: String) : Exception(message)
@@ -65,6 +64,11 @@ object Issuer {
             if (phones.isEmpty() || phones.size > Directory.MAX_PHONES) {
                 throw RosterException("line $lineNo: 1 to ${Directory.MAX_PHONES} phone numbers")
             }
+            // A member is reached by SMS over their certificate, which names a
+            // mobile: without one nobody could ever reach them.
+            if (phones.none(MemberCert::canName)) {
+                throw RosterException("line $lineNo: needs a mobile number (09…)")
+            }
             for (p in phones) {
                 val first = seen.put(p, lineNo)
                 if (first != null) throw RosterException("line $lineNo: $p is already on line $first")
@@ -97,12 +101,10 @@ object Issuer {
             directoryId,
             serial,
             roster.organization,
-            roster.entries.mapIndexed { i, e -> Directory.Member(e.name, e.phones, identities[i].public) },
+            roster.entries.mapIndexed { i, e -> Directory.Member(e.name, e.phones, identities[i].x25519Public) },
         )
         val certs = roster.entries.mapIndexed { i, e ->
-            e.phones.firstOrNull(MemberCert::canName)?.let { phone ->
-                MemberCert.issue(authority, phone, e.generation, identities[i])
-            }
+            MemberCert.issue(authority, e.phones.first(MemberCert::canName), e.generation, identities[i])
         }
         return Issued(SignedDirectory.sign(directory, authority, random), directory, identities, certs)
     }

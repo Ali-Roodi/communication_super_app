@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:communication_super_app/features/secure/repositories/secure_group_store.dart';
 import 'package:communication_super_app/features/secure/repositories/secure_message_store.dart';
 import 'package:communication_super_app/features/secure/repositories/secure_store.dart';
@@ -125,77 +123,6 @@ void main() {
   });
 
   test(
-    'a phase G section (v4) gains groups; its conversations stay listed',
-    () async {
-      final dir = await Directory.systemTemp.createTemp('group_migration');
-      final old = await databaseFactoryFfi.openDatabase('${dir.path}/v4.db');
-      await old.execute(
-        'CREATE TABLE secure_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
-      );
-      await SecureStore.upgradeSchemaForTest(old, 1, to: 4);
-      await old.insert('sm_conversations', {
-        'phone': '09122222222',
-        'name': 'سارا',
-        'peer_key_id': 'aa',
-        'peer_public': Uint8List(4),
-        'own_key_id': 'bb',
-        'own_source': 'directory:d',
-        'created_at': 1,
-        'last_at': 5,
-      });
-      await SecureStore.upgradeSchemaForTest(old, 4);
-
-      final store = SecureMessageStore(database: () => old);
-      expect((await store.conversations()).single.name, 'سارا');
-      await SecureGroupStore(database: () => old).createGroup(
-        id: 'g',
-        name: 'گروه',
-        mode: SecureGroupMode.chat,
-        members: [a],
-        now: 1,
-      );
-      expect(
-        await SecureGroupStore(database: () => old).groups(),
-        hasLength(1),
-      );
-      await old.close();
-      await dir.delete(recursive: true);
-    },
-  );
-
-  test('a v5 section gains lifetimes and the intruder photos (v6)', () async {
-    final dir = await Directory.systemTemp.createTemp('v6_migration');
-    final old = await databaseFactoryFfi.openDatabase('${dir.path}/v5.db');
-    await old.execute(
-      'CREATE TABLE secure_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
-    );
-    await SecureStore.upgradeSchemaForTest(old, 1, to: 5);
-    await old.insert('sm_messages', {
-      'id': 'm1',
-      'phone': '09122222222',
-      'outgoing': 1,
-      'body': 'قدیمی',
-      'timestamp': 1,
-      'status': 'sent',
-    });
-    await SecureStore.upgradeSchemaForTest(old, 5);
-
-    final store = SecureMessageStore(database: () => old);
-    final m = (await store.messages('09122222222')).single;
-    expect(m.body, 'قدیمی');
-    expect(m.ttl, isNull);
-    expect(await store.purgeExpired(1 << 40), 0);
-    await old.insert('ip_photos', {
-      'taken_at': 5,
-      'camera': 'front',
-      'failed_attempts': 3,
-    });
-    expect(await old.query('ip_photos'), hasLength(1));
-    await old.close();
-    await dir.delete(recursive: true);
-  });
-
-  test(
     'a conversation waits for its channel only when something is under way',
     () async {
       final store = SecureMessageStore(database: () => db);
@@ -205,7 +132,7 @@ void main() {
         peerKeyId: 'aa',
         peerPublic: Uint8List(4),
         ownKeyId: 'bb',
-        ownSource: 'group:g',
+        ownDirectory: 'd',
         now: 1,
       );
       // Just opened, nothing said: not waiting (it used to say it was).
@@ -231,6 +158,7 @@ void main() {
           pending: true,
           state: Uint8List(1),
           createdAt: 3,
+          kind: SessionKind.certInitiated,
         ),
       );
       expect(
@@ -245,6 +173,7 @@ void main() {
           pending: false,
           state: Uint8List(1),
           createdAt: 4,
+          kind: SessionKind.certInitiated,
         ),
       );
       expect(
