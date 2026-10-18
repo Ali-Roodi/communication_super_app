@@ -13,12 +13,14 @@ void main() {
   }.entries) {
     final cs = entry.value.colorScheme;
 
-    test('${entry.key}: a received bubble stands off the conversation sheet',
-        () {
-      // Dark mode drew both as surfaceContainerHigh: received messages were
-      // bare text with no bubble.
-      expect(cs.bubbleIncoming, isNot(cs.cardSurface));
-    });
+    test(
+      '${entry.key}: a received bubble stands off the conversation sheet',
+      () {
+        // Dark mode drew both as surfaceContainerHigh: received messages were
+        // bare text with no bubble.
+        expect(cs.bubbleIncoming, isNot(cs.cardSurface));
+      },
+    );
 
     test('${entry.key}: a sent bubble stands off the conversation sheet', () {
       expect(cs.bubbleOutgoing, isNot(cs.cardSurface));

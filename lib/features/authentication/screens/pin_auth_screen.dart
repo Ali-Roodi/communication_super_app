@@ -86,8 +86,9 @@ class _PinAuthScreenState extends State<PinAuthScreen> {
                   leading: BiometricUnlockKey(
                     onUnlocked: () async =>
                         context.read<AuthBloc>().add(const BiometricUnlocked()),
-                    onMessage: (message) => ScaffoldMessenger.of(context)
-                        .showSnackBar(SnackBar(content: Text(message))),
+                    onMessage: (message) => ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text(message))),
                   ),
                 ),
                 const SizedBox(height: 8),

@@ -1,20 +1,17 @@
 import 'package:communication_super_app/features/messages/models/message_model.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-MessageThread _thread({
-  DateTime? last,
-  DateTime? draft,
-  DateTime? scheduled,
-}) => MessageThread(
-  threadId: '09120000000',
-  phoneNumber: '09120000000',
-  lastMessage: 'سلام',
-  lastMessageTime: last ?? DateTime(2026, 1, 1),
-  draftText: draft == null ? null : 'پیش‌نویس',
-  draftTime: draft,
-  scheduledText: scheduled == null ? null : 'زمان‌بندی‌شده',
-  scheduledTime: scheduled,
-);
+MessageThread _thread({DateTime? last, DateTime? draft, DateTime? scheduled}) =>
+    MessageThread(
+      threadId: '09120000000',
+      phoneNumber: '09120000000',
+      lastMessage: 'سلام',
+      lastMessageTime: last ?? DateTime(2026, 1, 1),
+      draftText: draft == null ? null : 'پیش‌نویس',
+      draftTime: draft,
+      scheduledText: scheduled == null ? null : 'زمان‌بندی‌شده',
+      scheduledTime: scheduled,
+    );
 
 void main() {
   group('MessageThread.sortTime', () {

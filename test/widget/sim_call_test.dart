@@ -28,9 +28,7 @@ void main() {
     number: '',
   );
   const simChannel = MethodChannel('com.example.communication_super_app/sim');
-  const callChannel = MethodChannel(
-    'com.example.communication_super_app/call',
-  );
+  const callChannel = MethodChannel('com.example.communication_super_app/call');
 
   /// What Android's settings say right now.
   late int systemVoice;
@@ -57,10 +55,10 @@ void main() {
       }
       return null;
     });
-    SimService.debugSetRoster(
-      const [sim1, sim2],
-      defaults: const SimDefaults(sms: 10, voice: 10, data: 10),
-    );
+    SimService.debugSetRoster(const [
+      sim1,
+      sim2,
+    ], defaults: const SimDefaults(sms: 10, voice: 10, data: 10));
   });
 
   tearDown(() {

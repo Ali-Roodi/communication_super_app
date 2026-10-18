@@ -289,8 +289,11 @@ void main() {
           direction: 'incoming',
         ),
       );
-      expect(find.byType(InCallScreen), findsNothing,
-          reason: 'A was put away; B never had a screen to swap back from');
+      expect(
+        find.byType(InCallScreen),
+        findsNothing,
+        reason: 'A was put away; B never had a screen to swap back from',
+      );
       expect(CallUiCoordinator.minimized.value, isTrue);
 
       await emit(

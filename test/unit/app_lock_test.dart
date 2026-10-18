@@ -20,27 +20,27 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
-      final args = (call.arguments as Map?) ?? const {};
-      final key = args['key'] as String?;
-      switch (call.method) {
-        case 'write':
-          store[key!] = args['value'] as String;
+          final args = (call.arguments as Map?) ?? const {};
+          final key = args['key'] as String?;
+          switch (call.method) {
+            case 'write':
+              store[key!] = args['value'] as String;
+              return null;
+            case 'read':
+              return store[key];
+            case 'delete':
+              store.remove(key);
+              return null;
+            case 'containsKey':
+              return store.containsKey(key);
+            case 'readAll':
+              return Map<String, String>.from(store);
+            case 'deleteAll':
+              store.clear();
+              return null;
+          }
           return null;
-        case 'read':
-          return store[key];
-        case 'delete':
-          store.remove(key);
-          return null;
-        case 'containsKey':
-          return store.containsKey(key);
-        case 'readAll':
-          return Map<String, String>.from(store);
-        case 'deleteAll':
-          store.clear();
-          return null;
-      }
-      return null;
-    });
+        });
   });
 
   tearDown(() {
@@ -53,20 +53,25 @@ void main() {
       expect(await AuthRepository().isAuthenticated(), isFalse);
     });
 
-    test('unlocking lasts for the process and is never written to disk',
-        () async {
-      final repo = AuthRepository();
-      await repo.setAuthenticated(true);
-      expect(await repo.isAuthenticated(), isTrue);
-      // Nothing that survives a restart may say "unlocked".
-      expect(store.containsKey('is_authenticated'), isFalse);
-    });
+    test(
+      'unlocking lasts for the process and is never written to disk',
+      () async {
+        final repo = AuthRepository();
+        await repo.setAuthenticated(true);
+        expect(await repo.isAuthenticated(), isTrue);
+        // Nothing that survives a restart may say "unlocked".
+        expect(store.containsKey('is_authenticated'), isFalse);
+      },
+    );
 
     test('the flag an older build persisted is ignored and wiped', () async {
       store['is_authenticated'] = 'true';
       final repo = AuthRepository();
-      expect(await repo.isAuthenticated(), isFalse,
-          reason: 'a restart after the old build must still ask for the PIN');
+      expect(
+        await repo.isAuthenticated(),
+        isFalse,
+        reason: 'a restart after the old build must still ask for the PIN',
+      );
       await repo.setAuthenticated(false);
       expect(store.containsKey('is_authenticated'), isFalse);
     });
@@ -90,9 +95,9 @@ void main() {
       calls.clear();
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(lockChannel, (call) async {
-        calls.add(call);
-        return null;
-      });
+            calls.add(call);
+            return null;
+          });
     });
 
     tearDown(() {

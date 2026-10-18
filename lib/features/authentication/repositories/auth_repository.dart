@@ -129,24 +129,25 @@ class AuthRepository {
   /// Chained, and the flag is read when each report actually runs: a lock
   /// that follows an unlock within a frame must not be overtaken by the
   /// unlock's slower settings read and leave the native side open.
-  static Future<void> reportSession() => _lastReport = _lastReport.then((_) async {
-    if (!_sessionUnlocked) {
-      await AppLockPlatform.sessionLocked();
-      return;
-    }
-    int grace;
-    try {
-      grace = await relockAfterSeconds();
-    } catch (_) {
-      grace = defaultRelockAfterSeconds;
-    }
-    // Re-read: the session may have closed during the settings read.
-    if (_sessionUnlocked) {
-      await AppLockPlatform.sessionUnlocked(grace);
-    } else {
-      await AppLockPlatform.sessionLocked();
-    }
-  });
+  static Future<void> reportSession() =>
+      _lastReport = _lastReport.then((_) async {
+        if (!_sessionUnlocked) {
+          await AppLockPlatform.sessionLocked();
+          return;
+        }
+        int grace;
+        try {
+          grace = await relockAfterSeconds();
+        } catch (_) {
+          grace = defaultRelockAfterSeconds;
+        }
+        // Re-read: the session may have closed during the settings read.
+        if (_sessionUnlocked) {
+          await AppLockPlatform.sessionUnlocked(grace);
+        } else {
+          await AppLockPlatform.sessionLocked();
+        }
+      });
 
   @visibleForTesting
   static void resetSessionForTest() => _sessionUnlocked = false;

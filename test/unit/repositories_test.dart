@@ -224,12 +224,15 @@ void main() {
     // messages arrive from an alphanumeric sender id, which `SmsService` stores
     // as the thread id verbatim — so it is the key blocking has to use, and
     // refusing it as "no digits" meant no row was written at all.
-    test('an alphanumeric sender id is blocked under its own thread id', () async {
-      final repo = BlockedNumbersRepository();
-      expect(await repo.block('همراه اول'), 'همراه اول');
-      expect(await repo.blockedKeys(), {'همراه اول'});
-      expect(await repo.isBlocked('همراه اول'), isTrue);
-    });
+    test(
+      'an alphanumeric sender id is blocked under its own thread id',
+      () async {
+        final repo = BlockedNumbersRepository();
+        expect(await repo.block('همراه اول'), 'همراه اول');
+        expect(await repo.blockedKeys(), {'همراه اول'});
+        expect(await repo.isBlocked('همراه اول'), isTrue);
+      },
+    );
 
     test('an empty address is not blocked', () async {
       final repo = BlockedNumbersRepository();

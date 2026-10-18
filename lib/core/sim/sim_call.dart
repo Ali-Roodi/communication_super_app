@@ -52,11 +52,7 @@ Future<bool> placeCall(
     return true;
   }
 
-  final resolved = await resolveVoiceSim(
-    context,
-    number,
-    suggested: suggested,
-  );
+  final resolved = await resolveVoiceSim(context, number, suggested: suggested);
   // A dismissed picker is a cancelled call — only on a phone that would have
   // asked can `null` mean that.
   if (resolved == null && wouldAskForVoiceSim) return false;

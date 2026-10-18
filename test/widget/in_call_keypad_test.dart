@@ -37,7 +37,9 @@ void main() {
     events = StreamController<CallInfo>.broadcast();
     when(() => repo.getAllContacts()).thenAnswer((_) async => <ContactModel>[]);
     when(() => repo.matchPhoneDigits(any(), any())).thenReturn(<PhoneMatch>[]);
-    when(() => repo.getContactByPhoneNumber(any())).thenAnswer((_) async => null);
+    when(
+      () => repo.getContactByPhoneNumber(any()),
+    ).thenAnswer((_) async => null);
     when(() => callService.callEvents).thenAnswer((_) => events.stream);
     when(() => callService.startDtmf(any())).thenAnswer((_) async {});
     when(() => callService.stopDtmf()).thenAnswer((_) async {});
@@ -105,8 +107,14 @@ void main() {
 
       // «پایان» and «بستن» are both reachable, below the keys.
       final lastRow = tester.getRect(find.text('۰'));
-      expect(tester.getRect(find.text('پایان')).top, greaterThan(lastRow.bottom));
-      expect(tester.getRect(find.text('بستن')).top, greaterThan(lastRow.bottom));
+      expect(
+        tester.getRect(find.text('پایان')).top,
+        greaterThan(lastRow.bottom),
+      );
+      expect(
+        tester.getRect(find.text('بستن')).top,
+        greaterThan(lastRow.bottom),
+      );
 
       // The grid is a grid: the three columns are evenly spaced, so the gap
       // between 1→2 equals the gap between 2→3. `spaceBetween` on a row of
@@ -121,8 +129,9 @@ void main() {
     });
   }
 
-  testWidgets('pressing keys transmits the tone and shows what was typed',
-      (tester) async {
+  testWidgets('pressing keys transmits the tone and shows what was typed', (
+    tester,
+  ) async {
     final bloc = await pumpCall(tester, const Size(1080, 2400));
     addTearDown(bloc.close);
     await openKeypad(tester);
@@ -140,15 +149,14 @@ void main() {
     expect(find.text('۱۲۳'), findsOneWidget);
   });
 
-  testWidgets('the tone is held while the key is down and stopped on release',
-      (tester) async {
+  testWidgets('the tone is held while the key is down and stopped on release', (
+    tester,
+  ) async {
     final bloc = await pumpCall(tester, const Size(1080, 2400));
     addTearDown(bloc.close);
     await openKeypad(tester);
 
-    final gesture = await tester.startGesture(
-      tester.getCenter(find.text('۵')),
-    );
+    final gesture = await tester.startGesture(tester.getCenter(find.text('۵')));
     await tester.pump(const Duration(milliseconds: 400));
     verify(() => callService.startDtmf('5')).called(1);
     verifyNever(() => callService.stopDtmf());
@@ -158,17 +166,16 @@ void main() {
     verify(() => callService.stopDtmf()).called(1);
   });
 
-  testWidgets('a press that slides a little still types (no tap slop)',
-      (tester) async {
+  testWidgets('a press that slides a little still types (no tap slop)', (
+    tester,
+  ) async {
     final bloc = await pumpCall(tester, const Size(1080, 2400));
     addTearDown(bloc.close);
     await openKeypad(tester);
 
     // A thumb that travels 30 px during the press: an `InkWell.onTap` rejects
     // this as a drag, which is how presses used to go missing.
-    final gesture = await tester.startGesture(
-      tester.getCenter(find.text('۸')),
-    );
+    final gesture = await tester.startGesture(tester.getCenter(find.text('۸')));
     await gesture.moveBy(const Offset(0, 30));
     await gesture.up();
     await tester.pump();
@@ -177,8 +184,9 @@ void main() {
     expect(bloc.state.dtmfDigits, '8');
   });
 
-  testWidgets('typed tones survive closing and reopening the keypad',
-      (tester) async {
+  testWidgets('typed tones survive closing and reopening the keypad', (
+    tester,
+  ) async {
     final bloc = await pumpCall(tester, const Size(1080, 2400));
     addTearDown(bloc.close);
     await openKeypad(tester);
@@ -196,8 +204,9 @@ void main() {
     expect(find.text('۴۲۱'), findsOneWidget);
   });
 
-  testWidgets('typed tones survive the call screen being re-pushed',
-      (tester) async {
+  testWidgets('typed tones survive the call screen being re-pushed', (
+    tester,
+  ) async {
     final bloc = await pumpCall(tester, const Size(1080, 2400));
     addTearDown(bloc.close);
     await openKeypad(tester);
@@ -237,9 +246,7 @@ void main() {
     addTearDown(bloc.close);
     await openKeypad(tester);
 
-    final gesture = await tester.startGesture(
-      tester.getCenter(find.text('۳')),
-    );
+    final gesture = await tester.startGesture(tester.getCenter(find.text('۳')));
     await tester.pump();
     verify(() => callService.startDtmf('3')).called(1);
 
@@ -258,8 +265,9 @@ void main() {
     expect(bloc.state.dtmfDigits, isEmpty);
   });
 
-  testWidgets('«بستن» returns to the call screen, and so does back',
-      (tester) async {
+  testWidgets('«بستن» returns to the call screen, and so does back', (
+    tester,
+  ) async {
     final bloc = await pumpCall(tester, const Size(1080, 2400));
     addTearDown(bloc.close);
 
@@ -277,8 +285,9 @@ void main() {
     expect(find.text('بی‌صدا'), findsOneWidget);
   });
 
-  testWidgets('a busy call shows the redial countdown, and «لغو» stops it',
-      (tester) async {
+  testWidgets('a busy call shows the redial countdown, and «لغو» stops it', (
+    tester,
+  ) async {
     AutoRedialPolicy.enabled = true;
     AutoRedialPolicy.maxAttempts = 2;
     addTearDown(() {

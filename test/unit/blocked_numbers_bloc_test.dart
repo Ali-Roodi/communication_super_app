@@ -63,7 +63,8 @@ void main() {
     build: build,
     act: (bloc) => bloc.add(const BlockNumber('همراه اول')),
     expect: () => [const BlockedNumbersLoaded([])],
-    verify: (_) => verify(() => repo.block('همراه اول', report: false)).called(1),
+    verify: (_) =>
+        verify(() => repo.block('همراه اول', report: false)).called(1),
   );
 
   blocTest<BlockedNumbersBloc, BlockedNumbersState>(
