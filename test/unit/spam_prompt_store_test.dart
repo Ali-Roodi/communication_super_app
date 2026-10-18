@@ -26,7 +26,8 @@ void main() {
     expect(
       SpamPromptStore.isDismissed('09121112233'),
       isFalse,
-      reason: 'unknown until read — null means "not read yet", not "not dismissed"',
+      reason:
+          'unknown until read — null means "not read yet", not "not dismissed"',
     );
     await SpamPromptStore.load();
     expect(SpamPromptStore.isDismissed('09121112233'), isTrue);
@@ -41,9 +42,7 @@ void main() {
     await SpamPromptStore.dismiss('09121112233');
     await SpamPromptStore.dismiss('09121112233');
     final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getStringList('set_spam_prompt_dismissed'), [
-      '09121112233',
-    ]);
+    expect(prefs.getStringList('set_spam_prompt_dismissed'), ['09121112233']);
   });
 
   test('an empty thread id is never stored', () async {

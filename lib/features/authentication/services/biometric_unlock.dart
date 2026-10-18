@@ -194,7 +194,9 @@ class BiometricUnlock {
 
   /// What to tell the user for an [outcome] on a lock screen; null when the
   /// screen should just stay as it is.
-  static String? messageFor(BiometricUnlockOutcome outcome) => switch (outcome) {
+  static String? messageFor(
+    BiometricUnlockOutcome outcome,
+  ) => switch (outcome) {
     BiometricUnlockOutcome.enrollmentChanged =>
       'اثر انگشت یا چهرهٔ گوشی تغییر کرده است؛ برای امنیت، باز کردن با آن '
           'خاموش شد. با رمز وارد شوید و در صورت نیاز دوباره از تنظیمات روشنش کنید',

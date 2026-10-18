@@ -53,14 +53,18 @@ void main() {
 
     await typePin(tester, const ['۱', '۲', '۳', '۴']);
 
-    expect(find.text('رمز عبور را وارد کنید'), findsOneWidget,
-        reason: 'the keypad must still be there after a wrong PIN');
+    expect(
+      find.text('رمز عبور را وارد کنید'),
+      findsOneWidget,
+      reason: 'the keypad must still be there after a wrong PIN',
+    );
     expect(find.text('رمز عبور اشتباه است'), findsOneWidget);
     expect(find.text('۵'), findsOneWidget);
   });
 
-  testWidgets('a second attempt after a wrong one is still checked',
-      (tester) async {
+  testWidgets('a second attempt after a wrong one is still checked', (
+    tester,
+  ) async {
     final bloc = await pump(tester);
     addTearDown(bloc.close);
 

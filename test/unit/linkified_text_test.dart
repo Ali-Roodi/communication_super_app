@@ -91,10 +91,7 @@ void main() {
         LinkifiedText.webUriOf('b2n.ir/xK9d3').toString(),
         'https://b2n.ir/xK9d3',
       );
-      expect(
-        LinkifiedText.webUriOf('http://a.ir').toString(),
-        'http://a.ir',
-      );
+      expect(LinkifiedText.webUriOf('http://a.ir').toString(), 'http://a.ir');
     });
   });
 }

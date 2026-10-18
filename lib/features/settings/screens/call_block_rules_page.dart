@@ -73,7 +73,8 @@ class _CallBlockRulesPageState extends State<CallBlockRulesPage> {
                 textDirection: TextDirection.ltr,
                 decoration: InputDecoration(
                   hintText: '۰۹۴۲',
-                  helperText: 'تماس از شماره‌هایی که با این شروع شوند رد می‌شود',
+                  helperText:
+                      'تماس از شماره‌هایی که با این شروع شوند رد می‌شود',
                   errorText: error,
                   errorMaxLines: 2,
                   helperMaxLines: 2,

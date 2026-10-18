@@ -33,10 +33,8 @@ void main() {
                   ? const NeverScrollableScrollPhysics()
                   : null,
               itemCount: 60,
-              itemBuilder: (_, i) => SizedBox(
-                height: 60,
-                child: Text('row $i'),
-              ),
+              itemBuilder: (_, i) =>
+                  SizedBox(height: 60, child: Text('row $i')),
             ),
           ),
         ),

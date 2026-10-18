@@ -113,7 +113,10 @@ void main() {
     test('a dismissed prompt leaves it off', () async {
       await withPin();
       prompt = 'cancelled';
-      expect(await BiometricUnlock().enable(), BiometricEnableOutcome.cancelled);
+      expect(
+        await BiometricUnlock().enable(),
+        BiometricEnableOutcome.cancelled,
+      );
       expect(await BiometricUnlock().isEnabled(), isFalse);
       expect(called('createSentinel'), isFalse);
     });
@@ -157,18 +160,20 @@ void main() {
       expect(await BiometricUnlock().unlock(), BiometricUnlockOutcome.unlocked);
     });
 
-    test('a fingerprint added since switches it off, before any prompt',
-        () async {
-      await enabled();
-      sentinel = 'invalidated';
-      expect(
-        await BiometricUnlock().unlock(),
-        BiometricUnlockOutcome.enrollmentChanged,
-      );
-      expect(called('authenticate'), isFalse);
-      expect(called('deleteSentinel'), isTrue);
-      expect(await BiometricUnlock().isEnabled(), isFalse);
-    });
+    test(
+      'a fingerprint added since switches it off, before any prompt',
+      () async {
+        await enabled();
+        sentinel = 'invalidated';
+        expect(
+          await BiometricUnlock().unlock(),
+          BiometricUnlockOutcome.enrollmentChanged,
+        );
+        expect(called('authenticate'), isFalse);
+        expect(called('deleteSentinel'), isTrue);
+        expect(await BiometricUnlock().isEnabled(), isFalse);
+      },
+    );
 
     test('a sentinel the system deleted counts as changed too', () async {
       await enabled();
@@ -211,9 +216,15 @@ void main() {
     test('lockout and cancel leave the PIN as the way in', () async {
       await enabled();
       prompt = 'lockout';
-      expect(await BiometricUnlock().unlock(), BiometricUnlockOutcome.lockedOut);
+      expect(
+        await BiometricUnlock().unlock(),
+        BiometricUnlockOutcome.lockedOut,
+      );
       prompt = 'cancelled';
-      expect(await BiometricUnlock().unlock(), BiometricUnlockOutcome.cancelled);
+      expect(
+        await BiometricUnlock().unlock(),
+        BiometricUnlockOutcome.cancelled,
+      );
       expect(await BiometricUnlock().isEnabled(), isTrue);
     });
 
