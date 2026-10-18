@@ -5,7 +5,6 @@ import java.security.SecureRandom
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -35,8 +34,6 @@ class UpdateFileTest {
         assertTrue(UpdateFile.looksLike(file))
         val other = ByteArray(Directory.ID_BYTES).also(random::nextBytes)
         val opened = UpdateFile.open(file, listOf(other, directoryId), anchors)
-        assertNull(opened.identity)
-        assertNull(opened.memberIndex)
         assertEquals(2, opened.directory.members.size)
         assertEquals(1000L, opened.directory.serial)
         assertArrayEquals(issued.signed.encode(), opened.signed.encode())
@@ -47,7 +44,7 @@ class UpdateFileTest {
         val issued = issue("علی", "مریم")
         val update = UpdateFile.open(UpdateFile.create(issued.signed, directoryId, random, cheap), listOf(directoryId), anchors)
         val keyFile = KeyFile.open(
-            KeyFile.create(issued.signed, 0 to issued.identities[0], "AAAA-BBBB", random, cheap),
+            KeyFile.create(issued.signed, 0 to issued.identities[0], "AAAA-BBBB", random, cheap, issued.certs[0]),
             "aaaa bbbb",
             anchors,
         )
@@ -78,7 +75,7 @@ class UpdateFileTest {
     @Test
     fun `a key file is not an update file, and the reverse`() {
         val issued = issue("علی")
-        val keyFile = KeyFile.create(issued.signed, 0 to issued.identities[0], "AAAA", random, cheap)
+        val keyFile = KeyFile.create(issued.signed, 0 to issued.identities[0], "AAAA", random, cheap, issued.certs[0])
         assertFalse(UpdateFile.looksLike(keyFile))
         assertEquals(SmsCryptoException.Code.NOT_A_KEY_FILE, code { UpdateFile.open(keyFile, listOf(directoryId), anchors) })
         val update = UpdateFile.create(issued.signed, directoryId, random, cheap)

@@ -1,9 +1,7 @@
 package com.example.communication_super_app.smscrypto.keybank
 
 import com.example.communication_super_app.smscrypto.CertHandshake
-import com.example.communication_super_app.smscrypto.Handshake
 import com.example.communication_super_app.smscrypto.IdentityKeyPair
-import com.example.communication_super_app.smscrypto.Members
 import com.example.communication_super_app.smscrypto.Packet
 import com.example.communication_super_app.smscrypto.Payload
 import com.example.communication_super_app.smscrypto.Session
@@ -11,7 +9,6 @@ import com.example.communication_super_app.smscrypto.SmsCryptoException
 import com.example.communication_super_app.smscrypto.Upgrade
 import com.example.communication_super_app.smscrypto.Wire
 import com.example.communication_super_app.smscrypto.expectError
-import com.example.communication_super_app.smscrypto.handshake
 import com.example.communication_super_app.smscrypto.receive
 import com.example.communication_super_app.smscrypto.send
 import java.security.SecureRandom
@@ -46,17 +43,17 @@ class CertHandshakeTest {
         val issued = Issuer.issue(org.authority, org.directoryId, roster, 1000L, random)
         val file = KeyFile.create(issued.signed, 0 to issued.identities[0], "PW", random, cheap, issued.certs[0])
         val opened = KeyFile.open(file, "PW", org.anchors)
-        return Member(opened.identity!!, opened.cert!!)
+        return Member(opened.identity, opened.cert)
     }
 
     private class Talking(val alice: Session, val bob: Session, val init: String, val response: String)
 
     private fun talk(org: Org, a: Member, b: Member): Talking {
         val started = CertHandshake.initiate(a.cert, random)
-        val answered = CertHandshake.respond(b.identity, b.cert, Wire.parse(started.wire) as Packet.CertInit, org.anchors, random)
+        val answered = CertHandshake.respond(b.identity, b.cert, Wire.parse(started.wire) as Packet.Init, org.anchors, random)
         val done = CertHandshake.complete(
             a.identity, a.cert, started.pending,
-            Wire.parse(answered.wire) as Packet.CertResponse, org.anchors,
+            Wire.parse(answered.wire) as Packet.Response, org.anchors,
         )
         assertEquals(a.cert.phone, answered.peer.phone)
         assertEquals(b.cert.phone, done.peer.phone)
@@ -106,17 +103,23 @@ class CertHandshakeTest {
         assertFalse(MemberCert.canName("0912123456"))
         assertFalse(MemberCert.canName("00447700900123"))
         val org = Org(random)
+        // A member with no mobile could never be reached: not issued at all.
+        try {
+            Issuer.parseRoster("organization,س\nدفتر,02188776655")
+            throw AssertionError("a member with no mobile was accepted")
+        } catch (e: Issuer.RosterException) {
+            // expected
+        }
         val issued = Issuer.issue(
             org.authority, org.directoryId,
-            Issuer.parseRoster("organization,س\nدفتر,02188776655\nمدیر,02188776656;09124444444"),
+            Issuer.parseRoster("organization,س\nمدیر,02188776656;09124444444"),
             1L, random,
         )
-        assertNull(issued.certs[0])
         // The first MOBILE number, not the first number.
-        assertEquals("09124444444", issued.certs[1]!!.phone)
+        assertEquals("09124444444", issued.certs[0].phone)
         expectError(SmsCryptoException.Code.BAD_KEY) { MemberCert.parse(ByteArray(102)) }
         expectError(SmsCryptoException.Code.BAD_KEY) {
-            MemberCert.parse(issued.certs[1]!!.encoded.also { it[1] = 0xAB.toByte() })
+            MemberCert.parse(issued.certs[0].encoded.also { it[1] = 0xAB.toByte() })
         }
     }
 
@@ -140,9 +143,7 @@ class CertHandshakeTest {
             KeyFile.create(issued.signed, 1 to issued.identities[1], "PW", random, cheap, issued.certs[1]),
             "PW", org.anchors,
         )
-        assertArrayEquals(issued.certs[1]!!.encoded, opened.cert!!.encoded)
-        // Without one (a directory-only file, or a member with no mobile).
-        assertNull(KeyFile.open(KeyFile.create(issued.signed, 1 to issued.identities[1], "PW", random, cheap), "PW", org.anchors).cert)
+        assertArrayEquals(issued.certs[1].encoded, opened.cert.encoded)
         // Someone else's certificate in a member's file.
         expectError(SmsCryptoException.Code.BAD_BUNDLE) {
             KeyFile.open(
@@ -182,9 +183,9 @@ class CertHandshakeTest {
         val ali = join(org, "علی", "09121111111")
         val maryam = join(org, "مریم", "09122222222")
         val started = CertHandshake.initiate(ali.cert, random)
-        val answered = CertHandshake.respond(maryam.identity, maryam.cert, Wire.parse(started.wire) as Packet.CertInit, org.anchors, random)
+        val answered = CertHandshake.respond(maryam.identity, maryam.cert, Wire.parse(started.wire) as Packet.Init, org.anchors, random)
         val early = answered.session.send("زودتر").wire
-        val done = CertHandshake.complete(ali.identity, ali.cert, started.pending, Wire.parse(answered.wire) as Packet.CertResponse, org.anchors)
+        val done = CertHandshake.complete(ali.identity, ali.cert, started.pending, Wire.parse(answered.wire) as Packet.Response, org.anchors)
         assertEquals("زودتر", done.session.receive(early).second)
     }
 
@@ -194,19 +195,19 @@ class CertHandshakeTest {
         val ali = join(org, "علی", "09121111111")
         val maryam = join(org, "مریم", "09122222222")
         val stranger = join(Org(random), "غریبه", "09129999999")
-        val fromStranger = Wire.parse(CertHandshake.initiate(stranger.cert, random).wire) as Packet.CertInit
+        val fromStranger = Wire.parse(CertHandshake.initiate(stranger.cert, random).wire) as Packet.Init
         expectError(SmsCryptoException.Code.UNTRUSTED) {
             CertHandshake.respond(maryam.identity, maryam.cert, fromStranger, org.anchors, random)
         }
         val started = CertHandshake.initiate(ali.cert, random)
         val strangerAnswer = CertHandshake.respond(
-            stranger.identity, stranger.cert, Wire.parse(started.wire) as Packet.CertInit,
+            stranger.identity, stranger.cert, Wire.parse(started.wire) as Packet.Init,
             org.anchors,
             random,
         )
         // (the stranger trusted us; we do not trust the stranger)
         expectError(SmsCryptoException.Code.UNTRUSTED) {
-            CertHandshake.complete(ali.identity, ali.cert, started.pending, Wire.parse(strangerAnswer.wire) as Packet.CertResponse, org.anchors)
+            CertHandshake.complete(ali.identity, ali.cert, started.pending, Wire.parse(strangerAnswer.wire) as Packet.Response, org.anchors)
         }
     }
 
@@ -219,15 +220,15 @@ class CertHandshakeTest {
         val started = CertHandshake.initiate(ali.cert, random)
         // Mallory answers with Maryam's (public) certificate but her own key.
         val forged = CertHandshake.respond(
-            mallory.identity, mallory.cert, Wire.parse(started.wire) as Packet.CertInit, org.anchors, random,
+            mallory.identity, mallory.cert, Wire.parse(started.wire) as Packet.Init, org.anchors, random,
         ).wire.let { w ->
-            val p = Wire.parse(w) as Packet.CertResponse
+            val p = Wire.parse(w) as Packet.Response
             val bytes = p.bytes.copyOf()
             System.arraycopy(maryam.cert.encoded, 0, bytes, 3, MemberCert.ENCODED_BYTES)
             Wire.encode(bytes)
         }
         expectError(SmsCryptoException.Code.AUTH_FAILED) {
-            CertHandshake.complete(ali.identity, ali.cert, started.pending, Wire.parse(forged).let { it as Packet.CertResponse }, org.anchors)
+            CertHandshake.complete(ali.identity, ali.cert, started.pending, Wire.parse(forged).let { it as Packet.Response }, org.anchors)
         }
     }
 
@@ -236,7 +237,7 @@ class CertHandshakeTest {
         val org = Org(random)
         val ali = join(org, "علی", "09121111111")
         expectError(SmsCryptoException.Code.WRONG_PEER) {
-            CertHandshake.respond(ali.identity, ali.cert, Wire.parse(CertHandshake.initiate(ali.cert, random).wire) as Packet.CertInit, org.anchors, random)
+            CertHandshake.respond(ali.identity, ali.cert, Wire.parse(CertHandshake.initiate(ali.cert, random).wire) as Packet.Init, org.anchors, random)
         }
     }
 
@@ -247,26 +248,24 @@ class CertHandshakeTest {
         val maryam = join(org, "مریم", "09122222222")
         val started = CertHandshake.initiate(ali.cert, random)
         val answer = (Wire.parse(
-            CertHandshake.respond(maryam.identity, maryam.cert, Wire.parse(started.wire) as Packet.CertInit, org.anchors, random).wire,
-        ) as Packet.CertResponse).bytes
+            CertHandshake.respond(maryam.identity, maryam.cert, Wire.parse(started.wire) as Packet.Init, org.anchors, random).wire,
+        ) as Packet.Response).bytes
         val tampered = answer.copyOf().also { it[it.size - 1] = (it[it.size - 1].toInt() xor 1).toByte() }
         expectError(SmsCryptoException.Code.AUTH_FAILED) {
-            CertHandshake.complete(ali.identity, ali.cert, started.pending, Wire.parse(Wire.encode(tampered)) as Packet.CertResponse, org.anchors)
+            CertHandshake.complete(ali.identity, ali.cert, started.pending, Wire.parse(Wire.encode(tampered)) as Packet.Response, org.anchors)
         }
     }
 
     @Test
-    fun `the pending state survives storage and is told apart from the old one`() {
+    fun `the pending state survives storage`() {
         val org = Org(random)
         val ali = join(org, "علی", "09121111111")
         val started = CertHandshake.initiate(ali.cert, random, busySids = setOf(1, 2, 3))
         val bytes = started.pending.serialize()
-        assertTrue(CertHandshake.Pending.isOne(bytes))
         val copy = CertHandshake.Pending.parse(bytes)
         assertEquals(started.pending.sid, copy.sid)
         assertArrayEquals(ali.cert.keyId, copy.ownKid)
-        val members = Members(random)
-        assertFalse(CertHandshake.Pending.isOne(Handshake.initiate(members.alice, members.bob.public, random).pending.serialize()))
+        expectError(SmsCryptoException.Code.BAD_KEY) { CertHandshake.Pending.parse(bytes.copyOf(bytes.size - 1)) }
     }
 
     // ── The upgrade ─────────────────────────────────────────────────────────
@@ -324,8 +323,12 @@ class CertHandshakeTest {
     }
 
     @Test
-    fun `a session from the full handshake needs no upgrade`() {
-        val established = handshake(Members(random), random)
-        expectError(SmsCryptoException.Code.WRONG_SESSION) { Upgrade.offer(established.alice, Members(random).alice) }
+    fun `crossed requests are settled the same way on both phones`() {
+        val org = Org(random)
+        val ali = join(org, "علی", "09121111111")
+        val maryam = join(org, "مریم", "09122222222")
+        val aliWins = CertHandshake.ownInitWins(ali.cert.keyId, maryam.cert.keyId)
+        val maryamWins = CertHandshake.ownInitWins(maryam.cert.keyId, ali.cert.keyId)
+        assertTrue(aliWins != maryamWins)
     }
 }

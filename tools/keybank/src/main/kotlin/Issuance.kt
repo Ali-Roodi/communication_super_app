@@ -142,25 +142,31 @@ class AuthorityFolder(val dir: File) {
     val updateFile = File(issuedDir, Issuance.UPDATE_FILE)
 
     /**
-     * When every file in `issued/` was first made with a member certificate
-     * — written by [issueCertificates]. Absent: the folder is from panel 1.1
-     * or older, and its files must be re-issued once before anything else.
+     * Which key-file format the files in `issued/` are and since when:
+     * `<format> <time>`, written by [reissueAll]. Missing or older than
+     * [KEY_FILE_FORMAT]: the files were made by an earlier panel, the app no
+     * longer opens them, and they are made again before anything else.
      */
-    val certificatesFile = File(dir, CERTIFICATES_FILE)
+    val formatFile = File(dir, FORMAT_FILE)
 
-    val certificatesSince: LocalDateTime?
-        get() = runCatching { LocalDateTime.parse(certificatesFile.readText(Charsets.UTF_8).trim()) }.getOrNull()
+    private val formatLine: List<String>
+        get() = runCatching { formatFile.readText(Charsets.UTF_8).trim().split(' ') }.getOrDefault(emptyList())
 
-    fun needsCertificates(): Boolean = certificatesSince == null
+    /** Since when the issued files are of the current format; null when they are not. */
+    val formatSince: LocalDateTime?
+        get() = formatLine.takeIf { it.size == 2 && it[0].toIntOrNull() == KEY_FILE_FORMAT }
+            ?.let { runCatching { LocalDateTime.parse(it[1]) }.getOrNull() }
+
+    fun needsReissue(): Boolean = formatSince == null
 
     /**
-     * Re-issues every member's file with their certificate — the same keys and
-     * the same passwords, so nothing a member holds is broken — and records
-     * when. A file delivered before that moment is [DeliveryStatus.NO_CERT]
-     * until the member gets their own new one. Returns how many files were
-     * made (0 for a folder with no member yet, which is only marked).
+     * Re-issues every member's file in the current format — the same keys
+     * and the same passwords — and records when. A file delivered before that
+     * moment is [DeliveryStatus.OLD_FORMAT] until the member gets their new
+     * one. Returns how many files were made (0 for a folder with no member
+     * yet, which is only marked).
      */
-    fun issueCertificates(
+    fun reissueAll(
         authority: AuthorityFile.Contents,
         random: SecureRandom,
         kdf: PasswordKdf = PasswordKdf.KEY_FILE,
@@ -178,7 +184,7 @@ class AuthorityFolder(val dir: File) {
         } else {
             0
         }
-        certificatesFile.writeText(since.toString(), Charsets.UTF_8)
+        formatFile.writeText("$KEY_FILE_FORMAT $since", Charsets.UTF_8)
         return count
     }
     val log = IssuanceLog(File(dir, IssuanceLog.FILE))
@@ -197,12 +203,10 @@ class AuthorityFolder(val dir: File) {
         NEW_KEY,
 
         /**
-         * The file they hold was made before key files carried a member
-         * certificate (panel 1.1 and older): with it they cannot reach a member
-         * added later, nor be reached by one. Only their OWN new file fixes it —
-         * the update file carries no certificate.
+         * The file they hold was made by an earlier panel in a format the app
+         * no longer opens. Only their OWN new file fixes it.
          */
-        NO_CERT,
+        OLD_FORMAT,
 
         /** No delivery recorded — a new member, or a folder from before the log. */
         NOT_RECORDED,
@@ -216,8 +220,8 @@ class AuthorityFolder(val dir: File) {
         val log: List<IssuanceLog.Entry> = emptyList(),
         /** [IssuanceLog.fingerprint] of the roster; null while it has no member. */
         val fingerprint: String? = null,
-        /** When this folder's files began carrying certificates ([AuthorityFolder.certificatesSince]). */
-        val certificatesSince: LocalDateTime? = null,
+        /** Since when this folder's files are of the current format ([AuthorityFolder.formatSince]). */
+        val formatSince: LocalDateTime? = null,
     ) {
         fun passwordOf(entry: Issuer.Entry): String? = passwords[entry.phones.first()]
 
@@ -226,7 +230,7 @@ class AuthorityFolder(val dir: File) {
             val mine = log.filter { it.phone == phone }
             val full = mine.lastOrNull { it.action == IssuanceLog.Action.DELIVERED } ?: return DeliveryStatus.NOT_RECORDED
             if (full.generation != entry.generation) return DeliveryStatus.NEW_KEY
-            if (certificatesSince != null && full.time < certificatesSince) return DeliveryStatus.NO_CERT
+            if (formatSince != null && full.time < formatSince) return DeliveryStatus.OLD_FORMAT
             val latest = mine.last {
                 it.action == IssuanceLog.Action.DELIVERED || it.action == IssuanceLog.Action.UPDATE_DELIVERED
             }
@@ -247,7 +251,7 @@ class AuthorityFolder(val dir: File) {
             Issuance.readPasswords(passwordsFile),
             log.read(),
             roster?.let(IssuanceLog::fingerprint),
-            certificatesSince,
+            formatSince,
         )
     }
 
@@ -556,7 +560,13 @@ class AuthorityFolder(val dir: File) {
         const val ROSTER_FILE = "roster.csv"
         const val ISSUED_DIR = "issued"
         const val BACKUP_DIR = "backups"
-        const val CERTIFICATES_FILE = "certificates.txt"
+        const val FORMAT_FILE = "key-format.txt"
+
+        /**
+         * The key-file format this tool writes. Raised with every change the app
+         * does not read back; a folder marked with a lower one is re-issued.
+         */
+        const val KEY_FILE_FORMAT = 2
 
         private val STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS")
 

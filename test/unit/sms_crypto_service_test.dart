@@ -66,27 +66,52 @@ void main() {
   );
 
   test(
-    'initiate passes the busy session ids and returns the pending state',
+    'certInitiate passes the busy session ids and returns the pending state',
     () async {
       answer(
-        (_) => {
-          'pending': bytes(115, 1),
-          'sid': 42,
-          'wire': '#E:x',
-          'parts': 10,
-        },
+        (_) => {'pending': bytes(64, 1), 'sid': 42, 'wire': '#E:x', 'parts': 2},
       );
-      final started = await service.initiate(
-        secret: bytes(97, 1),
-        peer: bytes(1217, 2),
+      final started = await service.certInitiate(
+        cert: bytes(103, 2),
         busySids: {7, 9},
       );
+      expect(calls.single.method, 'certInitiate');
       expect((calls.single.arguments as Map)['busySids'], [7, 9]);
-      expect(started.state.length, 115);
+      expect((calls.single.arguments as Map)['cert'], bytes(103, 2));
+      expect(started.state.length, 64);
       expect(started.sid, 42);
-      expect(started.parts, 10);
+      expect(started.parts, 2);
     },
   );
+
+  test('certRespond returns the session and the peer certificate', () async {
+    answer(
+      (_) => {
+        'session': bytes(99, 1),
+        'sid': 3,
+        'wire': '#E:r',
+        'parts': 2,
+        'peer': {
+          'cert': bytes(103, 4),
+          'keyId': bytes(8, 5),
+          'phone': '09121111111',
+          'generation': 1,
+        },
+      },
+    );
+    final answered = await service.certRespond(
+      secret: bytes(97, 1),
+      cert: bytes(103, 2),
+      text: '#E:init',
+      anchors: [bytes(1985, 7)],
+    );
+    expect(calls.single.method, 'certRespond');
+    expect(answered.sid, 3);
+    expect(answered.parts, 2);
+    expect(answered.peer.phone, '09121111111');
+    expect(answered.peer.generation, 1);
+    expect(answered.peer.keyId, bytes(8, 5));
+  });
 
   test('every native error code maps to its failure', () async {
     const codes = {
@@ -139,7 +164,8 @@ void main() {
         'type': 'init',
         'sid': 5,
         'senderKid': bytes(8, 1),
-        'recipientKid': bytes(8, 2),
+        'certPhone': '09121111111',
+        'certGeneration': 2,
       },
     );
     final info = await service.inspect('#E:init');
@@ -147,6 +173,8 @@ void main() {
     expect(info.sid, 5);
     expect(info.counter, isNull);
     expect(info.senderKid, bytes(8, 1));
+    expect(info.certPhone, '09121111111');
+    expect(info.certGeneration, 2);
   });
 
   test('a key file comes back as its directory and the member key', () async {
@@ -162,7 +190,7 @@ void main() {
             {
               'name': 'علی',
               'phones': ['09121111111'],
-              'public': bytes(1217, 4),
+              'public': bytes(32, 4),
               'keyId': bytes(8, 5),
             },
           ],
@@ -170,8 +198,14 @@ void main() {
         'member': {
           'index': 0,
           'secret': bytes(97, 6),
-          'public': bytes(1217, 4),
+          'public': bytes(32, 4),
           'keyId': bytes(8, 5),
+          'cert': {
+            'cert': bytes(103, 8),
+            'keyId': bytes(8, 5),
+            'phone': '09121111111',
+            'generation': 0,
+          },
         },
       },
     );
@@ -183,8 +217,40 @@ void main() {
     expect((calls.single.arguments as Map)['anchors'], [bytes(1985, 7)]);
     expect(opened.directory.serial, 1790000000000);
     expect(opened.directory.members.single.phones, ['09121111111']);
-    expect(opened.memberIndex, 0);
-    expect(opened.member!.secret, bytes(97, 6));
+    expect(opened.own!.index, 0);
+    expect(opened.own!.identity.secret, bytes(97, 6));
+    expect(opened.own!.cert.phone, '09121111111');
+  });
+
+  test('a key file without its certificate is refused', () async {
+    answer(
+      (_) => {
+        'signed': bytes(40, 1),
+        'directory': {
+          'authorityId': bytes(8, 2),
+          'directoryId': bytes(8, 3),
+          'serial': 1,
+          'name': 'سازمان',
+          'members': <Map>[],
+        },
+        'member': {
+          'index': 0,
+          'secret': bytes(97, 6),
+          'public': bytes(32, 4),
+          'keyId': bytes(8, 5),
+        },
+      },
+    );
+    await expectLater(
+      service.openKeyFile(file: bytes(100, 0), password: 'pw', anchors: []),
+      throwsA(
+        isA<SmsCryptoException>().having(
+          (e) => e.failure,
+          'failure',
+          SmsCryptoFailure.badBundle,
+        ),
+      ),
+    );
   });
 
   test('no native side at all is a failure, not a hang', () async {

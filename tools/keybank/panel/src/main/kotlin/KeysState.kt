@@ -147,7 +147,7 @@ class KeysState(
             password = ""
             if (rememberFile) Platform.lastAuthorityFile = file
             touch()
-            if (opened.first.folder.needsCertificates()) issueCertificates(opened.first)
+            if (opened.first.folder.needsReissue()) reissueAll(opened.first)
         } catch (e: SmsCryptoException) {
             error = when (e.code) {
                 SmsCryptoException.Code.WRONG_PASSWORD -> "رمز مرجع اشتباه است."
@@ -162,26 +162,25 @@ class KeysState(
     }
 
     /**
-     * A folder from panel 1.1 or older: its key files carry no member
-     * certificate, so a member added from now on could not reach anybody who
-     * holds one of them. Every file is made again once — same keys, same
-     * passwords — and the operator is told that each member needs their own
-     * new file this one time.
+     * A folder whose key files an earlier panel made, in a format this
+     * version of the app no longer opens: every file is made again once —
+     * same keys, same passwords — and the operator is told that each member
+     * needs their own new file this one time.
      */
-    private suspend fun issueCertificates(u: Unlocked) {
-        busy = "ساخت دوبارهٔ فایل‌ها با گواهی عضو…"
+    private suspend fun reissueAll(u: Unlocked) {
+        busy = "ساخت دوبارهٔ فایل‌های اعضا…"
         progress = 0f
         modalBusy = true
         val made = try {
             withContext(Dispatchers.Default) {
-                u.folder.issueCertificates(u.contents, random) { done, total ->
+                u.folder.reissueAll(u.contents, random) { done, total ->
                     progress = done.toFloat() / total
                 }
             }
         } catch (e: Exception) {
             notice = Notice(
                 "فایل‌ها دوباره ساخته نشد",
-                "فایل‌های اعضا با گواهی ساخته نشد و چیزی تغییر نکرد: ${e.message}. پنل را دوباره باز کنید.",
+                "فایل‌های اعضا دوباره ساخته نشد و چیزی تغییر نکرد: ${e.message}. پنل را دوباره باز کنید.",
                 isError = true,
             )
             return
@@ -194,11 +193,10 @@ class KeysState(
         snapshot = runCatching { withContext(Dispatchers.IO) { u.folder.snapshot() } }.getOrNull() ?: snapshot
         if (made > 0) {
             notice = Notice(
-                "فایل همهٔ اعضا با گواهی دوباره ساخته شد",
-                "از این نسخه، هر فایل کلید «گواهی عضو» دارد: هر عضو فقط با فایل خودش با همهٔ اعضا — حتی کسانی که " +
-                    "بعداً اضافه می‌شوند — پیام رمز رد و بدل می‌کند و دیگر لازم نیست با اضافه شدن هر عضو به همه فایل تازه بدهید. " +
-                    "این یک بار، هر ${fa(made)} عضو باید فایل تازهٔ خودشان را وارد کنند (کلید و رمزشان همان قبلی است). " +
-                    "فایل به‌روزرسانی update.hku گواهی ندارد و جای آن را نمی‌گیرد.",
+                "فایل همهٔ اعضا دوباره ساخته شد",
+                "فایل‌هایی که پیش‌تر از این پوشه صادر شده بود با این نسخهٔ برنامه باز نمی‌شوند. " +
+                    "فایل هر ${fa(made)} عضو با همان کلید و همان رمز دوباره ساخته شد؛ به هر عضو فایل تازهٔ خودش را بدهید. " +
+                    "از این به بعد، با اضافه شدن عضو تازه فقط خود او فایل لازم دارد.",
             )
         }
     }

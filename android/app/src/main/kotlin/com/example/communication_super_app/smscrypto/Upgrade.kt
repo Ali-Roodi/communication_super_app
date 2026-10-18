@@ -26,8 +26,8 @@ import org.bouncycastle.crypto.params.MLKEMPublicKeyParameters
  * Both packets travel inside the session they upgrade, so they are
  * encrypted and authenticated by it: nobody can substitute the key or the
  * ciphertext. `ek` is the offerer's long-term ML-KEM key (from its key file)
- * — as in [Handshake], there is no post-quantum forward secrecy against a
- * later theft of that key; the classical ephemeral term is still in `root`.
+ * — so there is no post-quantum forward secrecy against a later theft of
+ * that key; the classical ephemeral term is still in `root`.
  */
 object Upgrade {
     private val SALT_LABEL = Kdf.label("hamresan.sms.pq-upgrade.salt.v1")
@@ -36,10 +36,8 @@ object Upgrade {
     private const val SID_SPACE = 1 shl (8 * Wire.SID_BYTES)
 
     /** [session] carries our offer; the state that sealed it is returned. */
-    fun offer(session: Session, own: IdentityKeyPair): Session.Sealed {
-        rootOf(session)
-        return session.seal(Payload.pqOffer(own.public.mlkem.encoded), control = true)
-    }
+    fun offer(session: Session, own: IdentityKeyPair): Session.Sealed =
+        session.seal(Payload.pqOffer(own.public.mlkem.encoded), control = true)
 
     /**
      * The upgraded session, and the old one's next state with the answer
@@ -53,7 +51,7 @@ object Upgrade {
         random: SecureRandom,
         busySids: Set<Int> = emptySet(),
     ): Accepted {
-        val root = rootOf(session)
+        val root = session.root
         val ek = try {
             MLKEMPublicKeyParameters(MLKEMParameters.ml_kem_768, encapsulationKey)
         } catch (e: IllegalArgumentException) {
@@ -79,7 +77,7 @@ object Upgrade {
 
     /** The offerer's side: the upgraded session from the answer. */
     fun complete(session: Session, own: IdentityKeyPair, sid: Int, ciphertext: ByteArray): Session {
-        val root = rootOf(session)
+        val root = session.root
         if (ciphertext.size != Wire.KEM_CIPHERTEXT_BYTES) {
             cryptoError(SmsCryptoException.Code.BAD_PAYLOAD, "not an ML-KEM ciphertext")
         }
@@ -108,7 +106,4 @@ object Upgrade {
             okm.copyOfRange(2 * KEY_BYTES, 3 * KEY_BYTES),
         )
     }
-
-    private fun rootOf(session: Session): ByteArray =
-        session.root ?: cryptoError(SmsCryptoException.Code.WRONG_SESSION, "this session needs no upgrade")
 }

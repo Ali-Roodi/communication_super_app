@@ -1,5 +1,5 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:communication_super_app/core/utils/date_formatter.dart';
@@ -20,15 +20,6 @@ class KeyBankScreen extends StatelessWidget {
 
   final KeyFileService keyFiles;
 
-  /// A key id / group id as people read it aloud: `6137-C0D2-134E-F047`.
-  static String formatId(String hex) {
-    final upper = hex.toUpperCase();
-    return [
-      for (var i = 0; i < upper.length; i += 4)
-        upper.substring(i, (i + 4).clamp(0, upper.length)),
-    ].join('-');
-  }
-
   static String noticeText(KeyBankNotice notice) => switch (notice) {
     KeyBankNotice.imported => 'فایل کلید وارد شد',
     KeyBankNotice.updated => 'دفترچه کلید به‌روز شد',
@@ -45,11 +36,6 @@ class KeyBankScreen extends StatelessWidget {
       'این فایل به‌روزرسانیِ سازمانی است که در این گوشی نیست؛ اول فایل کلید خودتان را وارد کنید',
     KeyBankNotice.ownKeyRetired =>
       'دفترچه به‌روز شد، ولی کلید شما در آن عوض شده است؛ فایل کلید تازه خودتان را با رمزش وارد کنید',
-    KeyBankNotice.groupAdded => 'گروه اضافه شد',
-    KeyBankNotice.groupExists => 'این گروه قبلاً اضافه شده است',
-    KeyBankNotice.numberAdded => 'شماره اضافه شد',
-    KeyBankNotice.numberExists => 'این شماره قبلاً اضافه شده است',
-    KeyBankNotice.notANumber => 'شماره معتبر نیست',
     KeyBankNotice.failed => 'انجام نشد؛ دوباره تلاش کنید',
   };
 
@@ -121,32 +107,6 @@ class _Bank extends StatelessWidget {
                   'فایل کلید شما، یا فایل به‌روزرسانی (update.hku) که مرجع سازمان فرستاده',
               onTap: state.busy ? null : () => _importFile(context),
             ),
-            const Divider(height: 24),
-            const _Heading('گروه‌های عبارت عبور'),
-            for (final g in s.groups) _GroupRow(g),
-            _ActionRow(
-              icon: Icons.group_add_outlined,
-              title: 'افزودن گروه',
-              summary:
-                  'کلید اعضا از نام گروه و یک عبارت عبور مشترک ساخته می‌شود',
-              onTap: state.busy ? null : () => _addGroup(context),
-            ),
-            const Divider(height: 24),
-            const _Heading('شماره‌های من'),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
-              child: Text(
-                'در گروه‌های عبارت عبور، کلید هر عضو از شماره او ساخته می‌شود. '
-                'شماره سیم‌کارت‌های همین گوشی را اینجا وارد کنید.',
-                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
-              ),
-            ),
-            for (final n in s.ownNumbers) _NumberRow(n),
-            _ActionRow(
-              icon: Icons.add_call,
-              title: 'افزودن شماره',
-              onTap: () => _addNumber(context),
-            ),
           ],
         ),
         if (state.busy)
@@ -191,30 +151,14 @@ class _Bank extends StatelessWidget {
       hint: 'XXXX-XXXX-XXXX-XXXX-XXXX',
       latin: true,
     );
-    if (password == null || password.isEmpty) return;
-    bloc.add(KeyBankImportFile(file, password));
-  }
-
-  Future<void> _addGroup(BuildContext context) async {
-    final bloc = context.read<KeyBankBloc>();
-    final result = await showDialog<(String, String)>(
-      context: context,
-      builder: (_) => const _GroupDialog(),
-    );
-    if (result != null) bloc.add(KeyBankAddGroup(result.$1, result.$2));
-  }
-
-  Future<void> _addNumber(BuildContext context) async {
-    final bloc = context.read<KeyBankBloc>();
-    final number = await _askText(
-      context,
-      title: 'شماره این گوشی',
-      hint: '09121234567',
-      phone: true,
-    );
-    if (number != null && number.trim().isNotEmpty) {
-      bloc.add(KeyBankAddOwnNumber(number));
+    if (password == null) return;
+    if (password.trim().isEmpty) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('رمز فایل کلید را وارد کنید')),
+      );
+      return;
     }
+    bloc.add(KeyBankImportFile(file, password));
   }
 }
 
@@ -223,7 +167,6 @@ Future<String?> _askText(
   required String title,
   required String hint,
   bool latin = false,
-  bool phone = false,
 }) {
   final controller = TextEditingController();
   return showDialog<String>(
@@ -236,9 +179,7 @@ Future<String?> _askText(
           controller: controller,
           autofocus: true,
           textDirection: TextDirection.ltr,
-          keyboardType: phone
-              ? TextInputType.phone
-              : TextInputType.visiblePassword,
+          keyboardType: TextInputType.visiblePassword,
           autocorrect: false,
           enableSuggestions: false,
           textCapitalization: latin
@@ -260,110 +201,6 @@ Future<String?> _askText(
       ),
     ),
   ).whenComplete(controller.dispose);
-}
-
-class _GroupDialog extends StatefulWidget {
-  const _GroupDialog();
-
-  @override
-  State<_GroupDialog> createState() => _GroupDialogState();
-}
-
-class _GroupDialogState extends State<_GroupDialog> {
-  static const _minLength = 12;
-
-  final _name = TextEditingController();
-  final _passphrase = TextEditingController();
-  final _repeat = TextEditingController();
-  String? _error;
-
-  @override
-  void dispose() {
-    _name.dispose();
-    _passphrase.dispose();
-    _repeat.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    final name = _name.text.trim();
-    final passphrase = _passphrase.text;
-    String? error;
-    if (name.isEmpty) {
-      error = 'نام گروه را وارد کنید';
-    } else if (passphrase.trim().length < _minLength) {
-      error =
-          'عبارت عبور باید دست‌کم ${PersianUtils.toPersianNumber('$_minLength')} نویسه باشد';
-    } else if (passphrase != _repeat.text) {
-      error = 'دو عبارت عبور یکسان نیستند';
-    }
-    setState(() => _error = error);
-    if (_error == null) Navigator.of(context).pop((name, passphrase));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: AlertDialog(
-        title: const Text('افزودن گروه'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'همه اعضای گروه باید دقیقاً همین نام و عبارت عبور را وارد کنند. '
-                'هر کس عبارت عبور را بداند می‌تواند پیام‌های گروه را بخواند و '
-                'به نام هر عضو پیام بفرستد؛ امنیت گروه به اندازه قوت همین '
-                'عبارت است. یک جمله طولانی و غیرقابل حدس انتخاب کنید.',
-                style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
-              ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: _name,
-                decoration: const InputDecoration(labelText: 'نام گروه'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _passphrase,
-                obscureText: true,
-                autocorrect: false,
-                enableSuggestions: false,
-                decoration: const InputDecoration(labelText: 'عبارت عبور'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _repeat,
-                obscureText: true,
-                autocorrect: false,
-                enableSuggestions: false,
-                decoration: const InputDecoration(
-                  labelText: 'تکرار عبارت عبور',
-                ),
-                onSubmitted: (_) => _submit(),
-              ),
-              if (_error != null) ...[
-                const SizedBox(height: 12),
-                Text(
-                  _error!,
-                  style: TextStyle(fontSize: 13, color: scheme.error),
-                ),
-              ],
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('انصراف'),
-          ),
-          TextButton(onPressed: _submit, child: const Text('افزودن')),
-        ],
-      ),
-    );
-  }
 }
 
 /// "Add …" rows: the same geometry as [SettingsRow], in the primary colour so
@@ -509,59 +346,4 @@ class _DirectoryRow extends StatelessWidget {
       ),
     );
   }
-}
-
-class _GroupRow extends StatelessWidget {
-  const _GroupRow(this.g);
-  final GroupSummary g;
-
-  @override
-  Widget build(BuildContext context) {
-    final code = KeyBankScreen.formatId(g.id);
-    return SettingsRow(
-      icon: Icons.groups_outlined,
-      title: g.name,
-      // LTR isolate: the code is read left to right.
-      summary: 'کد گروه: \u2066$code\u2069',
-      onTap: () {
-        Clipboard.setData(ClipboardData(text: code));
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('کد گروه کپی شد')));
-      },
-      trailing: IconButton(
-        icon: const Icon(Icons.delete_outline),
-        tooltip: 'حذف',
-        onPressed: () async {
-          final bloc = context.read<KeyBankBloc>();
-          if (await _confirmRemove(
-            context,
-            title: 'حذف گروه؟',
-            body:
-                'گروه «${g.name}» از این گوشی پاک می‌شود. برای برگرداندن آن '
-                'باید نام و عبارت عبور را دوباره وارد کنید.',
-          )) {
-            bloc.add(KeyBankRemoveGroup(g.id));
-          }
-        },
-      ),
-    );
-  }
-}
-
-class _NumberRow extends StatelessWidget {
-  const _NumberRow(this.phone);
-  final String phone;
-
-  @override
-  Widget build(BuildContext context) => SettingsRow(
-    icon: Icons.sim_card_outlined,
-    title: PersianUtils.displayPhone(phone),
-    trailing: IconButton(
-      icon: const Icon(Icons.delete_outline),
-      tooltip: 'حذف',
-      onPressed: () =>
-          context.read<KeyBankBloc>().add(KeyBankRemoveOwnNumber(phone)),
-    ),
-  );
 }

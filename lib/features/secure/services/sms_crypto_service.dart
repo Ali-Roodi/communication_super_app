@@ -13,7 +13,7 @@ enum SmsCryptoFailure {
   /// A key, identity or state blob that does not parse or validate.
   badKey,
 
-  /// The packet names a sender other than the peer given.
+  /// A session request from our own key.
   wrongPeer,
 
   /// The packet was made for another identity.
@@ -86,9 +86,10 @@ class SmsCryptoException implements Exception {
   String toString() => 'SmsCryptoException($failure)';
 }
 
-/// A member's key pair. [secret] is private and belongs only in the secure
-/// section; [publicKey] (ML-KEM-768 + X25519, 1217 bytes) is what others
-/// store; [keyId] (8 bytes) is how packets name it.
+/// A key pair (ML-KEM-768 + X25519). [secret] is private and belongs only in
+/// the secure section. For a member's own key (from a key file),
+/// [publicKey] is its X25519 key and [keyId] its certificate's key id; for
+/// the secure section's sealing key, [publicKey] is the full public key.
 class SmsIdentity {
   const SmsIdentity({
     required this.secret,
@@ -111,8 +112,6 @@ class SmsPacketInfo {
     this.counter,
     this.control = false,
     this.senderKid,
-    this.recipientKid,
-    this.cert = false,
     this.certPhone,
     this.certGeneration,
   });
@@ -125,15 +124,10 @@ class SmsPacketInfo {
   /// A receipt (seen / delete), not a message to read.
   final bool control;
 
-  /// Handshake packets only. For a certificate handshake ([cert]),
-  /// [senderKid] is the key id of the certificate it carries and there is
-  /// no [recipientKid] — the request is for whoever holds the number.
+  /// Handshake packets only: what the certificate it carries says —
+  /// **not yet verified**, `certRespond` / `certComplete` do that. There is
+  /// no recipient: a request is for whoever holds the number it went to.
   final Uint8List? senderKid;
-  final Uint8List? recipientKid;
-
-  /// A certificate handshake (`CertHandshake`): what its certificate says,
-  /// **not yet verified** — `certRespond` / `certComplete` do that.
-  final bool cert;
   final String? certPhone;
   final int? certGeneration;
 }
@@ -198,7 +192,7 @@ class SmsSealed {
     this.counter,
   });
 
-  /// The pending handshake (after `initiate`) or the session (otherwise).
+  /// The pending handshake (after `certInitiate`) or the session (otherwise).
   final Uint8List state;
 
   /// The SMS text to send.
@@ -224,6 +218,9 @@ class DirectoryMember {
 
   /// Canonical (see `canonicalPhone`).
   final List<String> phones;
+
+  /// The member's X25519 key; [keyId] is the key id their certificate
+  /// carries (`MemberCert.keyIdOf`).
   final Uint8List publicKey;
   final Uint8List keyId;
 }
@@ -248,24 +245,39 @@ class KeyDirectory {
   final List<DirectoryMember> members;
 }
 
-/// A verified key file: the signed directory (kept as received, so it can
-/// be verified again) and, usually, the importing member's own key.
+/// A verified key file: the signed directory (kept as received) and the
+/// importing member's own key and certificate. An update file
+/// (`openUpdateFile`) has the directory only.
 class OpenedKeyFile {
   const OpenedKeyFile({
     required this.signed,
     required this.directory,
-    this.memberIndex,
-    this.member,
-    this.cert,
+    this.own,
   });
   final Uint8List signed;
   final KeyDirectory directory;
-  final int? memberIndex;
-  final SmsIdentity? member;
 
-  /// The member's certificate, verified — null in a file issued before
-  /// certificates, or for a member without a mobile number.
-  final MemberCertInfo? cert;
+  /// The importing member's key; null for an update file.
+  final OwnKey? own;
+}
+
+/// The member key a key file carries, with the certificate that names it.
+class OwnKey {
+  const OwnKey({
+    required this.index,
+    required this.identity,
+    required this.cert,
+  });
+
+  /// The member's place in the directory.
+  final int index;
+
+  /// [SmsIdentity.publicKey] is the member's X25519 key and
+  /// [SmsIdentity.keyId] the certificate's key id.
+  final SmsIdentity identity;
+
+  /// Verified against the directory and the authority.
+  final MemberCertInfo cert;
 }
 
 /// [pqOffer] / [pqAccept] are the two halves of the background post-quantum
@@ -365,8 +377,8 @@ class SmsDecrypted {
   final int? refCounter;
 }
 
-/// The SMS crypto (ML-KEM-768 + X25519 handshake, per-message AES-256-GCM
-/// keys), over `…/sms_crypto`. See `docs/architecture/editions.md`.
+/// The SMS crypto (the certificate handshake, its background ML-KEM-768
+/// upgrade, per-message AES-256-GCM keys), over `…/sms_crypto`. See `docs/architecture/editions.md`.
 ///
 /// **Stateless**: keys, pending handshakes and sessions go in as bytes and
 /// the next state comes back. The caller stores what it gets back in the
@@ -388,10 +400,6 @@ class SmsCryptoService {
   Future<SmsIdentity> generateIdentity() async =>
       _identity(await _call<Map>('generateIdentity', const {}));
 
-  /// The deterministic identity of a 32-byte [seed].
-  Future<SmsIdentity> identityFromSeed(Uint8List seed) async =>
-      _identity(await _call<Map>('identityFromSeed', {'seed': seed}));
-
   /// The public half of a stored [secret].
   Future<({Uint8List publicKey, Uint8List keyId})> publicIdentity(
     Uint8List secret,
@@ -402,12 +410,6 @@ class SmsCryptoService {
       keyId: m['keyId'] as Uint8List,
     );
   }
-
-  /// Validates somebody's public identity; returns its key id.
-  /// [SmsCryptoFailure.badKey] for a key that must not be stored.
-  Future<Uint8List> checkPublic(Uint8List publicKey) async =>
-      (await _call<Map>('checkPublic', {'public': publicKey}))['keyId']
-          as Uint8List;
 
   /// Null for anything that is not a well-formed packet of ours.
   Future<SmsPacketInfo?> inspect(String text) async {
@@ -427,8 +429,6 @@ class SmsCryptoService {
       counter: m['counter'] as int?,
       control: m['control'] == true,
       senderKid: m['senderKid'] as Uint8List?,
-      recipientKid: m['recipientKid'] as Uint8List?,
-      cert: m['cert'] == true,
       certPhone: m['certPhone'] as String?,
       certGeneration: m['certGeneration'] as int?,
     );
@@ -549,45 +549,6 @@ class SmsCryptoService {
     phone: m['phone'] as String,
     generation: m['generation'] as int,
   );
-
-  /// Starts a session with [peer]; [SmsSealed.state] is the pending handshake.
-  Future<SmsSealed> initiate({
-    required Uint8List secret,
-    required Uint8List peer,
-    Set<int> busySids = const {},
-  }) async => _sealed(
-    await _call<Map>('initiate', {
-      'secret': secret,
-      'peer': peer,
-      'busySids': busySids.toList(),
-    }),
-    'pending',
-  );
-
-  /// Answers a session request; [SmsSealed.state] is the new session.
-  Future<SmsSealed> respond({
-    required Uint8List secret,
-    required Uint8List peer,
-    required String text,
-  }) async => _sealed(
-    await _call<Map>('respond', {'secret': secret, 'peer': peer, 'text': text}),
-    'session',
-  );
-
-  /// Finishes the initiator's side; returns the session.
-  Future<Uint8List> complete({
-    required Uint8List secret,
-    required Uint8List peer,
-    required Uint8List pending,
-    required String text,
-  }) async =>
-      (await _call<Map>('complete', {
-            'secret': secret,
-            'peer': peer,
-            'pending': pending,
-            'text': text,
-          }))['session']
-          as Uint8List;
 
   /// Both sides sent a request: true when ours is the one that goes ahead.
   Future<bool> ownInitWins(Uint8List ownKid, Uint8List peerKid) =>
@@ -718,27 +679,6 @@ class SmsCryptoService {
     }
   }
 
-  /// A passphrase group. Runs Argon2id with 64 MiB — about a second; the
-  /// result ([group]) is the group's secret and belongs in the secure section.
-  Future<({Uint8List group, Uint8List groupId})> deriveGroup({
-    required String name,
-    required String passphrase,
-  }) async {
-    final m = await _call<Map>('deriveGroup', {
-      'name': name,
-      'passphrase': passphrase,
-    });
-    return (group: m['group'] as Uint8List, groupId: m['groupId'] as Uint8List);
-  }
-
-  /// The identity of the group member who owns [phone].
-  Future<SmsIdentity> groupMember({
-    required Uint8List group,
-    required String phone,
-  }) async => _identity(
-    await _call<Map>('groupMember', {'group': group, 'phone': phone}),
-  );
-
   /// Opens and verifies a key file against [anchors] (trusted authority
   /// public keys).
   Future<OpenedKeyFile> openKeyFile({
@@ -752,12 +692,19 @@ class SmsCryptoService {
       'anchors': anchors,
     });
     final member = m['member'] as Map?;
+    final cert = member?['cert'] as Map?;
+    // Every key file carries its member's certificate (`KeyFile`).
+    if (member == null || cert == null) {
+      throw const SmsCryptoException(SmsCryptoFailure.badBundle);
+    }
     return OpenedKeyFile(
       signed: m['signed'] as Uint8List,
       directory: _directory(m['directory'] as Map),
-      memberIndex: member?['index'] as int?,
-      member: member == null ? null : _identity(member),
-      cert: member?['cert'] == null ? null : _cert(member!['cert'] as Map),
+      own: OwnKey(
+        index: member['index'] as int,
+        identity: _identity(member),
+        cert: _cert(cert),
+      ),
     );
   }
 
@@ -792,18 +739,6 @@ class SmsCryptoService {
       directory: _directory(m['directory'] as Map),
     );
   }
-
-  /// Verifies a stored signed directory again.
-  Future<KeyDirectory> verifyDirectory({
-    required Uint8List signed,
-    required List<Uint8List> anchors,
-  }) async => _directory(
-    await _call<Map>('verifyDirectory', {'signed': signed, 'anchors': anchors}),
-  );
-
-  /// The 8-byte id of an authority public key.
-  Future<Uint8List> authorityId(Uint8List publicKey) =>
-      _call<Uint8List>('authorityId', {'public': publicKey});
 
   KeyDirectory _directory(Map m) => KeyDirectory(
     authorityId: m['authorityId'] as Uint8List,

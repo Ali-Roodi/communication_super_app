@@ -163,8 +163,9 @@ private fun inspect(args: Array<String>) {
     println("Issued: ${java.time.Instant.ofEpochMilli(d.serial)}  members: ${d.members.size}")
     d.members.forEachIndexed { i, m ->
         val mark = if (i == opened.memberIndex) " ← this file's owner" else ""
-        println("  ${i + 1}. ${m.name}  ${m.phones.joinToString(" ")}  key ${hex(m.identity.keyId)}$mark")
+        println("  ${i + 1}. ${m.name}  ${m.phones.joinToString(" ")}  key ${hex(m.keyId)}$mark")
     }
+    println("Certificate: ${opened.cert.phone}, generation ${opened.cert.generation}")
     println("Signature: valid")
 }
 

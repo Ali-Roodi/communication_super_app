@@ -22,38 +22,35 @@ object Wire {
     const val VERSION = 1
 
     const val TYPE_MESSAGE = 1
+
+    /**
+     * The session request and its answer ([CertHandshake]): each carries the
+     * sender's [com.example.communication_super_app.smscrypto.keybank.MemberCert]
+     * and an ephemeral key — two SMS parts each.
+     */
     const val TYPE_INIT = 2
     const val TYPE_RESPONSE = 3
 
     /**
-     * A message that is a receipt (seen / delete), not something to read. Its
-     * own type so the receivers, which cannot decrypt, do not announce it as
-     * «پیام رمز جدید». Its size gives it away to an observer anyway; the type
-     * is in the authenticated header, so it cannot be flipped.
+     * A message that is a receipt (seen / delete) or another control payload,
+     * not something to read. Its own type so the receivers, which cannot
+     * decrypt, do not announce it as «پیام رمز جدید». Its size gives it away to
+     * an observer anyway; the type is in the authenticated header, so it
+     * cannot be flipped.
      */
     const val TYPE_CONTROL = 4
 
-    /**
-     * The certificate handshake (`CertHandshake`): a session request and its
-     * answer that carry the sender's [com.example.communication_super_app.smscrypto.keybank.MemberCert]
-     * instead of naming two keys both sides already hold — two SMS parts each
-     * instead of ten. New types, not a new [VERSION]: the message format is
-     * unchanged, and so is every older packet.
-     */
-    const val TYPE_CERT_INIT = 5
-    const val TYPE_CERT_RESPONSE = 6
-
     const val SID_BYTES = 2
     const val X25519_BYTES = 32
+
+    /** An ML-KEM-768 ciphertext — what the post-quantum [Upgrade] answer carries. */
     const val KEM_CIPHERTEXT_BYTES = 1088
     const val CONFIRM_BYTES = 16
     const val TAG_BYTES = 16
 
-    private const val KID = PublicIdentity.KEY_ID_BYTES
-    private const val HANDSHAKE_BODY = 1 + SID_BYTES + KID + KID + X25519_BYTES + KEM_CIPHERTEXT_BYTES
     private const val CERT = com.example.communication_super_app.smscrypto.keybank.MemberCert.ENCODED_BYTES
-    private const val CERT_INIT_BYTES = 1 + SID_BYTES + CERT + X25519_BYTES
-    private const val CERT_RESPONSE_BYTES = CERT_INIT_BYTES + CONFIRM_BYTES
+    private const val INIT_BYTES = 1 + SID_BYTES + CERT + X25519_BYTES
+    private const val RESPONSE_BYTES = INIT_BYTES + CONFIRM_BYTES
 
     /** The largest counter a message may carry; a session ends before it. */
     const val MAX_COUNTER = Int.MAX_VALUE.toLong()
@@ -82,9 +79,7 @@ object Wire {
         return when (bytes[0].toInt() and 0x0F) {
             TYPE_MESSAGE -> parseMessage(bytes, control = false)
             TYPE_CONTROL -> parseMessage(bytes, control = true)
-            TYPE_INIT -> parseHandshake(bytes, TYPE_INIT)
-            TYPE_RESPONSE -> parseHandshake(bytes, TYPE_RESPONSE)
-            TYPE_CERT_INIT, TYPE_CERT_RESPONSE -> parseCertHandshake(bytes)
+            TYPE_INIT, TYPE_RESPONSE -> parseHandshake(bytes)
             else -> notOurs("unknown packet type")
         }
     }
@@ -126,34 +121,9 @@ object Wire {
         )
     }
 
-    private fun parseHandshake(bytes: ByteArray, type: Int): Packet {
-        val expected = if (type == TYPE_INIT) HANDSHAKE_BODY else HANDSHAKE_BODY + CONFIRM_BYTES
-        if (bytes.size != expected) notOurs("handshake of the wrong size")
-        var at = 1
-        val sid = readSid(bytes, at)
-        at += SID_BYTES
-        val sender = bytes.copyOfRange(at, at + KID)
-        at += KID
-        val recipient = bytes.copyOfRange(at, at + KID)
-        at += KID
-        val ephemeral = bytes.copyOfRange(at, at + X25519_BYTES)
-        at += X25519_BYTES
-        val ciphertext = bytes.copyOfRange(at, at + KEM_CIPHERTEXT_BYTES)
-        at += KEM_CIPHERTEXT_BYTES
-        return if (type == TYPE_INIT) {
-            Packet.Init(sid, sender, recipient, ephemeral, ciphertext, bytes)
-        } else {
-            Packet.Response(
-                sid, sender, recipient, ephemeral, ciphertext,
-                confirm = bytes.copyOfRange(at, at + CONFIRM_BYTES),
-                bytes = bytes,
-            )
-        }
-    }
-
-    private fun parseCertHandshake(bytes: ByteArray): Packet {
-        val response = (bytes[0].toInt() and 0x0F) == TYPE_CERT_RESPONSE
-        if (bytes.size != (if (response) CERT_RESPONSE_BYTES else CERT_INIT_BYTES)) {
+    private fun parseHandshake(bytes: ByteArray): Packet {
+        val response = (bytes[0].toInt() and 0x0F) == TYPE_RESPONSE
+        if (bytes.size != (if (response) RESPONSE_BYTES else INIT_BYTES)) {
             notOurs("handshake of the wrong size")
         }
         var at = 1
@@ -164,9 +134,9 @@ object Wire {
         val ephemeral = bytes.copyOfRange(at, at + X25519_BYTES)
         at += X25519_BYTES
         return if (response) {
-            Packet.CertResponse(sid, cert, ephemeral, bytes.copyOfRange(at, at + CONFIRM_BYTES), bytes)
+            Packet.Response(sid, cert, ephemeral, bytes.copyOfRange(at, at + CONFIRM_BYTES), bytes)
         } else {
-            Packet.CertInit(sid, cert, ephemeral, bytes)
+            Packet.Init(sid, cert, ephemeral, bytes)
         }
     }
 
@@ -215,35 +185,11 @@ object Wire {
 sealed class Packet {
     abstract val sid: Int
 
-    /** Session request: the initiator's ephemeral X25519 key and a KEM ciphertext to the responder. */
-    class Init(
-        override val sid: Int,
-        val senderKid: ByteArray,
-        val recipientKid: ByteArray,
-        val ephemeral: ByteArray,
-        val kemCiphertext: ByteArray,
-        val bytes: ByteArray,
-    ) : Packet()
-
-    /** Session answer: the same, the other way round, plus a key confirmation. */
-    class Response(
-        override val sid: Int,
-        val senderKid: ByteArray,
-        val recipientKid: ByteArray,
-        val ephemeral: ByteArray,
-        val kemCiphertext: ByteArray,
-        val confirm: ByteArray,
-        val bytes: ByteArray,
-    ) : Packet() {
-        /** Everything but the confirmation — what the confirmation covers. */
-        val unconfirmed: ByteArray get() = bytes.copyOf(bytes.size - Wire.CONFIRM_BYTES)
-    }
-
     /**
-     * A certificate session request: the sender's certificate (not yet
-     * verified — `CertHandshake` does that) and ephemeral X25519 key.
+     * Session request: the sender's certificate (not yet verified —
+     * [CertHandshake] does that) and ephemeral X25519 key.
      */
-    class CertInit(
+    class Init(
         override val sid: Int,
         val cert: ByteArray,
         val ephemeral: ByteArray,
@@ -251,13 +197,14 @@ sealed class Packet {
     ) : Packet()
 
     /** Its answer: the responder's certificate and ephemeral key, and a key confirmation. */
-    class CertResponse(
+    class Response(
         override val sid: Int,
         val cert: ByteArray,
         val ephemeral: ByteArray,
         val confirm: ByteArray,
         val bytes: ByteArray,
     ) : Packet() {
+        /** Everything but the confirmation — what the confirmation covers. */
         val unconfirmed: ByteArray get() = bytes.copyOf(bytes.size - Wire.CONFIRM_BYTES)
     }
 

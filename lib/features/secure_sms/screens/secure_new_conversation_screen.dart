@@ -11,9 +11,9 @@ import '../services/secure_identities.dart';
 import 'secure_conversation_screen.dart';
 import 'secure_group_edit_screen.dart';
 
-/// «گفتگوی رمز»: pick who to talk to. Directory members are listed; a number
-/// typed by hand is looked up in the passphrase groups (a group has no member
-/// list — any number has a key in it).
+/// «گفتگوی رمز»: pick who to talk to. Directory members are listed; a mobile
+/// number typed by hand reaches a member who is not (yet) in our directory —
+/// they answer with their certificate.
 class SecureNewConversationScreen extends StatefulWidget {
   const SecureNewConversationScreen({super.key, this.title = 'گفتگوی رمز'});
 
@@ -52,15 +52,15 @@ class _SecureNewConversationScreenState
     _bloc.add(SecureLookupNumber(number));
   }
 
-  /// A number reachable in several ways (a directory and a group, or two
-  /// groups): the user picks which key the conversation uses.
+  /// A number listed by two organizations we hold key files of: the user
+  /// picks which key the conversation uses.
   Future<void> _choose(List<SecurePeer> ways) async {
     if (ways.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'برای این شماره کلیدی در بانک کلید نیست. فایل کلید سازمان یا گروه '
-            'عبارت عبور مشترک لازم است.',
+            'برای این شماره کلیدی در بانک کلید نیست. اول فایل کلید سازمان را '
+            'وارد کنید؛ شماره باید شمارهٔ همراه باشد.',
           ),
         ),
       );
@@ -71,7 +71,7 @@ class _SecureNewConversationScreenState
       // A number no directory lists, reached over our certificate: a member
       // who joined after our key file answers with theirs. Anybody else just
       // gets an SMS they cannot read — the user should know before.
-      if (only.isCert && only.keyId.isEmpty && !await _confirmUnlisted()) {
+      if (only.keyId.isEmpty && !await _confirmUnlisted()) {
         return;
       }
       _start(only);
@@ -92,15 +92,9 @@ class _SecureNewConversationScreenState
               ),
               for (final w in ways)
                 ListTile(
-                  leading: Icon(
-                    w.source.startsWith('group:')
-                        ? Icons.groups_outlined
-                        : Icons.menu_book_outlined,
-                  ),
+                  leading: const Icon(Icons.menu_book_outlined),
                   title: Text(w.name),
-                  subtitle: Text(
-                    w.sourceName ?? (w.isCert ? 'عضو سازمان، با گواهی' : ''),
-                  ),
+                  subtitle: Text(w.sourceName ?? 'عضو سازمان'),
                   onTap: () => Navigator.of(sheetCtx).pop(w),
                 ),
               const SizedBox(height: 8),
@@ -264,20 +258,19 @@ class _SecureNewConversationScreenState
                       onSubmitted: (_) => _lookup(),
                     ),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
-                    child: Text(
-                      // A member added after our directory answers over
-                      // their certificate: the full number is all it takes.
-                      state.hasCert
-                          ? 'عضوی که در فهرست نیست: شمارهٔ همراهش را کامل وارد کنید.'
-                          : 'برای اعضای گروه‌های عبارت عبور، شماره را کامل وارد کنید.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: scheme.onSurfaceVariant,
+                  if (state.hasCert)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
+                      child: Text(
+                        // A member added after our directory answers over
+                        // their certificate: the full number is all it takes.
+                        'عضوی که در فهرست نیست: شمارهٔ همراهش را کامل وارد کنید.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: scheme.onSurfaceVariant,
+                        ),
                       ),
                     ),
-                  ),
                   if (peers.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),

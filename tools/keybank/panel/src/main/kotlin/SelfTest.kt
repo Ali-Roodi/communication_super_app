@@ -58,7 +58,7 @@ object SelfTest {
                 val opened = KeyFile.open(d.file.readBytes(), d.password!!, listOf(contents.key.public))
                 check(opened.directory.members.size == 2 && opened.memberIndex == 1) { "key file does not open as issued" }
                 check(d.activationCode == "9c4a48e93a") { "delivery activation code" }
-                check(!keys.unlocked!!.folder.needsCertificates()) { "certificate marker" }
+                check(!keys.unlocked!!.folder.needsReissue()) { "format marker" }
                 log.appendLine("issue + open: ok")
 
                 // The two members talk over their certificates alone, as two
@@ -70,13 +70,13 @@ object SelfTest {
                     snap.passwordOf(snap.entries[0])!!,
                     anchors,
                 )
-                check(first.cert?.phone == "09120000001" && opened.cert?.phone == "09120000002") { "certificates" }
-                val started = CertHandshake.initiate(first.cert!!, random)
+                check(first.cert.phone == "09120000001" && opened.cert.phone == "09120000002") { "certificates" }
+                val started = CertHandshake.initiate(first.cert, random)
                 val answered = CertHandshake.respond(
-                    opened.identity!!, opened.cert!!, Wire.parse(started.wire) as Packet.CertInit, anchors, random,
+                    opened.identity, opened.cert, Wire.parse(started.wire) as Packet.Init, anchors, random,
                 )
                 val done = CertHandshake.complete(
-                    first.identity!!, first.cert!!, started.pending, Wire.parse(answered.wire) as Packet.CertResponse, anchors,
+                    first.identity, first.cert, started.pending, Wire.parse(answered.wire) as Packet.Response, anchors,
                 )
                 check(Wire.smsParts(started.wire) == 2 && Wire.smsParts(answered.wire) == 2) { "handshake size" }
                 val hello = done.session.seal(Payload.text("سلام"))
@@ -89,7 +89,7 @@ object SelfTest {
                     listOf(contents.directoryId),
                     listOf(contents.key.public),
                 )
-                check(update.directory.members.size == 2 && update.identity == null) { "update file" }
+                check(update.directory.members.size == 2) { "update file" }
                 log.appendLine("update file: ok")
 
                 runBlocking { keys.markAllDelivered() }

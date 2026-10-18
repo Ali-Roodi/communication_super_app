@@ -95,7 +95,7 @@ class SecureLoadPeers extends SecureMessagesEvent {
   const SecureLoadPeers();
 }
 
-/// The ways to reach a number typed by hand (passphrase groups).
+/// The ways to reach a number typed by hand (`SecureIdentities.forTypedNumber`).
 class SecureLookupNumber extends SecureMessagesEvent {
   const SecureLookupNumber(this.number);
   final String number;
@@ -804,9 +804,7 @@ class SecureMessagesBloc
           byPhone[n.phone] = SecurePeer(
             name: c.name,
             phone: w.phone,
-            publicKey: w.publicKey,
             keyId: w.keyId,
-            source: w.source,
             sourceName: w.sourceName,
             own: w.own,
           );
@@ -832,8 +830,8 @@ class SecureMessagesBloc
         if (ways.isEmpty) {
           await _messenger.startPlainConversation(e.phone, e.name);
         } else {
-          // A directory member before a group key: the first way is the
-          // authority-issued one when there is one (forNumber's order).
+          // One way per directory that lists the number; each reaches the
+          // same person, with the certificate of that directory.
           await _messenger.startConversation(ways.first);
         }
       } else {

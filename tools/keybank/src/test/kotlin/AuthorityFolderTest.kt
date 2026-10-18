@@ -47,13 +47,13 @@ class AuthorityFolderTest {
     @Test
     fun addingAMemberKeepsEveryoneElsesKeyAndPassword() {
         val first = add("علی", "09120000001", organization = "سازمان آزمون").single()
-        val firstKey = KeyFile.open(first.file.readBytes(), first.password, listOf(authority.key.public)).identity!!
+        val firstKey = KeyFile.open(first.file.readBytes(), first.password, listOf(authority.key.public)).cert
 
         val issued = add("مریم", "۰۹۱۲۰۰۰۰۰۰۲")
         assertEquals(2, issued.size)
         assertEquals(first.password, issued[0].password)
         val reopened = KeyFile.open(issued[0].file.readBytes(), issued[0].password, listOf(authority.key.public))
-        assertContentEquals(firstKey.public.keyId, reopened.identity!!.public.keyId)
+        assertContentEquals(firstKey.keyId, reopened.cert.keyId)
         assertEquals(2, reopened.directory.members.size)
 
         val newcomer = KeyFile.open(issued[1].file.readBytes(), issued[1].password, listOf(authority.key.public))
@@ -159,10 +159,10 @@ class AuthorityFolderTest {
     }
 
     @Test
-    fun aFolderFromBeforeCertificatesIsReissuedOnceAndItsDeliveriesNeedTheirOwnFile() {
+    fun aFolderFromAnEarlierFormatIsReissuedOnceAndItsDeliveriesNeedTheirOwnFile() {
         val before = threeMembers()
-        // As panel 1.1 left it: delivered an hour ago, no marker.
-        folder.certificatesFile.delete()
+        // As an earlier panel left it: delivered an hour ago, an older format.
+        folder.formatFile.writeText("1 2026-01-01T00:00:00")
         val snapshot = folder.snapshot()
         val anHourAgo = java.time.LocalDateTime.now().withNano(0).minusHours(1)
         folder.log.append(
@@ -173,48 +173,49 @@ class AuthorityFolderTest {
                 )
             },
         )
-        assertTrue(folder.needsCertificates())
+        assertTrue(folder.needsReissue())
 
-        assertEquals(3, folder.issueCertificates(authority, random, cheap))
-        assertTrue(!folder.needsCertificates())
-        // Same keys, same passwords — and now a certificate in every file.
+        assertEquals(3, folder.reissueAll(authority, random, cheap))
+        assertTrue(!folder.needsReissue())
+        // Same keys, same passwords.
         val after = folder.snapshot()
         for ((i, old) in before.withIndex()) {
             assertEquals(old.password, after.passwordOf(after.entries[i]))
             val opened = KeyFile.open(folder.keyFileOf(i, after.entries[i]).readBytes(), old.password, listOf(authority.key.public))
-            assertContentEquals(open(old).identity!!.public.keyId, opened.identity!!.public.keyId)
-            assertEquals(after.entries[i].phones.first(), opened.cert!!.phone)
-            assertEquals(AuthorityFolder.DeliveryStatus.NO_CERT, status(i))
+            assertContentEquals(open(old).cert.keyId, opened.cert.keyId)
+            assertEquals(after.entries[i].phones.first(), opened.cert.phone)
+            assertEquals(AuthorityFolder.DeliveryStatus.OLD_FORMAT, status(i))
         }
-        // The update file would not help (no certificate): only their own file.
+        // The update file would not help: only their own file.
         folder.markUpdated(listOf(0))
-        assertEquals(AuthorityFolder.DeliveryStatus.NO_CERT, status(0))
+        assertEquals(AuthorityFolder.DeliveryStatus.OLD_FORMAT, status(0))
         folder.markDelivered(0)
         assertEquals(AuthorityFolder.DeliveryStatus.CURRENT, status(0))
-        assertEquals(AuthorityFolder.DeliveryStatus.NO_CERT, status(1))
+        assertEquals(AuthorityFolder.DeliveryStatus.OLD_FORMAT, status(1))
     }
 
     @Test
     fun anEmptyNewFolderIsOnlyMarked() {
-        assertTrue(folder.needsCertificates())
-        assertEquals(0, folder.issueCertificates(authority, random, cheap))
-        assertTrue(!folder.needsCertificates())
+        assertTrue(folder.needsReissue())
+        assertEquals(0, folder.reissueAll(authority, random, cheap))
+        assertTrue(!folder.needsReissue())
+        assertTrue(folder.formatFile.readText().startsWith("${AuthorityFolder.KEY_FILE_FORMAT} "))
     }
 
     @Test
     fun aNewKeyChangesOnlyThatMembersKeyAndPassword() {
         val before = threeMembers()
-        val oldKeys = before.map { open(it).identity!!.public.keyId }
+        val oldKeys = before.map { open(it).cert.keyId }
         folder.markDelivered(listOf(0, 1, 2))
         val issued = folder.newKey(authority, 1, random, cheap)
 
         val mine = open(issued[1])
         assertNotEquals(before[1].password, issued[1].password)
         assertFailsWith<Exception> { KeyFile.open(issued[1].file.readBytes(), before[1].password, listOf(authority.key.public)) }
-        assertTrue(!oldKeys[1].contentEquals(mine.identity!!.public.keyId))
+        assertTrue(!oldKeys[1].contentEquals(mine.cert.keyId))
         for (i in listOf(0, 2)) {
             assertEquals(before[i].password, issued[i].password)
-            assertContentEquals(oldKeys[i], open(issued[i]).identity!!.public.keyId)
+            assertContentEquals(oldKeys[i], open(issued[i]).cert.keyId)
         }
         assertEquals(1, folder.snapshot().entries[1].generation)
         assertTrue("مریم,09120000002;02188776655,1" in folder.rosterFile.readText())
@@ -227,16 +228,16 @@ class AuthorityFolderTest {
     @Test
     fun editingKeepsTheKeyUnlessTheFirstNumberChanges() {
         val before = threeMembers()
-        val oldKeys = before.map { open(it).identity!!.public.keyId }
+        val oldKeys = before.map { open(it).cert.keyId }
         val renamed = folder.editMember(authority, 0, "علی رودی", listOf("09120000001", "02166554433"), random, cheap)
         assertEquals("علی رودی", folder.snapshot().entries[0].name)
         assertEquals(before[0].password, renamed[0].password)
-        assertContentEquals(oldKeys[0], open(renamed[0]).identity!!.public.keyId)
+        assertContentEquals(oldKeys[0], open(renamed[0]).cert.keyId)
         assertEquals(listOf("09120000001", "02166554433"), open(renamed[0]).directory.members[0].phones)
 
         val moved = folder.editMember(authority, 0, "علی رودی", listOf("09129999999"), random, cheap)
         assertEquals(before[0].password, moved[0].password, "the password follows the member")
-        assertTrue(!oldKeys[0].contentEquals(open(moved[0]).identity!!.public.keyId))
+        assertTrue(!oldKeys[0].contentEquals(open(moved[0]).cert.keyId))
         assertEquals("001-09129999999.hkb", moved[0].file.name)
         assertTrue(!File(folder.issuedDir, "001-09120000001.hkb").exists())
         for (i in listOf(1, 2)) assertEquals(before[i].password, moved[i].password)
@@ -251,7 +252,7 @@ class AuthorityFolderTest {
     @Test
     fun removingAMemberDropsTheirFileAndPassword() {
         val before = threeMembers()
-        val oldKeys = before.map { open(it).identity!!.public.keyId }
+        val oldKeys = before.map { open(it).cert.keyId }
         val issued = folder.removeMember(authority, 0, random, cheap)
         assertEquals(listOf("مریم", "رضا"), folder.snapshot().entries.map { it.name })
         assertEquals(listOf("001-09120000002.hkb", "002-09120000003.hkb"), issued.map { it.file.name })
@@ -272,11 +273,11 @@ class AuthorityFolderTest {
     @Test
     fun aRetiredKeyIsNeverIssuedAgain() {
         val before = threeMembers()
-        val oldKeys = before.map { open(it).identity!!.public.keyId }
+        val oldKeys = before.map { open(it).cert.keyId }
         folder.removeMember(authority, 0, random, cheap)
         val back = add("علی", "09120000001").last()
         assertEquals(1, back.entry.generation)
-        assertTrue(!oldKeys[0].contentEquals(open(back).identity!!.public.keyId))
+        assertTrue(!oldKeys[0].contentEquals(open(back).cert.keyId))
     }
 
     @Test
@@ -320,7 +321,6 @@ class AuthorityFolderTest {
         // The very directory the members' files carry: importing one after
         // the other never meets a "newer" copy.
         assertContentEquals(open(issued[0]).signed.encode(), update.signed.encode())
-        assertEquals(null, update.identity)
     }
 
     @Test

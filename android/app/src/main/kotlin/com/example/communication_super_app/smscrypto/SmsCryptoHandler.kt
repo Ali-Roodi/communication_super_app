@@ -5,9 +5,7 @@ import com.example.communication_super_app.smscrypto.keybank.AuthorityPublic
 import com.example.communication_super_app.smscrypto.keybank.Canon
 import com.example.communication_super_app.smscrypto.keybank.Directory
 import com.example.communication_super_app.smscrypto.keybank.KeyFile
-import com.example.communication_super_app.smscrypto.keybank.KeyGroup
 import com.example.communication_super_app.smscrypto.keybank.MemberCert
-import com.example.communication_super_app.smscrypto.keybank.SignedDirectory
 import com.example.communication_super_app.smscrypto.keybank.UpdateFile
 import android.util.Log
 import io.flutter.plugin.common.MethodCall
@@ -27,20 +25,16 @@ import kotlinx.coroutines.withContext
  * touches a file, a database or the network.
  *
  * Methods (byte arguments and results are `Uint8List`):
- * - `generateIdentity` → `{secret, public, keyId}`
- * - `identityFromSeed {seed}` → `{secret, public, keyId}` — deterministic
+ * - `generateIdentity` → `{secret, public, keyId}` — the secure section's
+ *   own sealing key (`SealedBox`)
  * - `publicIdentity {secret}` → `{public, keyId}`
- * - `checkPublic {public}` → `{keyId}` — validates a key before it is stored
  * - `inspect {text}` → `null` for anything that is not one of our packets,
- *   else `{type: message|init|response, sid, counter? , senderKid?, recipientKid?}`
- * - `initiate {secret, peer, busySids}` → `{pending, sid, wire, parts}`
- * - `respond {secret, peer, text}` → `{session, sid, wire, parts}`
- * - `complete {secret, peer, pending, text}` → `{session, sid}`
+ *   else `{type: message|init|response, sid, counter?, control?, senderKid?,
+ *   certPhone?, certGeneration?}` — for a handshake packet, what its (not yet
+ *   verified) certificate says: key id, number and generation
  * - `ownInitWins {ownKid, peerKid}` → Boolean — crossed INITs
  * - `certInitiate {cert, busySids}` → `{pending, sid, wire, parts}` — the
- *   certificate handshake (`CertHandshake`); `inspect` reports its packets as
- *   `init`/`response` with `cert: true`, `senderKid` (the certificate's key
- *   id), `certPhone` and `certGeneration`
+ *   session request (`CertHandshake`)
  * - `certRespond {secret, cert, text, anchors}` → `{session, sid, wire, parts, peer}`
  * - `certComplete {secret, cert, pending, text, anchors}` → `{session, sid, peer}`
  * - `certInfo {cert}` → `{cert, keyId, phone, generation}` (what `peer` is) —
@@ -67,16 +61,13 @@ import kotlinx.coroutines.withContext
  *
  * Key bank (`keybank/`):
  * - `canonicalPhone {phone}` → String? — the spelling keys are derived from
- * - `deriveGroup {name, passphrase}` → `{group, groupId}` — Argon2id, ~1 s
- * - `groupMember {group, phone}` → `{secret, public, keyId}`
- * - `openKeyFile {file, password, anchors}` → `{signed, directory, member?}`
+ * - `openKeyFile {file, password, anchors}` → `{signed, directory, member}`
  * - `openUpdateFile {file, directoryIds, anchors}` → `{signed, directory}` —
  *   `update.hku`, sealed for a directory the phone holds; no password
- * - `verifyDirectory {signed, anchors}` → directory
- * - `authorityId {public}` → Uint8List
  *
  * A directory is `{authorityId, directoryId, serial, name, members: [{name,
- * phones, public, keyId}]}`; `member` is `{index, secret, public, keyId}`.
+ * phones, public, keyId}]}` (`public` is the member's X25519 key, `keyId`
+ * its certificate key id); `member` is `{index, secret, public, keyId, cert}`.
  * `anchors` are the trusted authority public keys, passed in by Dart.
  *
  * Errors are the [SmsCryptoException.Code] names, plus `BAD_ARGS` and
@@ -97,22 +88,13 @@ class SmsCryptoHandler {
         channel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "generateIdentity" -> run(call, result) { identity(IdentityKeyPair.generate(random)) }
-                "identityFromSeed" -> run(call, result) {
-                    identity(IdentityKeyPair.fromSeed(call.bytes("seed")))
-                }
                 "publicIdentity" -> run(call, result) {
                     val public = IdentityKeyPair.parse(call.bytes("secret")).public
                     mapOf("public" to public.encoded, "keyId" to public.keyId)
                 }
-                "checkPublic" -> run(call, result) {
-                    mapOf("keyId" to PublicIdentity.parse(call.bytes("public")).keyId)
-                }
                 "inspect" -> run(call, result) { inspect(call.string("text")) }
-                "initiate" -> run(call, result) { initiate(call) }
-                "respond" -> run(call, result) { respond(call) }
-                "complete" -> run(call, result) { complete(call) }
                 "ownInitWins" -> run(call, result) {
-                    Handshake.ownInitWins(call.bytes("ownKid"), call.bytes("peerKid"))
+                    CertHandshake.ownInitWins(call.bytes("ownKid"), call.bytes("peerKid"))
                 }
                 "certInitiate" -> run(call, result) { certInitiate(call) }
                 "certRespond" -> run(call, result) { certRespond(call) }
@@ -150,13 +132,6 @@ class SmsCryptoHandler {
                 }
                 "openSealed" -> run(call, result) { openSealed(call) }
                 "canonicalPhone" -> run(call, result) { Canon.phone(call.string("phone")) }
-                "deriveGroup" -> run(call, result) {
-                    val group = KeyGroup.derive(call.string("name"), call.string("passphrase"))
-                    mapOf("group" to group.serialize(), "groupId" to group.groupId)
-                }
-                "groupMember" -> run(call, result) {
-                    identity(KeyGroup.parse(call.bytes("group")).member(call.string("phone")))
-                }
                 "openKeyFile" -> run(call, result) { openKeyFile(call) }
                 "openUpdateFile" -> run(call, result) {
                     val opened = UpdateFile.open(
@@ -170,10 +145,6 @@ class SmsCryptoHandler {
                         "member" to null,
                     )
                 }
-                "verifyDirectory" -> run(call, result) {
-                    directory(SignedDirectory.decode(call.bytes("signed")).verify(anchors(call)))
-                }
-                "authorityId" -> run(call, result) { AuthorityPublic.parse(call.bytes("public")).authorityId }
                 else -> result.notImplemented()
             }
         }
@@ -201,25 +172,13 @@ class SmsCryptoHandler {
                 "counter" to packet.counter,
                 "control" to packet.control,
             )
-            is Packet.Init -> mapOf(
-                "type" to "init",
-                "sid" to packet.sid,
-                "senderKid" to packet.senderKid,
-                "recipientKid" to packet.recipientKid,
-            )
-            is Packet.Response -> mapOf(
-                "type" to "response",
-                "sid" to packet.sid,
-                "senderKid" to packet.senderKid,
-                "recipientKid" to packet.recipientKid,
-            )
-            is Packet.CertInit -> certPacket("init", packet.sid, packet.cert)
-            is Packet.CertResponse -> certPacket("response", packet.sid, packet.cert)
+            is Packet.Init -> handshakePacket("init", packet.sid, packet.cert)
+            is Packet.Response -> handshakePacket("response", packet.sid, packet.cert)
         }
     }
 
-    /** A certificate packet as `inspect` reports it; null when its certificate is malformed. */
-    private fun certPacket(type: String, sid: Int, bytes: ByteArray): Map<String, Any>? {
+    /** A handshake packet as `inspect` reports it; null when its certificate is malformed. */
+    private fun handshakePacket(type: String, sid: Int, bytes: ByteArray): Map<String, Any>? {
         val cert = try {
             MemberCert.parse(bytes)
         } catch (e: SmsCryptoException) {
@@ -228,7 +187,6 @@ class SmsCryptoHandler {
         return mapOf(
             "type" to type,
             "sid" to sid,
-            "cert" to true,
             "senderKid" to cert.keyId,
             "certPhone" to cert.phone,
             "certGeneration" to cert.generation,
@@ -254,8 +212,8 @@ class SmsCryptoHandler {
     }
 
     private fun certRespond(call: MethodCall): Map<String, Any> {
-        val init = Wire.parse(call.string("text")) as? Packet.CertInit
-            ?: cryptoError(SmsCryptoException.Code.WRONG_TYPE, "not a certificate session request")
+        val init = Wire.parse(call.string("text")) as? Packet.Init
+            ?: cryptoError(SmsCryptoException.Code.WRONG_TYPE, "not a session request")
         val answered = CertHandshake.respond(
             own(call),
             MemberCert.parse(call.bytes("cert")),
@@ -273,8 +231,8 @@ class SmsCryptoHandler {
     }
 
     private fun certComplete(call: MethodCall): Map<String, Any> {
-        val response = Wire.parse(call.string("text")) as? Packet.CertResponse
-            ?: cryptoError(SmsCryptoException.Code.WRONG_TYPE, "not a certificate session response")
+        val response = Wire.parse(call.string("text")) as? Packet.Response
+            ?: cryptoError(SmsCryptoException.Code.WRONG_TYPE, "not a session response")
         val done = CertHandshake.complete(
             own(call),
             MemberCert.parse(call.bytes("cert")),
@@ -298,41 +256,6 @@ class SmsCryptoHandler {
             "upgraded" to accepted.upgraded.serialize(),
             "upgradedSid" to accepted.upgraded.sid,
         )
-    }
-
-    private fun initiate(call: MethodCall): Map<String, Any> {
-        val busy = call.argument<List<Int>>("busySids")?.toSet() ?: emptySet()
-        val started = Handshake.initiate(own(call), peer(call), random, busy)
-        return mapOf(
-            "pending" to started.pending.serialize(),
-            "sid" to started.pending.sid,
-            "wire" to started.wire,
-            "parts" to Wire.smsParts(started.wire),
-        )
-    }
-
-    private fun respond(call: MethodCall): Map<String, Any> {
-        val init = Wire.parse(call.string("text")) as? Packet.Init
-            ?: cryptoError(SmsCryptoException.Code.WRONG_TYPE, "not a session request")
-        val answered = Handshake.respond(own(call), peer(call), init, random)
-        return mapOf(
-            "session" to answered.session.serialize(),
-            "sid" to answered.session.sid,
-            "wire" to answered.wire,
-            "parts" to Wire.smsParts(answered.wire),
-        )
-    }
-
-    private fun complete(call: MethodCall): Map<String, Any> {
-        val response = Wire.parse(call.string("text")) as? Packet.Response
-            ?: cryptoError(SmsCryptoException.Code.WRONG_TYPE, "not a session response")
-        val session = Handshake.complete(
-            own(call),
-            peer(call),
-            Handshake.Pending.parse(call.bytes("pending")),
-            response,
-        )
-        return mapOf("session" to session.serialize(), "sid" to session.sid)
     }
 
     private fun encryptText(call: MethodCall): Map<String, Any> {
@@ -456,9 +379,15 @@ class SmsCryptoHandler {
 
     private fun openKeyFile(call: MethodCall): Map<String, Any?> {
         val opened = KeyFile.open(call.bytes("file"), call.string("password"), anchors(call))
-        val member = opened.identity?.let {
-            identity(it) + ("index" to opened.memberIndex) + ("cert" to opened.cert?.let(::cert))
-        }
+        // The member is named by their certificate's key id everywhere, own
+        // key included: the directory, the packets and the stored key agree.
+        val member = mapOf(
+            "secret" to opened.identity.serialize(),
+            "public" to opened.identity.x25519Public,
+            "keyId" to opened.cert.keyId,
+            "index" to opened.memberIndex,
+            "cert" to cert(opened.cert),
+        )
         return mapOf(
             "signed" to opened.signed.encode(),
             "directory" to directory(opened.directory),
@@ -475,8 +404,8 @@ class SmsCryptoHandler {
             mapOf(
                 "name" to m.name,
                 "phones" to m.phones,
-                "public" to m.identity.encoded,
-                "keyId" to m.identity.keyId,
+                "public" to m.x25519,
+                "keyId" to m.keyId,
             )
         },
     )
@@ -485,8 +414,6 @@ class SmsCryptoHandler {
         (call.argument<List<ByteArray>>("anchors") ?: emptyList()).map { AuthorityPublic.parse(it) }
 
     private fun own(call: MethodCall) = IdentityKeyPair.parse(call.bytes("secret"))
-
-    private fun peer(call: MethodCall) = PublicIdentity.parse(call.bytes("peer"))
 
     private fun MethodCall.bytes(name: String): ByteArray =
         argument<ByteArray>(name) ?: throw IllegalArgumentException("missing $name")

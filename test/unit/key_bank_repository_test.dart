@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:communication_super_app/features/secure/repositories/key_bank_repository.dart';
 import 'package:communication_super_app/features/secure/repositories/secure_store.dart';
 import 'package:communication_super_app/features/secure/services/sms_crypto_service.dart';
@@ -14,7 +12,7 @@ DirectoryMember _member(String name, List<String> phones, int kid) =>
     DirectoryMember(
       name: name,
       phones: phones,
-      publicKey: _b(1217, kid),
+      publicKey: _b(32, kid),
       keyId: _b(8, kid),
     );
 
@@ -39,13 +37,23 @@ OpenedKeyFile _file({
       name: 'سازمان $directory',
       members: list,
     ),
-    memberIndex: ownIndex,
-    member: ownIndex == null
+    own: ownIndex == null
         ? null
-        : SmsIdentity(
-            secret: _b(97, 0x50 + ownIndex),
-            publicKey: list[ownIndex].publicKey,
-            keyId: list[ownIndex].keyId,
+        : OwnKey(
+            index: ownIndex,
+            identity: SmsIdentity(
+              secret: _b(97, 0x50 + ownIndex),
+              publicKey: list[ownIndex].publicKey,
+              keyId: list[ownIndex].keyId,
+            ),
+            cert: MemberCertInfo(
+              cert: _b(103, 0x30 + ownIndex),
+              keyId: list[ownIndex].keyId,
+              phone: list[ownIndex].phones.firstWhere(
+                (p) => p.startsWith('09'),
+              ),
+              generation: 0,
+            ),
           ),
   );
 }
@@ -86,11 +94,13 @@ void main() {
     final keys = await repo.directoryKeysFor('02188776655');
     expect(keys.single.name, 'علی');
     expect(keys.single.keyId, _b(8, 1));
-    expect(keys.single.source, 'directory:0101010101010101');
+    expect(keys.single.directoryId, '0101010101010101');
+    expect(keys.single.directoryName, 'سازمان 1');
     expect(await repo.directoryKeysFor('09129999999'), isEmpty);
     final own = (await repo.ownDirectoryKeys()).single;
     expect(own.identity.secret, _b(97, 0x51));
     expect(own.directoryId, '0101010101010101');
+    expect(own.cert, _b(103, 0x31));
     final all = await repo.allMembers();
     expect(all.map((m) => m.name), ['علی', 'مریم']);
     expect(all.first.phones, ['09121111111', '02188776655']);
@@ -112,11 +122,12 @@ void main() {
     final reza = (await repo.allMembers()).firstWhere((m) => m.name == 'رضا');
     expect(reza.phones, ['02100000002', '09120000002', '09350000002']);
     expect(SecureIdentities.textTarget(reza.phones), '09120000002');
-    expect(SecureIdentities.textTarget(['02100000002']), '02100000002');
+    // A landline cannot receive the session request.
+    expect(SecureIdentities.textTarget(['02100000002']), isNull);
   });
 
-  test('the same file twice changes nothing; a personal file after the '
-      'directory-only one adds the key', () async {
+  test('the same file twice changes nothing; the own file after the '
+      'update file adds the key', () async {
     expect(await repo.importKeyFile(_file()), KeyImportOutcome.added);
     expect(await repo.importKeyFile(_file()), KeyImportOutcome.alreadyImported);
     expect(
@@ -190,54 +201,16 @@ void main() {
     },
   );
 
-  test('groups and own numbers', () async {
+  test('an own key is stored with its certificate', () async {
     expect(
-      await repo.addGroup(groupId: _b(8, 7), name: ' گروه ', seed: _b(33, 1)),
-      isTrue,
+      await repo.importKeyFile(_file(ownIndex: 1)),
+      KeyImportOutcome.added,
     );
-    expect(
-      await repo.addGroup(groupId: _b(8, 7), name: 'دوباره', seed: _b(33, 1)),
-      isFalse,
-    );
-    expect(await repo.addOwnNumber('09121111111'), isTrue);
-    expect(await repo.addOwnNumber('09121111111'), isFalse);
-    var s = await repo.snapshot();
-    expect(s.groups.single.name, 'گروه');
-    expect(s.groups.single.id, '0707070707070707');
-    expect(s.ownNumbers, ['09121111111']);
-    expect((await repo.groupSeeds()).single.seed, _b(33, 1));
-
-    await repo.removeGroup('0707070707070707');
-    await repo.removeOwnNumber('09121111111');
-    s = await repo.snapshot();
-    expect(s.groups, isEmpty);
-    expect(s.ownNumbers, isEmpty);
-  });
-
-  test('the member certificate is kept with the own key', () async {
-    final plain = _file(ownIndex: 1);
-    expect(await repo.importKeyFile(plain), KeyImportOutcome.added);
-    expect((await repo.ownDirectoryKeys()).single.cert, isNull);
-    // The same issue again, now with the certificate (a file re-issued by
-    // a panel that writes them): the key stays, the certificate is added.
-    final cert = MemberCertInfo(
-      cert: _b(103, 0x33),
-      keyId: _b(8, 0x44),
-      phone: '09122222222',
-      generation: 0,
-    );
-    final withCert = OpenedKeyFile(
-      signed: plain.signed,
-      directory: plain.directory,
-      memberIndex: plain.memberIndex,
-      member: plain.member,
-      cert: cert,
-    );
-    expect(await repo.importKeyFile(withCert), KeyImportOutcome.ownKeyAdded);
-    expect((await repo.ownDirectoryKeys()).single.cert, _b(103, 0x33));
-    expect(
-      await repo.importKeyFile(withCert),
-      KeyImportOutcome.alreadyImported,
+    expect((await repo.ownDirectoryKeys()).single.cert, _b(103, 0x31));
+    // The schema has no room for one without it.
+    await expectLater(
+      db.update('kb_own_keys', {'cert': null}),
+      throwsA(isA<DatabaseException>()),
     );
     expect(await repo.nameFor('09121111111'), 'علی');
     expect(await repo.nameFor('09129999999'), isNull);
@@ -245,23 +218,6 @@ void main() {
 
   test('the certificate key id is the one Kotlin computes', () {
     // Pinned on the Kotlin side by CertHandshakeTest.
-    final public = Uint8List(1217)..fillRange(1185, 1217, 7);
-    expect(certKeyIdFor(public), '6d0190893fd7bb4f');
-  });
-
-  test('a phase C section (schema v1) gains the key bank tables', () async {
-    // A file of its own: the in-memory database is shared with setUp's.
-    final dir = await Directory.systemTemp.createTemp('kb_migration');
-    final old = await databaseFactoryFfi.openDatabase(
-      '${dir.path}/secure_v1.db',
-    );
-    await old.execute(
-      'CREATE TABLE secure_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
-    );
-    await SecureStore.upgradeSchemaForTest(old, 1);
-    final upgraded = KeyBankRepository(database: () => old);
-    expect(await upgraded.importKeyFile(_file()), KeyImportOutcome.added);
-    await old.close();
-    await dir.delete(recursive: true);
+    expect(certKeyIdFor(_b(32, 7)), '6d0190893fd7bb4f');
   });
 }

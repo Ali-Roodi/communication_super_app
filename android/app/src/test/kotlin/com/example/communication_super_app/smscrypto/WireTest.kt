@@ -59,7 +59,7 @@ class WireTest {
             "#E:!" + body.drop(1),
             Wire.encode(byteArrayOf(0x21, 0, 0)), // version 2
             Wire.encode(byteArrayOf(0x1F, 0, 0)), // unknown type
-            Wire.encode(decodeWire(session.initWire).copyOf(500)), // truncated INIT
+            Wire.encode(decodeWire(session.initWire).copyOf(100)), // truncated INIT
             Wire.encode(byteArrayOf(0x11, 0, 1, 0x80.toByte(), 0x00) + ByteArray(20)), // non-minimal counter
             Wire.encode(byteArrayOf(0x11, 0, 1, 0) + ByteArray(16)), // no payload byte
         )

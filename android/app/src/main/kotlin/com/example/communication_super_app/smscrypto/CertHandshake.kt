@@ -9,14 +9,14 @@ import org.bouncycastle.crypto.params.X25519PrivateKeyParameters
 import org.bouncycastle.crypto.params.X25519PublicKeyParameters
 
 /**
- * The session request between two members who have **not** been given each
- * other's keys: each side sends its [MemberCert], the other checks the
- * authority's signature on it. Two SMS parts each way, against ten and eleven
- * for [Handshake] — and nobody's phone needs a new file when a member joins.
+ * How two members agree on a [Session]: each side sends its [MemberCert],
+ * the other checks the authority's signature on it. Two SMS parts each way,
+ * paid once per pair — and since nobody needs to have been given the other's
+ * key beforehand, nobody's phone needs a new file when a member joins.
  *
  * ```
- * A → B  CERT_INIT      sid, cert(A), eA                         138 bytes
- * B → A  CERT_RESPONSE  sid, cert(B), eB, confirm                154 bytes
+ * A → B  INIT      sid, cert(A), eA                         138 bytes
+ * B → A  RESPONSE  sid, cert(B), eB, confirm                154 bytes
  * ```
  *
  * The session key material is HKDF over
@@ -55,7 +55,6 @@ object CertHandshake {
         internal val initHash: ByteArray,
     ) {
         companion object {
-            /** 2: [Handshake.Pending] is 1, so the two can never be confused. */
             private const val FORMAT: Byte = 2
             private const val SIZE = 1 + Wire.SID_BYTES + MemberCert.KEY_ID_BYTES + 2 * KEY_BYTES
 
@@ -72,9 +71,6 @@ object CertHandshake {
                     initHash = take(KEY_BYTES),
                 )
             }
-
-            /** Whether [bytes] is a pending state of this handshake (not of [Handshake]). */
-            fun isOne(bytes: ByteArray): Boolean = bytes.size == SIZE && bytes[0] == FORMAT
         }
 
         fun serialize(): ByteArray =
@@ -101,7 +97,7 @@ object CertHandshake {
             sid = random.nextInt(SID_SPACE)
         } while (sid in busySids)
         val ephemeral = X25519PrivateKeyParameters(random)
-        val packet = byteArrayOf(Wire.typeByte(Wire.TYPE_CERT_INIT)) + Wire.writeSid(sid) +
+        val packet = byteArrayOf(Wire.typeByte(Wire.TYPE_INIT)) + Wire.writeSid(sid) +
             ownCert.encoded + ephemeral.generatePublicKey().encoded
         return Initiated(
             Pending(sid, ownCert.keyId, ephemeral.encoded, Kdf.sha256(INIT_LABEL, packet)),
@@ -116,7 +112,7 @@ object CertHandshake {
     fun respond(
         own: IdentityKeyPair,
         ownCert: MemberCert,
-        init: Packet.CertInit,
+        init: Packet.Init,
         anchors: List<AuthorityPublic>,
         random: SecureRandom,
     ): Responded {
@@ -127,7 +123,7 @@ object CertHandshake {
         }
         val ephemeral = X25519PrivateKeyParameters(random)
         val initiatorEphemeral = x25519Public(init.ephemeral)
-        val header = byteArrayOf(Wire.typeByte(Wire.TYPE_CERT_RESPONSE)) + Wire.writeSid(init.sid) +
+        val header = byteArrayOf(Wire.typeByte(Wire.TYPE_RESPONSE)) + Wire.writeSid(init.sid) +
             ownCert.encoded + ephemeral.generatePublicKey().encoded
         val keys = schedule(
             initHash = Kdf.sha256(INIT_LABEL, init.bytes),
@@ -153,7 +149,7 @@ object CertHandshake {
         own: IdentityKeyPair,
         ownCert: MemberCert,
         pending: Pending,
-        response: Packet.CertResponse,
+        response: Packet.Response,
         anchors: List<AuthorityPublic>,
     ): Completed {
         checkOwn(own, ownCert)
@@ -185,6 +181,22 @@ object CertHandshake {
             ),
             peer,
         )
+    }
+
+    /**
+     * Both sides sent an INIT before either saw the other's. Each phone
+     * decides the same way, from the two certificates' key ids alone: the
+     * INIT of the smaller key id is the one that goes ahead. True when
+     * **ours** does — keep waiting for the RESPONSE and ignore the peer's
+     * INIT; false means drop our pending request and answer theirs.
+     */
+    fun ownInitWins(ownKid: ByteArray, peerKid: ByteArray): Boolean {
+        for (i in ownKid.indices) {
+            val a = ownKid[i].toInt() and 0xFF
+            val b = peerKid[i].toInt() and 0xFF
+            if (a != b) return a < b
+        }
+        return true
     }
 
     private class Keys(

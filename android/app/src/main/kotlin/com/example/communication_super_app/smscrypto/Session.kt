@@ -9,7 +9,8 @@ import javax.crypto.spec.SecretKeySpec
 
 /**
  * An established session with one peer: two **symmetric hash ratchets**, one
- * per direction, seeded by the handshake ([Handshake]).
+ * per direction, seeded by the handshake ([CertHandshake]) or by the
+ * post-quantum [Upgrade].
  *
  * Every message gets its own key. A chain key `ck` steps as
  * `mk = HMAC(ck, 0x01)`, `ck' = HMAC(ck, 0x02)`; the old `ck` is forgotten,
@@ -36,15 +37,12 @@ class Session private constructor(
     private val receiveChain: ByteArray,
     val receiveCounter: Long,
     private val skipped: TreeMap<Long, ByteArray>,
-    /** Secret the handshake left for [Upgrade]; null on a session that needs none
-     *  (a v1 handshake is post-quantum already). Never on the wire. */
-    internal val root: ByteArray? = null,
+    /** Secret the handshake left for [Upgrade]. Never on the wire. */
+    internal val root: ByteArray,
 ) {
     companion object {
-        private const val FORMAT: Byte = 1
-
-        /** [FORMAT] plus the [root] at the end. */
-        private const val FORMAT_WITH_ROOT: Byte = 2
+        /** 2: the state carries the [root] at its end. */
+        private const val FORMAT: Byte = 2
         private const val CHAIN_BYTES = 32
 
         /** How far ahead a message may be: SMS delays, not thousands lost. */
@@ -65,17 +63,17 @@ class Session private constructor(
             peerKid: ByteArray,
             sendChain: ByteArray,
             receiveChain: ByteArray,
-            root: ByteArray? = null,
+            root: ByteArray,
         ) = Session(sid, ownKid, peerKid, sendChain, 0, receiveChain, 0, TreeMap(), root)
 
         fun parse(bytes: ByteArray): Session {
             try {
                 val buf = ByteBuffer.wrap(bytes)
                 val format = buf.get()
-                if (format != FORMAT && format != FORMAT_WITH_ROOT) badState()
+                if (format != FORMAT) badState()
                 val sid = buf.short.toInt() and 0xFFFF
-                val own = ByteArray(PublicIdentity.KEY_ID_BYTES).also { buf.get(it) }
-                val peer = ByteArray(PublicIdentity.KEY_ID_BYTES).also { buf.get(it) }
+                val own = ByteArray(com.example.communication_super_app.smscrypto.keybank.MemberCert.KEY_ID_BYTES).also { buf.get(it) }
+                val peer = ByteArray(com.example.communication_super_app.smscrypto.keybank.MemberCert.KEY_ID_BYTES).also { buf.get(it) }
                 val send = ByteArray(CHAIN_BYTES).also { buf.get(it) }
                 val sendCounter = buf.long
                 val receive = ByteArray(CHAIN_BYTES).also { buf.get(it) }
@@ -87,7 +85,7 @@ class Session private constructor(
                     val n = buf.long
                     skipped[n] = ByteArray(CHAIN_BYTES).also { buf.get(it) }
                 }
-                val root = if (format == FORMAT_WITH_ROOT) ByteArray(CHAIN_BYTES).also { buf.get(it) } else null
+                val root = ByteArray(CHAIN_BYTES).also { buf.get(it) }
                 if (buf.hasRemaining() || sendCounter < 0 || receiveCounter < 0) badState()
                 return Session(sid, own, peer, send, sendCounter, receive, receiveCounter, skipped, root)
             } catch (e: java.nio.BufferUnderflowException) {
@@ -184,10 +182,10 @@ class Session private constructor(
     val skippedCount: Int get() = skipped.size
 
     fun serialize(): ByteArray {
-        val size = 1 + Wire.SID_BYTES + 2 * PublicIdentity.KEY_ID_BYTES +
-            2 * (CHAIN_BYTES + 8) + 2 + skipped.size * (8 + CHAIN_BYTES) + (root?.size ?: 0)
+        val size = 1 + Wire.SID_BYTES + 2 * com.example.communication_super_app.smscrypto.keybank.MemberCert.KEY_ID_BYTES +
+            2 * (CHAIN_BYTES + 8) + 2 + skipped.size * (8 + CHAIN_BYTES) + CHAIN_BYTES
         val buf = ByteBuffer.allocate(size)
-            .put(if (root == null) FORMAT else FORMAT_WITH_ROOT)
+            .put(FORMAT)
             .putShort(sid.toShort())
             .put(ownKid)
             .put(peerKid)
@@ -197,7 +195,7 @@ class Session private constructor(
             .putLong(receiveCounter)
             .putShort(skipped.size.toShort())
         for ((n, key) in skipped) buf.putLong(n).put(key)
-        root?.let { buf.put(it) }
+        buf.put(root)
         return buf.array()
     }
 }

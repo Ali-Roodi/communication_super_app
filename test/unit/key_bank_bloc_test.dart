@@ -29,16 +29,24 @@ OpenedKeyFile _opened() => OpenedKeyFile(
       DirectoryMember(
         name: 'علی',
         phones: const ['09121111111'],
-        publicKey: _b(1217, 1),
+        publicKey: _b(32, 1),
         keyId: _b(8, 1),
       ),
     ],
   ),
-  memberIndex: 0,
-  member: SmsIdentity(
-    secret: _b(97, 9),
-    publicKey: _b(1217, 1),
-    keyId: _b(8, 1),
+  own: OwnKey(
+    index: 0,
+    identity: SmsIdentity(
+      secret: _b(97, 9),
+      publicKey: _b(32, 1),
+      keyId: _b(8, 1),
+    ),
+    cert: MemberCertInfo(
+      cert: _b(103, 3),
+      keyId: _b(8, 1),
+      phone: '09121111111',
+      generation: 0,
+    ),
   ),
 );
 
@@ -106,9 +114,15 @@ void main() {
     final bloc = build();
     await Future<void>.delayed(const Duration(milliseconds: 50));
     expect(bloc.state.status, KeyBankStatus.locked);
-    bloc.add(const KeyBankAddOwnNumber('09121111111'));
+    bloc.add(KeyBankImportFile(_b(10, 1), 'ABCD'));
     await Future<void>.delayed(const Duration(milliseconds: 50));
-    verifyNever(() => crypto.canonicalPhone(any()));
+    verifyNever(
+      () => crypto.openKeyFile(
+        file: any(named: 'file'),
+        password: any(named: 'password'),
+        anchors: any(named: 'anchors'),
+      ),
+    );
     await bloc.close();
   });
 
@@ -190,13 +204,13 @@ void main() {
               DirectoryMember(
                 name: 'علی',
                 phones: const ['09121111111'],
-                publicKey: listsMe ? _b(1217, 1) : _b(1217, 5),
+                publicKey: listsMe ? _b(32, 1) : _b(32, 5),
                 keyId: listsMe ? _b(8, 1) : _b(8, 5),
               ),
               DirectoryMember(
                 name: 'مریم',
                 phones: const ['09122222222'],
-                publicKey: _b(1217, 2),
+                publicKey: _b(32, 2),
                 keyId: _b(8, 2),
               ),
             ],
@@ -322,43 +336,5 @@ void main() {
       expect(s.snapshot.directories.single.serial, 100);
       await member.close();
     });
-  });
-
-  test('a group is derived and stored; its code is kept for display', () async {
-    when(
-      () => crypto.deriveGroup(
-        name: any(named: 'name'),
-        passphrase: any(named: 'passphrase'),
-      ),
-    ).thenAnswer((_) async => (group: _b(33, 5), groupId: _b(8, 0x61)));
-    final bloc = build();
-    await settle(bloc, (s) => s.status == KeyBankStatus.ready);
-    bloc.add(const KeyBankAddGroup('گروه', 'عبارت عبور طولانی'));
-    final s = await settle(bloc, (s) => s.notice == KeyBankNotice.groupAdded);
-    expect(s.lastGroupId, '6161616161616161');
-    expect(s.snapshot.groups.single.name, 'گروه');
-    bloc.add(const KeyBankAddGroup('گروه', 'عبارت عبور طولانی'));
-    await settle(bloc, (s) => s.notice == KeyBankNotice.groupExists);
-    await bloc.close();
-  });
-
-  test('own numbers are stored canonical; a non-number is refused', () async {
-    when(
-      () => crypto.canonicalPhone('+98 912 111 1111'),
-    ).thenAnswer((_) async => '09121111111');
-    when(() => crypto.canonicalPhone('abc')).thenAnswer((_) async => null);
-    final bloc = build();
-    await settle(bloc, (s) => s.status == KeyBankStatus.ready);
-    bloc.add(const KeyBankAddOwnNumber('+98 912 111 1111'));
-    final added = await settle(
-      bloc,
-      (s) => s.notice == KeyBankNotice.numberAdded,
-    );
-    expect(added.snapshot.ownNumbers, ['09121111111']);
-    bloc.add(const KeyBankAddOwnNumber('abc'));
-    await settle(bloc, (s) => s.notice == KeyBankNotice.notANumber);
-    bloc.add(const KeyBankRemoveOwnNumber('09121111111'));
-    await settle(bloc, (s) => s.snapshot.ownNumbers.isEmpty);
-    await bloc.close();
   });
 }
