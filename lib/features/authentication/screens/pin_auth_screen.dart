@@ -22,7 +22,7 @@ class _PinAuthScreenState extends State<PinAuthScreen> {
   /// is only shown for [AuthSet], which carries it.
   int get _length {
     final state = context.read<AuthBloc>().state;
-    return state is AuthSet ? state.pinLength : PinPolicy.standardLength;
+    return state is AuthSet ? state.pinLength : PinPolicy.appLength;
   }
 
   void _onNumberPressed(String number) {

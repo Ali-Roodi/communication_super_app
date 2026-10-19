@@ -96,7 +96,7 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
               ),
               const SizedBox(height: 32),
               PinDots(
-                length: _pinLength ?? PinPolicy.standardLength,
+                length: _pinLength ?? PinPolicy.appLength,
                 filled: _pin.length,
               ),
               const SizedBox(height: 12),

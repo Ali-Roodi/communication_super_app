@@ -201,14 +201,10 @@ void main() {
     });
   });
 
-  test(
-    'PinPolicy: 4 digits commercial, 6 wherever there is a secure section',
-    () {
-      expect(PinPolicy.requiredFor(AppEdition.commercial), 4);
-      expect(PinPolicy.requiredFor(AppEdition.interOrganization), 6);
-      expect(PinPolicy.requiredFor(AppEdition.organization), 6);
-    },
-  );
+  test('PinPolicy: the app PIN is 4 digits, the section PIN 6', () {
+    expect(PinPolicy.appLength, 4);
+    expect(PinPolicy.secureLength, 6);
+  });
 
   group('SecureSessionBloc', () {
     late _MockAuth auth;
