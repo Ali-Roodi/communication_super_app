@@ -21,15 +21,33 @@ void main() {
   BlockedNumbersBloc build() => BlockedNumbersBloc(repo);
 
   blocTest<BlockedNumbersBloc, BlockedNumbersState>(
-    'LoadBlocked emits [Loading, Loaded]',
-    setUp: () =>
-        when(() => repo.getBlocked()).thenAnswer((_) async => const []),
+    'LoadBlocked syncs with the phone list, then emits [Loading, Loaded]',
+    setUp: () {
+      when(() => repo.syncWithSystem()).thenAnswer((_) async => false);
+      when(() => repo.getBlocked()).thenAnswer((_) async => const []);
+    },
     build: build,
     act: (bloc) => bloc.add(const LoadBlocked()),
     expect: () => [
       const BlockedNumbersLoading(),
       const BlockedNumbersLoaded([]),
     ],
+    verify: (_) =>
+        verifyInOrder([() => repo.syncWithSystem(), () => repo.getBlocked()]),
+  );
+
+  blocTest<BlockedNumbersBloc, BlockedNumbersState>(
+    'UnblockNumbers unblocks the whole selection in one call',
+    setUp: () {
+      when(() => repo.unblockAll(any())).thenAnswer((_) async {});
+      when(() => repo.getBlocked()).thenAnswer((_) async => const []);
+    },
+    build: build,
+    act: (bloc) =>
+        bloc.add(const UnblockNumbers(['09121112233', '09120000000'])),
+    expect: () => [const BlockedNumbersLoaded([])],
+    verify: (_) =>
+        verify(() => repo.unblockAll(['09121112233', '09120000000'])).called(1),
   );
 
   blocTest<BlockedNumbersBloc, BlockedNumbersState>(

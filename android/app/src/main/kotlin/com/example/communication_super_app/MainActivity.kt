@@ -203,6 +203,12 @@ class MainActivity : FlutterActivity() {
             EventChannel(flutterEngine.dartExecutor.binaryMessenger, SimHandler.EVENT_CHANNEL)
         )
 
+        // ── Android's own blocked list (BlockedNumberContract) ─────────
+        SystemBlockList.setup(
+            applicationContext,
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SystemBlockList.CHANNEL),
+        )
+
         // ── SIM address book (content://icc/adn) ────────────────────────
         // NOT in ContactsContract — see SimContactsHandler.
         simContactsHandler = SimContactsHandler(applicationContext)
