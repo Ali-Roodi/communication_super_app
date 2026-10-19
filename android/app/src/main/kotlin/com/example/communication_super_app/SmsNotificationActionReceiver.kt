@@ -256,6 +256,10 @@ class SmsNotificationActionReceiver : BroadcastReceiver() {
             SmsNotifier.notifyBlockFailed(context, threadId, address)
             return
         }
+        // Phone-wide, like a block made in the app: the phone's own dialer and
+        // messages app refuse the number too. (The app reconciles the two
+        // lists on its next open — see BlockedNumbersRepository.syncWithSystem.)
+        if (insertedId != null) SystemBlockList.add(context, listOf(address))
         SmsNotifier.notifyBlocked(context, threadId, address, insertedId)
         MainActivity.notifyThreadChanged(threadId)
     }
@@ -269,14 +273,11 @@ class SmsNotificationActionReceiver : BroadcastReceiver() {
         withDbRetry(context) { db ->
             db.delete("blocked_numbers", "id = ?", arrayOf(blockedRowId))
         }
+        // The block put it on the phone's own list too; the undo takes it off.
+        if (threadId != null) SystemBlockList.remove(context, listOf(threadId))
         if (threadId != null) MainActivity.notifyThreadChanged(threadId)
     }
 
-    /**
-     * Runs [block] on a writable connection, retrying a few times when the
-     * database is busy. True when it completed; false when it never did
-     * (missing database, or still locked after the retries).
-     */
     /**
      * The card the user chose for this conversation («ارسال با» — the
      * `thread_sim` table `ThreadSimRepository` writes), when it is still in
@@ -293,6 +294,11 @@ class SmsNotificationActionReceiver : BroadcastReceiver() {
         null
     }
 
+    /**
+     * Runs [block] on a writable connection, retrying a few times when the
+     * database is busy. True when it completed; false when it never did
+     * (missing database, or still locked after the retries).
+     */
     private fun withDbRetry(context: Context, block: (SQLiteDatabase) -> Unit): Boolean {
         repeat(DB_ATTEMPTS) { attempt ->
             try {

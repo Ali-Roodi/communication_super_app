@@ -38,6 +38,14 @@ class UnblockNumber extends BlockedNumbersEvent {
   List<Object?> get props => [normalized];
 }
 
+/// «رفع مسدودی» on a selection — one write, here and on the phone's list.
+class UnblockNumbers extends BlockedNumbersEvent {
+  final List<String> keys;
+  const UnblockNumbers(this.keys);
+  @override
+  List<Object?> get props => [keys];
+}
+
 /// «این هرزنامه نیست» — drops the report but keeps the block.
 class ClearSpamReport extends BlockedNumbersEvent {
   final String normalized;
@@ -108,6 +116,7 @@ class BlockedNumbersBloc
     on<LoadBlocked>(_onLoad);
     on<BlockNumber>(_onBlock);
     on<UnblockNumber>(_onUnblock);
+    on<UnblockNumbers>(_onUnblockAll);
     on<ClearSpamReport>(_onClearReport);
   }
 
@@ -120,6 +129,9 @@ class BlockedNumbersBloc
     // painted list for a spinner is a flicker with nothing behind it.
     if (state is! BlockedNumbersLoaded) emit(const BlockedNumbersLoading());
     try {
+      // Brings in what was blocked or unblocked in another app (the phone's
+      // own dialer, say) and writes out what only this app has.
+      await _repository.syncWithSystem();
       emit(BlockedNumbersLoaded(await _repository.getBlocked()));
     } catch (e) {
       emit(BlockedNumbersError(e.toString()));
@@ -156,6 +168,18 @@ class BlockedNumbersBloc
   ) async {
     try {
       await _repository.unblock(event.normalized);
+      emit(BlockedNumbersLoaded(await _repository.getBlocked()));
+    } catch (e) {
+      emit(BlockedNumbersError(e.toString()));
+    }
+  }
+
+  Future<void> _onUnblockAll(
+    UnblockNumbers event,
+    Emitter<BlockedNumbersState> emit,
+  ) async {
+    try {
+      await _repository.unblockAll(event.keys);
       emit(BlockedNumbersLoaded(await _repository.getBlocked()));
     } catch (e) {
       emit(BlockedNumbersError(e.toString()));

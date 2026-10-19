@@ -234,6 +234,9 @@ class _MainNavigationState extends State<MainNavigation>
       context.read<CallLogBloc>().add(const SyncCallLogs());
       // And for SMS: mirror-sync the provider (new/deleted rows) silently.
       context.read<MessageBloc>().add(const SyncDeviceMessages());
+      // A number may have been blocked or unblocked in another app (the
+      // phone's own dialer, say): the lists are reconciled on return.
+      context.read<BlockedNumbersBloc>().add(const LoadBlocked());
       // Scheduled sends: catch up on anything whose moment passed while we were
       // away, then re-arm the native alarm. The re-arm is the point — an alarm
       // is not durable state. Doze, App Standby and every OEM battery sweep can

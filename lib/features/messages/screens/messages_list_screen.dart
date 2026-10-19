@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:communication_super_app/features/secure_sms/screens/secure_inbox_entry.dart';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -457,7 +458,7 @@ class _MessagesListScreenState extends State<MessagesListScreen>
             // before the row landed and painted the thread the user had just
             // blocked.
             listenWhen: (previous, current) =>
-                previous.blockedKeys.length != current.blockedKeys.length,
+                !setEquals(previous.blockedKeys, current.blockedKeys),
             listener: (context, _) {
               if (mounted) context.read<MessageBloc>().add(const LoadThreads());
             },
