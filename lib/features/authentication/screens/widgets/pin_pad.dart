@@ -150,6 +150,9 @@ class BiometricUnlockKey extends StatefulWidget {
     required this.onUnlocked,
     required this.onMessage,
     this.service,
+    this.isEnabled,
+    this.attempt,
+    this.label = 'ورود با اثر انگشت یا چهره',
   });
 
   /// The biometric matched. The screen opens the app exactly as for a PIN.
@@ -160,6 +163,14 @@ class BiometricUnlockKey extends StatefulWidget {
 
   /// For tests.
   final BiometricUnlock? service;
+
+  /// Another lock's biometric — the secure section's, whose own setting and
+  /// key-bound prompt replace the app lock's [BiometricUnlock]. Both or none.
+  final Future<bool> Function()? isEnabled;
+  final Future<BiometricUnlockOutcome> Function()? attempt;
+
+  /// What a screen reader says for the key.
+  final String label;
 
   @override
   State<BiometricUnlockKey> createState() => _BiometricUnlockKeyState();
@@ -182,7 +193,7 @@ class _BiometricUnlockKeyState extends State<BiometricUnlockKey>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _service.isEnabled().then((enabled) {
+    (widget.isEnabled ?? _service.isEnabled)().then((enabled) {
       if (!mounted || !enabled) return;
       setState(() => _enabled = true);
       WidgetsBinding.instance.addPostFrameCallback((_) => _maybeAuto());
@@ -244,7 +255,7 @@ class _BiometricUnlockKeyState extends State<BiometricUnlockKey>
   Future<void> _prompt() async {
     if (_busy) return;
     setState(() => _busy = true);
-    final outcome = await _service.unlock();
+    final outcome = await (widget.attempt ?? _service.unlock)();
     if (!mounted) return;
     setState(() => _busy = false);
     switch (outcome) {
@@ -270,7 +281,7 @@ class _BiometricUnlockKeyState extends State<BiometricUnlockKey>
     final scheme = Theme.of(context).colorScheme;
     return Semantics(
       button: true,
-      label: 'ورود با اثر انگشت یا چهره',
+      label: widget.label,
       child: Material(
         color: scheme.keySurface,
         borderRadius: BorderRadius.circular(34),

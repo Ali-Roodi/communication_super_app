@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import 'package:communication_super_app/features/authentication/screens/pin_setup_screen.dart';
-import 'package:communication_super_app/features/authentication/screens/verify_pin_screen.dart';
 import '../bloc/secure_session_bloc.dart';
 import '../screens/secure_unlock_screen.dart';
 
@@ -45,19 +43,12 @@ class SecureLockButton extends StatelessWidget {
 }
 
 /// The one way into the secure section, for every «باز کردن بخش امن» — the
-/// lock icon and the button a locked screen shows ([SecureLockedView]).
-///
-/// The section opens with the app PIN, so there has to be a 6-digit one
-/// first. The locked screens used to push [SecureUnlockScreen] directly: on a
-/// phone activated before any PIN was set, that asked for «رمز برنامه» that
-/// did not exist and the key bank could never be opened.
+/// lock icon, the button a locked screen shows ([SecureLockedView]) and the
+/// «پیام رمز جدید» notification. [SecureUnlockScreen] creates the section
+/// the first time (it sets the section's own PIN) and opens it after.
 Future<void> openSecureSection(BuildContext context) async {
   final status = context.read<SecureSessionBloc>().state.status;
   switch (status) {
-    case SecureStatus.needsPin:
-      await _askForPin(context);
-    case SecureStatus.pinTooShort:
-      await _askForLongerPin(context);
     case SecureStatus.notCreated:
     case SecureStatus.locked:
     case SecureStatus.broken:
@@ -67,82 +58,5 @@ Future<void> openSecureSection(BuildContext context) async {
     case SecureStatus.unlocked:
     case SecureStatus.unavailable:
       break;
-  }
-}
-
-/// A 4-digit PIN set before activation: the section needs 6 digits. The
-/// change goes through the normal flow — current PIN, then the new one,
-/// which [PinSetupScreen] requires to be 6 digits in this edition.
-Future<void> _askForLongerPin(BuildContext context) async {
-  final change = await showDialog<bool>(
-    context: context,
-    builder: (dialogCtx) => Directionality(
-      textDirection: TextDirection.rtl,
-      child: AlertDialog(
-        title: const Text('رمز ۶ رقمی لازم است'),
-        content: const Text(
-          'بخش امن با رمز برنامه باز می‌شود و به رمز ۶ رقمی نیاز دارد. رمز '
-          'برنامه را به یک رمز ۶ رقمی تغییر دهید.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogCtx).pop(false),
-            child: const Text('انصراف'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogCtx).pop(true),
-            child: const Text('تغییر رمز'),
-          ),
-        ],
-      ),
-    ),
-  );
-  if (change != true || !context.mounted) return;
-  final currentPin = await Navigator.of(
-    context,
-  ).push<String>(MaterialPageRoute(builder: (_) => const VerifyPinScreen()));
-  if (currentPin == null || !context.mounted) return;
-  await Navigator.of(context).push<bool>(
-    MaterialPageRoute(
-      builder: (_) =>
-          PinSetupScreen(fromSettings: true, currentPin: currentPin),
-    ),
-  );
-  if (context.mounted) {
-    context.read<SecureSessionBloc>().add(const SecureSessionRefresh());
-  }
-}
-
-/// The section opens with the app PIN; there has to be one first.
-Future<void> _askForPin(BuildContext context) async {
-  final setPin = await showDialog<bool>(
-    context: context,
-    builder: (dialogCtx) => Directionality(
-      textDirection: TextDirection.rtl,
-      child: AlertDialog(
-        title: const Text('رمز برنامه لازم است'),
-        content: const Text(
-          'بخش امن با رمز ورود به برنامه باز می‌شود. ابتدا برای برنامه رمز '
-          'تعیین کنید.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogCtx).pop(false),
-            child: const Text('انصراف'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogCtx).pop(true),
-            child: const Text('تعیین رمز'),
-          ),
-        ],
-      ),
-    ),
-  );
-  if (setPin != true || !context.mounted) return;
-  await Navigator.of(context).push<bool>(
-    MaterialPageRoute(builder: (_) => const PinSetupScreen(fromSettings: true)),
-  );
-  if (context.mounted) {
-    context.read<SecureSessionBloc>().add(const SecureSessionRefresh());
   }
 }

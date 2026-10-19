@@ -29,9 +29,11 @@ import javax.crypto.SecretKey
  * full-screen intent). The framework prompt works on any activity. Below
  * Android 9 the feature is simply not offered.
  *
- * What it unlocks is the **app lock only**. The secure section is sealed under
- * the PIN itself (PBKDF2 → AES-GCM, see `VaultCrypto`), so a fingerprint cannot
- * open it and does not pretend to: it still asks for the PIN.
+ * [authenticate] unlocks the **app lock only** and accepts any biometric the
+ * phone lets apps use. The secure section has its own, stronger path
+ * ([authenticateWithCipher], [strongStatus]): a fingerprint there releases a
+ * Keystore key that seals the section's data key, so it needs a *strong*
+ * (Class 3) biometric — see `secure/SecureBiometric`.
  *
  * ### New fingerprint, no fingerprint unlock
  *
@@ -91,6 +93,37 @@ object BiometricGate {
         else -> "unsupported"
     }
 
+    /**
+     * [status] for a **strong** (Class 3) biometric — the only kind that can
+     * release a Keystore key. `none_enrolled` also when only a weak one (most
+     * face unlocks) is enrolled; `unsupported` when the phone has no strong
+     * biometric hardware at all.
+     */
+    fun strongStatus(context: Context): String {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return "unsupported"
+        val keyguard = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        if (!keyguard.isDeviceSecure) return "no_lock"
+        return try {
+            when {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> mapCanAuthenticate(
+                    context.getSystemService(BiometricManager::class.java)
+                        .canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG),
+                )
+                // Android 10's single check is already the crypto-capable one.
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> mapCanAuthenticate(
+                    @Suppress("DEPRECATION")
+                    context.getSystemService(BiometricManager::class.java).canAuthenticate(),
+                )
+                context.packageManager.hasSystemFeature(PackageManager.FEATURE_FINGERPRINT) ->
+                    "available"
+                else -> "unsupported"
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "strong status failed: ${e.javaClass.simpleName}")
+            "unsupported"
+        }
+    }
+
     // ── The prompt ──────────────────────────────────────────────────────────
 
     /** The one prompt in flight; a second request while it is up is refused. */
@@ -109,22 +142,45 @@ object BiometricGate {
         subtitle: String,
         negative: String,
         done: (String) -> Unit,
+    ) = show(activity, title, subtitle, negative, cipher = null) { outcome, _ -> done(outcome) }
+
+    /**
+     * The same prompt bound to [cipher] — initialised with a Keystore key that
+     * needs a strong biometric for every use. On `success` [done] gets the
+     * cipher back, now good for one operation. Strong biometrics only.
+     */
+    fun authenticateWithCipher(
+        activity: Activity,
+        cipher: Cipher,
+        title: String,
+        subtitle: String,
+        negative: String,
+        done: (String, Cipher?) -> Unit,
+    ) = show(activity, title, subtitle, negative, cipher, done)
+
+    private fun show(
+        activity: Activity,
+        title: String,
+        subtitle: String,
+        negative: String,
+        cipher: Cipher?,
+        done: (String, Cipher?) -> Unit,
     ) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
-            done("unsupported")
+            done("unsupported", null)
             return
         }
         if (inFlight != null) {
-            done("busy")
+            done("busy", null)
             return
         }
         var answered = false
         val signal = CancellationSignal()
-        fun finish(outcome: String) {
+        fun finish(outcome: String, unlocked: Cipher? = null) {
             if (answered) return
             answered = true
             if (inFlight === signal) inFlight = null
-            done(outcome)
+            done(outcome, unlocked)
         }
         try {
             val executor = activity.mainExecutor
@@ -137,45 +193,60 @@ object BiometricGate {
                 builder.setConfirmationRequired(false)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                // WEAK includes STRONG: whatever the phone lets apps use. Never
+                // WEAK includes STRONG: whatever the phone lets apps use; a
+                // key-bound prompt can only ever be STRONG. Never
                 // DEVICE_CREDENTIAL — the phone's own PIN is not the app's PIN,
                 // and accepting it would hand the app to anyone who knows it.
-                builder.setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_WEAK)
+                builder.setAllowedAuthenticators(
+                    if (cipher != null) BiometricManager.Authenticators.BIOMETRIC_STRONG
+                    else BiometricManager.Authenticators.BIOMETRIC_WEAK,
+                )
+            }
+            val callback = object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(
+                    result: BiometricPrompt.AuthenticationResult?,
+                ) {
+                    if (cipher == null) {
+                        finish("success")
+                        return
+                    }
+                    // The cipher the system just authorised; without it the
+                    // match is worth nothing to a key-bound caller.
+                    val unlocked = result?.cryptoObject?.cipher
+                    if (unlocked == null) finish("error") else finish("success", unlocked)
+                }
+
+                override fun onAuthenticationError(code: Int, message: CharSequence?) {
+                    Log.d(TAG, "prompt error $code")
+                    finish(
+                        when (code) {
+                            BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED,
+                            BiometricPrompt.BIOMETRIC_ERROR_CANCELED,
+                            BiometricPrompt.BIOMETRIC_ERROR_TIMEOUT,
+                            -> "cancelled"
+                            BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT -> "lockout"
+                            BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT_PERMANENT ->
+                                "lockout_permanent"
+                            BiometricPrompt.BIOMETRIC_ERROR_NO_BIOMETRICS -> "none_enrolled"
+                            BiometricPrompt.BIOMETRIC_ERROR_HW_NOT_PRESENT,
+                            BiometricPrompt.BIOMETRIC_ERROR_HW_UNAVAILABLE,
+                            -> "unavailable"
+                            else -> "error"
+                        },
+                    )
+                }
+
+                // A finger that does not match: the prompt says so itself and
+                // stays up for another try. Nothing to report.
+                override fun onAuthenticationFailed() = Unit
             }
             inFlight = signal
-            builder.build().authenticate(
-                signal,
-                executor,
-                object : BiometricPrompt.AuthenticationCallback() {
-                    override fun onAuthenticationSucceeded(
-                        result: BiometricPrompt.AuthenticationResult?,
-                    ) = finish("success")
-
-                    override fun onAuthenticationError(code: Int, message: CharSequence?) {
-                        Log.d(TAG, "prompt error $code")
-                        finish(
-                            when (code) {
-                                BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED,
-                                BiometricPrompt.BIOMETRIC_ERROR_CANCELED,
-                                BiometricPrompt.BIOMETRIC_ERROR_TIMEOUT,
-                                -> "cancelled"
-                                BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT -> "lockout"
-                                BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT_PERMANENT ->
-                                    "lockout_permanent"
-                                BiometricPrompt.BIOMETRIC_ERROR_NO_BIOMETRICS -> "none_enrolled"
-                                BiometricPrompt.BIOMETRIC_ERROR_HW_NOT_PRESENT,
-                                BiometricPrompt.BIOMETRIC_ERROR_HW_UNAVAILABLE,
-                                -> "unavailable"
-                                else -> "error"
-                            },
-                        )
-                    }
-
-                    // A finger that does not match: the prompt says so itself and
-                    // stays up for another try. Nothing to report.
-                    override fun onAuthenticationFailed() = Unit
-                },
-            )
+            val prompt = builder.build()
+            if (cipher != null) {
+                prompt.authenticate(BiometricPrompt.CryptoObject(cipher), signal, executor, callback)
+            } else {
+                prompt.authenticate(signal, executor, callback)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "prompt failed: ${e.javaClass.simpleName}")
             finish("error")

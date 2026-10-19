@@ -1,8 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/services/app_handoff.dart';
-import 'package:communication_super_app/core/services/pin_handoff.dart';
 import 'package:communication_super_app/core/navigation/call_ui_coordinator.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_bloc.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_event.dart';
@@ -153,9 +154,18 @@ class _AppLockWrapperState extends State<AppLockWrapper>
 /// ([coverRingingCall]).
 abstract final class AppLock {
   static Route<void>? _route;
+  static final List<Completer<void>> _waiting = [];
 
   /// Whether the lock screen is on the navigator.
   static bool get isUp => _route?.isActive == true;
+
+  /// Completes once no lock is on the navigator — at once when none is.
+  static Future<void> whenDown() {
+    if (!isUp) return Future<void>.value();
+    final waiter = Completer<void>();
+    _waiting.add(waiter);
+    return waiter.future;
+  }
 
   /// Whether [route] is the lock — the one route a call screen must never pop.
   static bool isLockRoute(Route<dynamic> route) => identical(route, _route);
@@ -174,7 +184,14 @@ abstract final class AppLock {
     _route = route;
     navigator.push(route).then((_) {
       // Popped — by a correct PIN, or by the recovery flow clearing the stack.
-      if (identical(_route, route)) _route = null;
+      // A lock replaced by a newer one leaves the waiters to that one.
+      if (!identical(_route, route)) return;
+      _route = null;
+      final waiting = List.of(_waiting);
+      _waiting.clear();
+      for (final waiter in waiting) {
+        waiter.complete();
+      }
     });
     if (previous != null && previous.isActive) navigator.removeRoute(previous);
   }
@@ -262,9 +279,6 @@ class _RelockScreenState extends State<RelockScreen> {
     final ok = await _repository.validatePin(_pin);
     if (!mounted) return;
     if (ok) {
-      // For «پیام رمز جدید» only: the secure section opens with this same
-      // PIN instead of asking for it a second time.
-      PinHandoff.instance.offer(_pin);
       await _repository.setAuthenticated(true);
       if (!mounted) return;
       // Over a call that cold-started the app («رمز برای پاسخ به تماس») the
@@ -287,8 +301,7 @@ class _RelockScreenState extends State<RelockScreen> {
   }
 
   /// The phone's fingerprint or face matched («باز کردن با اثر انگشت یا
-  /// چهره»): the same exit as a right PIN, minus [PinHandoff] — there is no
-  /// PIN to hand the secure section, which therefore still asks for it.
+  /// چهره»): the same exit as a right PIN.
   Future<void> _biometricUnlocked() async {
     if (_checking) return;
     _checking = true;

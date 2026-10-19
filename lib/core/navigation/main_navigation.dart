@@ -29,8 +29,9 @@ import 'package:communication_super_app/features/messages/screens/conversation_s
 import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
 import 'package:communication_super_app/core/services/deep_link_service.dart';
-import 'package:communication_super_app/core/services/pin_handoff.dart';
+import 'package:communication_super_app/core/widgets/app_lock_wrapper.dart';
 import 'package:communication_super_app/features/secure/bloc/secure_session_bloc.dart';
+import 'package:communication_super_app/features/secure/widgets/secure_lock_button.dart';
 import 'widgets/message_nav_icon.dart';
 
 class MainNavigation extends StatefulWidget {
@@ -149,7 +150,7 @@ class _MainNavigationState extends State<MainNavigation>
         Navigator.of(
           context,
         ).push(MaterialPageRoute(builder: (_) => const SecureInboxScreen()));
-        _openSecureWithLockPin();
+        _openSecureAfterAppLock();
       case LaunchActionType.hiddenCalls:
         // A hidden contact's missed call: the hidden call history, on the
         // same terms.
@@ -157,19 +158,24 @@ class _MainNavigationState extends State<MainNavigation>
         Navigator.of(
           context,
         ).push(MaterialPageRoute(builder: (_) => const HiddenCallsScreen()));
-        _openSecureWithLockPin();
+        _openSecureAfterAppLock();
     }
   }
 
-  /// The PIN the app lock just took (or is about to) opens the secure section
-  /// too: one PIN for the notification, not the same PIN twice in a row.
-  void _openSecureWithLockPin() {
-    final secure = context.read<SecureSessionBloc>();
-    PinHandoff.instance.claim((pin) {
-      if (secure.state.status == SecureStatus.locked) {
-        secure.add(SecureUnlockRequested(pin));
-      }
-    });
+  /// The section's own unlock screen, straight after the app lock — its
+  /// fingerprint prompt first when that is on. It has its own PIN, so there is
+  /// no PIN of the app lock's to reuse; but the user tapped a notification
+  /// that only the section can answer, and a locked screen with a button is
+  /// one tap too many. Never pushed over the app lock: it waits for that to go.
+  Future<void> _openSecureAfterAppLock() async {
+    await AppLock.whenDown();
+    // A frame for the screen just pushed to settle under it.
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    if (context.read<SecureSessionBloc>().state.status != SecureStatus.locked) {
+      return;
+    }
+    await openSecureSection(context);
   }
 
   /// A notification action changed [threadId] in the database while the app

@@ -37,7 +37,6 @@ import 'package:communication_super_app/features/call_history/bloc/call_log_even
 import 'package:communication_super_app/features/call_history/services/native_call_log_service.dart';
 import 'package:communication_super_app/features/messages/bloc/message_event.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
-import 'package:communication_super_app/features/secure/repositories/secure_store.dart';
 
 class AppBlocProviders extends StatelessWidget {
   final Widget child;
@@ -60,19 +59,17 @@ class AppBlocProviders extends StatelessWidget {
         ),
         BlocProvider(
           create: (context) =>
-              AuthBloc(AuthRepository(), secureStore: SecureStore.instance)
-                ..add(const CheckAuthStatus()),
+              AuthBloc(AuthRepository())..add(const CheckAuthStatus()),
         ),
-        // AFTER both blocs it reads (EditionBloc, AuthBloc): a provider can
+        // AFTER the bloc it reads (EditionBloc): a provider can
         // only read the ones listed above it, and reading one below throws on
         // the first frame — every launch. Eager for the same reason as
         // EditionBloc: the lock icon in every tab header reads it at once.
         BlocProvider(
           lazy: false,
-          create: (context) => SecureSessionBloc(
-            edition: context.read<EditionBloc>(),
-            authChanges: context.read<AuthBloc>().stream,
-          )..add(const SecureSessionRefresh()),
+          create: (context) =>
+              SecureSessionBloc(edition: context.read<EditionBloc>())
+                ..add(const SecureSessionRefresh()),
         ),
         // «بانک کلید» — AFTER SecureSessionBloc, which it follows: it loads when
         // the section opens and empties itself when it locks. Lazy: nothing

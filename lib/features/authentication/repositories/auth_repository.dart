@@ -84,6 +84,14 @@ class AuthRepository {
   /// How long until another PIN attempt is allowed; null when it is now.
   Future<Duration?> pinRetryAfter() => _limiter.retryAfter();
 
+  /// Whether [pin] is the app PIN — for refusing it as the secure section's
+  /// PIN, which must be a different one. Not an unlock: it neither counts
+  /// against nor clears the attempt budget, and it is only reachable from
+  /// inside an unlocked app.
+  Future<bool> isAppPin(String pin) async =>
+      await getAuthType() == AuthType.pin &&
+      await _verify(AppConstants.pinKey, pin);
+
   Future<bool> validatePattern(List<int> pattern) =>
       _verify(AppConstants.patternKey, pattern.join(','));
 
