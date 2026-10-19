@@ -33,7 +33,7 @@ import 'package:communication_super_app/features/favorites/models/favorite_model
 import 'package:communication_super_app/features/messages/screens/conversation_screen.dart';
 import 'package:communication_super_app/features/settings/screens/widgets/block_number_dialog.dart';
 
-/// What the «سیم‌کارت تماس» sheet pops with for «پیش‌فرض سیستم».
+/// What the «سیم‌کارت تماس» sheet pops with for «پیش‌فرض».
 ///
 /// A sentinel rather than `null`, because `null` is already what a *dismissed*
 /// sheet returns — and clearing the preference must not be confused with
@@ -77,7 +77,7 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
   String? _defaultPhone;
 
   /// Subscription id of the SIM this contact's calls go out on, or null for
-  /// «پیش‌فرض سیستم» — no card pinned for this person.
+  /// «پیش‌فرض» — no card pinned for this person.
   ///
   /// Also the platform's own (`PREFERRED_PHONE_ACCOUNT_*`, Android 10+) — the
   /// pair Google Contacts writes from its «Calling account» row — so the choice
@@ -182,7 +182,7 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
   /// Asks which SIM this contact's calls should go out on, and stores it in the
   /// address book.
   ///
-  /// «پیش‌فرض سیستم» is a real answer and the sheet offers it, because a pinned
+  /// «پیش‌فرض» is a real answer and the sheet offers it, because a pinned
   /// card is a decision the user must be able to take back — the same reason
   /// «حذف شماره پیش‌فرض» exists.
   Future<void> _pickCallingSim() async {
@@ -222,15 +222,14 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
                 ),
               const Divider(height: 1),
               // NOT «هر بار بپرس», and the difference is not cosmetic: clearing
-              // the contact's preference hands the decision back to
-              // `resolveVoiceSim`, which honours the phone's own default voice
-              // SIM without asking — on a phone with one pinned, this row
-              // dialled that card silently while promising a question.
+              // the contact's preference hands the decision back to the
+              // ordinary rules (`placeCall`) — the app's default, else the
+              // phone's — which dial without asking when one is set.
               ListTile(
                 leading: const Icon(Icons.settings_outlined),
-                title: const Text('پیش‌فرض سیستم'),
+                title: const Text('پیش‌فرض'),
                 subtitle: const Text(
-                  'بدون سیم‌کارت ثابت برای این مخاطب — طبق تنظیم گوشی',
+                  'بدون سیم‌کارت ثابت برای این مخاطب — طبق تنظیم «سیم‌کارت‌ها»',
                 ),
                 trailing: current == null
                     ? Icon(
@@ -260,7 +259,7 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
     setState(() => _callingSim = subscriptionId < 0 ? null : subscriptionId);
     _snack(
       subscriptionId < 0
-          ? 'به پیش‌فرض سیستم برگشت'
+          ? 'به پیش‌فرض برگشت'
           : 'تماس‌ها با ${(chosen as SimCard).slotLabel} گرفته می‌شود',
     );
   }
@@ -844,7 +843,7 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
           title: const Text('سیم‌کارت تماس'),
           subtitle: Text(
             _callingSimCard == null
-                ? 'پیش‌فرض سیستم'
+                ? 'پیش‌فرض'
                 : '${_callingSimCard!.slotLabel} · ${_callingSimCard!.name}',
           ),
           onTap: _pickCallingSim,
@@ -1175,7 +1174,7 @@ class _DeviceContactDetailScreenState extends State<DeviceContactDetailScreen> {
                   title: const Text('سیم‌کارت همیشگی تماس'),
                   subtitle: Text(
                     _callingSimCard == null
-                        ? 'پیش‌فرض سیستم'
+                        ? 'پیش‌فرض'
                         : '${_callingSimCard!.slotLabel} · '
                               '${_callingSimCard!.name}',
                   ),

@@ -5,7 +5,6 @@ import '../models/message_group.dart';
 import '../models/message_model.dart';
 import '../repositories/group_repository.dart';
 import '../repositories/message_repository.dart';
-import '../repositories/thread_sim_repository.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/settings/repositories/blocked_numbers_repository.dart';
 import 'package:communication_super_app/core/services/device_sync_queue.dart';
@@ -80,7 +79,6 @@ class SmsService {
   final NativeSmsService _nativeSmsService = NativeSmsService();
   final BlockedNumbersRepository _blockedRepository =
       BlockedNumbersRepository();
-  final ThreadSimRepository _threadSimRepository = ThreadSimRepository();
   final GroupRepository _groupRepository = GroupRepository();
   Function(MessageModel)? onMessageReceived;
   // _imported flag moved to SharedPreferences (sms_imported_v1) — B6 fix
@@ -370,19 +368,13 @@ class SmsService {
       }
     }
 
-    final updated = await refreshGroupMessageStatus(
+    await refreshGroupMessageStatus(
       message.id,
       // The moment the radio accepted the first copy is the message's time —
       // the composer's optimistic timestamp is from before the send.
       timestamp: acceptedAt,
       subscriptionId: usedSubscription ?? message.subscriptionId,
     );
-    if (updated != null) {
-      await _threadSimRepository.remember(
-        updated.threadId,
-        updated.subscriptionId,
-      );
-    }
     if (anySent) return const SmsServiceResult.ok();
     return SmsServiceResult.fail(firstErrorCode ?? 'SMS_SEND_FAILED');
   }
@@ -537,9 +529,6 @@ class SmsService {
       } else {
         await _messageRepository.createMessage(sent);
       }
-      // Remember the card for this conversation — written on the send, not on
-      // the pick, so it always reflects what actually went out.
-      await _threadSimRepository.remember(sent.threadId, sent.subscriptionId);
       if (alreadyStored) {
         _statusController.add((
           messageId: sent.id,
@@ -647,9 +636,6 @@ class SmsService {
                 );
 
                 await _messageRepository.createMessage(messageModel);
-                // The arrival SIM of this conversation just changed hands;
-                // drop the memo so the next reply is composed on it.
-                ThreadSimRepository.invalidateIncoming(threadId);
 
                 // NOTE: no Dart-side notification here — the native receiver
                 // (SmsNotifier) already posted one with inline-reply and
@@ -837,11 +823,6 @@ class SmsService {
 
     await importMissing('inbox', inboxIds, MessageType.received);
     await importMissing('sent', sentIds, MessageType.sent);
-
-    // Imported rows carry the SIM the provider stamped them with, so anything
-    // memoized about which card a conversation arrives on is now a guess made
-    // from less data.
-    ThreadSimRepository.clearIncoming();
 
     // ── 3. Remove local rows deleted on the device ─────────────────────────
     // A local row linked to a provider id that is in neither box no longer

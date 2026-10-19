@@ -76,9 +76,9 @@ class DisplayOptionsPage extends StatelessWidget {
             title: 'انتخاب پوسته',
             current: t.mode,
             options: const {
+              AppThemeMode.system: 'پیش‌فرض گوشی',
               AppThemeMode.light: 'روشن',
               AppThemeMode.dark: 'تاریک',
-              AppThemeMode.system: 'پیش‌فرض سیستم',
             },
             onSelected: (m) => context.themeBloc.add(SetThemeMode(m)),
           ),

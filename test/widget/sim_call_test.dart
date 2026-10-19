@@ -2,14 +2,20 @@ import 'package:communication_super_app/core/sim/sim_call.dart';
 import 'package:communication_super_app/core/sim/sim_card.dart';
 import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:communication_super_app/core/sim/widgets/call_icon_button.dart';
+import 'package:communication_super_app/features/settings/screens/sim_settings_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-/// Which card a plain dial goes out on. Reported from the field: a phone
-/// pinned to SIM 1 for calls placed most of its calls on SIM 2 — «اخیر»
-/// called back on the line a call had come in on, and the pinned default was
-/// read once per process — and the second number was given away.
+/// Which card a dial goes out on: a card picked for this one call, else the
+/// contact's own card, else the app's default (Settings → «سیم‌کارت‌ها»),
+/// else the phone's default, else a question. Everything but the pick and the
+/// question is routed natively (`SimRegistry.routeFor`) — the Dart side then
+/// names no card at all, so a call follows the phone's own setting exactly.
+/// Reported from the field: a phone pinned to SIM 2 dialled on SIM 1, because
+/// the app passed the pinned card back to telecom as an explicit account on a
+/// build where the two defaults disagreed.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -30,18 +36,29 @@ void main() {
   const simChannel = MethodChannel('com.example.communication_super_app/sim');
   const callChannel = MethodChannel('com.example.communication_super_app/call');
 
-  /// What Android's settings say right now.
-  late int systemVoice;
+  /// The native side's answer to `callRoute`, as `SimRegistry.routeFor` would
+  /// give it. Null = the channel fails.
+  late Map<String, Object?>? route;
   late List<int> dialled;
+  late Map<String, Object?> mirrored;
 
   setUp(() {
-    systemVoice = sim1.subscriptionId;
+    SharedPreferences.setMockInitialValues({});
+    route = {'route': 'phone_default', 'subscriptionId': sim1.subscriptionId};
     dialled = [];
+    mirrored = {};
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(simChannel, (call) async {
-      if (call.method == 'getDefaults') {
-        return {'sms': sim1.subscriptionId, 'voice': systemVoice, 'data': 10};
+      switch (call.method) {
+        case 'getDefaults':
+          return {'sms': 10, 'voice': 10, 'data': 10, 'voicePinned': true};
+        case 'callRoute':
+          if (route == null) throw PlatformException(code: 'SIM_ERROR');
+          return route;
+        case 'setAppDefaults':
+          mirrored = Map<String, Object?>.from(call.arguments as Map);
+          return null;
       }
       return null;
     });
@@ -92,30 +109,28 @@ void main() {
     return results;
   }
 
-  testWidgets('a call-back from «اخیر» uses the pinned SIM, not the line '
-      'the call came in on', (tester) async {
+  testWidgets('with a default, the call names no card and nothing asks — '
+      'not even the line a call in «اخیر» came in on', (tester) async {
     final results = await pumpCaller(tester, suggested: sim2);
     await tester.tap(find.text('dial'));
     await tester.pumpAndSettle();
     expect(find.text('تماس با کدام سیم‌کارت؟'), findsNothing);
-    expect(dialled, [sim1.subscriptionId]);
+    expect(dialled, [-1]); // routed natively: the phone's own default
     expect(results, [true]);
   });
 
-  testWidgets('a default re-pinned in Android settings is followed without '
-      'a restart', (tester) async {
-    systemVoice = sim2.subscriptionId; // changed while the app was alive
-    final results = await pumpCaller(tester);
+  testWidgets('a contact\'s own card is routed natively too', (tester) async {
+    route = {'route': 'contact', 'subscriptionId': sim2.subscriptionId};
+    await pumpCaller(tester);
     await tester.tap(find.text('dial'));
     await tester.pumpAndSettle();
-    expect(dialled, [sim2.subscriptionId]);
-    expect(results, [true]);
+    expect(find.text('تماس با کدام سیم‌کارت؟'), findsNothing);
+    expect(dialled, [-1]);
   });
 
-  testWidgets('with nothing pinned the picker opens on the row\'s card', (
-    tester,
-  ) async {
-    systemVoice = SimCard.invalidSubscriptionId;
+  testWidgets('«ask every time»: the picker opens on the row\'s card and the '
+      'pick is dialled explicitly', (tester) async {
+    route = {'route': 'ask', 'subscriptionId': -1};
     await pumpCaller(tester, suggested: sim2);
     await tester.tap(find.text('dial'));
     await tester.pumpAndSettle();
@@ -133,9 +148,19 @@ void main() {
     expect(dialled, [sim2.subscriptionId]);
   });
 
-  testWidgets('holding a call button opens the SIM picker, not a tooltip', (
+  testWidgets('a route that cannot be read asks rather than guessing', (
     tester,
   ) async {
+    route = null;
+    await pumpCaller(tester);
+    await tester.tap(find.text('dial'));
+    await tester.pumpAndSettle();
+    expect(find.text('تماس با کدام سیم‌کارت؟'), findsOneWidget);
+  });
+
+  testWidgets('holding a call button opens the SIM picker, not a tooltip, '
+      'on the card a plain tap would use', (tester) async {
+    route = {'route': 'phone_default', 'subscriptionId': sim1.subscriptionId};
     // Android (the test default) is where a tooltip opens on long-press.
     await tester.pumpWidget(
       MaterialApp(
@@ -154,19 +179,26 @@ void main() {
     await tester.longPress(find.byType(CallIconButton));
     await tester.pumpAndSettle();
     expect(find.text('تماس با کدام سیم‌کارت؟'), findsOneWidget);
+    final checked = find.ancestor(
+      of: find.byIcon(Icons.check_circle),
+      matching: find.byType(ListTile),
+    );
+    expect(
+      find.descendant(of: checked, matching: find.text('سیم ۱ · Irancell')),
+      findsOneWidget,
+    );
     await tester.tap(find.text('سیم ۲ · Irancell'));
     await tester.pumpAndSettle();
     expect(dialled, [sim2.subscriptionId]);
 
-    // A plain tap still goes out on the pinned card.
+    // A plain tap still follows the ordinary rules.
     await tester.tap(find.byType(CallIconButton));
     await tester.pumpAndSettle();
-    expect(dialled, [sim2.subscriptionId, sim1.subscriptionId]);
+    expect(dialled, [sim2.subscriptionId, -1]);
   });
 
-  testWidgets('dismissing the picker cancels the call, even when the pinned '
-      'card is gone', (tester) async {
-    systemVoice = 99; // a card no longer in the phone
+  testWidgets('dismissing the picker cancels the call', (tester) async {
+    route = {'route': 'ask', 'subscriptionId': -1};
     final results = await pumpCaller(tester);
     await tester.tap(find.text('dial'));
     await tester.pumpAndSettle();
@@ -175,5 +207,56 @@ void main() {
     await tester.pumpAndSettle();
     expect(dialled, isEmpty);
     expect(results, [false]);
+  });
+
+  group('the app\'s own default («سیم‌کارت‌ها»)', () {
+    test('starts out following the phone, and says which card that is', () {
+      expect(SimService.appDefault(SimUse.voice), SimService.appFollowPhone);
+      expect(SimService.defaultFor(SimUse.sms), sim1);
+      expect(
+        SimSettingsPage.summaryFor(SimUse.sms),
+        'پیش‌فرض گوشی · سیم ۱ · Irancell',
+      );
+    });
+
+    test(
+      'a chosen card wins over the phone\'s, is stored and mirrored',
+      () async {
+        await SimService.instance.setAppDefault(
+          SimUse.sms,
+          sim2.subscriptionId,
+        );
+        expect(SimService.defaultFor(SimUse.sms), sim2);
+        expect(SimSettingsPage.summaryFor(SimUse.sms), 'سیم ۲ · Irancell');
+        expect(mirrored['sms'], sim2.subscriptionId);
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getInt('sim_default_sms'), sim2.subscriptionId);
+
+        await SimService.instance.setAppDefault(
+          SimUse.voice,
+          SimService.appAsk,
+        );
+        expect(SimService.defaultFor(SimUse.voice), isNull);
+        expect(SimSettingsPage.summaryFor(SimUse.voice), 'هر بار بپرس');
+        expect(mirrored['voice'], SimService.appAsk);
+
+        // SMS has no «ask»: a conversation always names its card.
+        await SimService.instance.setAppDefault(SimUse.sms, SimService.appAsk);
+        expect(SimService.appDefault(SimUse.sms), sim2.subscriptionId);
+
+        // A card no longer in the phone reads as "follow the phone".
+        await SimService.instance.setAppDefault(SimUse.sms, 99);
+        expect(SimService.defaultFor(SimUse.sms), sim1);
+
+        await SimService.instance.setAppDefault(
+          SimUse.sms,
+          SimService.appFollowPhone,
+        );
+        await SimService.instance.setAppDefault(
+          SimUse.voice,
+          SimService.appFollowPhone,
+        );
+      },
+    );
   });
 }

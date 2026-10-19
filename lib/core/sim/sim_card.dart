@@ -105,23 +105,33 @@ class SimDefaults extends Equatable {
     required this.sms,
     required this.voice,
     required this.data,
+    this.voicePinned = false,
   });
 
   const SimDefaults.unknown()
     : sms = SimCard.invalidSubscriptionId,
       voice = SimCard.invalidSubscriptionId,
-      data = SimCard.invalidSubscriptionId;
+      data = SimCard.invalidSubscriptionId,
+      voicePinned = false;
 
   final int sms;
+
+  /// The card telecom places an ordinary call on (`SimRegistry
+  /// .defaultVoiceAccount`), or invalid for «ask every time».
   final int voice;
   final int data;
+
+  /// Whether the phone has a default calling account at all — true even in
+  /// the rare case where its card could not be named ([voice] invalid).
+  final bool voicePinned;
 
   factory SimDefaults.fromMap(Map<String, dynamic> map) => SimDefaults(
     sms: (map['sms'] as num?)?.toInt() ?? SimCard.invalidSubscriptionId,
     voice: (map['voice'] as num?)?.toInt() ?? SimCard.invalidSubscriptionId,
     data: (map['data'] as num?)?.toInt() ?? SimCard.invalidSubscriptionId,
+    voicePinned: map['voicePinned'] == true,
   );
 
   @override
-  List<Object?> get props => [sms, voice, data];
+  List<Object?> get props => [sms, voice, data, voicePinned];
 }

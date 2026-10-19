@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:communication_super_app/core/sim/sim_call.dart';
-import 'package:communication_super_app/core/sim/sim_card.dart';
 import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:communication_super_app/core/sim/widgets/call_icon_button.dart';
 import 'package:communication_super_app/core/sim/widgets/sim_picker.dart';
@@ -552,25 +551,26 @@ class DialerCallPill extends StatelessWidget {
     final number = bloc.state.dialedNumber;
     if (number.isEmpty) return;
 
-    SimCard? chosen;
+    int? subscriptionId;
     if (forcePick && SimService.isMultiSim) {
       await HapticFeedback.mediumImpact();
+      final route = await SimService.instance.callRoute(number);
       if (!context.mounted) return;
-      chosen = await showSimPicker(
+      final chosen = await showSimPicker(
         context,
         title: 'تماس با کدام سیم‌کارت؟',
         subtitle: number,
-        selected: SimService.defaultFor(SimUse.voice),
+        selected: route.sim,
       );
       if (chosen == null) return; // dismissed = cancelled
+      subscriptionId = chosen.subscriptionId;
     } else {
       if (!context.mounted) return;
-      chosen = await resolveVoiceSim(context, number);
-      // Dismissed picker = cancelled call. Only distinguishable on a phone
-      // that would have asked in the first place.
-      if (chosen == null && wouldAskForVoiceSim) return;
+      final choice = await chooseVoiceSim(context, number);
+      if (!choice.go) return; // dismissed = cancelled
+      subscriptionId = choice.subscriptionId;
     }
-    bloc.add(MakeCall(subscriptionId: chosen?.subscriptionId));
+    bloc.add(MakeCall(subscriptionId: subscriptionId));
     // The dialer lives in a modal bottom sheet (launched from the FAB);
     // dismiss it so the system call UI is unobstructed.
     navigator.maybePop();
@@ -620,7 +620,7 @@ class DialerCallPill extends StatelessWidget {
     // No SIM chip beside the pill, on one card or two. Google Phone's keypad
     // carries none either: the card is decided by Android's own default, and
     // when nothing is pinned the picker opens on the dial itself
-    // ([resolveVoiceSim]) — which is a question asked at the moment it matters
+    // ([chooseVoiceSim]) — which is a question asked at the moment it matters
     // rather than a control sitting on the keypad for ever. The per-call
     // override survives as the long-press on the pill.
     return pill;

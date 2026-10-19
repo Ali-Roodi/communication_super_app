@@ -11,27 +11,20 @@ import 'widgets/sim_picker.dart';
 ///
 /// Every dial goes through here so the "which SIM" question is answered
 /// identically everywhere — keypad, call log, contact page, favourites,
-/// conversation header. Google Phone's rules, which this follows:
+/// conversation header — and identically to the dials placed with no Flutter
+/// engine (the missed-call «تماس»), because the native side decides by the
+/// same rule (`SimRegistry.routeFor`):
 ///
-/// * one SIM → the question never exists;
-/// * two SIMs and a default voice SIM pinned in Android settings → the tap
-///   just calls, on the default (second-guessing the system setting is the
-///   bug, not the feature);
-/// * two SIMs and «هر بار بپرس» → ask on the dial;
-/// * nothing else picks a card silently — not even the line a call in
-///   «اخیر» came in on, which put calls on SIM 2 of a phone pinned to SIM 1
-///   and gave the second number away;
-/// * **and, always, an explicit way to override for this one call** —
-///   [placeCallPickingSim], reached by long-pressing any call affordance and
-///   by the «تماس با سیم …» rows. Without it a pinned default meant the other
-///   card was simply unreachable from the app, which is the whole complaint
-///   dual-SIM support exists to answer.
+/// 1. [sim] — a card picked for this one call (long-press, «تماس با سیم …»);
+/// 2. the contact's own card («سیم‌کارت تماس» on the contact page);
+/// 3. the app's default (Settings → «سیم‌کارت‌ها»);
+/// 4. the phone's own default — dialled with **no** card named, so telecom
+///    uses exactly the setting Android's settings show;
+/// 5. otherwise ask.
 ///
-/// [sim] is an explicit choice for this one call — the user picked it, or
-/// pinned it on the contact — and is never re-asked. [suggested] is only a
-/// hint: the card the picker opens on when it has to ask. «اخیر» passes the
-/// card a row's call used as the hint, never as the choice — see
-/// `docs/architecture/dual-sim.md`.
+/// One SIM: the question never exists. [suggested] is only the card the
+/// picker opens on when it has to ask — «اخیر» passes the card a row's call
+/// used, never as the choice (see `docs/architecture/dual-sim.md`).
 ///
 /// Returns false when the user dismissed the picker, so a caller that also
 /// closes a sheet can leave it open instead.
@@ -42,25 +35,36 @@ Future<bool> placeCall(
   SimCard? suggested,
 }) async {
   if (number.trim().isEmpty) return false;
-
-  // An explicit choice is never re-asked.
-  if (sim != null) {
-    await NativeCallService.instance.makeCall(
-      number,
-      subscriptionId: sim.subscriptionId,
-    );
-    return true;
-  }
-
-  final resolved = await resolveVoiceSim(context, number, suggested: suggested);
-  // A dismissed picker is a cancelled call — only on a phone that would have
-  // asked can `null` mean that.
-  if (resolved == null && wouldAskForVoiceSim) return false;
+  final choice = sim != null
+      ? (go: true, subscriptionId: sim.subscriptionId)
+      : await chooseVoiceSim(context, number, suggested: suggested);
+  if (!choice.go) return false;
   await NativeCallService.instance.makeCall(
     number,
-    subscriptionId: resolved?.subscriptionId,
+    subscriptionId: choice.subscriptionId,
   );
   return true;
+}
+
+/// The card an ordinary dial of [number] goes out on, asking only when the
+/// rules in [placeCall] leave a real choice. [subscriptionId] null means "let
+/// the native side route it" (the contact's card, the app's default or the
+/// phone's); [go] false means the user backed out of the picker.
+Future<({bool go, int? subscriptionId})> chooseVoiceSim(
+  BuildContext context,
+  String number, {
+  SimCard? suggested,
+}) async {
+  final route = await SimService.instance.callRoute(number);
+  if (!route.asks) return (go: true, subscriptionId: null);
+  if (!context.mounted) return (go: false, subscriptionId: null);
+  final picked = await showSimPicker(
+    context,
+    title: 'تماس با کدام سیم‌کارت؟',
+    subtitle: number,
+    selected: suggested,
+  );
+  return (go: picked != null, subscriptionId: picked?.subscriptionId);
 }
 
 /// Always asks which SIM, then calls. The long-press gesture and the explicit
@@ -76,53 +80,18 @@ Future<bool> placeCallPickingSim(
   if (!SimService.isMultiSim) return placeCall(context, number);
 
   await HapticFeedback.mediumImpact();
+  // Pre-selects what an ordinary tap would have used, so the sheet shows
+  // which card is about to be overridden.
+  final route = await SimService.instance.callRoute(number);
   if (!context.mounted) return false;
   final sim = await showSimPicker(
     context,
     title: title ?? 'تماس با کدام سیم‌کارت؟',
     subtitle: number,
-    // Pre-selects what an ordinary tap would have used, so the sheet shows
-    // which card is about to be overridden.
-    selected: SimService.defaultFor(SimUse.voice),
+    selected: route.sim,
   );
   if (sim == null || !context.mounted) return false;
   return placeCall(context, number, sim: sim);
-}
-
-/// Whether a plain dial would put a question in front of the user.
-///
-/// Asked of the same [SimService.defaultFor] that [resolveVoiceSim] decides
-/// with. Comparing the raw id with "invalid" instead disagreed with it when
-/// the pinned id named a card no longer in the phone: the picker opened, and
-/// dismissing it placed the call anyway.
-bool get wouldAskForVoiceSim =>
-    SimService.isMultiSim && SimService.defaultFor(SimUse.voice) == null;
-
-/// The SIM a call should go out on, asking only when there is a real choice.
-///
-/// The system default is re-read first. It used to be read once, at
-/// launch: this app is the default dialer and its process lives for days,
-/// so a default re-pinned in Android's settings went on being overridden —
-/// by an explicit handle for the *old* card — until the app was killed.
-///
-/// Null means "let telecom decide" *or* "the user backed out" — [placeCall]
-/// tells the two apart with [wouldAskForVoiceSim].
-Future<SimCard?> resolveVoiceSim(
-  BuildContext context,
-  String number, {
-  SimCard? suggested,
-}) async {
-  if (!SimService.isMultiSim) return null;
-  await SimService.instance.refreshDefaults();
-  final pinned = SimService.defaultFor(SimUse.voice);
-  if (pinned != null) return pinned;
-  if (!context.mounted) return null;
-  return showSimPicker(
-    context,
-    title: 'تماس با کدام سیم‌کارت؟',
-    subtitle: number,
-    selected: suggested,
-  );
 }
 
 /// The «تماس با سیم ۱» / «تماس با سیم ۲» rows a bottom sheet lists under its

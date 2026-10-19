@@ -8,6 +8,7 @@ import android.provider.CallLog
 import android.util.Log
 import com.example.communication_super_app.hidden.HiddenCallLog
 import com.example.communication_super_app.hidden.HiddenNumbers
+import com.example.communication_super_app.sim.SimRegistry
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -185,6 +186,9 @@ class CallLogSyncHandler(private val context: Context) {
         val hiding = HiddenNumbers.any(context)
         if (hiding) HiddenCallLog.sweepAsync(context, full = false)
         val rows = ArrayList<Map<String, Any?>>()
+        // Each distinct account is resolved once: a log has thousands of rows
+        // and at most a handful of accounts.
+        val simOfAccount = HashMap<Pair<String?, String>, Int?>()
         context.contentResolver.query(
             CallLog.Calls.CONTENT_URI,
             arrayOf(
@@ -194,6 +198,7 @@ class CallLogSyncHandler(private val context: Context) {
                 CallLog.Calls.DATE,
                 CallLog.Calls.DURATION,
                 CallLog.Calls.PHONE_ACCOUNT_ID,
+                CallLog.Calls.PHONE_ACCOUNT_COMPONENT_NAME,
             ),
             if (where.isEmpty()) null else where.joinToString(" AND "),
             if (args.isEmpty()) null else args.toTypedArray(),
@@ -205,11 +210,21 @@ class CallLogSyncHandler(private val context: Context) {
             val dateIndex = cursor.getColumnIndex(CallLog.Calls.DATE)
             val durationIndex = cursor.getColumnIndex(CallLog.Calls.DURATION)
             val accountIndex = cursor.getColumnIndex(CallLog.Calls.PHONE_ACCOUNT_ID)
+            val componentIndex = cursor.getColumnIndex(CallLog.Calls.PHONE_ACCOUNT_COMPONENT_NAME)
             while (cursor.moveToNext()) {
                 if (hiding && numberIndex >= 0 &&
                     HiddenNumbers.isHidden(context, cursor.getString(numberIndex))
                 ) {
                     continue
+                }
+                val accountId = if (accountIndex >= 0) cursor.getString(accountIndex) else null
+                val component = if (componentIndex >= 0) cursor.getString(componentIndex) else null
+                // The SIM, asked of telephony with the whole account — see
+                // SimRegistry.subscriptionOfAccount. Null for a VoIP call.
+                val subscriptionId = accountId?.let { id ->
+                    simOfAccount.getOrPut(component to id) {
+                        SimRegistry.subscriptionOfAccount(context, component, id)
+                    }
                 }
                 rows.add(
                     mapOf(
@@ -225,8 +240,8 @@ class CallLogSyncHandler(private val context: Context) {
                             } else {
                                 null
                             },
-                        "phoneAccountId" to
-                            if (accountIndex >= 0) cursor.getString(accountIndex) else null,
+                        "phoneAccountId" to accountId,
+                        "subscriptionId" to subscriptionId,
                     ),
                 )
             }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' show AppLifecycleListener;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'sim_card.dart';
 
@@ -127,6 +128,7 @@ class SimService {
         }
       }
       await loadPhoneAccounts();
+      await _loadAppDefaults();
       _publish(sims);
       // A direct load satisfies ensureLoaded too — otherwise the permission
       // gate's re-read and the call-log sync would each pay for their own.
@@ -264,17 +266,113 @@ class SimService {
     return null;
   }
 
-  /// The SIM a send/dial should use when the user has expressed no preference:
-  /// the system default when one is pinned, otherwise the only SIM, otherwise
-  /// null (which means "ask" on a dual-SIM phone and "let the platform pick"
-  /// on a single-SIM one).
+  /// The card an ordinary send or dial uses when nothing more specific —
+  /// a pick for this one call, the contact's or the conversation's own card —
+  /// applies: the app's own default (Settings → «سیم‌کارت‌ها»), else the
+  /// phone's, else the only SIM. Null means "ask" on a dual-SIM phone and
+  /// "let the platform pick" on a single-SIM one.
   static SimCard? defaultFor(SimUse use) {
-    final pinned = byId(switch (use) {
-      SimUse.sms => _defaults.sms,
-      SimUse.voice => _defaults.voice,
-    });
-    if (pinned != null) return pinned;
-    return _cache.length == 1 ? _cache.first : null;
+    final app = appDefault(use);
+    if (app == appAsk) return null;
+    final own = byId(app);
+    if (own != null) return own;
+    return phoneDefault(use) ?? (_cache.length == 1 ? _cache.first : null);
+  }
+
+  /// The card the phone itself has pinned for [use], or null.
+  static SimCard? phoneDefault(SimUse use) => byId(switch (use) {
+    SimUse.sms => _defaults.sms,
+    SimUse.voice => _defaults.voice,
+  });
+
+  // ── The app's own default card (Settings → «سیم‌کارت‌ها») ──────────────────
+  //
+  // [appFollowPhone] until the user picks one, so the app starts out doing
+  // exactly what the phone's settings say. A stored card that is no longer in
+  // the phone reads as "follow the phone" too. Mirrored natively
+  // (`setAppDefaults` → `SimRegistry`), because the missed-call «تماس»,
+  // the notification quick reply and a call another app starts are all placed
+  // with no Flutter engine.
+
+  /// Follow the phone's own default.
+  static const int appFollowPhone = -1;
+
+  /// Calls only: ask on every dial.
+  static const int appAsk = -2;
+
+  static const _voiceKey = 'sim_default_voice';
+  static const _smsKey = 'sim_default_sms';
+  static int _appVoice = appFollowPhone;
+  static int _appSms = appFollowPhone;
+
+  /// The stored choice for [use]: a subscription id, [appFollowPhone] or
+  /// (voice only) [appAsk].
+  static int appDefault(SimUse use) =>
+      use == SimUse.voice ? _appVoice : _appSms;
+
+  Future<void> _loadAppDefaults() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _appVoice = prefs.getInt(_voiceKey) ?? appFollowPhone;
+      _appSms = prefs.getInt(_smsKey) ?? appFollowPhone;
+    } catch (e) {
+      debugPrint('SIM defaults read failed: $e');
+    }
+    await _mirrorAppDefaults();
+  }
+
+  /// Stores the app's default card for [use] — a subscription id,
+  /// [appFollowPhone] or (voice) [appAsk].
+  Future<void> setAppDefault(SimUse use, int value) async {
+    if (use == SimUse.sms && value == appAsk) return;
+    final prefs = await SharedPreferences.getInstance();
+    if (use == SimUse.voice) {
+      _appVoice = value;
+      await prefs.setInt(_voiceKey, value);
+    } else {
+      _appSms = value;
+      await prefs.setInt(_smsKey, value);
+    }
+    await _mirrorAppDefaults();
+    revision.value++;
+  }
+
+  Future<void> _mirrorAppDefaults() async {
+    try {
+      await _method.invokeMethod<void>('setAppDefaults', {
+        'voice': _appVoice,
+        'sms': _appSms,
+      });
+    } catch (e) {
+      debugPrint('SIM defaults mirror failed: $e');
+    }
+  }
+
+  /// How an ordinary dial of [number] would pick its card, asked of the
+  /// native side — which places the call by the very same rule
+  /// (`SimRegistry.routeFor`): the contact's own card, else the app's
+  /// default, else the phone's, else a question. [CallRoute.sim] is that card
+  /// when it is known.
+  Future<CallRoute> callRoute(String number) async {
+    if (!isMultiSim) return const CallRoute(CallRouteKind.single);
+    await refreshDefaults();
+    try {
+      final map = await _method.invokeMapMethod<String, dynamic>('callRoute', {
+        'number': number,
+      });
+      final kind = switch (map?['route']) {
+        'contact' => CallRouteKind.contact,
+        'app' => CallRouteKind.app,
+        'phone_default' => CallRouteKind.phoneDefault,
+        'ask' => CallRouteKind.ask,
+        _ => CallRouteKind.single,
+      };
+      return CallRoute(kind, byId((map?['subscriptionId'] as num?)?.toInt()));
+    } catch (e) {
+      debugPrint('callRoute failed: $e');
+      // Unknown: ask rather than let telecom stall on «ask every time».
+      return const CallRoute(CallRouteKind.ask);
+    }
   }
 
   @visibleForTesting
@@ -300,3 +398,15 @@ class SimService {
 }
 
 enum SimUse { sms, voice }
+
+enum CallRouteKind { single, contact, app, phoneDefault, ask }
+
+/// See [SimService.callRoute].
+class CallRoute {
+  const CallRoute(this.kind, [this.sim]);
+  final CallRouteKind kind;
+  final SimCard? sim;
+
+  /// Whether the dial has to ask which card.
+  bool get asks => kind == CallRouteKind.ask;
+}

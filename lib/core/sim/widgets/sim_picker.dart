@@ -158,8 +158,89 @@ Future<SimCard?> showSimPicker(
 }) async {
   final sims = SimService.cached;
   if (sims.length < 2) return sims.isEmpty ? null : sims.first;
+  return _showSimSheet<SimCard>(
+    context,
+    title: title,
+    subtitle: subtitle,
+    rows: (sheetContext) => [
+      for (final sim in sims)
+        _SimRow(
+          sim: sim,
+          selected: sim.subscriptionId == selected?.subscriptionId,
+          onTap: () => Navigator.of(sheetContext).pop(sim),
+        ),
+    ],
+  );
+}
 
-  return showModalBottomSheet<SimCard>(
+/// What [showSimChoice] answers: one card, or «پیش‌فرض» — no card of its own,
+/// the default decides (and goes on deciding when it changes).
+class SimChoice {
+  const SimChoice.card(SimCard this.sim) : tag = null;
+  const SimChoice.useDefault() : sim = null, tag = null;
+
+  /// A row the caller added through `extra`, told apart by [tag].
+  const SimChoice.other(Object this.tag) : sim = null;
+
+  final SimCard? sim;
+  final Object? tag;
+  bool get isDefault => sim == null && tag == null;
+}
+
+/// A *setting* rather than an action: which card something uses from now on —
+/// one card, or [SimChoice.useDefault]. [selected] null means the default is
+/// the current answer. [extra] adds rows of the caller's own (Settings'
+/// «هر بار بپرس»). Returns null when dismissed.
+Future<SimChoice?> showSimChoice(
+  BuildContext context, {
+  required String title,
+  required String defaultLabel,
+  String? defaultSubtitle,
+  SimCard? selected,
+  bool defaultSelected = false,
+  String? subtitle,
+  List<Widget> Function(BuildContext sheetContext)? extra,
+}) {
+  final sims = SimService.cached;
+  return _showSimSheet<SimChoice>(
+    context,
+    title: title,
+    subtitle: subtitle,
+    rows: (sheetContext) {
+      final scheme = Theme.of(sheetContext).colorScheme;
+      return [
+        ListTile(
+          leading: const Icon(Icons.settings_suggest_outlined),
+          title: Text(defaultLabel),
+          subtitle: defaultSubtitle == null ? null : Text(defaultSubtitle),
+          trailing: defaultSelected
+              ? Icon(Icons.check, color: scheme.primary)
+              : null,
+          onTap: () =>
+              Navigator.of(sheetContext).pop(const SimChoice.useDefault()),
+        ),
+        ...?extra?.call(sheetContext),
+        const Divider(height: 1),
+        for (final sim in sims)
+          _SimRow(
+            sim: sim,
+            selected:
+                !defaultSelected &&
+                sim.subscriptionId == selected?.subscriptionId,
+            onTap: () => Navigator.of(sheetContext).pop(SimChoice.card(sim)),
+          ),
+      ];
+    },
+  );
+}
+
+Future<T?> _showSimSheet<T>(
+  BuildContext context, {
+  required String title,
+  String? subtitle,
+  required List<Widget> Function(BuildContext sheetContext) rows,
+}) {
+  return showModalBottomSheet<T>(
     context: context,
     backgroundColor: Theme.of(context).colorScheme.raisedSurface,
     shape: const RoundedRectangleBorder(
@@ -201,12 +282,7 @@ Future<SimCard?> showSimPicker(
               ),
             ],
             const SizedBox(height: AppDimensions.paddingSm),
-            for (final sim in sims)
-              _SimRow(
-                sim: sim,
-                selected: sim.subscriptionId == selected?.subscriptionId,
-                onTap: () => Navigator.of(sheetContext).pop(sim),
-              ),
+            ...rows(sheetContext),
             const SizedBox(height: AppDimensions.paddingSm),
           ],
         ),

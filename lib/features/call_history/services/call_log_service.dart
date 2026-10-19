@@ -374,6 +374,7 @@ class CallLogService {
               (data['timestamp'] as int?) ??
               DateTime.now().millisecondsSinceEpoch,
           'phoneAccountId': data['phoneAccountId'],
+          'subscriptionId': data['subscriptionId'],
         };
       }).toList()..sort(
         (a, b) => (b['timestamp'] as int).compareTo(a['timestamp'] as int),
@@ -391,13 +392,14 @@ class CallLogService {
         timestamp: DateTime.fromMillisecondsSinceEpoch(
           data['timestamp'] as int,
         ),
-        // The call log records the PhoneAccount id of the SIM that took the
-        // call; SimService maps it back to a subscription. This replaced
-        // `simDisplayName != null ? 1 : null`, which reported «سیم ۱» for
-        // every call on either card — a fake, not a fallback.
-        subscriptionId: SimService.subscriptionForAccountId(
-          data['phoneAccountId'] as String?,
-        ),
+        // Resolved natively from the row's whole PhoneAccount (component +
+        // id), which telephony answers whatever the id looks like on this
+        // build; the id-only map is the fallback for a row it could not.
+        subscriptionId:
+            (data['subscriptionId'] as num?)?.toInt() ??
+            SimService.subscriptionForAccountId(
+              data['phoneAccountId'] as String?,
+            ),
       );
     }).toList();
   }
