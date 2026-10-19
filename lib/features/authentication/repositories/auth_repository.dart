@@ -50,7 +50,7 @@ class AuthRepository {
   /// dots from and submits at. Recorded with the PIN ([setPin]).
   Future<int> pinLength() async {
     final value = await _storage.read(key: AppConstants.pinLengthKey);
-    return int.tryParse(value ?? '') ?? PinPolicy.standardLength;
+    return int.tryParse(value ?? '') ?? PinPolicy.appLength;
   }
 
   Future<void> setPattern(List<int> pattern) async {

@@ -359,7 +359,7 @@ class _RelockScreenState extends State<RelockScreen> {
                 ),
                 const SizedBox(height: 24),
                 PinDots(
-                  length: _pinLength ?? PinPolicy.standardLength,
+                  length: _pinLength ?? PinPolicy.appLength,
                   filled: _pin.length,
                 ),
                 const SizedBox(height: 48),
