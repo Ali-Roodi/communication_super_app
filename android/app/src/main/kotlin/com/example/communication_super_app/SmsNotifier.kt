@@ -152,12 +152,7 @@ object SmsNotifier {
                     .setPackage(context.packageName)
                     .putExtra(SmsNotificationActionReceiver.EXTRA_ADDRESS, address)
                     .putExtra(SmsNotificationActionReceiver.EXTRA_THREAD_ID, threadId)
-                    .putExtra(SmsNotificationActionReceiver.EXTRA_NOTIF_ID, notifId)
-                    // Reply on the card the message arrived on.
-                    .putExtra(
-                        SmsNotificationActionReceiver.EXTRA_SUBSCRIPTION_ID,
-                        subscriptionId,
-                    ),
+                    .putExtra(SmsNotificationActionReceiver.EXTRA_NOTIF_ID, notifId),
                 mutableFlags,
             )
             val replyAction = NotificationCompat.Action

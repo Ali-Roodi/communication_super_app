@@ -51,7 +51,6 @@ class SmsNotificationActionReceiver : BroadcastReceiver() {
         const val EXTRA_NOTIF_ID = "notif_id"
 
         /** SIM the incoming message arrived on — the reply goes out on it. */
-        const val EXTRA_SUBSCRIPTION_ID = "subscription_id"
         const val KEY_REPLY_TEXT = "key_reply_text"
     }
 
@@ -84,16 +83,12 @@ class SmsNotificationActionReceiver : BroadcastReceiver() {
             return
         }
 
-        // 1. Send — on the SIM the message came in on. Answering a work
-        //    number from the personal card because the shade forgot which one
-        //    it was is exactly the mistake dual-SIM support exists to prevent.
-        //    -1 (unknown SIM, or a phone with one) falls back to the default.
-        val requestedSubId = intent.getIntExtra(EXTRA_SUBSCRIPTION_ID, -1)
-        val subscriptionId = if (requestedSubId >= 0) {
-            requestedSubId
-        } else {
-            SimRegistry.defaultSmsSubscriptionId()
-        }
+        // 1. Send — on the card the conversation would use in the app: the
+        //    one the user chose for it («ارسال با», `thread_sim`), else the
+        //    app's default, else the phone's. -1 (one SIM, nothing pinned)
+        //    lets the platform decide.
+        val subscriptionId = chosenThreadSim(context, threadId)
+            ?: SimRegistry.defaultSmsFor(context)
         @Suppress("DEPRECATION")
         val base = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             context.getSystemService(SmsManager::class.java)
@@ -282,6 +277,22 @@ class SmsNotificationActionReceiver : BroadcastReceiver() {
      * database is busy. True when it completed; false when it never did
      * (missing database, or still locked after the retries).
      */
+    /**
+     * The card the user chose for this conversation («ارسال با» — the
+     * `thread_sim` table `ThreadSimRepository` writes), when it is still in
+     * the phone; null for none.
+     */
+    private fun chosenThreadSim(context: Context, threadId: String): Int? = try {
+        openDb(context)?.use { db ->
+            db.rawQuery(
+                "SELECT subscription_id FROM thread_sim WHERE thread_id = ? LIMIT 1",
+                arrayOf(threadId),
+            ).use { c -> if (c.moveToFirst()) c.getInt(0) else null }
+        }?.takeIf { sub -> SimRegistry.subscriptions(context).any { it.subscriptionId == sub } }
+    } catch (e: Exception) {
+        null
+    }
+
     private fun withDbRetry(context: Context, block: (SQLiteDatabase) -> Unit): Boolean {
         repeat(DB_ATTEMPTS) { attempt ->
             try {

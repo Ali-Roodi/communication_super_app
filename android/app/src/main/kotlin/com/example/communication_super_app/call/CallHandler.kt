@@ -392,13 +392,21 @@ class CallHandler(
         // at the `#` — it would read as a fragment.
         val uri = Uri.fromParts("tel", clean, null)
 
-        // Which SIM to dial from. A null handle means "let telecom choose",
-        // which is the right behaviour on a single-SIM phone and whenever the
-        // user has a default voice SIM pinned — telecom then honours the system
-        // setting instead of us second-guessing it. It also covers the case
-        // where the requested subscription has no matching phone account (a
-        // card removed between the picker and the tap).
-        val account: PhoneAccountHandle? = SimRegistry.phoneAccountFor(context, subscriptionId)
+        // Which SIM to dial from. A card picked for this one call wins. Without
+        // one, the contact's own «سیم‌کارت تماس» does (its stored handle, as
+        // is); without that, NO handle — telecom then dials on the phone's own
+        // default, which is exactly the setting the user sees in Android's
+        // settings. Passing the default's subscription back as an explicit
+        // handle is what put calls on SIM 1 of a phone pinned to SIM 2 on a
+        // build whose subscription and telecom defaults disagree.
+        val account: PhoneAccountHandle? = if (subscriptionId >= 0) {
+            SimRegistry.phoneAccountFor(context, subscriptionId)
+        } else {
+            // CONTACT / APP carry their handle; PHONE_DEFAULT and SINGLE carry
+            // none; ASK cannot happen here — the Dart side asks first.
+            val (route, handle) = SimRegistry.routeFor(context, clean)
+            if (route == SimRegistry.CallRoute.PHONE_DEFAULT) null else handle
+        }
 
         if (isDefaultDialer()) {
             // Default-dialer path: TelecomManager.placeCall is the direct API —

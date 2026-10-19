@@ -27,8 +27,6 @@ class ThemeState {
 
   const ThemeState(this.mode);
 
-  bool get isDark => mode == AppThemeMode.dark;
-
   /// Flutter [ThemeMode] for MaterialApp.
   ThemeMode get themeMode {
     switch (mode) {
@@ -41,8 +39,6 @@ class ThemeState {
     }
   }
 
-  static const light = ThemeState(AppThemeMode.light);
-  static const dark = ThemeState(AppThemeMode.dark);
   static const system = ThemeState(AppThemeMode.system);
 }
 
@@ -51,7 +47,9 @@ class ThemeState {
 class ThemeBloc extends Bloc<ThemeEvent, ThemeState> {
   static const _modeKey = 'theme_mode';
 
-  ThemeBloc() : super(ThemeState.light) {
+  /// The phone's own light/dark setting until the user picks one: that is
+  /// also what the first frame paints with, before the stored choice is read.
+  ThemeBloc() : super(ThemeState.system) {
     on<LoadTheme>(_onLoad);
     // Only these two: the theme is set from Settings, which always names the
     // mode it wants. The old toggle/set-dark/set-light trio was never
@@ -66,7 +64,7 @@ class ThemeBloc extends Bloc<ThemeEvent, ThemeState> {
       ThemeState(
         AppThemeMode.values.firstWhere(
           (m) => m.name == stored,
-          orElse: () => AppThemeMode.light,
+          orElse: () => AppThemeMode.system,
         ),
       ),
     );

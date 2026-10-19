@@ -46,14 +46,38 @@ class SimHandler(private val context: Context) {
                             mapOf(
                                 "accountId" to handle.id,
                                 "subscriptionId" to
-                                    SimRegistry.subscriptionIdForAccountId(context, handle.id),
+                                    SimRegistry.subscriptionOfAccount(context, handle),
                             )
                         }
                     )
+                    // How an ordinary dial of this number picks its card:
+                    // the contact's own, the phone's default, or a question.
+                    "callRoute" -> {
+                        val number = call.argument<String>("number").orEmpty()
+                        val (route, handle) = SimRegistry.routeFor(context, number)
+                        result.success(
+                            mapOf(
+                                "route" to route.name.lowercase(),
+                                "subscriptionId" to
+                                    (SimRegistry.subscriptionOfAccount(context, handle) ?: -1),
+                            ),
+                        )
+                    }
+                    "setAppDefaults" -> {
+                        SimRegistry.setAppDefaults(
+                            context,
+                            call.argument<Int>("voice") ?: SimRegistry.APP_FOLLOW_PHONE,
+                            call.argument<Int>("sms") ?: SimRegistry.APP_FOLLOW_PHONE,
+                        )
+                        result.success(null)
+                    }
                     "getDefaults" -> result.success(
                         mapOf(
                             "sms" to SimRegistry.defaultSmsSubscriptionId(),
-                            "voice" to SimRegistry.defaultVoiceSubscriptionId(),
+                            // Telecom's own choice, which is what an ordinary
+                            // call actually goes out on — see defaultVoiceAccount.
+                            "voice" to SimRegistry.defaultVoiceSubscriptionId(context),
+                            "voicePinned" to (SimRegistry.defaultVoiceAccount(context) != null),
                             "data" to SimRegistry.defaultDataSubscriptionId(),
                         )
                     )

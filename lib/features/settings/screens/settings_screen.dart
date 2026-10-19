@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:communication_super_app/core/sim/sim_service.dart';
+import 'package:communication_super_app/features/settings/screens/sim_settings_page.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:communication_super_app/core/edition/app_edition.dart';
@@ -90,6 +92,15 @@ class SettingsScreen extends StatelessWidget {
                   summary: 'ناشناس، خارج از مخاطبین، بین‌المللی، تبلیغاتی',
                   onTap: () => _push(context, const CallBlockRulesPage()),
                 ),
+                // Only where the question exists: a single-SIM phone has no
+                // card to choose.
+                if (SimService.isMultiSim)
+                  SettingsRow(
+                    icon: Icons.sim_card_outlined,
+                    title: 'سیم‌کارت‌ها',
+                    summary: 'سیم‌کارت پیش‌فرض تماس و پیامک',
+                    onTap: () => _push(context, const SimSettingsPage()),
+                  ),
                 SettingsRow(
                   icon: Icons.list,
                   title: 'گزینه‌های نمایش',

@@ -322,40 +322,8 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
     if (confirmed == true) bloc.add(const ClearCallLogs());
   }
 
-  /// Collapses consecutive calls to/from the same number on the same calendar
-  /// day into one [_CallGroup] (the representative is the most recent call).
-  /// Mirrors Google Phone's «(×N)» grouping.
-  List<_CallGroup> _groupCallLogs(List<CallLogModel> logs) {
-    final groups = <_CallGroup>[];
-    var i = 0;
-    while (i < logs.length) {
-      final base = logs[i];
-      final baseKey = _normalize(base.phoneNumber);
-      final baseDay = _dayOf(base.timestamp);
-
-      var j = i + 1;
-      while (j < logs.length) {
-        final next = logs[j];
-        if (_normalize(next.phoneNumber) == baseKey &&
-            _dayOf(next.timestamp) == baseDay) {
-          j++;
-        } else {
-          break;
-        }
-      }
-      groups.add(_CallGroup(logs.sublist(i, j)));
-      i = j;
-    }
-    return groups;
-  }
-
-  /// Grouping key for consecutive calls to the same person. Must be the
-  /// canonical form: a digits-only strip left `+989121234567` and `09121234567`
-  /// looking like two different people, so two consecutive calls to one contact
-  /// did not collapse into one «(۲)» row.
-  static String _normalize(String phone) => PhoneNormalizer.toNational(phone);
-
-  static DateTime _dayOf(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
+  List<_CallGroup> _groupCallLogs(List<CallLogModel> logs) =>
+      callLogRuns(logs).map(_CallGroup.new).toList();
 }
 
 /// Every call merged into one recents row. [logs] is ordered newest-first, so
@@ -381,3 +349,41 @@ class _Row {
     required this.isLast,
   });
 }
+
+/// Collapses consecutive calls to/from the same number, on the same calendar
+/// day **and on the same SIM**, into one run (the first is the most recent
+/// call). Google Phone's «(×N)» grouping, which also splits on the account: a
+/// call on SIM 2 folded under a SIM 1 row showed only «۱» and hid that the
+/// other line was used at all (found on the SM A336E).
+@visibleForTesting
+List<List<CallLogModel>> callLogRuns(List<CallLogModel> logs) {
+  final runs = <List<CallLogModel>>[];
+  var i = 0;
+  while (i < logs.length) {
+    final base = logs[i];
+    final baseKey = _groupingKey(base.phoneNumber);
+    final baseDay = _dayOf(base.timestamp);
+    var j = i + 1;
+    while (j < logs.length) {
+      final next = logs[j];
+      if (_groupingKey(next.phoneNumber) == baseKey &&
+          _dayOf(next.timestamp) == baseDay &&
+          next.subscriptionId == base.subscriptionId) {
+        j++;
+      } else {
+        break;
+      }
+    }
+    runs.add(logs.sublist(i, j));
+    i = j;
+  }
+  return runs;
+}
+
+/// Grouping key for consecutive calls to the same person. Must be the
+/// canonical form: a digits-only strip left `+989121234567` and `09121234567`
+/// looking like two different people, so two consecutive calls to one contact
+/// did not collapse into one «(۲)» row.
+String _groupingKey(String phone) => PhoneNormalizer.toNational(phone);
+
+DateTime _dayOf(DateTime dt) => DateTime(dt.year, dt.month, dt.day);

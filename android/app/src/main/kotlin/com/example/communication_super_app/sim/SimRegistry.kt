@@ -1,8 +1,11 @@
 package com.example.communication_super_app.sim
 
 import android.annotation.SuppressLint
+import android.content.ComponentName
 import android.content.Context
+import android.net.Uri
 import android.os.Build
+import android.provider.ContactsContract
 import android.telecom.PhoneAccount
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
@@ -353,9 +356,27 @@ object SimRegistry {
         val iccId = manager?.activeSubscriptionInfoList
             ?.firstOrNull { it.subscriptionId == subscriptionId }
             ?.let { runCatching { it.iccId }.getOrNull() }
-        !iccId.isNullOrBlank() && (handle.id == iccId || handle.id.startsWith(iccId))
+        iccMatches(handle.id, iccId)
     } catch (e: Exception) {
         false
+    }
+
+    /**
+     * Whether an account id and an ICC ID name the same card. Builds whose
+     * account id is the ICC ID do not agree on its spelling: some keep the
+     * trailing `F` padding of an odd-length ICC ID, some drop it, some
+     * upper-case the hex and some do not — and an exact comparison then
+     * misses every call, which is a SIM badge that never appears.
+     */
+    internal fun iccMatches(accountId: String?, iccId: String?): Boolean {
+        if (accountId.isNullOrBlank() || iccId.isNullOrBlank()) return false
+        val a = accountId.trim().uppercase().trimEnd('F')
+        val b = iccId.trim().uppercase().trimEnd('F')
+        if (a.isEmpty() || b.isEmpty()) return false
+        if (a == b) return true
+        // A prefix only counts when both are long enough to be ICC IDs (18–20
+        // digits): a short id that happens to start the same is not a card.
+        return a.length >= 18 && b.length >= 18 && (a.startsWith(b) || b.startsWith(a))
     }
 
     /**
@@ -385,14 +406,179 @@ object SimRegistry {
         return try {
             val manager = subscriptionManager(context) ?: return null
             manager.activeSubscriptionInfoList
-                ?.firstOrNull {
-                    val iccId = runCatching { it.iccId }.getOrNull()
-                    !iccId.isNullOrBlank() && (accountId == iccId || accountId.startsWith(iccId))
-                }
+                ?.firstOrNull { iccMatches(accountId, runCatching { it.iccId }.getOrNull()) }
                 ?.subscriptionId
         } catch (e: Exception) {
             null
         }
+    }
+
+    /**
+     * The SIM behind a telecom account — of a live call, or rebuilt from a
+     * call-log row's component and id.
+     *
+     * Telephony is asked about the *whole* handle first. That is what was
+     * missing: the call screen and the call log only ever looked the account
+     * up by its id string, which is the subscription id on some builds and
+     * the ICC ID (or something else again) on others — so on those phones a
+     * call on SIM 2 carried no SIM at all. Telephony knows its own accounts
+     * whatever their ids look like.
+     */
+    fun subscriptionOfAccount(context: Context, handle: PhoneAccountHandle?): Int? {
+        if (handle == null) return null
+        val subs = subscriptions(context)
+        if (subs.isEmpty()) return null
+        subscriptionOfHandle(context, handle)
+            ?.takeIf { sub -> subs.any { it.subscriptionId == sub } }
+            ?.let { return it }
+        return subscriptionIdForAccountId(context, handle.id)
+    }
+
+    /** [subscriptionOfAccount] for a call-log row's `PHONE_ACCOUNT_*` pair. */
+    fun subscriptionOfAccount(context: Context, component: String?, accountId: String?): Int? {
+        if (accountId.isNullOrBlank()) return null
+        val name = component?.let { ComponentName.unflattenFromString(it) }
+            ?: return subscriptionIdForAccountId(context, accountId)
+        return subscriptionOfAccount(context, PhoneAccountHandle(name, accountId))
+    }
+
+    /**
+     * The account telecom itself places an ordinary call on — the phone's own
+     * «default SIM for calls» — or null when the user chose «ask every time»
+     * (or it names a card that is not callable now).
+     *
+     * This, and not `SubscriptionManager`'s default voice subscription, is
+     * the setting telecom routes by: some builds keep the two apart, and a
+     * call placed by the app on the subscription default then left on a
+     * different card from the one the phone's settings show.
+     */
+    @SuppressLint("MissingPermission")
+    fun defaultVoiceAccount(context: Context): PhoneAccountHandle? = try {
+        val telecom = context.getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
+        val selected = telecom?.userSelectedOutgoingPhoneAccount
+        selected?.takeIf { it in telecom.callCapablePhoneAccounts }
+    } catch (e: Exception) {
+        Log.w(TAG, "default voice account unreadable: ${e.javaClass.simpleName}")
+        null
+    }
+
+    /** The SIM of [defaultVoiceAccount], for showing it; -1 when there is none. */
+    fun defaultVoiceSubscriptionId(context: Context): Int =
+        subscriptionOfAccount(context, defaultVoiceAccount(context)) ?: INVALID_SUBSCRIPTION_ID
+
+    /**
+     * The calling account the contact holding [number] is pinned to
+     * («سیم‌کارت تماس», `Phone.PREFERRED_PHONE_ACCOUNT_*`, Android 10+), when
+     * it is a card this phone can call on now; null otherwise.
+     *
+     * The handle is returned as stored, not re-derived from a subscription:
+     * it is exactly what telecom needs, and a round trip through the
+     * subscription would add a mapping that can only go wrong.
+     */
+    @SuppressLint("MissingPermission")
+    fun contactCallAccount(context: Context, number: String): PhoneAccountHandle? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || number.isBlank()) return null
+        return try {
+            val resolver = context.contentResolver
+            val lookup = Uri.withAppendedPath(
+                ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+                Uri.encode(number),
+            )
+            val contactId = resolver.query(
+                lookup,
+                arrayOf(ContactsContract.PhoneLookup._ID),
+                null,
+                null,
+                null,
+            )?.use { c -> if (c.moveToFirst()) c.getLong(0) else null } ?: return null
+            val handle = resolver.query(
+                ContactsContract.Data.CONTENT_URI,
+                arrayOf(
+                    ContactsContract.CommonDataKinds.Phone.PREFERRED_PHONE_ACCOUNT_COMPONENT_NAME,
+                    ContactsContract.CommonDataKinds.Phone.PREFERRED_PHONE_ACCOUNT_ID,
+                ),
+                "${ContactsContract.Data.CONTACT_ID} = ? AND ${ContactsContract.Data.MIMETYPE} = ? AND " +
+                    "${ContactsContract.CommonDataKinds.Phone.PREFERRED_PHONE_ACCOUNT_COMPONENT_NAME} IS NOT NULL",
+                arrayOf(contactId.toString(), ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE),
+                null,
+            )?.use { c ->
+                if (!c.moveToFirst()) return@use null
+                val component = c.getString(0)?.let { ComponentName.unflattenFromString(it) }
+                val id = c.getString(1)
+                if (component == null || id.isNullOrEmpty()) null else PhoneAccountHandle(component, id)
+            } ?: return null
+            val telecom = context.getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
+            handle.takeIf { telecom?.callCapablePhoneAccounts?.contains(it) == true }
+        } catch (e: Exception) {
+            // No contacts permission, or a provider that refuses: no preference.
+            null
+        }
+    }
+
+    // ── The app's own default card (Settings → «سیم‌کارت‌ها») ──────────────
+    // Mirrored from `SimService.setAppDefault`. Absent / -1 = follow the
+    // phone; -2 = calls ask every time; anything else is a subscription id,
+    // honoured only while that card is in the phone.
+
+    private const val PREFS = "sim_prefs"
+    private const val KEY_VOICE = "app_default_voice"
+    private const val KEY_SMS = "app_default_sms"
+    const val APP_FOLLOW_PHONE = -1
+    const val APP_ASK = -2
+
+    fun setAppDefaults(context: Context, voice: Int, sms: Int) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putInt(KEY_VOICE, voice)
+            .putInt(KEY_SMS, sms)
+            .apply()
+    }
+
+    private fun appDefault(context: Context, key: String): Int =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(key, APP_FOLLOW_PHONE)
+
+    private fun active(context: Context, subscriptionId: Int): Boolean =
+        subscriptionId >= 0 && subscriptions(context).any { it.subscriptionId == subscriptionId }
+
+    /**
+     * The card an SMS goes out on when its conversation has none of its own:
+     * the app's default, else the phone's (-1 = let the platform pick).
+     */
+    fun defaultSmsFor(context: Context): Int {
+        val app = appDefault(context, KEY_SMS)
+        return if (active(context, app)) app else defaultSmsSubscriptionId()
+    }
+
+    /** How an ordinary dial of a number chooses its SIM — see [routeFor]. */
+    enum class CallRoute { CONTACT, APP, PHONE_DEFAULT, ASK, SINGLE }
+
+    /**
+     * Where a call to [number] goes when nobody picked a card for this one
+     * call: the contact's own card, else the app's default (Settings →
+     * «سیم‌کارت‌ها»), else the phone's default, else the user is asked.
+     * [CallRoute.SINGLE] when there is nothing to choose. The handle is what
+     * to dial with; null for [CallRoute.PHONE_DEFAULT] on purpose — telecom
+     * then uses its own default.
+     */
+    fun routeFor(context: Context, number: String): Pair<CallRoute, PhoneAccountHandle?> {
+        val telecom = context.getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
+        val accounts = try {
+            @SuppressLint("MissingPermission")
+            val list = telecom?.callCapablePhoneAccounts
+            list ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+        if (accounts.size < 2) return CallRoute.SINGLE to null
+        contactCallAccount(context, number)?.let { return CallRoute.CONTACT to it }
+        when (val app = appDefault(context, KEY_VOICE)) {
+            APP_ASK -> return CallRoute.ASK to null
+            APP_FOLLOW_PHONE -> Unit
+            else -> if (active(context, app)) {
+                phoneAccountFor(context, app)?.let { return CallRoute.APP to it }
+            }
+        }
+        defaultVoiceAccount(context)?.let { return CallRoute.PHONE_DEFAULT to it }
+        return CallRoute.ASK to null
     }
 
     /** Every call-capable account paired with the subscription it belongs to. */

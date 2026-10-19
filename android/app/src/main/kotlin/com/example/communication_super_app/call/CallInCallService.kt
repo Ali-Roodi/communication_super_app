@@ -13,6 +13,7 @@ import android.telecom.Call
 import android.telecom.CallAudioState
 import android.telecom.DisconnectCause
 import android.telecom.InCallService
+import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
 import android.telecom.VideoProfile
 import android.util.Log
@@ -695,6 +696,14 @@ class CallInCallService : InCallService() {
             return
         }
 
+        // A dial telecom could not place without a card: the phone is set to
+        // «ask every time» and nothing picked one. The app's own dials always
+        // name the card in that case (it asks first), so this is a dial from
+        // outside its UI. The in-call screen has no account picker; left alone
+        // the call would sit here for ever, so the contact's own card answers,
+        // else the subscription default, else the first card.
+        if (call.state == Call.STATE_SELECT_PHONE_ACCOUNT) selectAccountFor(call)
+
         // Blocked caller: reject immediately, show nothing. Telecom records
         // the rejected call in the call log (typed BLOCKED/REJECTED), so it
         // still appears in «اخیر» without ever ringing the user.
@@ -1024,10 +1033,7 @@ class CallInCallService : InCallService() {
         if (call.details?.disconnectCause?.code == DisconnectCause.MISSED) {
             postMissedCallNotification(
                 phoneOf(call),
-                SimRegistry.subscriptionIdForAccountId(
-                    this,
-                    call.details?.accountHandle?.id,
-                ) ?: -1,
+                SimRegistry.subscriptionOfAccount(this, call.details?.accountHandle) ?: -1,
             )
         }
 
@@ -1264,10 +1270,7 @@ class CallInCallService : InCallService() {
             // call log uses. -1 for a VoIP account or an unreadable roster,
             // which the UI renders as no badge rather than a guessed SIM.
             "subscriptionId" to (
-                SimRegistry.subscriptionIdForAccountId(
-                    this,
-                    call.details?.accountHandle?.id,
-                ) ?: -1
+                SimRegistry.subscriptionOfAccount(this, call.details?.accountHandle) ?: -1
             ),
             // When the call connected, per telecom (0 = not yet). The call
             // timer is derived from this rather than counted in Dart: the call
@@ -1353,8 +1356,24 @@ class CallInCallService : InCallService() {
      * Telecom names a `PhoneAccountHandle`, never a subscription, so this is
      * the same mapping the published call state and the call log use.
      */
+    private fun selectAccountFor(call: Call) {
+        val extras = call.details?.extras
+        val available: List<PhoneAccountHandle> = when {
+            extras == null -> null
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ->
+                extras.getParcelableArrayList(Call.AVAILABLE_PHONE_ACCOUNTS, PhoneAccountHandle::class.java)
+            else -> @Suppress("DEPRECATION") extras.getParcelableArrayList(Call.AVAILABLE_PHONE_ACCOUNTS)
+        } ?: emptyList()
+        if (available.isEmpty()) return
+        val preferred = SimRegistry.contactCallAccount(this, phoneOf(call))
+            ?: SimRegistry.phoneAccountFor(this, SimRegistry.defaultVoiceSubscriptionId())
+        val choice = preferred?.takeIf { it in available } ?: available.first()
+        Log.d(TAG, "No card was picked for this call; using one of ${available.size}")
+        call.phoneAccountSelected(choice, false)
+    }
+
     private fun subscriptionOf(call: Call): Int =
-        SimRegistry.subscriptionIdForAccountId(this, call.details?.accountHandle?.id)
+        SimRegistry.subscriptionOfAccount(this, call.details?.accountHandle)
             ?: SimRegistry.INVALID_SUBSCRIPTION_ID
 
     /**
@@ -1897,8 +1916,16 @@ class CallActionReceiver : android.content.BroadcastReceiver() {
         try {
             val uri = Uri.fromParts("tel", phone, null)
             val subscriptionId = intent.getIntExtra(EXTRA_SUBSCRIPTION_ID, -1)
-            // Call back on the card that took the call, when we know which.
-            val account = SimRegistry.phoneAccountFor(context, subscriptionId)
+            // The same rules as any other dial (`SimRegistry.routeFor`): the
+            // contact's own card, else the phone's default. Only on a phone set
+            // to «ask every time» — and there is no picker in a notification
+            // action — is the card that took the call used.
+            val (route, routed) = SimRegistry.routeFor(context, phone)
+            val account = when (route) {
+                SimRegistry.CallRoute.CONTACT, SimRegistry.CallRoute.APP -> routed
+                SimRegistry.CallRoute.ASK -> SimRegistry.phoneAccountFor(context, subscriptionId)
+                else -> null
+            }
             val extras = android.os.Bundle().apply {
                 if (account != null) {
                     putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, account)

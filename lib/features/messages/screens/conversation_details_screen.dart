@@ -95,6 +95,9 @@ class _ConversationDetailsScreenState extends State<ConversationDetailsScreen> {
   late SimCard? _sim = widget.sim ?? ThreadSimRepository.defaultSim;
   bool _simChanged = false;
 
+  /// Whether this conversation has a card of its own, or follows the default.
+  late bool _simOwn = ThreadSimRepository.hasChoice(widget.threadId);
+
   /// The saved contact behind this number, re-read on entry and after the
   /// editor so a rename made from here re-titles this page too.
   ContactModel? _contact;
@@ -295,7 +298,9 @@ class _ConversationDetailsScreenState extends State<ConversationDetailsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '${sim.slotLabel} · ${sim.name}',
+                        _simOwn
+                            ? '${sim.slotLabel} · ${sim.name}'
+                            : '${sim.slotLabel} · ${sim.name} (پیش‌فرض)',
                         style: theme.textTheme.bodyLarge,
                       ),
                       if (sim.subtitle case final subtitle?)
@@ -368,16 +373,27 @@ class _ConversationDetailsScreenState extends State<ConversationDetailsScreen> {
     );
   }
 
+  /// Stored at once — a setting of the conversation, not of the next send —
+  /// and «پیش‌فرض» hands it back to the default, which it then follows.
   Future<void> _pickSim() async {
-    final chosen = await showSimPicker(
+    final fallback = ThreadSimRepository.defaultSim;
+    final chosen = await showSimChoice(
       context,
       title: 'ارسال با کدام سیم‌کارت؟',
       subtitle: _title,
+      defaultLabel: 'پیش‌فرض',
+      defaultSubtitle: fallback == null
+          ? null
+          : '${fallback.slotLabel} · ${fallback.name} — طبق تنظیم «سیم‌کارت‌ها»',
       selected: _sim,
+      defaultSelected: !_simOwn,
     );
     if (chosen == null || !mounted) return;
+    await ThreadSimRepository().choose(widget.threadId, chosen.sim);
+    if (!mounted) return;
     setState(() {
-      _sim = chosen;
+      _sim = chosen.sim ?? ThreadSimRepository.defaultSim;
+      _simOwn = !chosen.isDefault;
       _simChanged = true;
     });
   }
