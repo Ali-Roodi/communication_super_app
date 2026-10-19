@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:communication_super_app/core/sim/sim_service.dart';
+import 'package:communication_super_app/features/settings/screens/secure_section_settings_page.dart';
 import 'package:communication_super_app/features/settings/screens/sim_settings_page.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -429,19 +430,16 @@ class _SecurityGroupState extends State<_SecurityGroup> {
 
   Future<void> _openPinSetup(BuildContext context) async {
     // Changing a PIN takes the current one: whoever holds an unlocked phone
-    // must not be able to replace it, and the secure section needs the old
-    // PIN to re-seal its key under the new one.
-    String? currentPin;
+    // must not be able to replace it.
     if (_authType == AuthType.pin) {
-      currentPin = await Navigator.of(context).push<String>(
+      final currentPin = await Navigator.of(context).push<String>(
         MaterialPageRoute(builder: (_) => const VerifyPinScreen()),
       );
       if (currentPin == null || !context.mounted) return;
     }
     final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (_) =>
-            PinSetupScreen(fromSettings: true, currentPin: currentPin),
+        builder: (_) => const PinSetupScreen(fromSettings: true),
       ),
     );
     await _load();
@@ -463,36 +461,7 @@ class _SecurityGroupState extends State<_SecurityGroup> {
     await showRecoveryCode(context, code);
   }
 
-  /// Whether a secure section exists — it opens with the app PIN.
-  static bool _sectionExists(SecureStatus status) =>
-      status == SecureStatus.locked ||
-      status == SecureStatus.unlocked ||
-      status == SecureStatus.broken;
-
   void _confirmRemovePin(BuildContext context) {
-    if (_sectionExists(context.read<SecureSessionBloc>().state.status)) {
-      showDialog<void>(
-        context: context,
-        builder: (dialogCtx) => Directionality(
-          textDirection: TextDirection.rtl,
-          child: AlertDialog(
-            title: const Text('حذف رمز عبور'),
-            content: const Text(
-              'بخش امن با رمز برنامه باز می‌شود؛ تا وقتی وجود دارد، رمز برنامه '
-              'حذف نمی‌شود. برای حذف رمز، ابتدا «بخش امن» را از همین صفحه حذف '
-              'کنید.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogCtx).pop(),
-                child: const Text('متوجه شدم'),
-              ),
-            ],
-          ),
-        ),
-      );
-      return;
-    }
     showDialog<bool>(
       context: context,
       builder: (dialogCtx) => Directionality(
@@ -658,17 +627,9 @@ class _BiometricUnlockRowState extends State<_BiometricUnlockRow>
         return;
       }
       final outcome = await _service.enable();
-      final hasSecureSection =
-          mounted &&
-          context.read<SecureSessionBloc>().state.status !=
-              SecureStatus.unavailable;
       switch (outcome) {
         case BiometricEnableOutcome.enabled:
-          _say(
-            hasSecureSection
-                ? 'فعال شد. بخش امن همچنان با رمز برنامه باز می‌شود'
-                : 'فعال شد',
-          );
+          _say('فعال شد');
         case BiometricEnableOutcome.cancelled:
           break;
         case BiometricEnableOutcome.noneEnrolled:
@@ -784,8 +745,8 @@ class _PinToAnswerCallsRow extends StatelessWidget {
   }
 }
 
-/// «بخش امن» — where the secure section stands, and the one place it can be
-/// deleted on purpose. Absent in the commercial edition.
+/// «بخش امن» — its own PIN, its fingerprint and its deletion, on a page of
+/// their own ([SecureSectionSettingsPage]). Absent in the commercial edition.
 class _SecureSectionRow extends StatelessWidget {
   const _SecureSectionRow();
 
@@ -795,53 +756,22 @@ class _SecureSectionRow extends StatelessWidget {
     if (state.status == SecureStatus.unavailable) {
       return const SizedBox.shrink();
     }
-    final exists = _SecurityGroupState._sectionExists(state.status);
     return SettingsRow(
       icon: Icons.shield_outlined,
       title: 'بخش امن',
       summary: switch (state.status) {
-        SecureStatus.needsPin => 'برای استفاده، رمز برنامه را تعیین کنید',
-        SecureStatus.pinTooShort =>
-          'به رمز ۶ رقمی نیاز دارد؛ رمز برنامه را تغییر دهید',
-        SecureStatus.notCreated => 'با اولین باز کردن قفل ساخته می‌شود',
-        SecureStatus.locked => 'قفل است · برای حذف لمس کنید',
-        SecureStatus.unlocked => 'باز است · برای حذف لمس کنید',
-        SecureStatus.broken => 'قابل باز شدن نیست · برای حذف لمس کنید',
+        SecureStatus.notCreated => 'هنوز ساخته نشده است',
+        SecureStatus.locked || SecureStatus.unlocked =>
+          state.biometricOn
+              ? 'رمز جداگانه · اثر انگشت روشن'
+              : 'رمز جداگانه · تغییر رمز، اثر انگشت، حذف',
+        SecureStatus.broken => 'قابل باز شدن نیست',
         SecureStatus.unavailable => null,
       },
-      onTap: exists ? () => _confirmDelete(context) : null,
-    );
-  }
-
-  Future<void> _confirmDelete(BuildContext context) async {
-    final scheme = Theme.of(context).colorScheme;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogCtx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          title: const Text('حذف بخش امن؟'),
-          content: const Text(
-            'همه محتوای بخش امن برای همیشه پاک می‌شود و راهی برای بازگرداندن '
-            'آن نیست.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogCtx).pop(false),
-              child: const Text('انصراف'),
-            ),
-            TextButton(
-              style: TextButton.styleFrom(foregroundColor: scheme.error),
-              onPressed: () => Navigator.of(dialogCtx).pop(true),
-              child: const Text('حذف همیشگی'),
-            ),
-          ],
-        ),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const SecureSectionSettingsPage()),
       ),
     );
-    if (confirmed == true && context.mounted) {
-      context.read<SecureSessionBloc>().add(const SecureResetRequested());
-    }
   }
 }
 

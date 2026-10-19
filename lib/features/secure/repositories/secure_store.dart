@@ -31,10 +31,9 @@ class SecureStore {
   }) : _vault = vault,
        _hidden = hidden;
 
-  /// The one store the app uses. Shared on purpose: `AuthBloc` rekeys and
-  /// resets it when the app PIN changes, and `SecureSessionBloc` holds its
-  /// open database — two instances would each think the other's database was
-  /// closed.
+  /// The one store the app uses. Shared on purpose: `SecureSessionBloc` holds
+  /// its open database and every secure repository reads it — two instances
+  /// would each think the other's database was closed.
   static final SecureStore instance = SecureStore();
 
   final SecureVaultService _vault;
@@ -65,8 +64,31 @@ class SecureStore {
   }
 
   /// Opens the vault with [pin] and the database with its key.
-  Future<void> unlock(String pin) async {
-    final keyHex = await _guard(() => _vault.unlock(pin));
+  Future<void> unlock(String pin) =>
+      _openWith(() => _guard(() => _vault.unlock(pin)));
+
+  /// Whether [pin] opens the vault; nothing is opened. Throws
+  /// [SecureStoreException] (`wrongPin` for a wrong one).
+  Future<void> verifyPin(String pin) async {
+    await _guard(() => _vault.unlock(pin));
+  }
+
+  /// Opens the vault with a strong biometric instead of the PIN.
+  Future<void> unlockWithBiometric() =>
+      _openWith(() => _guard(_vault.unlockWithBiometric));
+
+  Future<BiometricAvailability> biometricStatus() => _vault.biometricStatus();
+
+  Future<bool> biometricEnabled() => _vault.biometricEnabled();
+
+  /// Turns biometric opening on; [pin] is the section PIN.
+  Future<void> enableBiometric(String pin) =>
+      _guard(() => _vault.enableBiometric(pin));
+
+  Future<void> disableBiometric() => _guard(_vault.disableBiometric);
+
+  Future<void> _openWith(Future<String> Function() key) async {
+    final keyHex = await key();
     try {
       _db = await _open(keyHex);
     } on cipher.DatabaseException catch (e) {

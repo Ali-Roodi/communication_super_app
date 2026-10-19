@@ -27,7 +27,7 @@ class SecurityBridge {
   Future<void> setIntruderEnabled(bool enabled) =>
       _call<void>('setIntruderEnabled', {'enabled': enabled});
 
-  /// A wrong app PIN; [failures] in a row so far.
+  /// A wrong app or section PIN; [failures] in a row so far, of that PIN.
   Future<void> wrongPin(int failures) =>
       _call<void>('wrongPin', {'failures': failures});
 

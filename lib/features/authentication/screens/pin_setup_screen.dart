@@ -17,11 +17,7 @@ class PinSetupScreen extends StatefulWidget {
   /// pops to the root, revealing the now-authenticated app underneath.
   final bool fromSettings;
 
-  /// The PIN being replaced, already verified ([VerifyPinScreen]); null when
-  /// there is none. Handed to [SetPin] so the secure section can be re-sealed.
-  final String? currentPin;
-
-  const PinSetupScreen({super.key, this.fromSettings = false, this.currentPin});
+  const PinSetupScreen({super.key, this.fromSettings = false});
 
   @override
   State<PinSetupScreen> createState() => _PinSetupScreenState();
@@ -48,9 +44,7 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
         if (_confirmPin.length < _length) _confirmPin += number;
         if (_confirmPin.length == _length) {
           if (_pin == _confirmPin) {
-            context.read<AuthBloc>().add(
-              SetPin(_pin, currentPin: widget.currentPin),
-            );
+            context.read<AuthBloc>().add(SetPin(_pin));
           } else {
             HapticFeedback.heavyImpact();
             _showError('رمزهای عبور یکسان نیستند');

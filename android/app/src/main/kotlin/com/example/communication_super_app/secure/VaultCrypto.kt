@@ -15,7 +15,7 @@ import javax.crypto.spec.SecretKeySpec
  * The **data key** (32 random bytes) is what opens `secure.db` (SQLCipher raw
  * key). It is never stored as such; it is sealed twice:
  *
- * 1. **inner** — AES-256-GCM under a key derived from the app PIN
+ * 1. **inner** — AES-256-GCM under a key derived from the section PIN
  *    (PBKDF2-HMAC-SHA256, per-vault salt). The GCM tag is also the PIN check:
  *    a wrong PIN fails authentication, it never yields a wrong key.
  * 2. **outer** — the inner blob is sealed again by a [KeyWrapper], on the

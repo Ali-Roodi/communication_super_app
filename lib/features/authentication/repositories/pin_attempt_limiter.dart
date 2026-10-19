@@ -4,20 +4,30 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 
-/// Slows down guessing the app PIN.
+/// Slows down guessing a PIN.
 ///
-/// The PIN is four digits — 10,000 possibilities — and since the secure
-/// section opens with the same PIN, an unthrottled lock screen is a free
-/// guessing oracle for it. So every PIN check in the app goes through one
-/// budget ([AuthRepository.validatePin]): five free attempts, then a lockout
-/// that doubles with each further failure (30 s, 1 min, 2 min … capped at
-/// 30 min). A success clears it.
+/// Five free attempts, then a lockout that doubles with each further failure
+/// (30 s, 1 min, 2 min … capped at 30 min). A success clears it. There are two
+/// budgets, never shared: the **app PIN**'s (every app-PIN check goes through
+/// [AuthRepository.validatePin]) and the **secure section PIN**'s
+/// ([PinAttemptLimiter.secureSection], used by `SecureSessionBloc` before the
+/// vault's PBKDF2 ever runs) — so locking yourself out of one never locks you
+/// out of the other, and guesses at one never count against the other.
 ///
 /// Persisted, so killing the app does not reset the count. It is a speed bump
 /// for someone holding the phone, not a defense against root — the secure
 /// section's Keystore binding is what stands against that.
 class PinAttemptLimiter {
-  PinAttemptLimiter({DateTime Function()? now}) : _now = now ?? DateTime.now;
+  PinAttemptLimiter({DateTime Function()? now}) : this._('pin', now);
+
+  /// The secure section PIN's own budget.
+  PinAttemptLimiter.secureSection({DateTime Function()? now})
+    : this._('secure_pin', now);
+
+  PinAttemptLimiter._(String prefix, DateTime Function()? now)
+    : _now = now ?? DateTime.now,
+      _failuresKey = '${prefix}_failed_attempts',
+      _lockedUntilKey = '${prefix}_locked_until_ms';
 
   final DateTime Function() _now;
 
@@ -25,8 +35,8 @@ class PinAttemptLimiter {
   static const Duration baseLockout = Duration(seconds: 30);
   static const Duration maxLockout = Duration(minutes: 30);
 
-  static const String _failuresKey = 'pin_failed_attempts';
-  static const String _lockedUntilKey = 'pin_locked_until_ms';
+  final String _failuresKey;
+  final String _lockedUntilKey;
 
   /// How long until the next attempt is allowed; null when it is allowed now.
   Future<Duration?> retryAfter() async {

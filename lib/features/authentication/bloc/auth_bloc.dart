@@ -8,21 +8,15 @@ import '../repositories/auth_repository.dart';
 import '../repositories/pin_attempt_limiter.dart';
 import '../services/biometric_unlock.dart';
 import '../services/notification_privacy_sync.dart';
-import 'package:communication_super_app/core/services/pin_handoff.dart';
-import 'package:communication_super_app/features/secure/repositories/secure_store.dart';
 import 'package:communication_super_app/features/security/services/intruder_reporter.dart';
 
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final AuthRepository _repository;
 
-  /// The secure section, which opens with the app PIN — so every change to
-  /// that PIN has to keep it in step. Null only in tests that do not involve
-  /// it (the app always passes [SecureStore.instance]).
-  final SecureStore? _secureStore;
-
-  AuthBloc(this._repository, {SecureStore? secureStore})
-    : _secureStore = secureStore,
-      super(const AuthInitial()) {
+  /// The app PIN only. The secure section has its own PIN
+  /// (`SecureSessionBloc`), so nothing here — setting, changing, removing or
+  /// recovering this one — ever touches it.
+  AuthBloc(this._repository) : super(const AuthInitial()) {
     on<CheckAuthStatus>(_onCheckAuthStatus);
     on<SetPin>(_onSetPin);
     on<ValidatePin>(_onValidatePin);
@@ -84,42 +78,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     pinLength: await _repository.pinLength(),
   );
 
-  /// Whether a secure section exists. A failure to find out counts as yes:
-  /// guessing "no" here is what would orphan it.
-  Future<bool> _hasSecureSection() async {
-    final store = _secureStore;
-    if (store == null) return false;
-    try {
-      return await store.exists();
-    } catch (_) {
-      return true;
-    }
-  }
-
   Future<void> _onSetPin(SetPin event, Emitter<AuthState> emit) async {
     emit(const AuthLoading());
-    final store = _secureStore;
-    final rekeyFrom = event.currentPin;
-    final hasSection = await _hasSecureSection();
-    if (hasSection) {
-      // Re-seal the section's key under the new PIN BEFORE the PIN changes,
-      // and only with the right old one: an app PIN that no longer opens the
-      // section is a section lost.
-      if (rekeyFrom == null || !await _repository.validatePin(rekeyFrom)) {
-        emit(const AuthValidationFailure('رمز فعلی نادرست است'));
-        return;
-      }
-      try {
-        await store!.rekey(rekeyFrom, event.pin);
-      } catch (_) {
-        emit(
-          const AuthValidationFailure(
-            'کلید بخش امن به‌روز نشد؛ رمز تغییر نکرد',
-          ),
-        );
-        return;
-      }
-    }
     try {
       await _repository.setPin(event.pin);
       // Setting a PIN re-arms the lock even if setup was skipped before.
@@ -137,13 +97,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(AuthRecoveryCodeIssued(code, duringSetup: true));
       emit(const AuthAuthenticated());
     } catch (e) {
-      // The section was re-sealed for a PIN that did not get saved: seal it
-      // back, or the (unchanged) app PIN would no longer open it.
-      if (hasSection && rekeyFrom != null) {
-        try {
-          await store!.rekey(event.pin, rekeyFrom);
-        } catch (_) {}
-      }
       emit(AuthValidationFailure(e.toString()));
     }
   }
@@ -162,14 +115,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(const AuthValidationFailure('کد بازیابی نادرست است'));
       emit(await _lockedState(authType));
       return;
-    }
-    // The owner's rule: a forgotten PIN loses the secure section. Its key is
-    // sealed under the PIN being discarded here, so nothing could open it
-    // again anyway — delete it rather than leave an unopenable vault behind.
-    if (await _hasSecureSection()) {
-      try {
-        await _secureStore!.reset();
-      } catch (_) {}
     }
     await _repository.clearAuth();
     unawaited(NotificationPrivacySync.sync());
@@ -211,17 +156,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) async {
     emit(const AuthLoading());
-    // The secure section opens with this PIN. Settings refuses to offer the
-    // removal while one exists; this is the backstop.
-    if (await _hasSecureSection()) {
-      emit(
-        const AuthValidationFailure(
-          'تا وقتی بخش امن وجود دارد، رمز برنامه حذف نمی‌شود',
-        ),
-      );
-      emit(const AuthAuthenticated());
-      return;
-    }
     await _repository.clearAuth();
     await _repository.setAuthSkipped(true);
     unawaited(NotificationPrivacySync.sync());
@@ -235,8 +169,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(const AuthLoading());
     final isValid = await _repository.validatePin(event.pin);
     if (isValid) {
-      // For «پیام رمز جدید» only: see PinHandoff.
-      PinHandoff.instance.offer(event.pin);
       await _repository.setAuthenticated(true);
       emit(const AuthAuthenticated());
     } else {

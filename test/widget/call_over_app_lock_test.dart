@@ -243,4 +243,33 @@ void main() {
       expect(onTop(RelockScreen), findsNothing);
     });
   });
+
+  // «پیام رمز جدید» opens the secure section's own unlock screen after the
+  // app lock — never over it.
+  group('AppLock.whenDown', () {
+    testWidgets('answers at once when no lock is up', (tester) async {
+      await pumpApp(tester, unlocked: true);
+      var done = false;
+      unawaited(AppLock.whenDown().then((_) => done = true));
+      await tester.pump();
+      expect(done, isTrue);
+    });
+
+    testWidgets('waits for the lock, and answers when it goes', (tester) async {
+      await pumpApp(tester, unlocked: true);
+      await leaveAndReturn(tester);
+      expect(onTop(RelockScreen), findsOneWidget);
+
+      var done = false;
+      unawaited(AppLock.whenDown().then((_) => done = true));
+      await settle(tester);
+      expect(done, isFalse);
+
+      // What a right PIN does.
+      appNavigatorKey.currentState!.pop();
+      await settle(tester);
+      expect(onTop(RelockScreen), findsNothing);
+      expect(done, isTrue);
+    });
+  });
 }

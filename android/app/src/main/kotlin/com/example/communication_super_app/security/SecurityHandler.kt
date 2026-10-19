@@ -16,7 +16,7 @@ import kotlin.concurrent.thread
  *
  * - `security.deviceReport` → [DeviceSecurity.report]
  * - `security.intruderStatus` → `{enabled, camera}`; `setIntruderEnabled {enabled}`
- * - `security.wrongPin {failures}` — every wrong app PIN, with the count in a row
+ * - `security.wrongPin {failures}` — every wrong app or section PIN, with the count in a row (each PIN its own)
  * - `security.intruderReport` → `{events, lastAt}`; `clearIntruderReport`
  * - `security.intruderFiles` → `[{name, blob}]`; `deleteIntruderFiles {names}`
  */

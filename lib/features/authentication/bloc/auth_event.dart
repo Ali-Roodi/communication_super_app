@@ -14,15 +14,10 @@ class CheckAuthStatus extends AuthEvent {
 class SetPin extends AuthEvent {
   final String pin;
 
-  /// The PIN being replaced, when there is one. Required while a secure
-  /// section exists: it opens with the app PIN, so its key has to be re-sealed
-  /// under the new one, and that takes the old one.
-  final String? currentPin;
-
-  const SetPin(this.pin, {this.currentPin});
+  const SetPin(this.pin);
 
   @override
-  List<Object?> get props => [pin, currentPin];
+  List<Object?> get props => [pin];
 }
 
 class ValidatePin extends AuthEvent {
@@ -57,9 +52,7 @@ class Authenticate extends AuthEvent {
 }
 
 /// The launch PIN screen was passed with the phone's fingerprint or face
-/// (`BiometricUnlock`). Opens the app exactly as a right PIN would — except
-/// that no PIN is offered to `PinHandoff`, so the secure section still asks
-/// for it.
+/// (`BiometricUnlock`). Opens the app exactly as a right PIN would.
 class BiometricUnlocked extends AuthEvent {
   const BiometricUnlocked();
 }

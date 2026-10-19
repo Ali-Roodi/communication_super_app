@@ -14,10 +14,10 @@ import javax.crypto.spec.GCMParameterSpec
  * The device-binding layer of the secure vault: AES-256-GCM under a key that
  * lives in the Android Keystore and cannot be exported.
  *
- * The key needs no user authentication of its own — the app PIN is the
+ * The key needs no user authentication of its own — the section PIN is the
  * authentication, applied in the inner layer ([VaultCrypto]). What this layer
  * adds is that the sealed vault means nothing anywhere but on this device, so
- * the 4-digit PIN cannot be brute-forced offline from a copied file.
+ * the 6-digit PIN cannot be brute-forced offline from a copied file.
  *
  * StrongBox is used where the device has it and falls back to the TEE.
  */
