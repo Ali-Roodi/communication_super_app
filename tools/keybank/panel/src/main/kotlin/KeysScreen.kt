@@ -168,8 +168,7 @@ private fun UnlockedScreen(state: KeysState, u: KeysState.Unlocked) {
 
 @Composable
 private fun NewMemberForm(state: KeysState, needsOrganization: Boolean, memberCount: Int, modifier: Modifier) {
-    val form = remember { MemberForm() }
-    var confirm by remember { mutableStateOf(false) }
+    val form = state.newMember
     val busy = state.busy != null
     val device = Activation.normalizeDeviceCode(form.deviceCode)
     val scroll = rememberScrollState()
@@ -221,7 +220,7 @@ private fun NewMemberForm(state: KeysState, needsOrganization: Boolean, memberCo
             Button(
                 onClick = {
                     if (state.check(form)) {
-                        if (memberCount == 0) state.launch { state.addMember(form) } else confirm = true
+                        if (memberCount == 0) state.launch { state.addMember(form) } else state.confirmAdd = true
                     }
                 },
                 enabled = !busy && form.name.isNotBlank() && form.mobile.isNotBlank(),
@@ -234,9 +233,9 @@ private fun NewMemberForm(state: KeysState, needsOrganization: Boolean, memberCo
         if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
     }
 
-    if (confirm) {
+    if (state.confirmAdd) {
         AlertDialog(
-            onDismissRequest = { confirm = false },
+            onDismissRequest = { state.confirmAdd = false },
             title = { Text("افزودن «${form.name.trim()}»") },
             text = {
                 Text(
@@ -247,11 +246,11 @@ private fun NewMemberForm(state: KeysState, needsOrganization: Boolean, memberCo
             },
             confirmButton = {
                 Button(onClick = {
-                    confirm = false
+                    state.confirmAdd = false
                     state.launch { state.addMember(form) }
                 }) { Text("افزودن") }
             },
-            dismissButton = { TextButton(onClick = { confirm = false }) { Text("انصراف") } },
+            dismissButton = { TextButton(onClick = { state.confirmAdd = false }) { Text("انصراف") } },
             containerColor = Color.White,
         )
     }
