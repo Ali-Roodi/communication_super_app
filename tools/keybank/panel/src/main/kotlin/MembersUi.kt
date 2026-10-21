@@ -48,23 +48,20 @@ private val Grey = Color(0xFF5A6474)
 
 /** The label and colour a member's [DeliveryStatus] is shown with. */
 fun DeliveryStatus.label() = when (this) {
-    DeliveryStatus.CURRENT -> "به‌روز"
-    DeliveryStatus.STALE -> "فایل قدیمی"
+    DeliveryStatus.CURRENT -> "تحویل شده"
     DeliveryStatus.NEW_KEY -> "کلید تازه تحویل نشده"
     DeliveryStatus.NOT_RECORDED -> "تحویل ثبت نشده"
 }
 
 private fun DeliveryStatus.color() = when (this) {
     DeliveryStatus.CURRENT -> Green
-    DeliveryStatus.STALE -> Amber
     DeliveryStatus.NEW_KEY -> Red
     DeliveryStatus.NOT_RECORDED -> Grey
 }
 
 /** One sentence on what a status means for the operator. */
 fun DeliveryStatus.explanation() = when (this) {
-    DeliveryStatus.CURRENT -> "فایل فعلی را تحویل گرفته است."
-    DeliveryStatus.STALE -> "فایلی که دارد قدیمی است: پیام رمز با همه — اعضای تازه هم — کار می‌کند، ولی نام اعضای تازه و تغییرهای بعد از آن را در فهرستش نمی‌بیند. فایل تازه‌اش یا فایل به‌روزرسانی را بدهید؛ رمزش عوض نشده."
+    DeliveryStatus.CURRENT -> "فایل کلید فعلی خودش را تحویل گرفته است."
     DeliveryStatus.NEW_KEY -> "کلید و رمز تازه گرفته که هنوز تحویل نشده است. فایل و رمز تازه را بدهید."
     DeliveryStatus.NOT_RECORDED -> "تحویل فایل به او هنوز ثبت نشده است."
 }
@@ -82,22 +79,20 @@ fun StatusChip(status: DeliveryStatus) {
 }
 
 /**
- * Above the members: who does not hold the current file. A key file carries
- * the whole directory, so every change to the roster leaves everyone else
- * with an old one until they import the new file.
+ * Above the members: who has not been handed their own file yet. Nothing
+ * anybody else is given ever makes a member's file out of date.
  */
 @Composable
-fun OutdatedBanner(state: KeysState, snapshot: AuthorityFolder.Snapshot, folder: AuthorityFolder) {
+fun OutdatedBanner(state: KeysState, snapshot: AuthorityFolder.Snapshot) {
+    val folder = state.unlocked?.folder ?: return
     val outdated = snapshot.outdated
     if (outdated.isEmpty()) return
     val counts = outdated.groupingBy { snapshot.statusOf(it) }.eachCount()
     val parts = listOfNotNull(
-        counts[DeliveryStatus.STALE]?.let { "${fa(it)} عضو فایل قدیمی دارند" },
         counts[DeliveryStatus.NEW_KEY]?.let { "${fa(it)} عضو کلید تازه‌شان را نگرفته‌اند" },
         counts[DeliveryStatus.NOT_RECORDED]?.let { "تحویل به ${fa(it)} عضو ثبت نشده" },
     )
     val names = outdated.take(8).joinToString("، ") { it.name } + if (outdated.size > 8) " و ${fa(outdated.size - 8)} نفر دیگر" else ""
-    val stale = counts[DeliveryStatus.STALE] ?: 0
     Column(
         Modifier.fillMaxWidth().background(Amber.copy(alpha = 0.08f), RoundedCornerShape(12.dp)).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -108,12 +103,7 @@ fun OutdatedBanner(state: KeysState, snapshot: AuthorityFolder.Snapshot, folder:
                 Text(parts.joinToString(" · "), fontWeight = FontWeight.Bold, color = Color(0xFF2B3340))
                 Text(names, fontSize = 13.sp, color = Color(0xFF2B3340))
                 Hint(
-                    if (stale > 0 && folder.updateFile.isFile) {
-                        "فایل قدیمی جلوی پیام رمز را نمی‌گیرد؛ فقط نام اعضای تازه را در فهرست گوشی نشان نمی‌دهد. برای آن، " +
-                            "به‌جای فایل خودش می‌تواند فایل update.hku را وارد کند: برای همه یکی است، رمز نمی‌خواهد و فقط گوشی اعضای همین سازمان بازش می‌کند."
-                    } else {
-                        "فایل تازهٔ هر عضو در پوشهٔ issued است. پس از تحویل، روی عضو کلیک کنید و «تحویل داده شد» را بزنید."
-                    },
+                    "فایل هر عضو در پوشهٔ issued است و فقط به خود او مربوط است. پس از تحویل، روی عضو کلیک کنید و «تحویل داده شد» را بزنید.",
                     size = 12.sp,
                 )
             }
@@ -123,16 +113,7 @@ fun OutdatedBanner(state: KeysState, snapshot: AuthorityFolder.Snapshot, folder:
                 Icon(Icons.Outlined.FolderOpen, null, Modifier.size(18.dp))
                 Text("  پوشهٔ فایل‌ها")
             }
-            if (stale > 0 && folder.updateFile.isFile) {
-                OutlinedButton(onClick = { Platform.reveal(folder.updateFile) }) {
-                    Icon(Icons.Outlined.FolderOpen, null, Modifier.size(18.dp))
-                    Text("  فایل به‌روزرسانی")
-                }
-                TextButton(onClick = { state.dialog = KeysState.Dialog.MarkAll(update = true) }) {
-                    Text("همه به‌روزرسانی را وارد کردند…")
-                }
-            }
-            TextButton(onClick = { state.dialog = KeysState.Dialog.MarkAll(update = false) }) { Text("همه فایل خودشان را گرفتند…") }
+            TextButton(onClick = { state.dialog = KeysState.Dialog.MarkAll }) { Text("همه فایل خودشان را گرفتند…") }
         }
     }
 }
@@ -204,7 +185,6 @@ fun IssuanceLog.Entry.describe(): String = when (action) {
     IssuanceLog.Action.NEW_KEY -> "کلید و رمز تازه برای «$member» (گوشی گم شد)"
     IssuanceLog.Action.REMOVE -> "حذف «$member» از سازمان"
     IssuanceLog.Action.DELIVERED -> "تحویل فایل به «$member»"
-    IssuanceLog.Action.UPDATE_DELIVERED -> "به‌روزرسانی «$member» با فایل به‌روزرسانی"
 }
 
 @Composable
@@ -265,10 +245,10 @@ fun MemberDialogs(state: KeysState) {
             Confirm(
                 state,
                 title = "گوشی «$name» گم شده؟",
-                text = "برای «$name» کلید و رمز تازه ساخته می‌شود و فایل همهٔ ${fa(members.size)} عضو دوباره ساخته می‌شود. " +
-                    "کلید و رمز بقیه عوض نمی‌شود.\n\n" +
-                    "فایل و رمز تازه را به «$name» بدهید تا روی گوشی تازه‌اش وارد کند. بقیه هم باید فایل تازه‌شان را وارد کنند؛ " +
-                    "از آن به بعد گوشی گم‌شده پیام رمز تازه‌ای نمی‌تواند بخواند و گوشی‌های دیگر پیامی از آن نمی‌پذیرند.",
+                text = "برای «$name» کلید و رمز تازه ساخته می‌شود؛ فقط فایل خود او. به بقیهٔ اعضا چیزی لازم نیست بدهید.\n\n" +
+                    "فایل و رمز تازه را به «$name» بدهید تا روی گوشی تازه‌اش وارد کند. هر گوشی‌ای که یک بار با گوشی تازهٔ او " +
+                    "پیام رمز رد و بدل کند، کلید گوشی گم‌شده را دیگر قبول نمی‌کند. کلید قدیمی باطل نمی‌شود: گوشی‌ای که هنوز با " +
+                    "گوشی تازه حرف نزده، آن را می‌پذیرد.",
                 action = "ساخت کلید و رمز تازه",
                 danger = true,
                 check = { state.checkNewKey(d.index) },
@@ -279,33 +259,22 @@ fun MemberDialogs(state: KeysState) {
             Confirm(
                 state,
                 title = "حذف «$name» از سازمان",
-                text = "«$name» از فهرست اعضا برداشته می‌شود، فایل و رمزش از پوشهٔ issued پاک می‌شود و فایل ${fa(members.size - 1)} عضو دیگر " +
-                    "دوباره ساخته می‌شود (کلید و رمزشان عوض نمی‌شود).\n\n" +
-                    "تا وقتی بقیه فایل تازه را وارد نکرده‌اند، گوشی‌شان هنوز «$name» را می‌شناسد. از فهرست فعلی پشتیبان گرفته می‌شود.",
+                text = "«$name» از فهرست اعضا برداشته می‌شود و فایل و رمزش از پوشهٔ issued پاک می‌شود. فایل هیچ عضو دیگری عوض نمی‌شود.\n\n" +
+                    "کلیدی که روی گوشی «$name» هست باطل نمی‌شود: تا وقتی آن را دارد، هنوز می‌تواند پیام رمز بفرستد و بگیرد. " +
+                    "از فهرست فعلی پشتیبان گرفته می‌شود.",
                 action = "حذف",
                 danger = true,
                 check = { state.checkRemove(d.index) },
             ) { state.removeMember(d.index) }
         }
-        is KeysState.Dialog.MarkAll -> if (d.update) {
-            Confirm(
-                state,
-                title = "همه فایل به‌روزرسانی را وارد کرده‌اند؟",
-                text = "برای هر ${fa(members.size)} عضو در دفتر صدور ثبت می‌شود که فایل update.hku فعلی را وارد کرده‌اند. فایلی ساخته نمی‌شود. " +
-                    "کسی که کلید تازه گرفته یا هنوز فایل خودش را نگرفته، همچنان در فهرست می‌ماند: کلیدش فقط در فایل خود اوست.",
-                action = "بله، ثبت کن",
-                check = { null },
-            ) { state.markAllUpdated() }
-        } else {
-            Confirm(
-                state,
-                title = "همهٔ اعضا فایل فعلی را وارد کرده‌اند؟",
-                text = "برای هر ${fa(members.size)} عضو در دفتر صدور ثبت می‌شود که فایل فعلی خودشان را تحویل گرفته‌اند. فایلی ساخته نمی‌شود. " +
-                    "فقط وقتی بزنید که مطمئنید همه فایل تازه را وارد کرده‌اند.",
-                action = "بله، ثبت کن",
-                check = { null },
-            ) { state.markAllDelivered() }
-        }
+        KeysState.Dialog.MarkAll -> Confirm(
+            state,
+            title = "همهٔ اعضا فایل خودشان را گرفته‌اند؟",
+            text = "برای هر ${fa(members.size)} عضو در دفتر صدور ثبت می‌شود که فایل فعلی خودشان را تحویل گرفته‌اند. فایلی ساخته نمی‌شود. " +
+                "فقط وقتی بزنید که مطمئنید همه فایلشان را وارد کرده‌اند.",
+            action = "بله، ثبت کن",
+            check = { null },
+        ) { state.markAllDelivered() }
         null -> {}
     }
 
@@ -315,7 +284,7 @@ fun MemberDialogs(state: KeysState) {
             title = { Text(state.busy ?: "در حال انجام…") },
             text = {
                 Column(Modifier.widthIn(min = 360.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    LinearProgressIndicator(progress = { state.progress ?: 0f }, modifier = Modifier.fillMaxWidth())
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     Hint("برنامه را نبندید.")
                 }
             },
@@ -398,7 +367,7 @@ private fun EditDialog(state: KeysState, d: KeysState.Dialog.Edit) {
                         color = Amber,
                     )
                 }
-                Hint("فایل همهٔ ${fa(count)} عضو دوباره ساخته می‌شود؛ رمز هیچ‌کس عوض نمی‌شود. از فهرست فعلی پشتیبان گرفته می‌شود.", size = 12.sp)
+                Hint("فقط فایل همین عضو دوباره ساخته می‌شود و رمزش عوض نمی‌شود. از فهرست فعلی پشتیبان گرفته می‌شود.", size = 12.sp)
                 form.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
             }
         },
@@ -411,7 +380,7 @@ private fun EditDialog(state: KeysState, d: KeysState.Dialog.Edit) {
                     }
                 },
                 enabled = form.name.isNotBlank() && form.mobile.isNotBlank(),
-            ) { Text("ذخیره و ساخت فایل‌ها") }
+            ) { Text("ذخیره و ساخت فایل") }
         },
         dismissButton = { TextButton(onClick = { state.dialog = null }) { Text("انصراف") } },
         containerColor = Color.White,

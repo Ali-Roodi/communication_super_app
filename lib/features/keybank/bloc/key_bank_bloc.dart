@@ -33,16 +33,10 @@ class KeyBankImportFile extends KeyBankEvent {
   final String password;
 }
 
-/// An update file (`update.hku`) the user picked: the newest directory of an
-/// organization this phone already belongs to. No password.
-class KeyBankImportUpdate extends KeyBankEvent {
-  const KeyBankImportUpdate(this.file);
-  final Uint8List file;
-}
-
-class KeyBankRemoveDirectory extends KeyBankEvent {
-  const KeyBankRemoveDirectory(this.id);
-  final String id;
+/// Removes one of this phone's own keys (by its key id).
+class KeyBankRemoveKey extends KeyBankEvent {
+  const KeyBankRemoveKey(this.keyId);
+  final String keyId;
 }
 
 // ── State ────────────────────────────────────────────────────────────────────
@@ -57,22 +51,17 @@ enum KeyBankStatus {
 /// The outcome of the last action, for a one-line confirmation or error.
 enum KeyBankNotice {
   imported,
-  updated,
-  ownKeyAdded,
+
+  /// It replaced the key held from the same authority.
+  replaced,
   alreadyImported,
   older,
   wrongPassword,
   notAKeyFile,
+
+  /// The certificate is not signed by an authority this build trusts.
   untrusted,
-  badSignature,
   badBundle,
-
-  /// An update file for an organization this phone has no key file of.
-  updateNotForThisPhone,
-
-  /// The update was imported, but it no longer lists this phone's key: the
-  /// authority gave this member a new one, which only their own file has.
-  ownKeyRetired,
   failed,
 }
 
@@ -121,8 +110,8 @@ class KeyBankState extends Equatable {
 /// when it closes, so a locked phone holds no key-bank data in memory.
 ///
 /// Its sources (see `editions.md`): the authority's public key, hardcoded
-/// ([TrustAnchors]), and the key files and update files the authority's
-/// panel issues, imported here.
+/// ([TrustAnchors]), and this phone's own key file, which the authority's
+/// panel issues and is imported here. Nothing about anybody else.
 class KeyBankBloc extends Bloc<KeyBankEvent, KeyBankState> {
   KeyBankBloc({
     required SecureSessionBloc session,
@@ -136,9 +125,8 @@ class KeyBankBloc extends Bloc<KeyBankEvent, KeyBankState> {
     on<_SectionChanged>(_onSectionChanged);
     on<KeyBankRefresh>(_onRefresh);
     on<KeyBankImportFile>(_onImport);
-    on<KeyBankImportUpdate>(_onImportUpdate);
-    on<KeyBankRemoveDirectory>(
-      (e, emit) => _mutate(emit, () => _repository.removeDirectory(e.id)),
+    on<KeyBankRemoveKey>(
+      (e, emit) => _mutate(emit, () => _repository.removeKey(e.keyId)),
     );
 
     _sessionSub = session.stream
@@ -207,8 +195,7 @@ class KeyBankBloc extends Bloc<KeyBankEvent, KeyBankState> {
         emit,
         notice: switch (outcome) {
           KeyImportOutcome.added => KeyBankNotice.imported,
-          KeyImportOutcome.updated => KeyBankNotice.updated,
-          KeyImportOutcome.ownKeyAdded => KeyBankNotice.ownKeyAdded,
+          KeyImportOutcome.replaced => KeyBankNotice.replaced,
           KeyImportOutcome.alreadyImported => KeyBankNotice.alreadyImported,
           KeyImportOutcome.older => KeyBankNotice.older,
         },
@@ -221,7 +208,6 @@ class KeyBankBloc extends Bloc<KeyBankEvent, KeyBankState> {
             SmsCryptoFailure.wrongPassword => KeyBankNotice.wrongPassword,
             SmsCryptoFailure.notAKeyFile => KeyBankNotice.notAKeyFile,
             SmsCryptoFailure.untrusted => KeyBankNotice.untrusted,
-            SmsCryptoFailure.badSignature => KeyBankNotice.badSignature,
             SmsCryptoFailure.badBundle => KeyBankNotice.badBundle,
             _ => KeyBankNotice.failed,
           },
@@ -234,69 +220,6 @@ class KeyBankBloc extends Bloc<KeyBankEvent, KeyBankState> {
       emit(state.copyWith(busy: false, notice: KeyBankNotice.failed));
     }
   }
-
-  Future<void> _onImportUpdate(
-    KeyBankImportUpdate e,
-    Emitter<KeyBankState> emit,
-  ) async {
-    if (!_open || state.busy) return;
-    final directories = state.snapshot.directories;
-    if (directories.isEmpty) {
-      emit(state.copyWith(notice: KeyBankNotice.updateNotForThisPhone));
-      return;
-    }
-    emit(state.copyWith(busy: true));
-    try {
-      final opened = await _crypto.openUpdateFile(
-        file: e.file,
-        directoryIds: [for (final d in directories) _unhex(d.id)],
-        anchors: _anchors(),
-      );
-      final id = keyHex(opened.directory.directoryId);
-      final hadOwnKey = directories.any((d) => d.id == id && d.hasOwnKey);
-      final outcome = await _repository.importKeyFile(opened);
-      final after = await _repository.snapshot();
-      final hasOwnKey = after.directories.any((d) => d.id == id && d.hasOwnKey);
-      await _reload(
-        emit,
-        notice: hadOwnKey && !hasOwnKey
-            ? KeyBankNotice.ownKeyRetired
-            : switch (outcome) {
-                KeyImportOutcome.added => KeyBankNotice.imported,
-                KeyImportOutcome.updated => KeyBankNotice.updated,
-                KeyImportOutcome.ownKeyAdded => KeyBankNotice.ownKeyAdded,
-                KeyImportOutcome.alreadyImported =>
-                  KeyBankNotice.alreadyImported,
-                KeyImportOutcome.older => KeyBankNotice.older,
-              },
-      );
-    } on SmsCryptoException catch (x) {
-      emit(
-        state.copyWith(
-          busy: false,
-          notice: switch (x.failure) {
-            SmsCryptoFailure.wrongPassword =>
-              KeyBankNotice.updateNotForThisPhone,
-            SmsCryptoFailure.notAKeyFile => KeyBankNotice.notAKeyFile,
-            SmsCryptoFailure.untrusted => KeyBankNotice.untrusted,
-            SmsCryptoFailure.badSignature => KeyBankNotice.badSignature,
-            SmsCryptoFailure.badBundle => KeyBankNotice.badBundle,
-            _ => KeyBankNotice.failed,
-          },
-        ),
-      );
-    } on KeyBankLockedException {
-      emit(const KeyBankState());
-    } catch (x) {
-      debugPrint('Update file import failed: ${x.runtimeType}');
-      emit(state.copyWith(busy: false, notice: KeyBankNotice.failed));
-    }
-  }
-
-  static Uint8List _unhex(String hex) => Uint8List.fromList([
-    for (var i = 0; i + 1 < hex.length; i += 2)
-      int.parse(hex.substring(i, i + 2), radix: 16),
-  ]);
 
   Future<void> _mutate(
     Emitter<KeyBankState> emit,

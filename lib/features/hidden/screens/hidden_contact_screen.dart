@@ -6,6 +6,7 @@ import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/features/secure_sms/bloc/secure_messages_bloc.dart';
 import 'package:communication_super_app/features/secure_sms/screens/secure_conversation_screen.dart';
+import 'package:communication_super_app/features/secure_sms/services/secure_messenger.dart';
 
 import '../bloc/hidden_bloc.dart';
 import '../repositories/hidden_contacts_repository.dart';
@@ -18,8 +19,14 @@ class HiddenContactScreen extends StatelessWidget {
 
   final String id;
 
+  /// «پیامک»: the contact's plain-SMS thread.
   void _message(BuildContext context, HiddenContact c, String phone) {
     context.read<SecureMessagesBloc>().add(SecureOpenWith(phone, c.name));
+  }
+
+  /// «پیام رمز»: the contact's encrypted conversation — a separate one.
+  void _secureMessage(BuildContext context, HiddenContact c, String phone) {
+    context.read<SecureMessagesBloc>().add(SecureStartEncrypted(phone, c.name));
   }
 
   Future<void> _confirmDelete(BuildContext context, HiddenContact c) async {
@@ -68,14 +75,17 @@ class HiddenContactScreen extends StatelessWidget {
             listenWhen: (a, b) => b.status == HiddenStatus.locked,
             listener: (context, _) => Navigator.of(context).pop(),
           ),
-          // «پیام» resolved to a conversation (encrypted or plain).
+          // «پیامک» or «پیام رمز» resolved to its conversation.
           BlocListener<SecureMessagesBloc, SecureMessagesState>(
             listenWhen: (a, b) =>
                 a.startedSeq != b.startedSeq && b.startedPhone != null,
             listener: (context, state) {
               final c = context.read<HiddenBloc>().state.contactById(id);
               final phone = state.startedPhone!;
-              if (c == null || !c.numbers.any((n) => n.phone == phone)) return;
+              final number = SecureMessenger.numberOf(phone);
+              if (c == null || !c.numbers.any((n) => n.phone == number)) {
+                return;
+              }
               Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) =>
@@ -179,10 +189,21 @@ class HiddenContactScreen extends StatelessWidget {
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          // Encrypted only to a mobile: the handshake is SMS.
+                          if (n.phone.startsWith('09'))
+                            IconButton(
+                              tooltip: 'پیام رمز',
+                              icon: Icon(
+                                Icons.enhanced_encryption_outlined,
+                                color: scheme.primary,
+                              ),
+                              onPressed: () =>
+                                  _secureMessage(context, c, n.phone),
+                            ),
                           // A landline cannot receive an SMS.
                           if (n.textable)
                             IconButton(
-                              tooltip: 'پیام',
+                              tooltip: 'پیامک رمزنشده',
                               icon: Icon(
                                 Icons.message_outlined,
                                 color: scheme.primary,

@@ -63,6 +63,9 @@ class PickedRecipient {
 class ContactSelectorScreen extends StatefulWidget {
   final bool pickOnly;
 
+  /// The title in [pickOnly] mode, when it is not a forward («هدایت به»).
+  final String? pickTitle;
+
   /// Multi-select that returns the picked people instead of opening anything.
   final bool pickMembers;
 
@@ -80,6 +83,7 @@ class ContactSelectorScreen extends StatefulWidget {
   const ContactSelectorScreen({
     super.key,
     this.pickOnly = false,
+    this.pickTitle,
     this.pickMembers = false,
     this.excludeNormalized = const {},
     this.startInGroupMode = false,
@@ -316,7 +320,7 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
 
   String get _title {
     if (widget.pickMembers) return 'افزودن اعضا';
-    if (widget.pickOnly) return 'هدایت به';
+    if (widget.pickOnly) return widget.pickTitle ?? 'هدایت به';
     return _groupMode ? 'گفتگوی گروهی جدید' : 'گفتگوی جدید';
   }
 
@@ -507,6 +511,10 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
       label = 'افزودن ($count)';
       icon = Icons.person_add_alt;
       onPressed = _returnMembers;
+    } else if (_forwardSelecting && widget.pickTitle != null) {
+      label = 'انتخاب ($count)';
+      icon = Icons.check;
+      onPressed = _returnForwardRecipients;
     } else if (_forwardSelecting) {
       label = 'هدایت ($count)';
       icon = Icons.forward;

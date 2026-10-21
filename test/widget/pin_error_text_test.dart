@@ -5,8 +5,9 @@ import 'package:flutter_test/flutter_test.dart';
 /// The lockout line counts down by itself and is gone when the wait is over;
 /// it used to keep the number it was written with.
 void main() {
-  Widget host(Widget child) =>
-      MaterialApp(home: Scaffold(body: Center(child: child)));
+  Widget host(Widget child) => MaterialApp(
+    home: Scaffold(body: Center(child: child)),
+  );
 
   testWidgets('a lockout counts down and disappears', (tester) async {
     await tester.pumpWidget(
@@ -32,7 +33,9 @@ void main() {
   });
 
   testWidgets('a plain message is shown as given', (tester) async {
-    await tester.pumpWidget(host(const PinErrorText(message: 'رمز عبور اشتباه است')));
+    await tester.pumpWidget(
+      host(const PinErrorText(message: 'رمز عبور اشتباه است')),
+    );
     expect(find.text('رمز عبور اشتباه است'), findsOneWidget);
   });
 }

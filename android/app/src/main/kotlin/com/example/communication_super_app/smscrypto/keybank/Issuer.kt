@@ -18,13 +18,8 @@ object Issuer {
     /** A roster file: the organization's name and its members. */
     class Roster(val organization: String, val entries: List<Entry>)
 
-    class Issued(
-        val signed: SignedDirectory,
-        val directory: Directory,
-        val identities: List<IdentityKeyPair>,
-        /** Each member's [MemberCert], for their first mobile number. */
-        val certs: List<MemberCert>,
-    )
+    /** A member's key and the [MemberCert] for their first mobile number. */
+    class Issued(val identity: IdentityKeyPair, val cert: MemberCert)
 
     class RosterException(message: String) : Exception(message)
 
@@ -61,8 +56,8 @@ object Issuer {
             val phones = fields[1].split(';', ' ').filter { it.isNotBlank() }.map { p ->
                 Canon.phone(p) ?: throw RosterException("line $lineNo: not a phone number: $p")
             }
-            if (phones.isEmpty() || phones.size > Directory.MAX_PHONES) {
-                throw RosterException("line $lineNo: 1 to ${Directory.MAX_PHONES} phone numbers")
+            if (phones.isEmpty() || phones.size > MAX_PHONES) {
+                throw RosterException("line $lineNo: 1 to $MAX_PHONES phone numbers")
             }
             // A member is reached by SMS over their certificate, which names a
             // mobile: without one nobody could ever reach them.
@@ -79,35 +74,24 @@ object Issuer {
             entries += Entry(fields[0], phones, generation)
         }
         if (entries.isEmpty()) throw RosterException("the roster is empty")
-        if (entries.size > Directory.MAX_MEMBERS) throw RosterException("too many members")
+        if (entries.size > MAX_MEMBERS) throw RosterException("too many members")
         return Roster(organization ?: throw RosterException("no organization line"), entries)
     }
 
     /**
-     * Signs a directory of [roster]. A member's key is derived from their
-     * first phone number and generation, so issuing again from the same
-     * roster gives every member the same key.
+     * The key and certificate of [entry]. The key is derived from the
+     * member's first phone number and generation, so issuing again gives the
+     * same member the same key. Nothing about any other member goes into it.
      */
-    fun issue(
-        authority: AuthorityKey,
-        directoryId: ByteArray,
-        roster: Roster,
-        serial: Long,
-        random: SecureRandom,
-    ): Issued {
-        val identities = roster.entries.map { authority.memberIdentity(it.phones.first(), it.generation) }
-        val directory = Directory(
-            authority.public.authorityId,
-            directoryId,
-            serial,
-            roster.organization,
-            roster.entries.mapIndexed { i, e -> Directory.Member(e.name, e.phones, identities[i].x25519Public) },
-        )
-        val certs = roster.entries.mapIndexed { i, e ->
-            MemberCert.issue(authority, e.phones.first(MemberCert::canName), e.generation, identities[i])
-        }
-        return Issued(SignedDirectory.sign(directory, authority, random), directory, identities, certs)
+    fun issue(authority: AuthorityKey, entry: Entry): Issued {
+        val identity = authority.memberIdentity(entry.phones.first(), entry.generation)
+        val cert = MemberCert.issue(authority, entry.phones.first(MemberCert::canName), entry.generation, identity)
+        return Issued(identity, cert)
     }
+
+    /** The roster's own limits — what one panel form or CSV line may hold. */
+    const val MAX_PHONES = 8
+    const val MAX_MEMBERS = 5000
 
     private const val ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 
@@ -119,17 +103,17 @@ object Issuer {
 }
 
 /**
- * The Windows tool's own file (`.hka`): the authority key and the directory
- * id, sealed under a password the operator chooses.
+ * The Windows tool's own file (`.hka`): the authority key, sealed under a
+ * password the operator chooses.
  * Whoever holds this file and its password can issue keys for the whole
  * organization — it belongs offline, with a backup.
  */
 object AuthorityFile {
     const val MAGIC = "HMRKA"
-    private const val FORMAT = 1
+    private const val FORMAT = 2
     const val MIN_PASSWORD_LENGTH = 12
 
-    class Contents(val key: AuthorityKey, val directoryId: ByteArray)
+    class Contents(val key: AuthorityKey)
 
     /** The operator's password as typed, only NFKC-normalized. */
     private fun passwordBytes(password: String) =
@@ -145,7 +129,6 @@ object AuthorityFile {
         val plain = BinWriter()
             .u8(FORMAT)
             .bytes16(contents.key.serialize())
-            .raw(contents.directoryId)
             .toByteArray()
         return SealedFile.seal(MAGIC, plain, passwordBytes(password), random, kdf)
     }
@@ -157,8 +140,7 @@ object AuthorityFile {
         )
         if (r.u8() != FORMAT) r.fail("unknown authority file format")
         val key = AuthorityKey.parse(r.bytes16())
-        val directoryId = r.raw(Directory.ID_BYTES)
         r.end()
-        return Contents(key, directoryId)
+        return Contents(key)
     }
 }

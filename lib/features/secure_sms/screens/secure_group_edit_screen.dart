@@ -3,15 +3,19 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
+import 'package:communication_super_app/features/messages/models/message_group.dart';
+import 'package:communication_super_app/features/messages/screens/contact_selector_screen.dart';
 import 'package:communication_super_app/features/secure/repositories/secure_group_store.dart';
+import 'package:communication_super_app/features/secure/services/sms_crypto_service.dart';
 
 import '../bloc/secure_messages_bloc.dart';
 import '../services/secure_identities.dart';
 import 'secure_group_screen.dart';
 
-/// «گروه رمز جدید», or the creator editing its group. Members come from the
-/// key bank (directory members) and the hidden phonebook (those the bank
-/// has a key for): a group message is encrypted to each member's key.
+/// «گروه رمز جدید», or the creator editing its group. Members are anyone
+/// already talked to encrypted, the hidden phonebook, and whoever is picked
+/// from the address book: a group message is encrypted to each member over
+/// their own conversation, which starts with our certificate like any other.
 class SecureGroupEditScreen extends StatefulWidget {
   const SecureGroupEditScreen({super.key, this.group});
 
@@ -39,7 +43,35 @@ class _SecureGroupEditScreenState extends State<SecureGroupEditScreen> {
   void initState() {
     super.initState();
     _bloc = context.read<SecureMessagesBloc>()
-      ..add(const SecureLoadGroupCandidates());
+      ..add(SecureLoadGroupCandidates(groupId: widget.group?.id));
+  }
+
+  /// «افزودن از مخاطبین»: the app's own picker; every mobile picked becomes a
+  /// candidate, already ticked.
+  Future<void> _addFromContacts() async {
+    final picked = await Navigator.of(context).push<List<GroupMember>>(
+      MaterialPageRoute(
+        builder: (_) => const ContactSelectorScreen(pickMembers: true),
+      ),
+    );
+    if (picked == null || picked.isEmpty) return;
+    const crypto = SmsCryptoService();
+    final add = <({String phone, String name})>[];
+    for (final m in picked) {
+      final phone = await crypto.canonicalPhone(m.phoneNumber);
+      if (phone == null || !phone.startsWith('09')) continue;
+      add.add((phone: phone, name: m.displayName ?? phone));
+    }
+    if (!mounted) return;
+    if (add.length < picked.length) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('پیام رمز فقط به شمارهٔ همراه (۰۹…) می‌رود.'),
+        ),
+      );
+    }
+    setState(() => _selected.addAll([for (final a in add) a.phone]));
+    _bloc.add(SecureAddGroupCandidates(add));
   }
 
   @override
@@ -68,18 +100,7 @@ class _SecureGroupEditScreenState extends State<SecureGroupEditScreen> {
         if (_selected.contains(p.phone)) p,
     ];
     if (_editing) {
-      final known = {for (final p in candidates) p.phone};
-      _bloc.add(
-        SecureEditGroup(
-          widget.group!.id,
-          name,
-          chosen,
-          keep: [
-            for (final phone in _selected)
-              if (!known.contains(phone)) phone,
-          ],
-        ),
-      );
+      _bloc.add(SecureEditGroup(widget.group!.id, name, chosen));
       Navigator.of(context).pop();
       return;
     }
@@ -108,14 +129,6 @@ class _SecureGroupEditScreenState extends State<SecureGroupEditScreen> {
         child: BlocBuilder<SecureMessagesBloc, SecureMessagesState>(
           builder: (context, state) {
             final candidates = state.candidates;
-            final known = {for (final p in candidates) p.phone};
-            // Members whose key the bank no longer has stay listed, so an
-            // edit never drops them silently.
-            final orphans = [
-              for (final m
-                  in widget.group?.members ?? const <SecureGroupMember>[])
-                if (!known.contains(m.phone)) m.phone,
-            ];
             final q = _filter.trim();
             final shown = [
               for (final p in candidates)
@@ -209,17 +222,18 @@ class _SecureGroupEditScreenState extends State<SecureGroupEditScreen> {
                       onChanged: (v) => setState(() => _filter = v),
                     ),
                   ),
-                  for (final phone in orphans)
-                    CheckboxListTile(
-                      value: _selected.contains(phone),
-                      onChanged: (on) => setState(
-                        () => on == true
-                            ? _selected.add(phone)
-                            : _selected.remove(phone),
+                  ListTile(
+                    contentPadding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                    leading: CircleAvatar(
+                      backgroundColor: scheme.tertiaryContainer,
+                      child: Icon(
+                        Icons.person_add_alt,
+                        color: scheme.onTertiaryContainer,
                       ),
-                      title: Text(state.nameOf(phone)),
-                      subtitle: const Text('کلیدش دیگر در بانک کلید شما نیست'),
                     ),
+                    title: const Text('افزودن از مخاطبین'),
+                    onTap: _addFromContacts,
+                  ),
                   for (final p in shown)
                     CheckboxListTile(
                       value: _selected.contains(p.phone),
@@ -236,16 +250,13 @@ class _SecureGroupEditScreenState extends State<SecureGroupEditScreen> {
                         ),
                       ),
                       title: Text(p.name),
-                      subtitle: Text(
-                        '${PersianUtils.displayPhone(p.phone)} · '
-                        '${p.sourceName ?? ''}',
-                      ),
+                      subtitle: Text(PersianUtils.displayPhone(p.phone)),
                     ),
                   if (candidates.isEmpty)
                     Padding(
                       padding: const EdgeInsets.all(24),
                       child: Text(
-                        'کسی با کلید در بانک کلید یا دفترچه مخفی نیست.',
+                        'هنوز کسی در فهرست نیست؛ اعضا را از مخاطبین اضافه کنید.',
                         textAlign: TextAlign.center,
                         style: TextStyle(color: scheme.onSurfaceVariant),
                       ),

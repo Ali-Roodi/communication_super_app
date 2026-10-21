@@ -157,53 +157,23 @@ class SecureStore {
   }
 
   /// «بانک کلید» — see `KeyBankRepository`, the only code that reads or
-  /// writes these tables.
+  /// writes this table.
   ///
-  /// Every phone number here is canonical (`SmsCryptoService.canonicalPhone`
-  /// — the same spelling the keys are derived from), and every id is
-  /// lowercase hex. A member's `key_id` is the key id their certificate
-  /// carries (`MemberCert.keyIdOf`).
+  /// This phone's own keys and nothing else: one per authority, the private
+  /// key a key file carries and the member certificate (`MemberCert`)
+  /// naming it. `key_id` is the certificate's key id
+  /// (`MemberCert.keyIdOf`), `phone` the number it names (canonical) and
+  /// `generation` its generation; ids are lowercase hex.
   static Future<void> _createKeyBank(cipher.DatabaseExecutor db) async {
-    // One row per organization directory; `signed` is the directory exactly
-    // as the authority signed it, so it can be verified again at any time.
-    await db.execute('''
-      CREATE TABLE kb_directories (
-        id TEXT PRIMARY KEY,
-        authority_id TEXT NOT NULL,
-        name TEXT NOT NULL,
-        serial INTEGER NOT NULL,
-        signed BLOB NOT NULL,
-        imported_at INTEGER NOT NULL
-      )
-    ''');
-    // `public_key`: the member's X25519 key (32 bytes) — what their
-    // certificate must carry.
-    await db.execute('''
-      CREATE TABLE kb_members (
-        directory_id TEXT NOT NULL,
-        key_id TEXT NOT NULL,
-        name TEXT NOT NULL,
-        public_key BLOB NOT NULL,
-        PRIMARY KEY (directory_id, key_id)
-      )
-    ''');
-    await db.execute('''
-      CREATE TABLE kb_member_phones (
-        phone TEXT NOT NULL,
-        directory_id TEXT NOT NULL,
-        key_id TEXT NOT NULL,
-        PRIMARY KEY (phone, directory_id)
-      )
-    ''');
-    // This phone's own identity in a directory — the one private key a key
-    // file carries — and the member certificate (`MemberCert`) naming it.
     await db.execute('''
       CREATE TABLE kb_own_keys (
-        directory_id TEXT PRIMARY KEY,
-        key_id TEXT NOT NULL,
+        authority_id TEXT PRIMARY KEY,
+        key_id TEXT NOT NULL UNIQUE,
+        phone TEXT NOT NULL,
+        generation INTEGER NOT NULL,
         secret BLOB NOT NULL,
-        public_key BLOB NOT NULL,
-        cert BLOB NOT NULL
+        cert BLOB NOT NULL,
+        imported_at INTEGER NOT NULL
       )
     ''');
   }
@@ -214,8 +184,8 @@ class SecureStore {
     // One conversation per peer number (canonical). With all four key
     // columns null it is a hidden contact reached by plain SMS.
     // `peer_public` is the peer's member certificate once they have
-    // answered; `peer_key_id` is empty until then for a member our
-    // directories do not list. `own_directory`: the key file of ours that
+    // answered; `peer_key_id` is empty until then — who holds a number is
+    // only known from their certificate. `own_key_id`: the key of ours that
     // talks to them. `peer_generation`: the highest certificate generation
     // seen for the peer — an older one is refused. `listed`: a group makes a
     // one-to-one conversation with every member, kept out of the list until
@@ -227,7 +197,6 @@ class SecureStore {
         peer_key_id TEXT,
         peer_public BLOB,
         own_key_id TEXT,
-        own_directory TEXT,
         created_at INTEGER NOT NULL,
         last_at INTEGER NOT NULL,
         unread INTEGER NOT NULL DEFAULT 0,
@@ -240,7 +209,9 @@ class SecureStore {
     // Ratchet states and our pending handshakes. Stored BEFORE the SMS that
     // used them goes out, so a crash can never reuse a message key.
     // `kind`: see `SessionKind`. `offered_at`: when our post-quantum upgrade
-    // offer went out on it.
+    // offer went out on it. `send_failed`: the radio reported that the
+    // control SMS this session sent last — our session request on a pending
+    // one, our upgrade offer on an established one — did not go out.
     await db.execute('''
       CREATE TABLE sm_sessions (
         phone TEXT NOT NULL,
@@ -250,6 +221,7 @@ class SecureStore {
         created_at INTEGER NOT NULL,
         kind TEXT NOT NULL,
         offered_at INTEGER,
+        send_failed INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (phone, sid)
       )
     ''');

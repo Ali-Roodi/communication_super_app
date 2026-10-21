@@ -17,8 +17,8 @@ import com.example.communication_super_app.smscrypto.cryptoError
  *           ‖ generation(1) ‖ x25519(32) ‖ Ed25519 signature(64)      = 103
  * ```
  *
- * The signature is Ed25519 only (the directory's is Ed25519 + ML-DSA-65):
- * an ML-DSA signature is 3309 bytes, thirty SMS parts on every first contact.
+ * The signature is Ed25519 only: an ML-DSA signature is 3309 bytes, thirty
+ * SMS parts on every first contact.
  * The owner chose the classical one (1405/07/25); what it authenticates is a
  * handshake happening *now*, which a future quantum computer cannot reach
  * back into. The confidentiality of what follows is made post-quantum by the

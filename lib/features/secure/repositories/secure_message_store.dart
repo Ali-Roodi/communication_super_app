@@ -31,7 +31,6 @@ class SecureConversation extends Equatable {
     this.peerKeyId,
     this.peerPublic,
     this.ownKeyId,
-    this.ownDirectory,
     required this.createdAt,
     required this.lastAt,
     this.unread = 0,
@@ -58,18 +57,15 @@ class SecureConversation extends Equatable {
   final String phone;
   final String name;
 
-  /// Null for a conversation without a key: a hidden contact the key bank
-  /// does not know, reached by plain SMS (phase G). Otherwise
-  /// [peerPublic] is the peer's member certificate once they have
-  /// answered, and [peerKeyId] is empty until then for a member our
-  /// directories do not list.
+  /// Null for a conversation without a key: a hidden contact reached by
+  /// plain SMS (phase G). Otherwise [peerPublic] is the peer's member
+  /// certificate once they have answered, and [peerKeyId] is empty until
+  /// then — who holds a number is only known from their certificate.
   final String? peerKeyId;
   final Uint8List? peerPublic;
 
-  /// Which of our identities talks to this peer, and the directory of the
-  /// key file it comes from; null without a key.
+  /// Which of our identities talks to this peer; null without a key.
   final String? ownKeyId;
-  final String? ownDirectory;
 
   /// Whether messages here are encrypted (else plain SMS).
   bool get encrypted =>
@@ -92,7 +88,6 @@ class SecureConversation extends Equatable {
     name,
     peerKeyId,
     ownKeyId,
-    ownDirectory,
     lastAt,
     unread,
     lastBody,
@@ -198,6 +193,7 @@ class StoredSession {
     required this.createdAt,
     required this.kind,
     this.offeredAt,
+    this.sendFailed = false,
   });
   final String phone;
   final int sid;
@@ -211,8 +207,63 @@ class StoredSession {
   /// [SessionKind.certInitiated]: when our upgrade offer went out.
   final int? offeredAt;
 
+  /// The radio said the control SMS this session sent last did not go out
+  /// (see `sm_sessions.send_failed`).
+  final bool sendFailed;
+
   /// Not sent on yet: see [SessionKind.pqStandby].
   bool get sendable => !pending && kind != SessionKind.pqStandby;
+}
+
+/// Where an encrypted conversation's secure channel stands — what the
+/// conversation screen tells the user, so a channel that is not coming, or
+/// an upgrade that stalled, is never silent.
+class SecureChannelInfo extends Equatable {
+  const SecureChannelInfo({
+    this.established = false,
+    this.pendingSince,
+    this.requestFailed = false,
+    this.upgraded = false,
+    this.sessionSince,
+    this.canOfferUpgrade = false,
+    this.upgradeOfferedAt,
+    this.upgradeOfferFailed = false,
+  });
+
+  /// A session exists: messages go out.
+  final bool established;
+
+  /// Our session request is waiting for its answer, since then (ms).
+  final int? pendingSince;
+
+  /// The radio said our session request did not go out.
+  final bool requestFailed;
+
+  /// A post-quantum session exists.
+  final bool upgraded;
+
+  /// When the newest established session was made (ms).
+  final int? sessionSince;
+
+  /// We started the handshake, so the upgrade is ours to offer.
+  final bool canOfferUpgrade;
+
+  /// When our upgrade offer went out (ms), and whether the radio said it
+  /// did not.
+  final int? upgradeOfferedAt;
+  final bool upgradeOfferFailed;
+
+  @override
+  List<Object?> get props => [
+    established,
+    pendingSince,
+    requestFailed,
+    upgraded,
+    sessionSince,
+    canOfferUpgrade,
+    upgradeOfferedAt,
+    upgradeOfferFailed,
+  ];
 }
 
 /// `sm_sessions.kind` — how a session was made (secure.db v7).
@@ -340,7 +391,6 @@ class SecureMessageStore {
         peerKeyId: r['peer_key_id'] as String?,
         peerPublic: r['peer_public'] as Uint8List?,
         ownKeyId: r['own_key_id'] as String?,
-        ownDirectory: r['own_directory'] as String?,
         createdAt: r['created_at'] as int,
         lastAt: r['last_at'] as int,
         unread: r['unread'] as int,
@@ -355,8 +405,7 @@ class SecureMessageStore {
   /// An encrypted conversation learns who is on the other side: the
   /// certificate the peer's request or answer carried.
   ///
-  /// The first time — the key id was empty, or the one the directory let us
-  /// expect — nothing else changes. A **different** key is the peer's new
+  /// The first time — the key id was still empty — nothing else changes. A **different** key is the peer's new
   /// one (the issuance panel's «گوشی گم شد»): the conversation moves to it and
   /// the sessions made with the old one go, as in [upsertConversation]. The
   /// caller has already refused a certificate older than [peerGeneration].
@@ -407,7 +456,6 @@ class SecureMessageStore {
     required String peerKeyId,
     required Uint8List peerPublic,
     required String ownKeyId,
-    required String ownDirectory,
     required int now,
     bool listed = true,
   }) => db.transaction((txn) async {
@@ -424,7 +472,6 @@ class SecureMessageStore {
         'peer_key_id': peerKeyId,
         'peer_public': peerPublic,
         'own_key_id': ownKeyId,
-        'own_directory': ownDirectory,
         'created_at': now,
         'last_at': now,
         'listed': listed ? 1 : 0,
@@ -448,7 +495,6 @@ class SecureMessageStore {
         'peer_key_id': peerKeyId,
         'peer_public': peerPublic,
         'own_key_id': ownKeyId,
-        'own_directory': ownDirectory,
         'seen_sid': null,
         'seen_counter': null,
       },
@@ -546,6 +592,7 @@ class SecureMessageStore {
           createdAt: r['created_at'] as int,
           kind: r['kind'] as String,
           offeredAt: r['offered_at'] as int?,
+          sendFailed: r['send_failed'] == 1,
         ),
     ];
   }
@@ -559,7 +606,22 @@ class SecureMessageStore {
         'created_at': session.createdAt,
         'kind': session.kind,
         'offered_at': session.offeredAt,
+        'send_failed': session.sendFailed ? 1 : 0,
       }, conflictAlgorithm: cipher.ConflictAlgorithm.replace);
+
+  /// Deletes all but the newest [keep] [SessionKind.pqStandby] sessions.
+  Future<void> keepNewestStandby(
+    cipher.DatabaseExecutor txn,
+    String phone, {
+    required int keep,
+  }) => txn.rawDelete(
+    '''
+    DELETE FROM sm_sessions WHERE phone = ? AND kind = ? AND sid NOT IN
+      (SELECT sid FROM sm_sessions WHERE phone = ? AND kind = ?
+        ORDER BY created_at DESC LIMIT ?)
+    ''',
+    [phone, SessionKind.pqStandby, phone, SessionKind.pqStandby, keep],
+  );
 
   /// A [SessionKind.pqStandby] session the offerer was heard on: from now on
   /// the one we send on.
@@ -580,13 +642,63 @@ class SecureMessageStore {
     cipher.DatabaseExecutor txn,
     String phone,
     int sid,
-    int at,
+    int? at,
   ) => txn.update(
     'sm_sessions',
-    {'offered_at': at},
+    {'offered_at': at, 'send_failed': 0},
     where: 'phone = ? AND sid = ?',
     whereArgs: [phone, sid],
   );
+
+  /// When the newest message from [phone] arrived (ms), if any.
+  Future<int?> lastReceivedAt(String phone) async {
+    final rows = await db.rawQuery(
+      'SELECT MAX(timestamp) AS at FROM sm_messages '
+      'WHERE phone = ? AND outgoing = 0',
+      [phone],
+    );
+    return rows.first['at'] as int?;
+  }
+
+  /// What the radio said about the control SMS session [sid] sent last.
+  Future<bool> markSendFailed(String phone, int sid, bool failed) async =>
+      await db.update(
+        'sm_sessions',
+        {'send_failed': failed ? 1 : 0},
+        where: 'phone = ? AND sid = ?',
+        whereArgs: [phone, sid],
+      ) >
+      0;
+
+  /// See [SecureChannelInfo].
+  Future<SecureChannelInfo> channelInfo(String phone) async {
+    final rows = await db.query(
+      'sm_sessions',
+      columns: ['pending', 'kind', 'created_at', 'offered_at', 'send_failed'],
+      where: 'phone = ?',
+      whereArgs: [phone],
+      orderBy: 'created_at DESC',
+    );
+    final pending = rows.where((r) => r['pending'] == 1).firstOrNull;
+    final live = rows
+        .where((r) => r['pending'] == 0 && r['kind'] != SessionKind.pqStandby)
+        .firstOrNull;
+    final offerer = rows
+        .where(
+          (r) => r['pending'] == 0 && r['kind'] == SessionKind.certInitiated,
+        )
+        .firstOrNull;
+    return SecureChannelInfo(
+      established: live != null,
+      pendingSince: pending?['created_at'] as int?,
+      requestFailed: pending?['send_failed'] == 1,
+      upgraded: rows.any((r) => r['kind'] == SessionKind.pq),
+      sessionSince: live?['created_at'] as int?,
+      canOfferUpgrade: offerer != null,
+      upgradeOfferedAt: offerer?['offered_at'] as int?,
+      upgradeOfferFailed: offerer?['send_failed'] == 1,
+    );
+  }
 
   Future<void> saveSession(StoredSession session) => putSession(db, session);
 

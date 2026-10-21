@@ -351,22 +351,20 @@ class FakeIdentities implements SecureIdentities {
   FakeIdentities(this.me, this.book);
   final String me;
 
-  /// name → number, the whole "directory".
+  /// name → number of every phone in the test — what the test knows, not
+  /// anything a phone holds: a phone knows only its own key.
   final Map<String, String> book;
 
   /// name → the label their key is made from, when the authority gave them
-  /// a new one (default: the name). What importing a new directory changes.
+  /// a new one (default: the name).
   final Map<String, String> keys = {};
-
-  /// Members the authority removed: no longer in this phone's directory.
-  final Set<String> removed = {};
 
   /// Our certificate's generation (raised for a "lost phone"), and whether
   /// the authority signed it.
   int gen = 0;
   bool trusted = true;
 
-  /// The generation the directory says a member is at (default 0).
+  /// The generation a member's certificate is at (default 0).
   final Map<String, int> gens = {};
 
   String _key(String name) => keys[name] ?? name;
@@ -381,7 +379,6 @@ class FakeIdentities implements SecureIdentities {
         publicKey: cert,
         keyId: fakeCertInfo(cert).keyId,
       ),
-      directoryId: 'd',
       number: book[me]!,
       cert: cert,
     );
@@ -394,32 +391,24 @@ class FakeIdentities implements SecureIdentities {
     own: _ownCert,
   );
 
-  /// A member of this phone's directory.
+  /// A colleague, with the key id their certificate will carry.
   SecurePeer peer(String name) => certPeer(name);
 
   @override
-  Future<OwnIdentity?> ownCert({String? phone}) async => _ownCert;
+  Future<OwnIdentity?> ownCert() async => _ownCert;
 
+  /// As the real one: any mobile but our own, over our certificate, with no
+  /// key id until the holder answers.
   @override
-  Future<String?> nameFor(String phone) async {
-    for (final e in book.entries) {
-      if (e.value == phone && !removed.contains(e.key)) return e.key;
-    }
-    return null;
+  Future<SecurePeer?> forNumber(String phone, {String? name}) async {
+    if (phone == book[me] || !phone.startsWith('09')) return null;
+    return SecurePeer(
+      name: name ?? phone,
+      phone: phone,
+      keyId: '',
+      own: _ownCert,
+    );
   }
-
-  @override
-  Future<List<SecurePeer>> forTypedNumber(String phone) async {
-    final peers = await forNumber(phone);
-    if (peers.isNotEmpty || phone == book[me]) return peers;
-    return [SecurePeer(name: phone, phone: phone, keyId: '', own: _ownCert)];
-  }
-
-  @override
-  Future<List<SecurePeer>> forNumber(String phone) async => [
-    for (final name in book.keys)
-      if (book[name] == phone && !removed.contains(name)) certPeer(name),
-  ];
 
   static String _hex(List<int> b) =>
       b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
@@ -494,6 +483,9 @@ class FakeHidden implements HiddenSmsSource {
 /// The radio: holds what each phone sends until the test delivers it.
 class Air {
   final List<({String from, String to, String wire})> inFlight = [];
+
+  /// Every tracking id handed to the radio, in order.
+  final List<String> tracking = [];
   final Map<String, FakeQueue> queues = {};
   var failNext = false;
   var clock = 1000;
@@ -529,6 +521,7 @@ class _Sender implements SecureSmsSender {
       air.failNext = false;
       throw Exception('no service');
     }
+    air.tracking.add(trackingId);
     air.inFlight.add((from: from, to: phone, wire: wire));
   }
 }
@@ -775,6 +768,177 @@ void main() {
     ]);
   });
 
+  group('a channel that does not come is never silent', () {
+    final saraNumber = book['sara']!;
+
+    test(
+      'a request the radio could not take is marked; «دوباره تلاش» sends one',
+      () async {
+        await ali.messenger.startConversation(ali.identities.peer('sara'));
+        air.failNext = true; // no service for the request
+        await ali.messenger.sendText(saraNumber, 'یک');
+        expect(air.inFlight, isEmpty);
+        var c = await ali.store.channelInfo(saraNumber);
+        expect(c.requestFailed, isTrue);
+        expect(c.established, isFalse);
+
+        await ali.messenger.retryChannel(saraNumber);
+        expect(air.inFlight, hasLength(1)); // a fresh request, at once
+        c = await ali.store.channelInfo(saraNumber);
+        expect(c.requestFailed, isFalse);
+        await settle();
+        expect((await sara.thread(book['ali']!)).map((m) => m.body), ['یک']);
+        expect((await ali.store.channelInfo(saraNumber)).established, isTrue);
+      },
+    );
+
+    test(
+      'the radio\'s report on the request is what the screen shows',
+      () async {
+        await ali.messenger.startConversation(ali.identities.peer('sara'));
+        await ali.messenger.sendText(saraNumber, 'یک');
+        final id = air.tracking.single;
+        expect(id, startsWith('cs:$saraNumber:'));
+        await ali.messenger.onStatus(id, 'failed');
+        expect((await ali.store.channelInfo(saraNumber)).requestFailed, isTrue);
+        await ali.messenger.onStatus(id, 'sent');
+        expect(
+          (await ali.store.channelInfo(saraNumber)).requestFailed,
+          isFalse,
+        );
+      },
+    );
+
+    test(
+      'an unanswered request is asked again at once on «دوباره تلاش»',
+      () async {
+        await ali.messenger.startConversation(ali.identities.peer('sara'));
+        await ali.messenger.sendText(saraNumber, 'یک');
+        final first = await ali.store.channelInfo(saraNumber);
+        expect(first.pendingSince, isNotNull);
+        air.inFlight.clear(); // lost, or Sara's phone was off
+        await ali.messenger.retryChannel(saraNumber);
+        expect(air.inFlight, hasLength(1)); // not waiting for pendingTimeout
+        await settle();
+        expect((await sara.thread(book['ali']!)).map((m) => m.body), ['یک']);
+      },
+    );
+
+    test('«دوباره تلاش» on a channel that is up does nothing', () async {
+      await ali.messenger.startConversation(ali.identities.peer('sara'));
+      await ali.messenger.sendText(saraNumber, 'یک');
+      await settle();
+      final before = air.tracking.length;
+      await ali.messenger.retryChannel(saraNumber);
+      expect(air.inFlight, isEmpty);
+      expect(air.tracking.length, before);
+    });
+
+    test(
+      'a lost upgrade offer is offered again once the peer writes',
+      () async {
+        await ali.messenger.startConversation(ali.identities.peer('sara'));
+        await ali.messenger.sendText(saraNumber, 'یک');
+        air.deliver();
+        await sara.messenger.drain();
+        air.deliver();
+        await ali.messenger.drain();
+        expect(air.tracking.last, startsWith('cs:$saraNumber:')); // the offer
+        air.inFlight.clear(); // lost on the way
+        // Sara writes a few minutes later, on the classical session.
+        air.clock +=
+            SecureMessenger.upgradeRetryWhenHeard.inMilliseconds + 1000;
+        await sara.messenger.sendText(book['ali']!, 'سلام');
+        final offers = air.tracking.where((t) => t.startsWith('cs:')).length;
+        air.deliver();
+        await ali.messenger.drain();
+        // Ali, hearing her, offers the upgrade again without waiting 30 min.
+        expect(
+          air.tracking.where((t) => t.startsWith('cs:')).length,
+          offers + 1,
+        );
+        await settle();
+        expect((await ali.store.channelInfo(saraNumber)).upgraded, isTrue);
+      },
+    );
+
+    test(
+      'a late old offer does not undo the upgrade (found on the phones)',
+      () async {
+        // Samsung ↔ Xiaomi, 1405/07/29: the first offer was held up, the
+        // second was answered, then the first arrived and its answer replaced
+        // the standby session the offerer went on to use — every message after
+        // the upgrade was unreadable.
+        await ali.messenger.startConversation(ali.identities.peer('sara'));
+        await ali.messenger.sendText(saraNumber, 'یک');
+        air.deliver();
+        await sara.messenger.drain();
+        air.deliver();
+        await ali.messenger.drain();
+        final held = List.of(air.inFlight); // the message, then offer 1
+        air.inFlight.clear();
+        expect(held, hasLength(2));
+        air.inFlight.add(held.first);
+        air.deliver();
+        await sara.messenger.drain();
+        // Sara writes later; Ali offers again (offer 2).
+        air.clock +=
+            SecureMessenger.upgradeRetryWhenHeard.inMilliseconds + 1000;
+        await sara.messenger.sendText(book['ali']!, 'سلام');
+        air.deliver();
+        await ali.messenger.drain();
+        // Offer 2 reaches Sara first, then the old offer 1.
+        air.inFlight.add(held.last);
+        air.deliver();
+        await sara.messenger.drain();
+        await settle();
+        expect((await ali.store.channelInfo(saraNumber)).upgraded, isTrue);
+        await ali.messenger.sendText(saraNumber, 'بعد از ارتقا');
+        await settle();
+        expect(
+          (await sara.thread(book['ali']!)).map((m) => m.body),
+          contains('بعد از ارتقا'),
+        );
+        await sara.messenger.sendText(book['ali']!, 'رسید');
+        await settle();
+        expect(
+          (await ali.thread(saraNumber)).map((m) => m.body),
+          contains('رسید'),
+        );
+      },
+    );
+
+    test('a failed upgrade offer is offered again, unseen', () async {
+      await ali.messenger.startConversation(ali.identities.peer('sara'));
+      await ali.messenger.sendText(saraNumber, 'یک');
+      // The request and its answer only; the upgrade offer is held back.
+      air.deliver();
+      await sara.messenger.drain();
+      air.deliver();
+      await ali.messenger.drain();
+      var c = await ali.store.channelInfo(saraNumber);
+      expect(c.established, isTrue);
+      expect(c.canOfferUpgrade, isTrue);
+      expect(c.upgraded, isFalse);
+      final offer = air.tracking.last;
+      expect(offer, startsWith('cs:$saraNumber:'));
+      air.inFlight.clear(); // the offer never arrives
+      await ali.messenger.onStatus(offer, 'failed');
+      c = await ali.store.channelInfo(saraNumber);
+      expect(c.upgradeOfferFailed, isTrue);
+
+      // The next flush offers it again, without waiting for upgradeRetry.
+      await ali.messenger.flush(saraNumber);
+      expect(
+        (await ali.store.channelInfo(saraNumber)).upgradeOfferFailed,
+        isFalse,
+      );
+      expect(air.inFlight, isNotEmpty);
+      await settle();
+      expect((await ali.store.channelInfo(saraNumber)).upgraded, isTrue);
+    });
+  });
+
   test(
     'a dual-SIM peer answering from its other number is still them',
     () async {
@@ -991,30 +1155,6 @@ void main() {
       expect((await sara.store.conversation(book['ali']!))!.peerGeneration, 1);
     });
 
-    test(
-      'removing a member revokes nothing: the conversation goes on',
-      () async {
-        // Owner's decision (1405/07/25): no revocation. A member taken off
-        // the roster keeps a valid certificate.
-        await ali.messenger.startConversation(ali.identities.peer('sara'));
-        await ali.messenger.sendText(book['sara']!, 'یک');
-        await settle();
-        ali.identities.removed.add('sara');
-        await ali.messenger.sendText(book['sara']!, 'دو');
-        await sara.messenger.sendText(book['ali']!, 'هنوز اینجام');
-        await settle();
-        expect((await sara.thread(book['ali']!)).map((m) => m.body).toSet(), {
-          'یک',
-          'دو',
-          'هنوز اینجام',
-        });
-        expect(
-          (await ali.thread(book['sara']!)).map((m) => m.body),
-          contains('هنوز اینجام'),
-        );
-      },
-    );
-
     test('nothing changes while the keys are current', () async {
       await ali.messenger.startConversation(ali.identities.peer('sara'));
       await ali.messenger.sendText(book['sara']!, 'یک');
@@ -1073,24 +1213,30 @@ void main() {
   });
 
   group('hidden contacts (phase G)', () {
+    // A hidden contact's plain SMS live in their own thread, never in the
+    // encrypted conversation with the same number.
+    const reza = '09125555555';
+    final rezaPlain = SecureMessenger.plainThread(reza);
+
     test(
       'a plain SMS from a hidden contact is stored once, named, keyless',
       () async {
-        ali.hidden.names['09125555555'] = 'رضا';
-        ali.hidden.add('09125555555', 'سلام، کجایی؟', 5000);
+        ali.hidden.names[reza] = 'رضا';
+        ali.hidden.add(reza, 'سلام، کجایی؟', 5000);
         await ali.messenger.drain();
         // Kotlin parked it again (the delete failed): still one message.
-        ali.hidden.add('09125555555', 'سلام، کجایی؟', 5000);
+        ali.hidden.add(reza, 'سلام، کجایی؟', 5000);
         await ali.messenger.drain();
 
-        final c = (await ali.store.conversation('09125555555'))!;
+        final c = (await ali.store.conversation(rezaPlain))!;
         expect(c.name, 'رضا');
         expect(c.encrypted, isFalse);
         expect(c.unread, 1);
-        final m = (await ali.thread('09125555555')).single;
+        final m = (await ali.thread(rezaPlain)).single;
         expect(m.plain, isTrue);
         expect(m.outgoing, isFalse);
         expect(m.body, 'سلام، کجایی؟');
+        expect(await ali.store.conversation(reza), isNull);
         expect(ali.hidden.entries, isEmpty);
       },
     );
@@ -1126,30 +1272,63 @@ void main() {
       },
     );
 
+    test('plain and encrypted chats with one number are never mixed', () async {
+      ali.hidden.names[book['sara']!] = 'سارا';
+      // Sara's plain SMS first, in her plain thread…
+      ali.hidden.add(book['sara']!, 'پیامک عادی', 5000);
+      await ali.messenger.drain();
+      // …then an encrypted conversation with her.
+      await ali.messenger.startConversation(ali.identities.peer('sara'));
+      await ali.messenger.sendText(book['sara']!, 'رمزی');
+      await settle();
+      final plain = await ali.thread(
+        SecureMessenger.plainThread(book['sara']!),
+      );
+      final encrypted = await ali.thread(book['sara']!);
+      expect(plain.map((m) => m.body), ['پیامک عادی']);
+      expect(plain.every((m) => m.plain), isTrue);
+      expect(encrypted.map((m) => m.body), ['رمزی']);
+      expect(encrypted.any((m) => m.plain), isFalse);
+      expect(
+        (await ali.store.conversation(
+          SecureMessenger.plainThread(book['sara']!),
+        ))!.encrypted,
+        isFalse,
+      );
+      expect((await ali.store.conversation(book['sara']!))!.encrypted, isTrue);
+      // Plain text cannot be sent into the encrypted conversation.
+      await ali.messenger.sendPlain(book['sara']!, 'نه');
+      expect((await ali.thread(book['sara']!)).map((m) => m.body), ['رمزی']);
+    });
+
     test(
       'a keyless conversation sends plain SMS at once, never a handshake',
       () async {
-        await ali.messenger.startPlainConversation('09125555555', 'رضا');
-        await ali.messenger.sendPlain('09125555555', 'بدون رمز');
+        final thread = await ali.messenger.startPlainConversation(reza, 'رضا');
+        expect(thread, rezaPlain);
+        await ali.messenger.sendPlain(thread, 'بدون رمز');
         final sent = air.inFlight.single;
         expect(sent.wire, 'بدون رمز');
-        final m = (await ali.thread('09125555555')).single;
+        expect(sent.to, reza);
+        final m = (await ali.thread(thread)).single;
         expect(m.plain, isTrue);
         expect(m.status, SecureMessageStatus.sent);
-        await ali.messenger.flush('09125555555'); // nothing to encrypt
+        await ali.messenger.flush(thread); // nothing to encrypt
         expect(air.inFlight, hasLength(1));
-        expect(await ali.store.sessions('09125555555'), isEmpty);
+        expect(await ali.store.sessions(thread), isEmpty);
+        expect(await ali.store.sessions(reza), isEmpty);
       },
     );
 
     test('a failed plain SMS is retried as plain', () async {
-      await ali.messenger.startPlainConversation('09125555555', 'رضا');
+      final thread = await ali.messenger.startPlainConversation(reza, 'رضا');
       air.failNext = true;
-      await ali.messenger.sendPlain('09125555555', 'دوباره');
-      final failed = (await ali.thread('09125555555')).single;
+      await ali.messenger.sendPlain(thread, 'دوباره');
+      final failed = (await ali.thread(thread)).single;
       expect(failed.status, SecureMessageStatus.failed);
       await ali.messenger.retry(failed.id);
       expect(air.inFlight.single.wire, 'دوباره');
+      expect(air.inFlight.single.to, reza);
       expect(
         (await ali.store.message(failed.id))!.status,
         SecureMessageStatus.sent,
@@ -1161,13 +1340,13 @@ void main() {
         (outgoing: false, body: 'قدیمی ۱', timestamp: 10),
         (outgoing: true, body: 'قدیمی ۲', timestamp: 20),
       ];
-      await ali.messenger.importPlainHistory('09125555555', 'رضا', history);
-      await ali.messenger.importPlainHistory('09125555555', 'رضا', history);
-      final thread = await ali.thread('09125555555');
+      await ali.messenger.importPlainHistory(reza, 'رضا', history);
+      await ali.messenger.importPlainHistory(reza, 'رضا', history);
+      final thread = await ali.thread(rezaPlain);
       expect(thread.map((m) => m.body), ['قدیمی ۱', 'قدیمی ۲']);
       expect(thread.every((m) => m.plain), isTrue);
       expect(thread.first.seenAt, isNotNull);
-      final c = (await ali.store.conversation('09125555555'))!;
+      final c = (await ali.store.conversation(rezaPlain))!;
       expect(c.unread, 0);
       expect(c.lastAt, 20);
     });
@@ -1175,51 +1354,48 @@ void main() {
     test(
       'a scheduled SMS sent to a hidden number lands as ours, read',
       () async {
-        ali.hidden.names['09125555555'] = 'رضا';
-        ali.hidden.add(
-          '09125555555',
-          'زمان‌بندی‌شده',
-          7000,
-          extra: {'outgoing': true},
-        );
+        ali.hidden.names[reza] = 'رضا';
+        ali.hidden.add(reza, 'زمان‌بندی‌شده', 7000, extra: {'outgoing': true});
         await ali.messenger.drain();
-        final m = (await ali.thread('09125555555')).single;
+        final m = (await ali.thread(rezaPlain)).single;
         expect(m.outgoing, isTrue);
         expect(m.plain, isTrue);
         expect(m.status, SecureMessageStatus.sent);
-        expect((await ali.store.conversation('09125555555'))!.unread, 0);
+        expect((await ali.store.conversation(rezaPlain))!.unread, 0);
       },
     );
 
     test(
       'an operator notice naming a hidden number joins that conversation',
       () async {
-        ali.hidden.names['09125555555'] = 'رضا';
+        ali.hidden.names[reza] = 'رضا';
         ali.hidden.add(
           'MCI',
           'تماس از 09125555555',
           8000,
-          extra: {'about': '09125555555'},
+          extra: {'about': reza},
         );
         await ali.messenger.drain();
         expect(await ali.store.conversation('MCI'), isNull);
-        final m = (await ali.thread('09125555555')).single;
+        final m = (await ali.thread(rezaPlain)).single;
         expect(m.body, 'پیامک MCI: تماس از 09125555555');
         expect(m.outgoing, isFalse);
-        expect((await ali.store.conversation('09125555555'))!.name, 'رضا');
+        expect((await ali.store.conversation(rezaPlain))!.name, 'رضا');
       },
     );
 
-    test(
-      'a key-bank conversation keeps its key when the contact is hidden',
-      () async {
-        await ali.messenger.startConversation(ali.identities.peer('sara'));
-        await ali.messenger.startPlainConversation(book['sara']!, 'سارا');
-        final c = (await ali.store.conversation(book['sara']!))!;
-        expect(c.encrypted, isTrue);
-        expect(c.name, 'سارا');
-      },
-    );
+    test('renaming a hidden contact renames both of their chats', () async {
+      await ali.messenger.startConversation(ali.identities.peer('sara'));
+      await ali.messenger.startPlainConversation(book['sara']!, 'سارا');
+      await ali.messenger.rename([book['sara']!], 'سارا کریمی');
+      expect((await ali.store.conversation(book['sara']!))!.name, 'سارا کریمی');
+      final plain = (await ali.store.conversation(
+        SecureMessenger.plainThread(book['sara']!),
+      ))!;
+      expect(plain.name, 'سارا کریمی');
+      expect(plain.encrypted, isFalse);
+      expect((await ali.store.conversation(book['sara']!))!.encrypted, isTrue);
+    });
   });
 
   group('timed messages (matrix row 16)', () {
@@ -1528,7 +1704,7 @@ void main() {
           (await ali.thread(book['sara']!)).map((m) => m.body),
           contains('علیک سلام'),
         );
-        // Sara's name comes from the directory, the peer key from the answer.
+        // The peer key comes from the answer.
         final c = (await ali.store.conversation(book['sara']!))!;
         expect(c.encrypted, isTrue);
         expect(c.peerKeyId, isNotEmpty);
@@ -1536,9 +1712,9 @@ void main() {
       },
     );
 
-    test('a member in nobody\'s directory is reached by number', () async {
-      // Nima's key file was issued after everyone else's: only his own
-      // directory lists him. Nobody else got anything new.
+    test('any number is reached by number alone', () async {
+      // Nima's key file was issued after everyone else's, and nobody else
+      // got anything new: there is no list of members anywhere.
       const nimaNumber = '09124444444';
       final nima = Phone('nima', nimaNumber, await openDb(), air, {
         ...book,
@@ -1546,10 +1722,9 @@ void main() {
       }, 400);
       addTearDown(nima.db.close);
 
-      final ways = await ali.identities.forTypedNumber(nimaNumber);
-      expect(ways.single.keyId, isEmpty);
-      expect(ways.single.keyId, isEmpty);
-      await ali.messenger.startConversation(ways.single);
+      final way = (await ali.identities.forNumber(nimaNumber))!;
+      expect(way.keyId, isEmpty);
+      await ali.messenger.startConversation(way);
       await ali.messenger.sendText(nimaNumber, 'خوش آمدی');
       for (var i = 0; i < 10 && air.inFlight.isNotEmpty; i++) {
         air.deliver();
@@ -1557,7 +1732,8 @@ void main() {
         await nima.messenger.drain();
       }
       expect((await nima.thread(book['ali']!)).single.body, 'خوش آمدی');
-      expect((await nima.store.conversation(book['ali']!))!.name, 'ali');
+      // No key file names anybody: the request is known by its number.
+      expect((await nima.store.conversation(book['ali']!))!.name, book['ali']);
       // Who answered is known now.
       expect((await ali.store.conversation(nimaNumber))!.peerKeyId, isNotEmpty);
       expect((await ali.store.sessions(nimaNumber)).first.kind, SessionKind.pq);

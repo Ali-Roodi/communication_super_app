@@ -5,20 +5,19 @@ import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/features/hidden/bloc/hidden_bloc.dart';
 import 'package:communication_super_app/features/keybank/screens/key_bank_screen.dart';
+import 'package:communication_super_app/features/messages/screens/contact_selector_screen.dart';
 
 import '../bloc/secure_messages_bloc.dart';
 import '../services/secure_identities.dart';
 import 'secure_conversation_screen.dart';
 import 'secure_group_edit_screen.dart';
 
-/// «گفتگوی رمز»: pick who to talk to. Directory members are listed; a mobile
-/// number typed by hand reaches a member who is not (yet) in our directory —
-/// they answer with their certificate.
+/// «گفتگوی رمز»: pick who to talk to — anyone in the address book, or any
+/// mobile number typed by hand. There is no list of members: the first SMS
+/// carries our certificate, and a phone with هم‌رسان and a key of a trusted
+/// authority answers with its own. Anybody else simply never answers.
 class SecureNewConversationScreen extends StatefulWidget {
-  const SecureNewConversationScreen({super.key, this.title = 'گفتگوی رمز'});
-
-  /// «مخاطبین رمز» when reached from the Contacts tab (row 36).
-  final String title;
+  const SecureNewConversationScreen({super.key});
 
   @override
   State<SecureNewConversationScreen> createState() =>
@@ -52,85 +51,37 @@ class _SecureNewConversationScreenState
     _bloc.add(SecureLookupNumber(number));
   }
 
-  /// A number listed by two organizations we hold key files of: the user
-  /// picks which key the conversation uses.
-  Future<void> _choose(List<SecurePeer> ways) async {
-    if (ways.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'برای این شماره کلیدی در بانک کلید نیست. اول فایل کلید سازمان را '
-            'وارد کنید؛ شماره باید شمارهٔ همراه باشد.',
-          ),
-        ),
-      );
-      return;
-    }
-    if (ways.length == 1) {
-      final only = ways.single;
-      // A number no directory lists, reached over our certificate: a member
-      // who joined after our key file answers with theirs. Anybody else just
-      // gets an SMS they cannot read — the user should know before.
-      if (only.keyId.isEmpty && !await _confirmUnlisted()) {
-        return;
-      }
-      _start(only);
-      return;
-    }
-    final picked = await showModalBottomSheet<SecurePeer>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetCtx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Padding(
-                padding: EdgeInsets.fromLTRB(24, 0, 24, 8),
-                child: Text('با کدام کلید؟', style: TextStyle(fontSize: 16)),
-              ),
-              for (final w in ways)
-                ListTile(
-                  leading: const Icon(Icons.menu_book_outlined),
-                  title: Text(w.name),
-                  subtitle: Text(w.sourceName ?? 'عضو سازمان'),
-                  onTap: () => Navigator.of(sheetCtx).pop(w),
-                ),
-              const SizedBox(height: 8),
-            ],
-          ),
+  /// «انتخاب از مخاطبین»: the app's own contact picker, one person.
+  Future<void> _pickContact() async {
+    final picked = await Navigator.of(context).push<List<PickedRecipient>>(
+      MaterialPageRoute(
+        builder: (_) => const ContactSelectorScreen(
+          pickOnly: true,
+          pickTitle: 'انتخاب مخاطب',
         ),
       ),
     );
-    if (picked != null) _start(picked);
+    final first = picked?.firstOrNull;
+    if (first == null) return;
+    _bloc.add(SecureLookupNumber(first.phoneNumber, name: first.name));
   }
 
-  Future<bool> _confirmUnlisted() async =>
-      await showDialog<bool>(
-        context: context,
-        builder: (ctx) => Directionality(
-          textDirection: TextDirection.rtl,
-          child: AlertDialog(
-            title: const Text('این شماره در دفترچهٔ کلید نیست'),
-            content: const Text(
-              'اگر عضو سازمان باشد، با اولین پیام کانال امن برقرار می‌شود. '
-              'اگر نباشد، فقط یک پیامک نامفهوم دریافت می‌کند.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(false),
-                child: const Text('انصراف'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(ctx).pop(true),
-                child: const Text('ادامه'),
-              ),
-            ],
-          ),
+  void _choose(List<SecurePeer> ways) {
+    final peer = ways.firstOrNull;
+    if (peer != null) {
+      _start(peer);
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          _bloc.state.hasCert
+              ? 'پیام رمز فقط به شمارهٔ همراه (۰۹…) می‌رود، و نه به شمارهٔ خود شما.'
+              : 'اول فایل کلید خود را در «بانک کلید» وارد کنید.',
         ),
-      ) ==
-      true;
+      ),
+    );
+  }
 
   List<Widget> _hiddenSection(BuildContext context, ColorScheme scheme) {
     final hidden = context.watch<HiddenBloc>().state.contacts;
@@ -171,7 +122,9 @@ class _SecureNewConversationScreenState
           ),
           title: Text(r.contact.name),
           subtitle: Text(PersianUtils.displayPhone(r.phone)),
-          onTap: () => _bloc.add(SecureOpenWith(r.phone, r.contact.name)),
+          // «گفتگوی رمز»: encrypted, under the name the user gave them.
+          onTap: () =>
+              _bloc.add(SecureLookupNumber(r.phone, name: r.contact.name)),
         ),
     ];
   }
@@ -208,17 +161,9 @@ class _SecureNewConversationScreenState
           ),
         ],
         child: Scaffold(
-          appBar: RtlAppBar(title: widget.title),
+          appBar: RtlAppBar(title: 'گفتگوی رمز'),
           body: BlocBuilder<SecureMessagesBloc, SecureMessagesState>(
             builder: (context, state) {
-              final peers = state.peers
-                  .where(
-                    (p) =>
-                        _filter.isEmpty ||
-                        p.name.contains(_filter) ||
-                        p.phone.contains(PersianUtils.toEnglishNumber(_filter)),
-                  )
-                  .toList();
               return ListView(
                 padding: const EdgeInsets.only(bottom: 24),
                 children: [
@@ -238,15 +183,29 @@ class _SecureNewConversationScreenState
                       ),
                     ),
                   ),
+                  ListTile(
+                    contentPadding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                    leading: CircleAvatar(
+                      backgroundColor: scheme.primaryContainer,
+                      child: Icon(
+                        Icons.contacts_outlined,
+                        color: scheme.onPrimaryContainer,
+                      ),
+                    ),
+                    title: const Text('انتخاب از مخاطبین'),
+                    enabled: state.hasCert,
+                    onTap: _pickContact,
+                  ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
                     child: TextField(
                       controller: _number,
-                      // A name or a number: a text keyboard, and no forced
-                      // direction (a Persian name typed LTR reads backwards).
+                      enabled: state.hasCert,
+                      // A number, or a hidden contact's name to filter by: a
+                      // text keyboard, and no forced direction.
                       keyboardType: TextInputType.text,
                       decoration: InputDecoration(
-                        hintText: 'نام یا شماره',
+                        hintText: 'شمارهٔ همراه',
                         prefixIcon: const Icon(Icons.search),
                         suffixIcon: IconButton(
                           tooltip: 'شروع با این شماره',
@@ -258,79 +217,40 @@ class _SecureNewConversationScreenState
                       onSubmitted: (_) => _lookup(),
                     ),
                   ),
-                  if (state.hasCert)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
-                      child: Text(
-                        // A member added after our directory answers over
-                        // their certificate: the full number is all it takes.
-                        'عضوی که در فهرست نیست: شمارهٔ همراهش را کامل وارد کنید.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: scheme.onSurfaceVariant,
-                        ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
+                    child: Text(
+                      // Nobody is listed anywhere: whoever has هم‌رسان and a
+                      // key of a trusted authority answers the first SMS.
+                      'اگر این شماره هم‌رسانِ دارای کلید سازمانی داشته باشد، '
+                      'با اولین پیام کانال امن برقرار می‌شود.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: scheme.onSurfaceVariant,
                       ),
                     ),
-                  if (peers.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
-                      child: Text(
-                        'اعضای دفترچه‌ها',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: scheme.primary,
-                        ),
-                      ),
-                    ),
-                  for (final p in peers)
-                    ListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 4,
-                      ),
-                      leading: CircleAvatar(
-                        backgroundColor: scheme.primaryContainer,
-                        child: Text(
-                          PersianUtils.getInitials(p.name),
-                          style: TextStyle(color: scheme.onPrimaryContainer),
-                        ),
-                      ),
-                      title: Text(p.name),
-                      subtitle: Text(
-                        '${PersianUtils.displayPhone(p.phone)} · ${p.sourceName ?? ''}',
-                      ),
-                      onTap: () => _start(p),
-                    ),
-                  // «دفترچه مخفی»: every hidden contact can be written to —
-                  // encrypted when the key bank has their key, plain if not.
+                  ),
                   ..._hiddenSection(context, scheme),
-                  if (state.peers.isEmpty &&
-                      !context.watch<HiddenBloc>().state.contacts.any(
-                        (c) => c.numbers.any((n) => n.textable),
-                      ))
+                  if (!state.hasCert)
                     Padding(
                       padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
                       child: Column(
                         children: [
                           Text(
-                            state.hasCert
-                                ? 'در دفترچهٔ شما هنوز عضو دیگری نیست. شمارهٔ همراه عضو سازمان را بالا وارد کنید.'
-                                : 'هنوز دفترچه کلیدی با کلید شما وارد نشده است.',
+                            'هنوز فایل کلید شما وارد نشده است.',
                             textAlign: TextAlign.center,
                             style: TextStyle(color: scheme.onSurfaceVariant),
                           ),
-                          if (!state.hasCert) const SizedBox(height: 12),
-                          if (!state.hasCert)
-                            OutlinedButton.icon(
-                              onPressed: () => Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => const KeyBankScreen(),
-                                ),
+                          const SizedBox(height: 12),
+                          OutlinedButton.icon(
+                            onPressed: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const KeyBankScreen(),
                               ),
-                              icon: const Icon(Icons.key_outlined),
-                              label: const Text('بانک کلید'),
                             ),
+                            icon: const Icon(Icons.key_outlined),
+                            label: const Text('بانک کلید'),
+                          ),
                         ],
                       ),
                     ),

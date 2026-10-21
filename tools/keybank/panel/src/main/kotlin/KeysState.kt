@@ -45,8 +45,7 @@ class KeysState(
         val file: File,
         val password: String?,
         val activationCode: String?,
-        /** Set right after an issue: how many other members got a fresh file. */
-        val othersReissued: Int? = null,
+        /** Set right after an issue: what was just done for this member. */
         val event: Event? = null,
         /** Whether this member's key changed in that issue. */
         val keyChanged: Boolean = false,
@@ -63,8 +62,8 @@ class KeysState(
         class NewKey(val index: Int) : Dialog()
         class Remove(val index: Int) : Dialog()
 
-        /** Recording for everyone: their own file ([update] false) or the update file. */
-        class MarkAll(val update: Boolean) : Dialog()
+        /** Recording that every member has their file. */
+        object MarkAll : Dialog()
     }
 
     private val random = SecureRandom()
@@ -97,7 +96,6 @@ class KeysState(
     var password by mutableStateOf("")
     var error by mutableStateOf<String?>(null)
     var busy by mutableStateOf<String?>(null)
-    var progress by mutableStateOf<Float?>(null)
     var unlocked by mutableStateOf<Unlocked?>(null)
         private set
     var snapshot by mutableStateOf<AuthorityFolder.Snapshot?>(null)
@@ -163,7 +161,7 @@ class KeysState(
     /**
      * Checks [form] without writing anything; sets [MemberForm.error] and
      * answers false on a mistake. Run before the confirmation, so the
-     * operator never agrees to a re-issue that is then refused.
+     * operator never agrees to a change that is then refused.
      */
     fun check(form: MemberForm): Boolean {
         val u = unlocked ?: return false
@@ -189,29 +187,20 @@ class KeysState(
         val u = unlocked ?: return
         if (!check(form)) return
         val deviceCode = form.deviceCode.takeIf { it.isNotBlank() }?.let(Activation::normalizeDeviceCode)
-        busy = "در حال ساخت فایل‌ها…"
-        progress = 0f
+        busy = "در حال ساخت فایل کلید…"
         try {
-            val issued = withContext(Dispatchers.Default) {
-                u.folder.addMember(
-                    u.contents,
-                    form.name,
-                    form.phones(),
-                    random,
-                    organization = form.organization,
-                ) { done, total -> progress = done.toFloat() / total }
+            val mine = withContext(Dispatchers.Default) {
+                u.folder.addMember(u.contents, form.name, form.phones(), random, organization = form.organization)
             }
             // Issued: a list that cannot be re-read now is not a failed issue.
             snapshot = runCatching { withContext(Dispatchers.IO) { u.folder.snapshot() } }.getOrNull() ?: snapshot
-            val mine = issued.last()
             delivery = Delivery(
-                mine.index,
+                indexOf(mine),
                 mine.entry.name,
                 mine.entry.phones,
                 mine.file,
                 mine.password,
                 deviceCode?.let(Activation::activationCodeFor),
-                othersReissued = issued.size - 1,
                 event = Event.ADDED,
                 keyChanged = true,
             )
@@ -219,20 +208,23 @@ class KeysState(
         } catch (e: AuthorityFolder.MemberError) {
             form.error = e.message
         } catch (e: Exception) {
-            form.error = "ساخت فایل‌ها انجام نشد: ${e.message}"
+            form.error = "ساخت فایل کلید انجام نشد: ${e.message}"
         } finally {
             busy = null
-            progress = null
             touch()
         }
     }
+
+    /** Where [issued] is in the roster now (by its first number). */
+    private fun indexOf(issued: ir.hamrasan.keybank.Issuance.IssuedFile): Int =
+        snapshot?.entries?.indexOfFirst { it.phones.first() == issued.phone }?.takeIf { it >= 0 } ?: 0
 
     fun showMember(index: Int) {
         val u = unlocked ?: return
         val s = snapshot ?: return
         val entry = s.entries.getOrNull(index) ?: return
         touch()
-        delivery = Delivery(index, entry.name, entry.phones, u.folder.keyFileOf(index, entry), s.passwordOf(entry), null)
+        delivery = Delivery(index, entry.name, entry.phones, u.folder.keyFileOf(entry), s.passwordOf(entry), null)
     }
 
     /** Where member [index] stands; null when there is no such member. */
@@ -246,12 +238,6 @@ class KeysState(
 
     /** Records that every member now holds their current file. */
     suspend fun markAllDelivered() = markDelivered(snapshot?.entries?.indices?.toList().orEmpty())
-
-    /** Records that member [index] imported the update file. */
-    suspend fun markUpdated(index: Int) = record { it.markUpdated(listOf(index)) }
-
-    /** Records that every member imported the update file. */
-    suspend fun markAllUpdated() = record { f -> f.markUpdated(snapshot?.entries?.indices?.toList().orEmpty()) }
 
     private suspend fun markDelivered(indices: List<Int>) = record { it.markDelivered(indices) }
 
@@ -301,12 +287,10 @@ class KeysState(
 
     suspend fun editMember(index: Int, form: MemberForm) {
         val keyChanged = checkEdit(index, form) ?: return
-        change("در حال ساخت فایل‌ها…") { u, progress ->
-            val issued = u.folder.editMember(u.contents, index, form.name, form.phones(), random, progress = progress)
-            issued[index].let {
-                Delivery(it.index, it.entry.name, it.entry.phones, it.file, it.password, null,
-                    othersReissued = issued.size - 1, event = Event.EDITED, keyChanged = keyChanged)
-            }
+        change("در حال ساخت فایل کلید…") { u ->
+            val it = u.folder.editMember(u.contents, index, form.name, form.phones(), random)
+            Delivery(index, it.entry.name, it.entry.phones, it.file, it.password, null,
+                event = Event.EDITED, keyChanged = keyChanged)
         }
     }
 
@@ -314,12 +298,10 @@ class KeysState(
     fun checkNewKey(index: Int): String? = check { it.folder.prepareNewKey(index) }
 
     suspend fun newKey(index: Int) {
-        change("در حال ساخت کلید تازه…") { u, progress ->
-            val issued = u.folder.newKey(u.contents, index, random, progress = progress)
-            issued[index].let {
-                Delivery(it.index, it.entry.name, it.entry.phones, it.file, it.password, null,
-                    othersReissued = issued.size - 1, event = Event.NEW_KEY, keyChanged = true)
-            }
+        change("در حال ساخت کلید تازه…") { u ->
+            val it = u.folder.newKey(u.contents, index, random)
+            Delivery(index, it.entry.name, it.entry.phones, it.file, it.password, null,
+                event = Event.NEW_KEY, keyChanged = true)
         }
     }
 
@@ -328,13 +310,12 @@ class KeysState(
 
     suspend fun removeMember(index: Int) {
         val name = snapshot?.entries?.getOrNull(index)?.name ?: return
-        change("در حال ساخت فایل‌ها…") { u, progress ->
-            val issued = u.folder.removeMember(u.contents, index, random, progress = progress)
+        change("در حال حذف…") { u ->
+            u.folder.removeMember(index)
             notice = Notice(
                 "«$name» حذف شد",
-                "فایل و رمز او از پوشهٔ issued برداشته شد. فایل ${fa(issued.size)} عضو دیگر تازه شد و رمزشان همان قبلی است. " +
-                    "تا وقتی فایل تازه را وارد نکرده‌اند، گوشی‌شان هنوز «$name» را می‌شناسد و با او پیام رمز رد و بدل می‌کند؛ " +
-                    "پس فایل تازه را زود به همه برسانید.",
+                "فایل و رمز او از پوشهٔ issued برداشته شد. به هیچ عضو دیگری چیزی لازم نیست بدهید. " +
+                    "کلیدی که روی گوشی او هست باطل نمی‌شود: تا وقتی آن را دارد، هنوز می‌تواند پیام رمز بفرستد و بگیرد.",
             )
             null
         }
@@ -357,26 +338,22 @@ class KeysState(
      * Runs a change to the roster behind a blocking progress dialog, then
      * shows the [Delivery] it returns (or nothing — a [Notice] it set).
      */
-    private suspend fun change(label: String, block: (Unlocked, (Int, Int) -> Unit) -> Delivery?) {
+    private suspend fun change(label: String, block: (Unlocked) -> Delivery?) {
         val u = unlocked ?: return
         delivery = null
         busy = label
-        progress = 0f
         modalBusy = true
         val result = try {
-            withContext(Dispatchers.Default) {
-                block(u) { done, total -> progress = done.toFloat() / total }
-            }
+            withContext(Dispatchers.Default) { block(u) }
         } catch (e: AuthorityFolder.MemberError) {
             notice = Notice("انجام نشد", e.message.orEmpty(), isError = true)
             return
         } catch (e: Exception) {
-            // Issuing is all or nothing (Issuance.issue), so this is true.
-            notice = Notice("انجام نشد", "ساخت فایل‌ها انجام نشد و چیزی تغییر نکرد: ${e.message}", isError = true)
+            // Issuing is all or nothing (Issuance), so this is true.
+            notice = Notice("انجام نشد", "ساخت فایل کلید انجام نشد و چیزی تغییر نکرد: ${e.message}", isError = true)
             return
         } finally {
             busy = null
-            progress = null
             modalBusy = false
             touch()
         }

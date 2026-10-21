@@ -206,77 +206,21 @@ class SmsSealed {
   final int? counter;
 }
 
-/// One member of a [KeyDirectory].
-class DirectoryMember {
-  const DirectoryMember({
-    required this.name,
-    required this.phones,
-    required this.publicKey,
-    required this.keyId,
-  });
-  final String name;
-
-  /// Canonical (see `canonicalPhone`).
-  final List<String> phones;
-
-  /// The member's X25519 key; [keyId] is the key id their certificate
-  /// carries (`MemberCert.keyIdOf`).
-  final Uint8List publicKey;
-  final Uint8List keyId;
-}
-
-/// «دفترچهٔ کلید»: an organization's members, as its authority signed them.
-class KeyDirectory {
-  const KeyDirectory({
-    required this.authorityId,
-    required this.directoryId,
-    required this.serial,
-    required this.name,
-    required this.members,
-  });
-  final Uint8List authorityId;
-
-  /// Fixed for an organization; a newer copy replaces an older one.
-  final Uint8List directoryId;
-
-  /// Grows with every issue (the issue time, ms since epoch).
-  final int serial;
-  final String name;
-  final List<DirectoryMember> members;
-}
-
-/// A verified key file: the signed directory (kept as received) and the
-/// importing member's own key and certificate. An update file
-/// (`openUpdateFile`) has the directory only.
+/// A verified key file (`KeyFile.kt`): the member's own secret and the
+/// certificate the authority signed for it — a key file holds nothing else,
+/// no colleague and no name.
 class OpenedKeyFile {
   const OpenedKeyFile({
-    required this.signed,
-    required this.directory,
-    this.own,
-  });
-  final Uint8List signed;
-  final KeyDirectory directory;
-
-  /// The importing member's key; null for an update file.
-  final OwnKey? own;
-}
-
-/// The member key a key file carries, with the certificate that names it.
-class OwnKey {
-  const OwnKey({
-    required this.index,
-    required this.identity,
+    required this.authorityId,
+    required this.secret,
     required this.cert,
   });
 
-  /// The member's place in the directory.
-  final int index;
+  /// The authority that signed [cert] (one of the anchors).
+  final Uint8List authorityId;
+  final Uint8List secret;
 
-  /// [SmsIdentity.publicKey] is the member's X25519 key and
-  /// [SmsIdentity.keyId] the certificate's key id.
-  final SmsIdentity identity;
-
-  /// Verified against the directory and the authority.
+  /// Verified against the authority; [MemberCertInfo.keyId] names the key.
   final MemberCertInfo cert;
 }
 
@@ -691,70 +635,12 @@ class SmsCryptoService {
       'password': password,
       'anchors': anchors,
     });
-    final member = m['member'] as Map?;
-    final cert = member?['cert'] as Map?;
-    // Every key file carries its member's certificate (`KeyFile`).
-    if (member == null || cert == null) {
-      throw const SmsCryptoException(SmsCryptoFailure.badBundle);
-    }
     return OpenedKeyFile(
-      signed: m['signed'] as Uint8List,
-      directory: _directory(m['directory'] as Map),
-      own: OwnKey(
-        index: member['index'] as int,
-        identity: _identity(member),
-        cert: _cert(cert),
-      ),
+      authorityId: m['authorityId'] as Uint8List,
+      secret: m['secret'] as Uint8List,
+      cert: _cert(m['cert'] as Map),
     );
   }
-
-  /// Whether [file] is an update file (`update.hku`, `UpdateFile.kt`) rather
-  /// than a key file — told by its clear header, so no password is asked
-  /// for it.
-  static bool isUpdateFile(Uint8List file) {
-    const magic = 'HMRKU';
-    if (file.length <= magic.length) return false;
-    for (var i = 0; i < magic.length; i++) {
-      if (file[i] != magic.codeUnitAt(i)) return false;
-    }
-    return true;
-  }
-
-  /// Opens an update file with whichever of [directoryIds] (the directories
-  /// this phone holds) it was sealed for, and verifies it against
-  /// [anchors]. [SmsCryptoFailure.wrongPassword] when it is for none of
-  /// them. It never carries a member key.
-  Future<OpenedKeyFile> openUpdateFile({
-    required Uint8List file,
-    required List<Uint8List> directoryIds,
-    required List<Uint8List> anchors,
-  }) async {
-    final m = await _call<Map>('openUpdateFile', {
-      'file': file,
-      'directoryIds': directoryIds,
-      'anchors': anchors,
-    });
-    return OpenedKeyFile(
-      signed: m['signed'] as Uint8List,
-      directory: _directory(m['directory'] as Map),
-    );
-  }
-
-  KeyDirectory _directory(Map m) => KeyDirectory(
-    authorityId: m['authorityId'] as Uint8List,
-    directoryId: m['directoryId'] as Uint8List,
-    serial: m['serial'] as int,
-    name: m['name'] as String,
-    members: [
-      for (final e in (m['members'] as List).cast<Map>())
-        DirectoryMember(
-          name: e['name'] as String,
-          phones: (e['phones'] as List).cast<String>(),
-          publicKey: e['public'] as Uint8List,
-          keyId: e['keyId'] as Uint8List,
-        ),
-    ],
-  );
 
   SmsIdentity _identity(Map m) => SmsIdentity(
     secret: m['secret'] as Uint8List,

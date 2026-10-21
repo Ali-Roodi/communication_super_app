@@ -5,7 +5,6 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.runtime.Composable
 import com.example.communication_super_app.smscrypto.keybank.AuthorityFile
 import com.example.communication_super_app.smscrypto.keybank.AuthorityKey
-import com.example.communication_super_app.smscrypto.keybank.Directory
 import com.example.communication_super_app.smscrypto.keybank.PasswordKdf
 import ir.hamrasan.keybank.AuthorityFolder
 import kotlinx.coroutines.runBlocking
@@ -36,7 +35,7 @@ class PreviewRender {
 
     private fun authorityFolder(withMembers: Boolean): Pair<File, String> {
         val dir = Files.createTempDirectory("panel-preview").toFile()
-        val contents = AuthorityFile.Contents(AuthorityKey.generate(random), ByteArray(Directory.ID_BYTES).also(random::nextBytes))
+        val contents = AuthorityFile.Contents(AuthorityKey.generate(random))
         val password = "preview-password-1"
         File(dir, AuthorityFolder.AUTHORITY_FILE).writeBytes(AuthorityFile.create(contents, password, random, cheap))
         if (withMembers) {
@@ -144,7 +143,7 @@ class PreviewRender {
     }
 
     @Test
-    fun whoHoldsAnOldFile() {
+    fun whoHasTheirFile() {
         val (keys, dir) = unlocked()
         // A folder from before the log: nobody's delivery is recorded.
         kotlin.test.assertEquals(3, keys.snapshot!!.outdated.size)
@@ -152,19 +151,20 @@ class PreviewRender {
         runBlocking { keys.markAllDelivered() }
         kotlin.test.assertTrue(keys.snapshot!!.outdated.isEmpty())
 
+        // A newcomer: only they need a file; nobody else's status moves.
         runBlocking { keys.addMember(MemberForm().apply { name = "کاربر چهارم"; mobile = "09332639135" }) }
         keys.delivery = null
         val s = keys.snapshot!!
         kotlin.test.assertEquals(
-            listOf(AuthorityFolder.DeliveryStatus.STALE, AuthorityFolder.DeliveryStatus.STALE, AuthorityFolder.DeliveryStatus.STALE, AuthorityFolder.DeliveryStatus.NOT_RECORDED),
+            listOf(AuthorityFolder.DeliveryStatus.CURRENT, AuthorityFolder.DeliveryStatus.CURRENT, AuthorityFolder.DeliveryStatus.CURRENT, AuthorityFolder.DeliveryStatus.NOT_RECORDED),
             s.entries.map(s::statusOf),
         )
-        render("10-stale") { Panel(keys, start = Section.Keys) }
+        render("10-newcomer") { Panel(keys, start = Section.Keys) }
 
-        keys.showMember(0)
-        render("11-member-stale") { Panel(keys, start = Section.Keys) }
-        runBlocking { keys.markDelivered(0) }
-        kotlin.test.assertEquals(AuthorityFolder.DeliveryStatus.CURRENT, keys.statusOf(0))
+        keys.showMember(3)
+        render("11-member-not-delivered") { Panel(keys, start = Section.Keys) }
+        runBlocking { keys.markDelivered(3) }
+        kotlin.test.assertEquals(AuthorityFolder.DeliveryStatus.CURRENT, keys.statusOf(3))
         render("12-member-delivered") { Panel(keys, start = Section.Keys) }
         keys.delivery = null
 
@@ -174,34 +174,9 @@ class PreviewRender {
             listOf("add", "add", "add", "delivered", "delivered", "delivered", "add", "delivered"),
             keys.snapshot!!.log.map { it.action.code },
         )
-        keys.dialog = KeysState.Dialog.MarkAll(update = false)
+        keys.dialog = KeysState.Dialog.MarkAll
         keys.view = KeysState.View.MEMBERS
         render("14-confirm-mark-all") { Panel(keys, start = Section.Keys) }
-        dir.deleteRecursively()
-    }
-
-    @Test
-    fun theUpdateFile() {
-        val (keys, dir) = unlocked()
-        runBlocking { keys.markAllDelivered() }
-        runBlocking { keys.addMember(MemberForm().apply { name = "کاربر چهارم"; mobile = "09332639135" }) }
-        keys.delivery = null
-        val update = File(dir, "issued/update.hku")
-        kotlin.test.assertTrue(update.isFile)
-        val opened = com.example.communication_super_app.smscrypto.keybank.UpdateFile.open(
-            update.readBytes(),
-            listOf(keys.unlocked!!.contents.directoryId),
-            listOf(keys.unlocked!!.contents.key.public),
-        )
-        kotlin.test.assertEquals(4, opened.directory.members.size)
-        render("21-update-banner") { Panel(keys, start = Section.Keys) }
-        keys.dialog = KeysState.Dialog.MarkAll(update = true)
-        render("22-confirm-mark-updated") { Panel(keys, start = Section.Keys) }
-        keys.dialog = null
-        runBlocking { keys.markAllUpdated() }
-        // The three who had the old file are current; the newcomer still needs theirs.
-        kotlin.test.assertEquals(listOf("کاربر چهارم"), keys.snapshot!!.outdated.map { it.name })
-        render("23-after-update") { Panel(keys, start = Section.Keys) }
         dir.deleteRecursively()
     }
 
@@ -220,7 +195,7 @@ class PreviewRender {
         kotlin.test.assertNotEquals(oldPassword, d.password)
         kotlin.test.assertEquals(1, keys.snapshot!!.entries[1].generation)
         kotlin.test.assertEquals(AuthorityFolder.DeliveryStatus.NEW_KEY, keys.statusOf(1))
-        kotlin.test.assertEquals(AuthorityFolder.DeliveryStatus.STALE, keys.statusOf(0))
+        kotlin.test.assertEquals(AuthorityFolder.DeliveryStatus.CURRENT, keys.statusOf(0))
         render("16-new-key-issued") { Panel(keys, start = Section.Keys) }
         dir.deleteRecursively()
     }
@@ -303,7 +278,7 @@ class PreviewRender {
     fun aFolderAndFileWithPersianNames() {
         val root = Files.createTempDirectory("panel-fa").toFile()
         val dir = File(root, "مرجع سازمان ما").apply { mkdirs() }
-        val contents = AuthorityFile.Contents(AuthorityKey.generate(random), ByteArray(Directory.ID_BYTES).also(random::nextBytes))
+        val contents = AuthorityFile.Contents(AuthorityKey.generate(random))
         val file = File(dir, "کلید سازمان.hka").apply { writeBytes(AuthorityFile.create(contents, "persian-path-pw", random, cheap)) }
         val keys = KeysState(rememberFile = false).apply { authorityFile = file; password = "persian-path-pw" }
         runBlocking { keys.unlock() }
@@ -311,7 +286,7 @@ class PreviewRender {
         runBlocking { keys.addMember(MemberForm().apply { organization = "سازمان تست"; name = "علی"; mobile = "09120000001" }) }
         val d = kotlin.test.assertNotNull(keys.delivery, keys.notice?.text)
         kotlin.test.assertTrue(d.file.isFile)
-        kotlin.test.assertTrue(File(dir, "issued/update.hku").isFile)
+        kotlin.test.assertTrue(File(dir, "issued").listFiles()!!.none { it.extension == "hku" })
         kotlin.test.assertTrue(File(dir, "issuance-log.csv").isFile)
         runBlocking { keys.markDelivered(0) }
         kotlin.test.assertEquals(AuthorityFolder.DeliveryStatus.CURRENT, keys.statusOf(0))

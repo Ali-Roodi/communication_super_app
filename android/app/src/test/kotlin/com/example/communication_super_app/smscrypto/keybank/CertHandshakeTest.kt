@@ -31,7 +31,6 @@ class CertHandshakeTest {
 
     private class Org(random: SecureRandom) {
         val authority = AuthorityKey.generate(random)
-        val directoryId = ByteArray(8).also(random::nextBytes)
         val anchors = listOf(authority.public)
     }
 
@@ -40,8 +39,8 @@ class CertHandshakeTest {
 
     private fun join(org: Org, name: String, phone: String, generation: Int = 0): Member {
         val roster = Issuer.parseRoster("organization,سازمان\n$name,$phone,$generation")
-        val issued = Issuer.issue(org.authority, org.directoryId, roster, 1000L, random)
-        val file = KeyFile.create(issued.signed, 0 to issued.identities[0], "PW", random, cheap, issued.certs[0])
+        val issued = Issuer.issue(org.authority, roster.entries.single())
+        val file = KeyFile.create(issued.identity, issued.cert, "PW", random, cheap)
         val opened = KeyFile.open(file, "PW", org.anchors)
         return Member(opened.identity, opened.cert)
     }
@@ -111,15 +110,14 @@ class CertHandshakeTest {
             // expected
         }
         val issued = Issuer.issue(
-            org.authority, org.directoryId,
-            Issuer.parseRoster("organization,س\nمدیر,02188776656;09124444444"),
-            1L, random,
+            org.authority,
+            Issuer.parseRoster("organization,س\nمدیر,02188776656;09124444444").entries.single(),
         )
         // The first MOBILE number, not the first number.
-        assertEquals("09124444444", issued.certs[0].phone)
+        assertEquals("09124444444", issued.cert.phone)
         expectError(SmsCryptoException.Code.BAD_KEY) { MemberCert.parse(ByteArray(102)) }
         expectError(SmsCryptoException.Code.BAD_KEY) {
-            MemberCert.parse(issued.certs[0].encoded.also { it[1] = 0xAB.toByte() })
+            MemberCert.parse(issued.cert.encoded.also { it[1] = 0xAB.toByte() })
         }
     }
 
@@ -132,33 +130,6 @@ class CertHandshakeTest {
             // expected
         }
         Issuer.parseRoster("organization,س\nعلی,09121111111,255")
-    }
-
-    @Test
-    fun `the key file carries the member's certificate and checks it`() {
-        val org = Org(random)
-        val roster = Issuer.parseRoster("organization,س\nعلی,09121111111\nمریم,09122222222")
-        val issued = Issuer.issue(org.authority, org.directoryId, roster, 1L, random)
-        val opened = KeyFile.open(
-            KeyFile.create(issued.signed, 1 to issued.identities[1], "PW", random, cheap, issued.certs[1]),
-            "PW", org.anchors,
-        )
-        assertArrayEquals(issued.certs[1].encoded, opened.cert.encoded)
-        // Someone else's certificate in a member's file.
-        expectError(SmsCryptoException.Code.BAD_BUNDLE) {
-            KeyFile.open(
-                KeyFile.create(issued.signed, 1 to issued.identities[1], "PW", random, cheap, issued.certs[0]),
-                "PW", org.anchors,
-            )
-        }
-        // A certificate signed by another authority.
-        val other = MemberCert.issue(AuthorityKey.generate(random), "09122222222", 0, issued.identities[1])
-        expectError(SmsCryptoException.Code.BAD_SIGNATURE) {
-            KeyFile.open(
-                KeyFile.create(issued.signed, 1 to issued.identities[1], "PW", random, cheap, other),
-                "PW", org.anchors,
-            )
-        }
     }
 
     // ── The handshake ───────────────────────────────────────────────────────

@@ -90,15 +90,31 @@ class SecureDeleteConversation extends SecureMessagesEvent {
   final String phone;
 }
 
-/// Loads who an encrypted conversation can be started with.
+/// Whether this phone holds a key, for «گفتگوی رمز».
 class SecureLoadPeers extends SecureMessagesEvent {
   const SecureLoadPeers();
 }
 
-/// The ways to reach a number typed by hand (`SecureIdentities.forTypedNumber`).
+/// How to reach [number] — typed, or picked from the address book as [name]
+/// (`SecureIdentities.forNumber`).
 class SecureLookupNumber extends SecureMessagesEvent {
-  const SecureLookupNumber(this.number);
+  const SecureLookupNumber(this.number, {this.name});
   final String number;
+  final String? name;
+}
+
+/// «دوباره تلاش»: a new session request to [phone] (`retryChannel`).
+class SecureRetryChannel extends SecureMessagesEvent {
+  const SecureRetryChannel(this.phone);
+  final String phone;
+}
+
+/// «پیام رمز» on a hidden contact: their encrypted conversation, started
+/// over our certificate when there is none yet.
+class SecureStartEncrypted extends SecureMessagesEvent {
+  const SecureStartEncrypted(this.phone, this.name);
+  final String phone;
+  final String name;
 }
 
 class SecureStartConversation extends SecureMessagesEvent {
@@ -106,8 +122,8 @@ class SecureStartConversation extends SecureMessagesEvent {
   final SecurePeer peer;
 }
 
-/// «پیام» on a hidden contact: their conversation — encrypted when the key
-/// bank has a key for [phone], plain SMS otherwise (phase G).
+/// «پیامک» on a hidden contact: their plain-SMS thread (phase G), kept apart
+/// from any encrypted conversation with [phone].
 class SecureOpenWith extends SecureMessagesEvent {
   const SecureOpenWith(this.phone, this.name);
   final String phone;
@@ -162,18 +178,10 @@ class SecureCreateGroup extends SecureMessagesEvent {
 }
 
 class SecureEditGroup extends SecureMessagesEvent {
-  const SecureEditGroup(
-    this.id,
-    this.name,
-    this.members, {
-    this.keep = const [],
-  });
+  const SecureEditGroup(this.id, this.name, this.members);
   final String id;
   final String name;
   final List<SecurePeer> members;
-
-  /// Members staying whose key is no longer in the bank.
-  final List<String> keep;
 }
 
 class SecureDeleteGroup extends SecureMessagesEvent {
@@ -196,10 +204,18 @@ class SecureRetryGroupMessage extends SecureMessagesEvent {
   final String id;
 }
 
-/// Who a group can be made of: directory members, and hidden contacts the
-/// key bank has a key for.
+/// Who a group can be made of: everyone already talked to encrypted and the
+/// hidden contacts; with [groupId], that group's members too.
 class SecureLoadGroupCandidates extends SecureMessagesEvent {
-  const SecureLoadGroupCandidates();
+  const SecureLoadGroupCandidates({this.groupId});
+  final String? groupId;
+}
+
+/// Numbers picked from the address book for a group: added to the
+/// candidates, each as [name].
+class SecureAddGroupCandidates extends SecureMessagesEvent {
+  const SecureAddGroupCandidates(this.picked);
+  final List<({String phone, String name})> picked;
 }
 
 /// «متن پوششی» (row 31, organization edition): `fa`, `en` or null (off).
@@ -230,7 +246,7 @@ class SecureMessagesState extends Equatable {
     this.openPhone,
     this.openMessages = const [],
     this.handshakePending = false,
-    this.peers = const [],
+    this.channel = const SecureChannelInfo(),
     this.hasCert = false,
     this.lookup,
     this.lookupSeq = 0,
@@ -259,14 +275,15 @@ class SecureMessagesState extends Equatable {
   /// the handshake.
   final bool handshakePending;
 
-  /// Directory members an encrypted conversation can be started with.
-  final List<SecurePeer> peers;
+  /// The open conversation's secure channel — what its screen says about a
+  /// request nobody answered, one that did not go out, or a stalled upgrade.
+  final SecureChannelInfo channel;
 
-  /// We hold a member certificate: a member the directories do not list is
-  /// reached by typing their number.
+  /// We hold a key: any mobile number can be written to encrypted.
   final bool hasCert;
 
-  /// Result of [SecureLookupNumber]; bumped seq per answer.
+  /// Result of [SecureLookupNumber] (empty: the number cannot be reached);
+  /// bumped seq per answer.
   final List<SecurePeer>? lookup;
   final int lookupSeq;
 
@@ -314,7 +331,7 @@ class SecureMessagesState extends Equatable {
     bool clearOpen = false,
     List<SecureMessage>? openMessages,
     bool? handshakePending,
-    List<SecurePeer>? peers,
+    SecureChannelInfo? channel,
     bool? hasCert,
     List<SecurePeer>? lookup,
     String? startedPhone,
@@ -338,7 +355,7 @@ class SecureMessagesState extends Equatable {
     handshakePending: clearOpen
         ? false
         : (handshakePending ?? this.handshakePending),
-    peers: peers ?? this.peers,
+    channel: clearOpen ? const SecureChannelInfo() : (channel ?? this.channel),
     hasCert: hasCert ?? this.hasCert,
     lookup: lookup ?? this.lookup,
     lookupSeq: lookup == null ? lookupSeq : lookupSeq + 1,
@@ -367,7 +384,7 @@ class SecureMessagesState extends Equatable {
     openPhone,
     openMessages,
     handshakePending,
-    peers,
+    channel,
     hasCert,
     lookupSeq,
     startedSeq,
@@ -422,19 +439,19 @@ class SecureMessagesBloc
     on<_Arrived>(_onArrived);
     on<_Changed>(_onChanged);
     on<_Status>((e, emit) => _guard(() => _messenger.onStatus(e.id, e.status)));
+    on<SecureRetryChannel>(
+      (e, emit) => _guard(() => _messenger.retryChannel(e.phone)),
+    );
+    on<SecureStartEncrypted>(_onStartEncrypted);
     on<SecureOpenThread>(_onOpen);
     on<SecureCloseThread>(_onClose);
     on<SecureSendText>((e, emit) async {
       final phone = state.openPhone;
       if (phone == null || e.text.trim().isEmpty) return;
-      final encrypted =
-          state.conversations
-              .where((c) => c.phone == phone)
-              .firstOrNull
-              ?.encrypted ??
-          true;
+      // The thread decides, never the number: a plain thread is plain.
+      final plain = SecureMessenger.isPlainThread(phone);
       await _guard(
-        () => encrypted
+        () => !plain
             ? _messenger.sendText(
                 phone,
                 e.text.trim(),
@@ -479,12 +496,8 @@ class SecureMessagesBloc
     });
     on<SecureEditGroup>(
       (e, emit) => _guard(
-        () => _messenger.editGroup(
-          e.id,
-          name: e.name.trim(),
-          members: e.members,
-          keep: e.keep,
-        ),
+        () =>
+            _messenger.editGroup(e.id, name: e.name.trim(), members: e.members),
       ),
     );
     on<SecureDeleteGroup>(
@@ -500,6 +513,7 @@ class SecureMessagesBloc
       (e, emit) => _guard(() => _messenger.retryGroupMessage(e.id)),
     );
     on<SecureLoadGroupCandidates>(_onLoadCandidates);
+    on<SecureAddGroupCandidates>(_onAddCandidates);
     on<SecureImportHistory>((e, emit) async {
       var stored = false;
       await _guard(() async {
@@ -663,6 +677,7 @@ class SecureMessagesBloc
               : await _groups.messages(group),
           openMessages: phone == null ? null : await _store.messages(phone),
           handshakePending: phone == null ? null : await _pending(phone),
+          channel: phone == null ? null : await _store.channelInfo(phone),
         ),
       );
       await _armExpiry();
@@ -732,12 +747,7 @@ class SecureMessagesBloc
     if (!_open) return;
     _identities.reset(); // the key bank may have changed
     try {
-      emit(
-        state.copyWith(
-          peers: await _identities.directoryPeers(),
-          hasCert: await _identities.ownCert() != null,
-        ),
-      );
+      emit(state.copyWith(hasCert: await _identities.ownCert() != null));
     } on KeyBankLockedException {
       emit(const SecureMessagesState());
     }
@@ -751,15 +761,10 @@ class SecureMessagesBloc
     _identities.reset();
     try {
       final phone = await _crypto.canonicalPhone(e.number);
-      emit(
-        state.copyWith(
-          // A number the user typed may be a member added after our
-          // directory: offered over the certificate handshake.
-          lookup: phone == null
-              ? const []
-              : await _identities.forTypedNumber(phone),
-        ),
-      );
+      final peer = phone == null
+          ? null
+          : await _identities.forNumber(phone, name: e.name);
+      emit(state.copyWith(lookup: [?peer]));
     } on KeyBankLockedException {
       emit(const SecureMessagesState());
     }
@@ -770,7 +775,12 @@ class SecureMessagesBloc
     Emitter<SecureMessagesState> emit,
   ) async {
     if (!_open) return;
-    await _guard(() => _messenger.startConversation(e.peer));
+    // A conversation that already has its keys is just opened: starting it
+    // again would forget the peer's certificate.
+    final existing = await _store.conversation(e.peer.phone);
+    if (existing == null || !existing.encrypted) {
+      await _guard(() => _messenger.startConversation(e.peer));
+    }
     emit(state.copyWith(startedPhone: e.peer.phone));
   }
 
@@ -792,58 +802,117 @@ class SecureMessagesBloc
     if (!_open) return;
     _identities.reset();
     try {
-      final byPhone = <String, SecurePeer>{
-        for (final p in await _identities.directoryPeers()) p.phone: p,
-      };
+      // Everyone already talked to encrypted, and the hidden contacts; the
+      // screen adds whoever else is picked from the address book.
+      final byPhone = <String, SecurePeer>{};
+      for (final c in await _store.conversations()) {
+        if (!c.encrypted) continue;
+        final own =
+            await _identities.ownByKeyId(c.ownKeyId!) ??
+            await _identities.ownCert();
+        if (own == null) continue;
+        byPhone[c.phone] = SecurePeer(
+          name: c.name,
+          phone: c.phone,
+          keyId: c.peerKeyId!,
+          own: own,
+        );
+      }
       for (final c in await _hidden.contacts()) {
         for (final n in c.numbers.where((n) => n.textable)) {
-          final ways = await _identities.forNumber(n.phone);
-          if (ways.isEmpty) continue;
-          // The hidden contact's own name, whatever the directory calls them.
-          final w = ways.first;
-          byPhone[n.phone] = SecurePeer(
-            name: c.name,
-            phone: w.phone,
-            keyId: w.keyId,
-            sourceName: w.sourceName,
-            own: w.own,
+          final known = byPhone[n.phone];
+          if (known != null) {
+            byPhone[n.phone] = known.named(c.name);
+            continue;
+          }
+          final peer = await _identities.forNumber(n.phone, name: c.name);
+          if (peer != null) byPhone[n.phone] = peer;
+        }
+      }
+      // A group being edited keeps every member it has, known by the key id
+      // the group holds for them (empty until they answered).
+      final groupId = e.groupId;
+      final own = await _identities.ownCert();
+      if (groupId != null && own != null) {
+        final names = await _store.names();
+        for (final m in await _groups.allMembers(groupId)) {
+          if (m.removed || byPhone.containsKey(m.phone)) continue;
+          byPhone[m.phone] = SecurePeer(
+            name: names[m.phone] ?? m.phone,
+            phone: m.phone,
+            keyId: m.keyId,
+            own: own,
           );
         }
       }
-      final list = byPhone.values.toList()
-        ..sort((a, b) => a.name.compareTo(b.name));
-      emit(state.copyWith(candidates: list));
+      emit(state.copyWith(candidates: _sorted(byPhone.values)));
     } on KeyBankLockedException {
       emit(const SecureMessagesState());
     }
   }
+
+  Future<void> _onAddCandidates(
+    SecureAddGroupCandidates e,
+    Emitter<SecureMessagesState> emit,
+  ) async {
+    if (!_open) return;
+    try {
+      final byPhone = {for (final p in state.candidates) p.phone: p};
+      for (final picked in e.picked) {
+        final phone = await _crypto.canonicalPhone(picked.phone);
+        if (phone == null || byPhone.containsKey(phone)) continue;
+        final peer = await _identities.forNumber(phone, name: picked.name);
+        if (peer != null) byPhone[phone] = peer;
+      }
+      emit(state.copyWith(candidates: _sorted(byPhone.values)));
+    } on KeyBankLockedException {
+      emit(const SecureMessagesState());
+    }
+  }
+
+  Future<void> _onStartEncrypted(
+    SecureStartEncrypted e,
+    Emitter<SecureMessagesState> emit,
+  ) async {
+    if (!_open) return;
+    try {
+      final existing = await _store.conversation(e.phone);
+      if (existing == null || !existing.encrypted) {
+        _identities.reset();
+        final peer = await _identities.forNumber(e.phone, name: e.name);
+        if (peer == null) {
+          emit(state.copyWith(lookup: const []));
+          return;
+        }
+        await _messenger.startConversation(peer);
+      }
+    } on KeyBankLockedException {
+      return;
+    }
+    emit(state.copyWith(startedPhone: e.phone));
+  }
+
+  static List<SecurePeer> _sorted(Iterable<SecurePeer> peers) =>
+      peers.toList()..sort((a, b) => a.name.compareTo(b.name));
 
   Future<void> _onOpenWith(
     SecureOpenWith e,
     Emitter<SecureMessagesState> emit,
   ) async {
     if (!_open) return;
+    // «پیامک» on a hidden contact: their plain thread, always — an
+    // encrypted conversation is started from «گفتگوی رمز», and the two are
+    // never one.
+    final String thread;
     try {
-      if (await _store.conversation(e.phone) == null) {
-        _identities.reset();
-        final ways = await _identities.forNumber(e.phone);
-        if (ways.isEmpty) {
-          await _messenger.startPlainConversation(e.phone, e.name);
-        } else {
-          // One way per directory that lists the number; each reaches the
-          // same person, with the certificate of that directory.
-          await _messenger.startConversation(ways.first);
-        }
-      } else {
-        await _messenger.rename([e.phone], e.name);
-      }
+      thread = await _messenger.startPlainConversation(e.phone, e.name);
     } on KeyBankLockedException {
       return;
     } catch (err) {
       debugPrint('Opening a hidden conversation failed: ${err.runtimeType}');
       return;
     }
-    emit(state.copyWith(startedPhone: e.phone));
+    emit(state.copyWith(startedPhone: thread));
   }
 
   @override

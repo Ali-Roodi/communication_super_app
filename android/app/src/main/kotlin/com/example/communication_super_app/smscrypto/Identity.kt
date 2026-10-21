@@ -70,7 +70,7 @@ class IdentityKeyPair private constructor(
         X25519PrivateKeyParameters(x25519Scalar)
     }
 
-    /** The X25519 public key — what a [keybank.MemberCert] and a [keybank.Directory] list. */
+    /** The X25519 public key — what a [keybank.MemberCert] names. */
     val x25519Public: ByteArray get() = public.x25519.encoded
 
     val public: PublicIdentity by lazy {
