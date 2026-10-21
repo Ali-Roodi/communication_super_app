@@ -361,6 +361,7 @@ class SimService {
         'number': number,
       });
       final kind = switch (map?['route']) {
+        'live_call' => CallRouteKind.liveCall,
         'contact' => CallRouteKind.contact,
         'app' => CallRouteKind.app,
         'phone_default' => CallRouteKind.phoneDefault,
@@ -399,7 +400,7 @@ class SimService {
 
 enum SimUse { sms, voice }
 
-enum CallRouteKind { single, contact, app, phoneDefault, ask }
+enum CallRouteKind { single, liveCall, contact, app, phoneDefault, ask }
 
 /// See [SimService.callRoute].
 class CallRoute {

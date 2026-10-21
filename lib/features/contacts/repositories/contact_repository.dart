@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_contacts/flutter_contacts.dart' as device_contacts;
+import 'package:permission_handler/permission_handler.dart';
 import 'package:communication_super_app/core/services/device_sync_queue.dart';
 import 'package:communication_super_app/core/utils/contact_name_style.dart';
 import 'package:communication_super_app/core/utils/persian_alphabet.dart';
@@ -56,9 +57,11 @@ class ContactRepository {
     _tailIndex = null;
   }
 
-  Future<bool> _ensurePermission() async {
-    return device_contacts.FlutterContacts.requestPermission();
-  }
+  /// Only looks. Asking is [PermissionGate]'s job: this read runs from global
+  /// blocs before the gate is built, and `FlutterContacts.requestPermission`
+  /// put the system dialog over the PIN offer on every fresh install.
+  Future<bool> _hasPermission() async =>
+      (await Permission.contacts.status).isGranted;
 
   Future<List<ContactModel>> getDeviceContacts({
     bool forceRefresh = false,
@@ -82,11 +85,9 @@ class ContactRepository {
     final completer = Completer<void>();
     _loading = completer;
     try {
-      final hasPermission = await _ensurePermission();
-      if (!hasPermission) {
-        if (_generation == generation) _cache = const <ContactModel>[];
-        return const <ContactModel>[];
-      }
+      // Not cached: the gate may grant it a moment later, and a cached empty
+      // book stayed empty until the next restart.
+      if (!await _hasPermission()) return const <ContactModel>[];
 
       // Names + numbers only. Avatars are intentionally NOT loaded here:
       // holding the decoded thumbnail of every contact permanently in this

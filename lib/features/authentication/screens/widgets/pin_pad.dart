@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -5,10 +7,92 @@ import 'package:communication_super_app/core/services/app_handoff.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_bloc.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_state.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
+import 'package:communication_super_app/features/authentication/repositories/pin_attempt_limiter.dart';
 import 'package:communication_super_app/features/authentication/services/app_lock_platform.dart';
 import 'package:communication_super_app/features/authentication/services/biometric_unlock.dart';
 import 'package:communication_super_app/features/dialer/widgets/dialer_widgets.dart'
     show DialKey;
+
+/// The error line under a PIN pad: [message], or — while [lockedUntil] is
+/// ahead — the lockout, counting down by itself and gone when it is over.
+///
+/// The lockout used to be a string written once, so «۱۴ ثانیه دیگر» stayed on
+/// the relock screen long after the wait had ended (POCO X3, 1405/07/29).
+class PinErrorText extends StatefulWidget {
+  final String? message;
+  final DateTime? lockedUntil;
+  final TextStyle? style;
+  final int? maxLines;
+
+  const PinErrorText({
+    super.key,
+    this.message,
+    this.lockedUntil,
+    this.style,
+    this.maxLines,
+  });
+
+  @override
+  State<PinErrorText> createState() => _PinErrorTextState();
+}
+
+class _PinErrorTextState extends State<PinErrorText> {
+  Timer? _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    _arm();
+  }
+
+  @override
+  void didUpdateWidget(PinErrorText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.lockedUntil != widget.lockedUntil) _arm();
+  }
+
+  void _arm() {
+    _tick?.cancel();
+    _tick = widget.lockedUntil == null
+        ? null
+        : Timer.periodic(const Duration(seconds: 1), (_) {
+            if (!mounted) return;
+            setState(() {});
+            if (_remaining == null) _tick?.cancel();
+          });
+  }
+
+  Duration? get _remaining {
+    final until = widget.lockedUntil;
+    if (until == null) return null;
+    final left = until.difference(DateTime.now());
+    return left > Duration.zero ? left : null;
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final left = _remaining;
+    final text = left != null
+        ? PinAttemptLimiter.lockoutMessage(left)
+        : widget.lockedUntil != null
+        ? null
+        : widget.message;
+    if (text == null) return const SizedBox.shrink();
+    return Text(
+      text,
+      textAlign: TextAlign.center,
+      maxLines: widget.maxLines,
+      overflow: widget.maxLines == null ? null : TextOverflow.ellipsis,
+      style: widget.style,
+    );
+  }
+}
 
 /// Row of 4 PIN dots that fill (in the primary colour) as digits are entered.
 ///

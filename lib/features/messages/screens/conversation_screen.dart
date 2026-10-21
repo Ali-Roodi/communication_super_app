@@ -133,6 +133,9 @@ class _ConversationScreenState extends State<ConversationScreen>
   /// focus node can do that.
   final FocusNode _composerFocus = FocusNode();
 
+  /// The keyboard inset of the last build — see the focus drop in [build].
+  double _lastInset = 0;
+
   bool _isLoadingMore = false;
   bool _showScrollToBottom = false;
   bool _showStickers = false;
@@ -687,6 +690,23 @@ class _ConversationScreenState extends State<ConversationScreen>
     if (inset > _keyboardHeight && _composerFocus.hasFocus) {
       _keyboardHeight = inset;
     }
+    // The keyboard put away (back, the keyboard's own hide key) while the
+    // composer keeps focus: drop the focus too, as Google Messages does. A
+    // focused field with no keyboard gets the keyboard back by itself the next
+    // time any route above this one pops — the details page, the message
+    // menu — which is how it kept rising unasked (SM A336E, 1405/07/29).
+    if (_lastInset > 0 &&
+        inset == 0 &&
+        _composerFocus.hasFocus &&
+        !_showStickers &&
+        ModalRoute.of(context)?.isCurrent == true) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && MediaQuery.viewInsetsOf(context).bottom == 0) {
+          _composerFocus.unfocus();
+        }
+      });
+    }
+    _lastInset = inset;
 
     // A bubble's SIM badge is read from the *static* roster inside `build`
     // (it cannot await a channel), so a card going into the phone while this
