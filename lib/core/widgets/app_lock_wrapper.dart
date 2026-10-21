@@ -11,7 +11,6 @@ import 'package:communication_super_app/features/authentication/bloc/auth_state.
 import 'package:communication_super_app/features/authentication/models/auth_type.dart';
 import 'package:communication_super_app/features/authentication/models/pin_policy.dart';
 import 'package:communication_super_app/features/authentication/repositories/auth_repository.dart';
-import 'package:communication_super_app/features/authentication/repositories/pin_attempt_limiter.dart';
 import 'package:communication_super_app/features/authentication/screens/recovery_code_screen.dart';
 import 'package:communication_super_app/features/authentication/screens/widgets/pin_pad.dart';
 import 'package:communication_super_app/features/dialer/bloc/dialer_bloc.dart';
@@ -257,6 +256,9 @@ class _RelockScreenState extends State<RelockScreen> {
   /// What went wrong with the last attempt — a wrong PIN or a lockout.
   String? _error;
 
+  /// Set by a lockout; [PinErrorText] counts down to it.
+  DateTime? _lockedUntil;
+
   void _onKey(String digit) {
     final length = _pinLength;
     if (length == null || _checking || _pin.length >= length) return;
@@ -264,6 +266,7 @@ class _RelockScreenState extends State<RelockScreen> {
     setState(() {
       _pin += digit;
       _error = null;
+      _lockedUntil = null;
     });
     if (_pin.length == length) _verify();
   }
@@ -294,9 +297,8 @@ class _RelockScreenState extends State<RelockScreen> {
     setState(() {
       _pin = '';
       _checking = false;
-      _error = wait == null
-          ? 'رمز عبور اشتباه است'
-          : PinAttemptLimiter.lockoutMessage(wait);
+      _error = wait == null ? 'رمز عبور اشتباه است' : null;
+      _lockedUntil = wait == null ? null : DateTime.now().add(wait);
     });
   }
 
@@ -344,14 +346,13 @@ class _RelockScreenState extends State<RelockScreen> {
                 // short error appears; the longer biometric notices wrap.
                 ConstrainedBox(
                   constraints: const BoxConstraints(minHeight: 24),
-                  child: _error != null
+                  child: _error != null || _lockedUntil != null
                       ? Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 24),
-                          child: Text(
-                            _error!,
-                            textAlign: TextAlign.center,
+                          child: PinErrorText(
+                            message: _error,
+                            lockedUntil: _lockedUntil,
                             maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(color: theme.colorScheme.error),
                           ),
                         )

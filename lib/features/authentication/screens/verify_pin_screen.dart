@@ -4,7 +4,6 @@ import 'package:flutter/services.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import '../models/pin_policy.dart';
 import '../repositories/auth_repository.dart';
-import '../repositories/pin_attempt_limiter.dart';
 import 'widgets/pin_pad.dart';
 
 /// Asks for the current app PIN and pops it once it checks out.
@@ -40,6 +39,7 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
   String _pin = '';
   bool _checking = false;
   String? _error;
+  DateTime? _lockedUntil;
 
   void _onKey(String digit) {
     final length = _pinLength;
@@ -48,6 +48,7 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
     setState(() {
       _pin += digit;
       _error = null;
+      _lockedUntil = null;
     });
     if (_pin.length == length) _verify();
   }
@@ -73,9 +74,8 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
     setState(() {
       _pin = '';
       _checking = false;
-      _error = wait == null
-          ? 'رمز عبور اشتباه است'
-          : PinAttemptLimiter.lockoutMessage(wait);
+      _error = wait == null ? 'رمز عبور اشتباه است' : null;
+      _lockedUntil = wait == null ? null : DateTime.now().add(wait);
     });
   }
 
@@ -102,13 +102,13 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
               const SizedBox(height: 12),
               SizedBox(
                 height: 48,
-                child: _error == null
+                child: _error == null && _lockedUntil == null
                     ? null
                     : Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 24),
-                        child: Text(
-                          _error!,
-                          textAlign: TextAlign.center,
+                        child: PinErrorText(
+                          message: _error,
+                          lockedUntil: _lockedUntil,
                           style: TextStyle(color: theme.colorScheme.error),
                         ),
                       ),

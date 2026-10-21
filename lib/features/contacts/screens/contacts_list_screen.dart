@@ -393,6 +393,7 @@ class _ContactsListScreenState extends State<ContactsListScreen>
     final selection = _selectedContacts;
     final messenger = ScaffoldMessenger.of(context);
     final contactBloc = context.read<ContactBloc>();
+    final favoritesBloc = context.read<FavoritesBloc>();
     try {
       // Two address books, two delete calls. A SIM contact has no
       // ContactsContract row, so `getContact` on its id returns null and the
@@ -422,6 +423,15 @@ class _ContactsListScreenState extends State<ContactsListScreen>
           );
         }
         deleted += targets.length;
+      }
+      // A deleted person leaves «موردعلاقه‌ها» too. The row there is keyed by
+      // number and keeps the name it was starred under, so it went on showing
+      // a contact that no longer existed (SM A336E, 1405/07/29).
+      for (final contact in selection) {
+        for (final phone in {contact.phoneNumber, ...contact.phoneNumbers}) {
+          if (phone.isEmpty) continue;
+          favoritesBloc.add(RemoveFavorite(phone));
+        }
       }
       ContactRepository().invalidateCache();
       LazyContactAvatar.invalidateCache();

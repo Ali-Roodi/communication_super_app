@@ -14,6 +14,7 @@ import android.telephony.SubscriptionInfo
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import android.util.Log
+import com.example.communication_super_app.call.CallInCallService
 
 /**
  * The one place that answers "which SIMs does this phone have".
@@ -549,12 +550,13 @@ object SimRegistry {
     }
 
     /** How an ordinary dial of a number chooses its SIM — see [routeFor]. */
-    enum class CallRoute { CONTACT, APP, PHONE_DEFAULT, ASK, SINGLE }
+    enum class CallRoute { LIVE_CALL, CONTACT, APP, PHONE_DEFAULT, ASK, SINGLE }
 
     /**
      * Where a call to [number] goes when nobody picked a card for this one
-     * call: the contact's own card, else the app's default (Settings →
-     * «سیم‌کارت‌ها»), else the phone's default, else the user is asked.
+     * call: the card of a call that is already up, else the contact's own
+     * card, else the app's default (Settings → «سیم‌کارت‌ها»), else the
+     * phone's default, else the user is asked.
      * [CallRoute.SINGLE] when there is nothing to choose. The handle is what
      * to dial with; null for [CallRoute.PHONE_DEFAULT] on purpose — telecom
      * then uses its own default.
@@ -569,6 +571,16 @@ object SimRegistry {
             emptyList()
         }
         if (accounts.size < 2) return CallRoute.SINGLE to null
+        // «افزودن تماس»: a dual-SIM phone holds one card in a call at a time,
+        // so the second leg can only go out on the card the first is on. Samsung
+        // cancels one dialled on the other card before it leaves the phone
+        // (OUTGOING_CANCELED, no word to the user) — which is what a contact
+        // pinned to SIM 1 did to a conference started on SIM 2. The rules
+        // below are about the card the user prefers; this one is about the
+        // card that can carry the call at all.
+        CallInCallService.topLevelCalls()
+            .firstNotNullOfOrNull { it.details?.accountHandle }
+            ?.let { return CallRoute.LIVE_CALL to it }
         contactCallAccount(context, number)?.let { return CallRoute.CONTACT to it }
         when (val app = appDefault(context, KEY_VOICE)) {
             APP_ASK -> return CallRoute.ASK to null

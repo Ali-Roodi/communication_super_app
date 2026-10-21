@@ -1922,7 +1922,9 @@ class CallActionReceiver : android.content.BroadcastReceiver() {
             // action — is the card that took the call used.
             val (route, routed) = SimRegistry.routeFor(context, phone)
             val account = when (route) {
-                SimRegistry.CallRoute.CONTACT, SimRegistry.CallRoute.APP -> routed
+                SimRegistry.CallRoute.LIVE_CALL,
+                SimRegistry.CallRoute.CONTACT,
+                SimRegistry.CallRoute.APP -> routed
                 SimRegistry.CallRoute.ASK -> SimRegistry.phoneAccountFor(context, subscriptionId)
                 else -> null
             }

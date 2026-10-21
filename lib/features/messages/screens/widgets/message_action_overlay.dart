@@ -47,6 +47,12 @@ Future<void> showMessageActionOverlay(
   required bool showLinkPreview,
   required List<MessageAction> actions,
 }) {
+  // A composer that kept focus after the keyboard was put away gets it back
+  // when this route pops, and the keyboard rose by itself after every
+  // «ستاره‌دار کردن» / «کپی». Only a keyboard that was actually up is kept.
+  if (MediaQuery.viewInsetsOf(context).bottom == 0) {
+    FocusManager.instance.primaryFocus?.unfocus();
+  }
   return Navigator.of(context, rootNavigator: true).push(
     _MessageActionRoute(
       message: message,
