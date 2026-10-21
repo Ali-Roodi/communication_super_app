@@ -24,8 +24,8 @@ class PreviewRender {
     private val random = SecureRandom()
     private val cheap = PasswordKdf(iterations = 1, memoryKiB = 64, parallelism = 1)
 
-    private fun render(name: String, content: @Composable () -> Unit) {
-        val scene = ImageComposeScene(1040, 720, Density(1f)) { PanelTheme(content) }
+    private fun render(name: String, height: Int = 720, content: @Composable () -> Unit) {
+        val scene = ImageComposeScene(1040, height, Density(1f)) { PanelTheme(content) }
         var t = 0L
         repeat(6) { scene.render(t); t += 100_000_000L }
         val image = scene.render(t)
@@ -60,12 +60,36 @@ class PreviewRender {
     @Test
     fun keys() {
         val (file, password) = authorityFolder(withMembers = true)
+        val waiting = KeysState(rememberFile = false).apply { authorityFile = file }
+        render("03a-keys-waiting") { Panel(waiting, start = Section.Keys) }
         val locked = KeysState(rememberFile = false).apply { authorityFile = file; this.password = "wrong"; error = "رمز مرجع اشتباه است." }
         render("03-keys-locked") { Panel(locked, start = Section.Keys) }
+        val notAuthority = KeysState(rememberFile = false).apply {
+            authorityFile = File(file.parentFile, "issued/09034853204.hkb"); this.password = "x"; error = "این فایل، فایل مرجع هم‌رسان نیست."
+        }
+        render("03b-not-authority") { Panel(notAuthority, start = Section.Keys) }
 
         val keys = KeysState(rememberFile = false).apply { authorityFile = file; this.password = password }
         runBlocking { keys.unlock() }
         render("04-keys-unlocked") { Panel(keys, start = Section.Keys) }
+
+        // The «عضو جدید» form: filled in, two refused numbers, the confirmation.
+        runBlocking { keys.markAllDelivered() }
+        val f = keys.newMember
+        f.name = "کاربر چهارم"; f.mobile = "09332639135"; f.deviceCode = "4f339b"
+        render("04a-form", 900) { Panel(keys, start = Section.Keys) }
+        f.mobile = "+98 935 645 5230"; f.deviceCode = ""
+        keys.check(f)
+        render("04b-duplicate", 900) { Panel(keys, start = Section.Keys) }
+        f.mobile = "021 8877 6655"
+        keys.check(f)
+        render("04c-landline", 900) { Panel(keys, start = Section.Keys) }
+        f.mobile = "09332639135"
+        kotlin.test.assertTrue(keys.check(f))
+        keys.confirmAdd = true
+        render("04d-confirm") { Panel(keys, start = Section.Keys) }
+        keys.confirmAdd = false
+        f.clear()
 
         val form = MemberForm().apply { name = "کاربر چهارم"; mobile = "09332639135"; deviceCode = "4f339b" }
         runBlocking { keys.addMember(form) }

@@ -105,6 +105,10 @@ class KeysState(
     var view by mutableStateOf(View.MEMBERS)
     var dialog by mutableStateOf<Dialog?>(null)
 
+    /** The «عضو جدید» form and its confirmation, here so a preview can show them filled in. */
+    val newMember = MemberForm()
+    var confirmAdd by mutableStateOf(false)
+
     /** True while a change started from a member's dialog is running (a blocking progress dialog). */
     var modalBusy by mutableStateOf(false)
         private set
@@ -124,6 +128,9 @@ class KeysState(
         view = View.MEMBERS
         password = ""
         error = null
+        newMember.clear()
+        newMember.organization = ""
+        confirmAdd = false
     }
 
     suspend fun unlock() {
