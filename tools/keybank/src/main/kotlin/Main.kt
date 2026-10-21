@@ -4,7 +4,6 @@ import com.example.communication_super_app.smscrypto.SmsCryptoException
 import com.example.communication_super_app.smscrypto.keybank.AuthorityFile
 import com.example.communication_super_app.smscrypto.keybank.AuthorityKey
 import com.example.communication_super_app.smscrypto.keybank.AuthorityPublic
-import com.example.communication_super_app.smscrypto.keybank.Directory
 import com.example.communication_super_app.smscrypto.keybank.Issuer
 import com.example.communication_super_app.smscrypto.keybank.KeyFile
 import java.io.File
@@ -41,8 +40,7 @@ fun main(args: Array<String>) {
             when (e.code) {
                 SmsCryptoException.Code.WRONG_PASSWORD -> "wrong password"
                 SmsCryptoException.Code.NOT_A_KEY_FILE -> "not a file of this tool"
-                SmsCryptoException.Code.UNTRUSTED -> "signed by another authority"
-                SmsCryptoException.Code.BAD_SIGNATURE -> "the signature does not verify — the file was altered"
+                SmsCryptoException.Code.UNTRUSTED -> "not signed by this authority"
                 else -> "${e.code}: ${e.message}"
             },
         )
@@ -64,11 +62,13 @@ private fun usage(): Nothing {
                   Prints the authority public key. It goes into the app once
                   (lib/features/keybank/trust_anchors.dart).
           issue   <authority.hka> <roster.csv> <output folder>
-                  One key file per member, and passwords.csv. Roster lines:
-                  organization,<name>, then name,phone1;phone2[,generation].
-                  Re-issuing keeps every
-                  member's key; raise a member's generation to replace theirs.
-                  Existing passwords in passwords.csv are reused.
+                  One key file per member (<number>.hkb), and passwords.csv.
+                  Roster lines: organization,<name>, then
+                  name,phone1;phone2[,generation]. A key file holds its
+                  member's own key and certificate only — nobody else's.
+                  Re-issuing keeps every member's key; raise a member's
+                  generation to replace theirs. Existing passwords in
+                  passwords.csv are reused.
           inspect <file.hkb> <authority-public.txt>
                   Opens and verifies a key file.
           activation <device code>
@@ -105,10 +105,7 @@ private fun init(args: Array<String>) {
     if (System.getenv("HAMRESAN_KEYBANK_PASSWORD") == null) {
         if (password("-", "Repeat it: ") != first) fail("the passwords differ")
     }
-    val contents = AuthorityFile.Contents(
-        AuthorityKey.generate(random),
-        ByteArray(Directory.ID_BYTES).also(random::nextBytes),
-    )
+    val contents = AuthorityFile.Contents(AuthorityKey.generate(random))
     file.writeBytes(AuthorityFile.create(contents, first, random))
     println("Authority created: ${file.path}")
     println("Authority id: ${hex(contents.key.public.authorityId)}")
@@ -136,12 +133,10 @@ private fun issue(args: Array<String>) {
     val out = File(args[3])
     Issuance.issue(authority, roster, out, random) { done, total ->
         val phone = roster.entries[done - 1].phones.first()
-        println("  $done/$total  $phone  ${Issuance.fileName(done - 1, phone)}")
+        println("  $done/$total  $phone  ${Issuance.fileName(phone)}")
     }
     println("Issued ${roster.entries.size} key files for ${roster.organization} to ${out.path}; passwords in ${Issuance.PASSWORDS_FILE}.")
-    println("Hand each member their file and, separately, its password.")
-    println("${Issuance.UPDATE_FILE}: the same directory without anyone's key, for members who already")
-    println("imported a file of this organization and whose key did not change - no password needed.")
+    println("Hand each member their file and, separately, its password. Nobody else needs anything.")
 }
 
 private fun activation(args: Array<String>) {
@@ -158,14 +153,8 @@ private fun inspect(args: Array<String>) {
         password("HAMRESAN_KEYFILE_PASSWORD", "Key file password: "),
         listOf(anchor),
     )
-    val d = opened.directory
-    println("Organization: ${d.name}")
-    println("Issued: ${java.time.Instant.ofEpochMilli(d.serial)}  members: ${d.members.size}")
-    d.members.forEachIndexed { i, m ->
-        val mark = if (i == opened.memberIndex) " ← this file's owner" else ""
-        println("  ${i + 1}. ${m.name}  ${m.phones.joinToString(" ")}  key ${hex(m.keyId)}$mark")
-    }
-    println("Certificate: ${opened.cert.phone}, generation ${opened.cert.generation}")
+    println("Certificate: ${opened.cert.phone}, generation ${opened.cert.generation}, key ${hex(opened.cert.keyId)}")
+    println("Authority: ${hex(opened.authority.authorityId)}")
     println("Signature: valid")
 }
 

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -9,6 +11,7 @@ import 'package:communication_super_app/features/secure/repositories/secure_mess
 import 'package:communication_super_app/features/secure/widgets/secure_locked_view.dart';
 
 import '../bloc/secure_messages_bloc.dart';
+import '../services/secure_messenger.dart';
 
 /// One encrypted conversation.
 ///
@@ -31,23 +34,54 @@ class SecureConversationScreen extends StatefulWidget {
       _SecureConversationScreenState();
 }
 
+/// How long a session request may go unanswered before the screen says so.
+/// The answer is two SMS parts; between two phones that are on it takes
+/// seconds.
+const _noAnswerAfter = Duration(minutes: 2);
+
+/// What the conversation screen says about its secure channel.
+enum _Channel { none, connecting, requestFailed, noAnswer }
+
 class _SecureConversationScreenState extends State<SecureConversationScreen> {
   final _controller = TextEditingController();
   late final SecureMessagesBloc _bloc;
   SecureExpiry _expiry = SecureExpiry.none;
+
+  /// Re-reads the clock while the screen is up: «پاسخی نرسید» is about time
+  /// passing, not about a new state.
+  Timer? _tick;
 
   @override
   void initState() {
     super.initState();
     _bloc = context.read<SecureMessagesBloc>();
     _bloc.add(SecureOpenThread(widget.phone));
+    _tick = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
   void dispose() {
+    _tick?.cancel();
     _bloc.add(SecureCloseThread(widget.phone));
     _controller.dispose();
     super.dispose();
+  }
+
+  static int _now() => DateTime.now().millisecondsSinceEpoch;
+
+  _Channel _channel(SecureMessagesState state) {
+    if (state.openPhone != widget.phone || !state.handshakePending) {
+      return _Channel.none;
+    }
+    final c = state.channel;
+    if (c.requestFailed) return _Channel.requestFailed;
+    final since = c.pendingSince;
+    if (since != null && _now() - since > _noAnswerAfter.inMilliseconds) {
+      return _Channel.noAnswer;
+    }
+    return _Channel.connecting;
   }
 
   void _send() {
@@ -83,15 +117,14 @@ class _SecureConversationScreenState extends State<SecureConversationScreen> {
           final messages = state.openPhone == widget.phone
               ? state.openMessages
               : const <SecureMessage>[];
-          // A hidden contact the key bank has no key for: plain SMS, still
-          // kept out of the system's message store (phase G).
-          final conversation = state.conversations
-              .where((c) => c.phone == widget.phone)
-              .firstOrNull;
-          final encrypted = conversation?.encrypted ?? true;
-          // A member reached over a certificate is X25519 only until the
-          // background upgrade (`Upgrade`) lands — a few SMS later.
-          final quantumSafe = conversation?.quantumSafe ?? true;
+          // A hidden contact's plain-SMS thread (phase G): kept out of the
+          // system's message store, and apart from any encrypted chat.
+          final encrypted = !SecureMessenger.isPlainThread(widget.phone);
+          // The header says «رمزشده» and nothing more: the post-quantum
+          // upgrade runs unseen in the background (owner, 1405/07/29). What
+          // the user must act on — a channel that did not come — is a
+          // banner below.
+          final channel = _channel(state);
           return Scaffold(
             appBar: RtlAppBar(
               titleWidget: Column(
@@ -114,11 +147,7 @@ class _SecureConversationScreenState extends State<SecureConversationScreen> {
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        !encrypted
-                            ? 'پیامک رمزنشده'
-                            : quantumSafe
-                            ? 'رمزشده پساکوانتومی'
-                            : 'رمزشده · در حال ارتقای پساکوانتومی',
+                        encrypted ? 'رمزشده' : 'پیامک رمزنشده',
                         style: TextStyle(
                           fontSize: 12,
                           color: encrypted ? scheme.primary : scheme.error,
@@ -135,15 +164,38 @@ class _SecureConversationScreenState extends State<SecureConversationScreen> {
                   SecureBanner(
                     icon: Icons.lock_open,
                     text:
-                        'برای این شماره کلیدی در بانک کلید نیست؛ پیامک‌ها '
-                        'رمزنشده فرستاده می‌شوند، ولی در سوابق گوشی ثبت نمی‌شوند.',
+                        'پیامک‌های رمزنشدهٔ این مخاطب مخفی؛ در سوابق گوشی ثبت '
+                        'نمی‌شوند. پیام رمز به او در گفتگوی جداگانهٔ «پیام‌های '
+                        'رمز» است.',
                   ),
-                if (state.openPhone == widget.phone && state.handshakePending)
+                if (channel == _Channel.connecting)
                   SecureBanner(
                     icon: Icons.sync_lock,
                     text:
                         'در حال برقراری کانال امن. پیام‌ها پس از پاسخ گوشی مقابل '
                         'ارسال می‌شوند.',
+                  ),
+                if (channel == _Channel.requestFailed)
+                  SecureBanner(
+                    icon: Icons.error_outline,
+                    error: true,
+                    text:
+                        'پیامک درخواست کانال امن ارسال نشد. اعتبار و آنتن '
+                        'سیم‌کارتی را که پیام رمز با آن می‌رود بررسی کنید '
+                        '(منوی «پیام‌های رمز» ← سیم‌کارت) و دوباره تلاش کنید.',
+                    action: 'دوباره تلاش',
+                    onAction: () => _bloc.add(SecureRetryChannel(widget.phone)),
+                  ),
+                if (channel == _Channel.noAnswer)
+                  SecureBanner(
+                    icon: Icons.hourglass_bottom,
+                    text:
+                        'پاسخی از گوشی مقابل نرسیده. اگر این شماره هم‌رسانِ '
+                        'دارای کلید سازمانی نداشته باشد، پیام‌ها به دستش '
+                        'نمی‌رسد؛ اگر دارد، شاید گوشی‌اش خاموش یا بی‌آنتن است. '
+                        'پیام‌ها تا برقراری کانال در صف می‌مانند.',
+                    action: 'دوباره تلاش',
+                    onAction: () => _bloc.add(SecureRetryChannel(widget.phone)),
                   ),
                 Expanded(
                   child: messages.isEmpty
@@ -188,36 +240,54 @@ class _SecureConversationScreenState extends State<SecureConversationScreen> {
   }
 }
 
-/// A one-line notice above a secure thread.
+/// A notice above a secure thread, with an optional action («دوباره تلاش»).
 class SecureBanner extends StatelessWidget {
-  const SecureBanner({super.key, required this.icon, required this.text});
+  const SecureBanner({
+    super.key,
+    required this.icon,
+    required this.text,
+    this.error = false,
+    this.action,
+    this.onAction,
+  });
   final IconData icon;
   final String text;
+  final bool error;
+  final String? action;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final bg = error ? scheme.errorContainer : scheme.secondaryContainer;
+    final fg = error ? scheme.onErrorContainer : scheme.onSecondaryContainer;
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
       decoration: BoxDecoration(
-        color: scheme.secondaryContainer,
+        color: bg,
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          Icon(icon, size: 20, color: scheme.onSecondaryContainer),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(
-                fontSize: 13,
-                color: scheme.onSecondaryContainer,
+          Row(
+            children: [
+              Icon(icon, size: 20, color: fg),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(text, style: TextStyle(fontSize: 13, color: fg)),
               ),
-            ),
+            ],
           ),
+          if (action != null)
+            TextButton(
+              onPressed: onAction,
+              child: Text(action!, style: TextStyle(color: fg)),
+            )
+          else
+            const SizedBox(height: 4),
         ],
       ),
     );

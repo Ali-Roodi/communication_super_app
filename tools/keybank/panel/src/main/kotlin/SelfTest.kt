@@ -9,12 +9,9 @@ import com.example.communication_super_app.smscrypto.Payload
 import com.example.communication_super_app.smscrypto.Wire
 import com.example.communication_super_app.smscrypto.keybank.AuthorityFile
 import com.example.communication_super_app.smscrypto.keybank.AuthorityKey
-import com.example.communication_super_app.smscrypto.keybank.Directory
 import com.example.communication_super_app.smscrypto.keybank.KeyFile
-import com.example.communication_super_app.smscrypto.keybank.UpdateFile
 import ir.hamrasan.keybank.Activation
 import ir.hamrasan.keybank.AuthorityFolder
-import ir.hamrasan.keybank.Issuance
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.skia.EncodedImageFormat
 import java.io.File
@@ -39,7 +36,7 @@ object SelfTest {
             val random = SecureRandom()
             val dir = Files.createTempDirectory("panel-self-test").toFile()
             try {
-                val contents = AuthorityFile.Contents(AuthorityKey.generate(random), ByteArray(Directory.ID_BYTES).also(random::nextBytes))
+                val contents = AuthorityFile.Contents(AuthorityKey.generate(random))
                 val password = "self-test-password"
                 val authorityFile = File(dir, AuthorityFolder.AUTHORITY_FILE)
                 authorityFile.writeBytes(AuthorityFile.create(contents, password, random))
@@ -52,11 +49,15 @@ object SelfTest {
                 check(keys.unlocked != null) { "unlock failed: ${keys.error}" }
                 val form = MemberForm().apply { organization = "سازمان آزمون"; name = "عضو یک"; mobile = "09120000001" }
                 runBlocking { keys.addMember(form) }
+                val firstFile = keys.unlocked!!.folder.keyFileOf(keys.snapshot!!.entries[0])
+                val firstBytes = firstFile.readBytes()
                 form.apply { name = "عضو دو"; mobile = "09120000002"; deviceCode = "b60966" }
                 runBlocking { keys.addMember(form) }
                 val d = keys.delivery ?: error("no delivery: ${form.error}")
                 val opened = KeyFile.open(d.file.readBytes(), d.password!!, listOf(contents.key.public))
-                check(opened.directory.members.size == 2 && opened.memberIndex == 1) { "key file does not open as issued" }
+                check(opened.cert.phone == "09120000002" && d.index == 1) { "key file does not open as issued" }
+                // The newcomer's file is theirs alone: the first member's file did not change.
+                check(firstFile.readBytes().contentEquals(firstBytes)) { "another member's file was rewritten" }
                 check(d.activationCode == "9c4a48e93a") { "delivery activation code" }
                 log.appendLine("issue + open: ok")
 
@@ -65,7 +66,7 @@ object SelfTest {
                 val anchors = listOf(contents.key.public)
                 val snap = keys.snapshot!!
                 val first = KeyFile.open(
-                    keys.unlocked!!.folder.keyFileOf(0, snap.entries[0]).readBytes(),
+                    keys.unlocked!!.folder.keyFileOf(snap.entries[0]).readBytes(),
                     snap.passwordOf(snap.entries[0])!!,
                     anchors,
                 )
@@ -82,14 +83,6 @@ object SelfTest {
                 val heard = answered.session.open(Wire.parse(hello.wire) as Packet.Message)
                 check((Payload.parse(heard.payload) as Payload.Text).text == "سلام") { "certificate session" }
                 log.appendLine("certificate handshake: ok")
-
-                val update = UpdateFile.open(
-                    File(dir, "issued/${Issuance.UPDATE_FILE}").readBytes(),
-                    listOf(contents.directoryId),
-                    listOf(contents.key.public),
-                )
-                check(update.directory.members.size == 2) { "update file" }
-                log.appendLine("update file: ok")
 
                 runBlocking { keys.markAllDelivered() }
                 check(keys.snapshot!!.outdated.isEmpty()) { "deliveries not recorded" }

@@ -6,7 +6,7 @@ import 'package:sqflite_sqlcipher/sqflite.dart' as cipher;
 import '../services/sms_crypto_service.dart';
 import 'secure_store.dart';
 
-/// Lowercase hex — how every key and directory id is stored.
+/// Lowercase hex — how every key and authority id is stored.
 String keyHex(List<int> bytes) =>
     bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 
@@ -19,115 +19,89 @@ class KeyBankLockedException implements Exception {
 
 /// What importing a key file did.
 enum KeyImportOutcome {
-  /// A directory this phone did not have.
+  /// The first key of this phone from that authority.
   added,
 
-  /// A newer copy of a directory it had.
-  updated,
+  /// It replaced the key this phone held from that authority — a new number,
+  /// or a new generation («گوشی گم شد» in the issuance panel).
+  replaced,
 
-  /// The same copy, now with this phone's own key (the update file came
-  /// first).
-  ownKeyAdded,
-
-  /// Nothing new.
+  /// This very key is already here.
   alreadyImported,
 
-  /// An older copy than the one stored — refused: it may still list a key the
-  /// authority has since replaced.
+  /// An older generation of the key held for the same number — refused: the
+  /// authority has since replaced it.
   older,
 }
 
-class DirectorySummary extends Equatable {
-  const DirectorySummary({
-    required this.id,
+/// One of this phone's own keys, as the key bank screen shows it — public
+/// data only.
+class OwnKeySummary extends Equatable {
+  const OwnKeySummary({
+    required this.keyId,
     required this.authorityId,
-    required this.name,
-    required this.serial,
-    required this.memberCount,
-    this.ownName,
+    required this.phone,
+    required this.generation,
+    required this.importedAt,
   });
-  final String id;
+  final String keyId;
   final String authorityId;
-  final String name;
 
-  /// The issue time the authority stamped (ms since epoch).
-  final int serial;
-  final int memberCount;
+  /// The number the certificate names (canonical, `09…`).
+  final String phone;
+  final int generation;
 
-  /// This phone's own entry in the directory, when its key was imported.
-  final String? ownName;
-
-  bool get hasOwnKey => ownName != null;
+  /// When it was imported (ms since epoch).
+  final int importedAt;
 
   @override
   List<Object?> get props => [
-    id,
+    keyId,
     authorityId,
-    name,
-    serial,
-    memberCount,
-    ownName,
+    phone,
+    generation,
+    importedAt,
   ];
 }
 
-/// Everything the key bank screen shows — public data only; no secret ever
-/// leaves the repository in a snapshot.
+/// Everything the key bank screen shows — no secret ever leaves the
+/// repository in a snapshot.
 class KeyBankSnapshot extends Equatable {
-  const KeyBankSnapshot({this.directories = const []});
-  final List<DirectorySummary> directories;
+  const KeyBankSnapshot({this.keys = const []});
+  final List<OwnKeySummary> keys;
 
-  bool get isEmpty => directories.isEmpty;
+  bool get isEmpty => keys.isEmpty;
 
   @override
-  List<Object?> get props => [directories];
+  List<Object?> get props => [keys];
 }
 
-/// One member of a stored directory.
-class DirectoryEntry {
-  const DirectoryEntry({
-    required this.directoryId,
-    required this.directoryName,
+/// A stored own key with its secret, for the encrypted-SMS path.
+class StoredOwnKey {
+  const StoredOwnKey({
     required this.keyId,
-    required this.name,
-    required this.publicKey,
-    required this.phones,
+    required this.authorityId,
+    required this.secret,
+    required this.cert,
   });
-  final String directoryId;
-  final String directoryName;
-
-  /// The key id the member's certificate carries.
   final String keyId;
-  final String name;
+  final String authorityId;
+  final Uint8List secret;
 
-  /// The member's X25519 key.
-  final Uint8List publicKey;
-
-  /// Canonical.
-  final List<String> phones;
+  /// The member certificate (`MemberCert`), 103 bytes.
+  final Uint8List cert;
 }
 
-/// A directory member who owns a number, as the key bank knows them.
-class PeerKey {
-  const PeerKey({
-    required this.directoryId,
-    required this.directoryName,
-    required this.name,
-    required this.publicKey,
-    required this.keyId,
-  });
-
-  final String directoryId;
-  final String directoryName;
-  final String name;
-  final Uint8List publicKey;
-  final Uint8List keyId;
-}
-
-/// «بانک کلید» storage, in `secure.db` (tables made by [SecureStore]).
+/// «بانک کلید» storage, in `secure.db` (the table made by [SecureStore]).
+///
+/// It holds this phone's own keys only — one per authority, each with the
+/// certificate that names it. Nobody else's key, number or name is ever
+/// stored here: who a colleague is, is learned from their certificate when
+/// they answer (`CertHandshake`).
 ///
 /// Works only while the secure section is open; otherwise every call throws
-/// [KeyBankLockedException]. Secrets (own keys) are written and read here and
-/// nowhere else.
+/// [KeyBankLockedException]. Secrets are written and read here and nowhere
+/// else.
 class KeyBankRepository {
   KeyBankRepository({cipher.Database? Function()? database})
     : _database = database ?? (() => SecureStore.instance.database);
@@ -138,26 +112,20 @@ class KeyBankRepository {
       _database() ?? (throw const KeyBankLockedException());
 
   Future<KeyBankSnapshot> snapshot() async {
-    final db = _db;
-    final dirs = await db.rawQuery('''
-      SELECT d.id, d.authority_id, d.name, d.serial,
-             (SELECT COUNT(*) FROM kb_members m WHERE m.directory_id = d.id) AS members,
-             (SELECT m.name FROM kb_own_keys o
-                JOIN kb_members m ON m.directory_id = o.directory_id AND m.key_id = o.key_id
-               WHERE o.directory_id = d.id) AS own_name
-        FROM kb_directories d
-       ORDER BY d.name COLLATE NOCASE
-    ''');
+    final rows = await _db.query(
+      'kb_own_keys',
+      columns: ['key_id', 'authority_id', 'phone', 'generation', 'imported_at'],
+      orderBy: 'imported_at',
+    );
     return KeyBankSnapshot(
-      directories: [
-        for (final r in dirs)
-          DirectorySummary(
-            id: r['id'] as String,
+      keys: [
+        for (final r in rows)
+          OwnKeySummary(
+            keyId: r['key_id'] as String,
             authorityId: r['authority_id'] as String,
-            name: r['name'] as String,
-            serial: r['serial'] as int,
-            memberCount: r['members'] as int,
-            ownName: r['own_name'] as String?,
+            phone: r['phone'] as String,
+            generation: r['generation'] as int,
+            importedAt: r['imported_at'] as int,
           ),
       ],
     );
@@ -168,211 +136,53 @@ class KeyBankRepository {
     OpenedKeyFile opened, {
     DateTime? now,
   }) async {
-    final d = opened.directory;
-    final id = keyHex(d.directoryId);
-    final own = opened.own;
+    final authority = keyHex(opened.authorityId);
+    final cert = opened.cert;
+    final keyId = keyHex(cert.keyId);
     return _db.transaction((txn) async {
       final existing = await txn.query(
-        'kb_directories',
-        columns: ['serial'],
-        where: 'id = ?',
-        whereArgs: [id],
+        'kb_own_keys',
+        columns: ['key_id', 'phone', 'generation'],
+        where: 'authority_id = ?',
+        whereArgs: [authority],
       );
-      final storedSerial = existing.isEmpty
-          ? null
-          : existing.first['serial'] as int;
-      if (storedSerial != null && storedSerial > d.serial) {
-        return KeyImportOutcome.older;
-      }
-      if (storedSerial == d.serial) {
-        if (own == null) return KeyImportOutcome.alreadyImported;
-        final stored = await txn.query(
-          'kb_own_keys',
-          columns: ['key_id'],
-          where: 'directory_id = ?',
-          whereArgs: [id],
-        );
-        if (stored.isNotEmpty &&
-            stored.first['key_id'] == keyHex(own.identity.keyId)) {
-          return KeyImportOutcome.alreadyImported;
+      if (existing.isNotEmpty) {
+        final stored = existing.single;
+        if (stored['key_id'] == keyId) return KeyImportOutcome.alreadyImported;
+        if (stored['phone'] == cert.phone &&
+            (stored['generation'] as int) > cert.generation) {
+          return KeyImportOutcome.older;
         }
-        await _storeOwnKey(txn, id, own);
-        return KeyImportOutcome.ownKeyAdded;
       }
-
-      await txn.delete(
-        'kb_members',
-        where: 'directory_id = ?',
-        whereArgs: [id],
-      );
-      await txn.delete(
-        'kb_member_phones',
-        where: 'directory_id = ?',
-        whereArgs: [id],
-      );
-      await txn.insert('kb_directories', {
-        'id': id,
-        'authority_id': keyHex(d.authorityId),
-        'name': d.name,
-        'serial': d.serial,
-        'signed': opened.signed,
+      await txn.insert('kb_own_keys', {
+        'authority_id': authority,
+        'key_id': keyId,
+        'phone': cert.phone,
+        'generation': cert.generation,
+        'secret': opened.secret,
+        'cert': cert.cert,
         'imported_at': (now ?? DateTime.now()).millisecondsSinceEpoch,
       }, conflictAlgorithm: cipher.ConflictAlgorithm.replace);
-      final batch = txn.batch();
-      for (final m in d.members) {
-        final kid = keyHex(m.keyId);
-        batch.insert('kb_members', {
-          'directory_id': id,
-          'key_id': kid,
-          'name': m.name,
-          'public_key': m.publicKey,
-        });
-        for (final phone in m.phones) {
-          batch.insert('kb_member_phones', {
-            'phone': phone,
-            'directory_id': id,
-            'key_id': kid,
-          });
-        }
-      }
-      await batch.commit(noResult: true);
-
-      if (own != null) {
-        await _storeOwnKey(txn, id, own);
-      } else {
-        // A newer directory without this phone's key: keep the stored key
-        // only while the authority still lists it.
-        await txn.rawDelete(
-          '''
-          DELETE FROM kb_own_keys WHERE directory_id = ? AND key_id NOT IN
-            (SELECT key_id FROM kb_members WHERE directory_id = ?)
-          ''',
-          [id, id],
-        );
-      }
-      return storedSerial == null
+      return existing.isEmpty
           ? KeyImportOutcome.added
-          : KeyImportOutcome.updated;
+          : KeyImportOutcome.replaced;
     });
   }
 
-  Future<void> _storeOwnKey(
-    cipher.DatabaseExecutor txn,
-    String directoryId,
-    OwnKey own,
-  ) => txn.insert('kb_own_keys', {
-    'directory_id': directoryId,
-    'key_id': keyHex(own.identity.keyId),
-    'secret': own.identity.secret,
-    'public_key': own.identity.publicKey,
-    'cert': own.cert.cert,
-  }, conflictAlgorithm: cipher.ConflictAlgorithm.replace);
+  Future<void> removeKey(String keyId) =>
+      _db.delete('kb_own_keys', where: 'key_id = ?', whereArgs: [keyId]);
 
-  Future<void> removeDirectory(String id) => _db.transaction((txn) async {
-    for (final table in const [
-      'kb_members',
-      'kb_member_phones',
-      'kb_own_keys',
-    ]) {
-      await txn.delete(table, where: 'directory_id = ?', whereArgs: [id]);
-    }
-    await txn.delete('kb_directories', where: 'id = ?', whereArgs: [id]);
-  });
-
-  // ── Lookups for the encrypted-SMS path (phase F) ───────────────────────────
-
-  /// Directory members who own [phone] (canonical).
-  Future<List<PeerKey>> directoryKeysFor(String phone) async {
-    final rows = await _db.rawQuery(
-      '''
-      SELECT m.directory_id, d.name AS directory_name, m.name, m.public_key,
-             m.key_id
-        FROM kb_member_phones p
-        JOIN kb_members m ON m.directory_id = p.directory_id AND m.key_id = p.key_id
-        JOIN kb_directories d ON d.id = m.directory_id
-       WHERE p.phone = ?
-      ''',
-      [phone],
-    );
+  /// This phone's own keys, with their secrets and certificates.
+  Future<List<StoredOwnKey>> ownKeys() async {
+    final rows = await _db.query('kb_own_keys', orderBy: 'imported_at');
     return [
       for (final r in rows)
-        PeerKey(
-          directoryId: r['directory_id'] as String,
-          directoryName: r['directory_name'] as String,
-          name: r['name'] as String,
-          publicKey: r['public_key'] as Uint8List,
-          keyId: _unhex(r['key_id'] as String),
-        ),
-    ];
-  }
-
-  /// This phone's own keys, with their secrets and the member certificate
-  /// ([cert]) that names each.
-  Future<List<({String directoryId, SmsIdentity identity, Uint8List cert})>>
-  ownDirectoryKeys() async {
-    final rows = await _db.query('kb_own_keys');
-    return [
-      for (final r in rows)
-        (
-          directoryId: r['directory_id'] as String,
-          identity: SmsIdentity(
-            secret: r['secret'] as Uint8List,
-            publicKey: r['public_key'] as Uint8List,
-            keyId: _unhex(r['key_id'] as String),
-          ),
+        StoredOwnKey(
+          keyId: r['key_id'] as String,
+          authorityId: r['authority_id'] as String,
+          secret: r['secret'] as Uint8List,
           cert: r['cert'] as Uint8List,
         ),
     ];
   }
-
-  /// The name the directories give the holder of [phone], if any.
-  Future<String?> nameFor(String phone) async {
-    final rows = await _db.rawQuery(
-      '''
-      SELECT m.name FROM kb_member_phones p
-        JOIN kb_members m ON m.directory_id = p.directory_id AND m.key_id = p.key_id
-       WHERE p.phone = ? LIMIT 1
-      ''',
-      [phone],
-    );
-    return rows.isEmpty ? null : rows.first['name'] as String;
-  }
-
-  /// Every member of every directory — the people an encrypted conversation
-  /// can be started with. Each member's phones come back **in the
-  /// directory's order** (the order they were inserted): GROUP_CONCAT's own
-  /// order is undefined, and it once put a member's landline first.
-  Future<List<DirectoryEntry>> allMembers() async {
-    final members = await _db.rawQuery('''
-      SELECT m.directory_id, d.name AS directory_name, m.key_id, m.name,
-             m.public_key
-        FROM kb_members m
-        JOIN kb_directories d ON d.id = m.directory_id
-       ORDER BY m.name COLLATE NOCASE
-    ''');
-    final phones = <String, List<String>>{};
-    for (final r in await _db.rawQuery(
-      'SELECT directory_id, key_id, phone FROM kb_member_phones ORDER BY rowid',
-    )) {
-      phones
-          .putIfAbsent('${r['directory_id']}/${r['key_id']}', () => [])
-          .add(r['phone'] as String);
-    }
-    return [
-      for (final r in members)
-        DirectoryEntry(
-          directoryId: r['directory_id'] as String,
-          directoryName: r['directory_name'] as String,
-          keyId: r['key_id'] as String,
-          name: r['name'] as String,
-          publicKey: r['public_key'] as Uint8List,
-          phones: phones['${r['directory_id']}/${r['key_id']}'] ?? const [],
-        ),
-    ];
-  }
-
-  static Uint8List _unhex(String hex) => Uint8List.fromList([
-    for (var i = 0; i < hex.length; i += 2)
-      int.parse(hex.substring(i, i + 2), radix: 16),
-  ]);
 }

@@ -7,7 +7,6 @@ import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/features/secure/repositories/key_bank_repository.dart';
-import 'package:communication_super_app/features/secure/services/sms_crypto_service.dart';
 import 'package:communication_super_app/features/secure/widgets/secure_locked_view.dart';
 
 import '../bloc/key_bank_bloc.dart';
@@ -15,6 +14,9 @@ import '../services/key_file_service.dart';
 import '../services/trust_anchors.dart';
 
 /// «بانک کلید» — Settings → امنیت. Only inside an open secure section.
+///
+/// It shows this phone's own key — the number its certificate names — and
+/// nothing about anybody else: there is no list of members anywhere.
 class KeyBankScreen extends StatelessWidget {
   const KeyBankScreen({super.key, this.keyFiles = const KeyFileService()});
 
@@ -22,20 +24,14 @@ class KeyBankScreen extends StatelessWidget {
 
   static String noticeText(KeyBankNotice notice) => switch (notice) {
     KeyBankNotice.imported => 'فایل کلید وارد شد',
-    KeyBankNotice.updated => 'دفترچه کلید به‌روز شد',
-    KeyBankNotice.ownKeyAdded => 'کلید شما به دفترچه اضافه شد',
+    KeyBankNotice.replaced => 'کلید تازه جای کلید قبلی شما نشست',
     KeyBankNotice.alreadyImported => 'این فایل قبلاً وارد شده است',
-    KeyBankNotice.older => 'این فایل قدیمی‌تر از دفترچه فعلی است و وارد نشد',
+    KeyBankNotice.older => 'این کلید قدیمی‌تر از کلید فعلی شماست و وارد نشد',
     KeyBankNotice.wrongPassword => 'رمز فایل کلید اشتباه است',
     KeyBankNotice.notAKeyFile => 'این فایل، فایل کلید هم‌رسان نیست',
     KeyBankNotice.untrusted =>
       'این فایل را مرجعی امضا کرده که این برنامه به آن اعتماد ندارد',
-    KeyBankNotice.badSignature => 'امضای فایل معتبر نیست؛ فایل دستکاری شده است',
     KeyBankNotice.badBundle => 'محتوای فایل کلید معتبر نیست',
-    KeyBankNotice.updateNotForThisPhone =>
-      'این فایل به‌روزرسانیِ سازمانی است که در این گوشی نیست؛ اول فایل کلید خودتان را وارد کنید',
-    KeyBankNotice.ownKeyRetired =>
-      'دفترچه به‌روز شد، ولی کلید شما در آن عوض شده است؛ فایل کلید تازه خودتان را با رمزش وارد کنید',
     KeyBankNotice.failed => 'انجام نشد؛ دوباره تلاش کنید',
   };
 
@@ -98,13 +94,21 @@ class _Bank extends StatelessWidget {
                   style: TextStyle(color: scheme.onErrorContainer),
                 ),
               ),
-            const _Heading('دفترچه‌های سازمانی'),
-            for (final d in s.directories) _DirectoryRow(d),
+            const _Heading('کلید شما'),
+            for (final k in s.keys) _KeyRow(k),
+            if (s.isEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+                child: Text(
+                  'هنوز فایل کلیدی وارد نشده است. بدون آن پیام رمز فرستاده '
+                  'یا خوانده نمی‌شود.',
+                  style: TextStyle(color: scheme.onSurfaceVariant),
+                ),
+              ),
             _ActionRow(
               icon: Icons.file_open_outlined,
               title: 'وارد کردن فایل کلید',
-              summary:
-                  'فایل کلید شما، یا فایل به‌روزرسانی (update.hku) که مرجع سازمان فرستاده',
+              summary: 'فایل ‎.hkb‎ که مرجع سازمان برای شمارهٔ شما صادر کرده',
               onTap: state.busy ? null : () => _importFile(context),
             ),
           ],
@@ -139,17 +143,10 @@ class _Bank extends StatelessWidget {
       return;
     }
     if (file == null || !context.mounted) return;
-    // An update file carries no key of ours and is opened without asking
-    // anything: only a phone of that organization can open it.
-    if (SmsCryptoService.isUpdateFile(file)) {
-      bloc.add(KeyBankImportUpdate(file));
-      return;
-    }
-    final password = await _askText(
+    final password = await _askPassword(
       context,
       title: 'رمز فایل کلید',
       hint: 'XXXX-XXXX-XXXX-XXXX-XXXX',
-      latin: true,
     );
     if (password == null) return;
     if (password.trim().isEmpty) {
@@ -162,31 +159,46 @@ class _Bank extends StatelessWidget {
   }
 }
 
-Future<String?> _askText(
+/// The key-file password, hidden as it is typed (an eye shows it): a
+/// password shown in clear is read by anything that reads the screen — an
+/// accessibility service, a screen recording, a shoulder.
+Future<String?> _askPassword(
   BuildContext context, {
   required String title,
   required String hint,
-  bool latin = false,
 }) {
   final controller = TextEditingController();
+  var hidden = true;
   return showDialog<String>(
     context: context,
     builder: (dialogCtx) => Directionality(
       textDirection: TextDirection.rtl,
       child: AlertDialog(
         title: Text(title),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          textDirection: TextDirection.ltr,
-          keyboardType: TextInputType.visiblePassword,
-          autocorrect: false,
-          enableSuggestions: false,
-          textCapitalization: latin
-              ? TextCapitalization.characters
-              : TextCapitalization.none,
-          decoration: InputDecoration(hintText: hint),
-          onSubmitted: (v) => Navigator.of(dialogCtx).pop(v),
+        content: StatefulBuilder(
+          builder: (context, setState) => TextField(
+            controller: controller,
+            autofocus: true,
+            obscureText: hidden,
+            textDirection: TextDirection.ltr,
+            keyboardType: TextInputType.visiblePassword,
+            autocorrect: false,
+            enableSuggestions: false,
+            textCapitalization: TextCapitalization.characters,
+            decoration: InputDecoration(
+              hintText: hint,
+              suffixIcon: IconButton(
+                tooltip: hidden ? 'نمایش رمز' : 'پنهان کردن رمز',
+                icon: Icon(
+                  hidden
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
+                ),
+                onPressed: () => setState(() => hidden = !hidden),
+              ),
+            ),
+            onSubmitted: (v) => Navigator.of(dialogCtx).pop(v),
+          ),
         ),
         actions: [
           TextButton(
@@ -313,21 +325,23 @@ Future<bool> _confirmRemove(
   return ok == true;
 }
 
-class _DirectoryRow extends StatelessWidget {
-  const _DirectoryRow(this.d);
-  final DirectorySummary d;
+/// One of this phone's own keys: the number its certificate names, its
+/// generation (raised by «گوشی گم شد» in the issuance panel) and when it was
+/// imported.
+class _KeyRow extends StatelessWidget {
+  const _KeyRow(this.k);
+  final OwnKeySummary k;
 
   @override
   Widget build(BuildContext context) {
-    final issued = DateFormatter.formatDate(
-      DateTime.fromMillisecondsSinceEpoch(d.serial),
+    final imported = DateFormatter.formatDate(
+      DateTime.fromMillisecondsSinceEpoch(k.importedAt),
     );
-    final members = PersianUtils.toPersianNumber('${d.memberCount}');
-    final own = d.hasOwnKey ? 'کلید شما: ${d.ownName}' : 'بدون کلید شما';
+    final generation = PersianUtils.toPersianNumber('${k.generation}');
     return SettingsRow(
-      icon: Icons.menu_book_outlined,
-      title: d.name,
-      summary: '$members عضو · صادرشده $issued\n$own',
+      icon: Icons.key_outlined,
+      title: PersianUtils.displayPhone(k.phone),
+      summary: 'نسل کلید $generation · واردشده $imported',
       trailing: IconButton(
         icon: const Icon(Icons.delete_outline),
         tooltip: 'حذف',
@@ -335,12 +349,12 @@ class _DirectoryRow extends StatelessWidget {
           final bloc = context.read<KeyBankBloc>();
           if (await _confirmRemove(
             context,
-            title: 'حذف دفترچه؟',
+            title: 'حذف کلید؟',
             body:
-                'دفترچه «${d.name}» و کلید شما در آن از این گوشی پاک می‌شود. '
-                'برای برگرداندن آن باید فایل کلید را دوباره وارد کنید.',
+                'کلید شما از این گوشی پاک می‌شود و تا فایل کلید دوباره وارد '
+                'نشود، پیام رمز فرستاده یا خوانده نمی‌شود.',
           )) {
-            bloc.add(KeyBankRemoveDirectory(d.id));
+            bloc.add(KeyBankRemoveKey(k.keyId));
           }
         },
       ),

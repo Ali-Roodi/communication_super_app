@@ -132,7 +132,6 @@ void main() {
         peerKeyId: 'aa',
         peerPublic: Uint8List(4),
         ownKeyId: 'bb',
-        ownDirectory: 'd',
         now: 1,
       );
       // Just opened, nothing said: not waiting (it used to say it was).

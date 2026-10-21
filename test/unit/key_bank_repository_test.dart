@@ -1,62 +1,27 @@
 import 'package:communication_super_app/features/secure/repositories/key_bank_repository.dart';
 import 'package:communication_super_app/features/secure/repositories/secure_store.dart';
 import 'package:communication_super_app/features/secure/services/sms_crypto_service.dart';
-import 'package:communication_super_app/features/secure_sms/services/secure_identities.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 Uint8List _b(int n, int fill) => Uint8List(n)..fillRange(0, n, fill);
 
-DirectoryMember _member(String name, List<String> phones, int kid) =>
-    DirectoryMember(
-      name: name,
-      phones: phones,
-      publicKey: _b(32, kid),
-      keyId: _b(8, kid),
-    );
-
 OpenedKeyFile _file({
-  int serial = 100,
-  List<DirectoryMember>? members,
-  int? ownIndex,
-  int directory = 1,
-}) {
-  final list =
-      members ??
-      [
-        _member('علی', ['09121111111', '02188776655'], 1),
-        _member('مریم', ['09122222222'], 2),
-      ];
-  return OpenedKeyFile(
-    signed: _b(40, serial % 256),
-    directory: KeyDirectory(
-      authorityId: _b(8, 0xAA),
-      directoryId: _b(8, directory),
-      serial: serial,
-      name: 'سازمان $directory',
-      members: list,
-    ),
-    own: ownIndex == null
-        ? null
-        : OwnKey(
-            index: ownIndex,
-            identity: SmsIdentity(
-              secret: _b(97, 0x50 + ownIndex),
-              publicKey: list[ownIndex].publicKey,
-              keyId: list[ownIndex].keyId,
-            ),
-            cert: MemberCertInfo(
-              cert: _b(103, 0x30 + ownIndex),
-              keyId: list[ownIndex].keyId,
-              phone: list[ownIndex].phones.firstWhere(
-                (p) => p.startsWith('09'),
-              ),
-              generation: 0,
-            ),
-          ),
-  );
-}
+  int kid = 1,
+  String phone = '09121111111',
+  int generation = 0,
+  int authority = 0xAA,
+}) => OpenedKeyFile(
+  authorityId: _b(8, authority),
+  secret: _b(97, 0x50 + kid),
+  cert: MemberCertInfo(
+    cert: _b(103, 0x30 + kid),
+    keyId: _b(8, kid),
+    phone: phone,
+    generation: generation,
+  ),
+);
 
 void main() {
   late Database db;
@@ -75,149 +40,82 @@ void main() {
   test('a locked section is an error, never an empty bank', () async {
     final locked = KeyBankRepository(database: () => null);
     expect(locked.snapshot, throwsA(isA<KeyBankLockedException>()));
+    expect(locked.ownKeys, throwsA(isA<KeyBankLockedException>()));
   });
 
-  test('importing a key file stores the directory and the own key', () async {
-    expect(
-      await repo.importKeyFile(_file(ownIndex: 1)),
-      KeyImportOutcome.added,
-    );
-    final s = await repo.snapshot();
-    expect(s.directories, hasLength(1));
-    final d = s.directories.single;
-    expect(d.name, 'سازمان 1');
-    expect(d.memberCount, 2);
-    expect(d.ownName, 'مریم');
-    expect(d.id, '0101010101010101');
-    expect(d.authorityId, 'aaaaaaaaaaaaaaaa');
+  test(
+    'a key file stores the own key and its certificate — nothing else',
+    () async {
+      expect(
+        await repo.importKeyFile(_file(), now: DateTime(2026, 10, 21)),
+        KeyImportOutcome.added,
+      );
+      final key = (await repo.snapshot()).keys.single;
+      expect(key.keyId, '0101010101010101');
+      expect(key.authorityId, 'aaaaaaaaaaaaaaaa');
+      expect(key.phone, '09121111111');
+      expect(key.generation, 0);
+      expect(key.importedAt, DateTime(2026, 10, 21).millisecondsSinceEpoch);
+      final own = (await repo.ownKeys()).single;
+      expect(own.secret, _b(97, 0x51));
+      expect(own.cert, _b(103, 0x31));
+      // There is no table of anybody else.
+      final tables = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'kb_%'",
+      );
+      expect([for (final t in tables) t['name']], ['kb_own_keys']);
+    },
+  );
 
-    final keys = await repo.directoryKeysFor('02188776655');
-    expect(keys.single.name, 'علی');
-    expect(keys.single.keyId, _b(8, 1));
-    expect(keys.single.directoryId, '0101010101010101');
-    expect(keys.single.directoryName, 'سازمان 1');
-    expect(await repo.directoryKeysFor('09129999999'), isEmpty);
-    final own = (await repo.ownDirectoryKeys()).single;
-    expect(own.identity.secret, _b(97, 0x51));
-    expect(own.directoryId, '0101010101010101');
-    expect(own.cert, _b(103, 0x31));
-    final all = await repo.allMembers();
-    expect(all.map((m) => m.name), ['علی', 'مریم']);
-    expect(all.first.phones, ['09121111111', '02188776655']);
-    expect(all.first.directoryName, 'سازمان 1');
-  });
-
-  test("a member's phones keep the directory's order", () async {
-    // GROUP_CONCAT's order is undefined; it once listed the landline first
-    // and an encrypted SMS went to a number that cannot receive one.
-    await repo.importKeyFile(
-      _file(
-        members: [
-          _member('رضا', ['02100000002', '09120000002', '09350000002'], 4),
-          _member('مینا', ['09120000009'], 5),
-        ],
-        ownIndex: 1,
-      ),
-    );
-    final reza = (await repo.allMembers()).firstWhere((m) => m.name == 'رضا');
-    expect(reza.phones, ['02100000002', '09120000002', '09350000002']);
-    expect(SecureIdentities.textTarget(reza.phones), '09120000002');
-    // A landline cannot receive the session request.
-    expect(SecureIdentities.textTarget(['02100000002']), isNull);
-  });
-
-  test('the same file twice changes nothing; the own file after the '
-      'update file adds the key', () async {
-    expect(await repo.importKeyFile(_file()), KeyImportOutcome.added);
+  test('the same file twice is already imported', () async {
+    await repo.importKeyFile(_file());
     expect(await repo.importKeyFile(_file()), KeyImportOutcome.alreadyImported);
+    expect((await repo.ownKeys()), hasLength(1));
+  });
+
+  test('a new generation from the same authority replaces the key', () async {
+    await repo.importKeyFile(_file(kid: 1, generation: 0));
     expect(
-      await repo.importKeyFile(_file(ownIndex: 0)),
-      KeyImportOutcome.ownKeyAdded,
+      await repo.importKeyFile(_file(kid: 2, generation: 1)),
+      KeyImportOutcome.replaced,
     );
+    final own = (await repo.ownKeys()).single;
+    expect(own.keyId, '0202020202020202');
+    // …and going back to the old generation is refused.
     expect(
-      await repo.importKeyFile(_file(ownIndex: 0)),
-      KeyImportOutcome.alreadyImported,
+      await repo.importKeyFile(_file(kid: 1, generation: 0)),
+      KeyImportOutcome.older,
     );
-    expect((await repo.snapshot()).directories.single.ownName, 'علی');
+    expect((await repo.ownKeys()).single.keyId, '0202020202020202');
   });
 
   test(
-    'a newer directory replaces the members; an older one is refused',
+    'a key for another number from the same authority replaces it',
     () async {
-      await repo.importKeyFile(_file(serial: 100, ownIndex: 0));
-      final newer = [
-        _member('علی', ['09121111111'], 1),
-        _member('سارا', ['09123333333'], 3),
-      ];
-      expect(
-        await repo.importKeyFile(_file(serial: 200, members: newer)),
-        KeyImportOutcome.updated,
+      await repo.importKeyFile(
+        _file(kid: 1, phone: '09121111111', generation: 3),
       );
-      expect(await repo.directoryKeysFor('09122222222'), isEmpty); // removed
       expect(
-        await repo.directoryKeysFor('02188776655'),
-        isEmpty,
-      ); // number dropped
-      expect((await repo.directoryKeysFor('09123333333')).single.name, 'سارا');
-      // Still listed, so the own key stays.
-      expect((await repo.snapshot()).directories.single.ownName, 'علی');
-
-      expect(
-        await repo.importKeyFile(_file(serial: 150, ownIndex: 1)),
-        KeyImportOutcome.older,
+        await repo.importKeyFile(_file(kid: 2, phone: '09122222222')),
+        KeyImportOutcome.replaced,
       );
-      expect((await repo.snapshot()).directories.single.serial, 200);
+      expect((await repo.snapshot()).keys.single.phone, '09122222222');
     },
   );
 
-  test('a newer directory that no longer lists our key drops it', () async {
-    await repo.importKeyFile(_file(serial: 100, ownIndex: 1)); // مریم
-    final rotated = [
-      _member('علی', ['09121111111'], 1),
-      _member('مریم', ['09122222222'], 9), // new generation, new key
-    ];
-    await repo.importKeyFile(_file(serial: 300, members: rotated));
-    expect((await repo.snapshot()).directories.single.hasOwnKey, isFalse);
-    expect(await repo.ownDirectoryKeys(), isEmpty);
-  });
-
-  test(
-    'removing a directory removes its members, numbers and own key',
-    () async {
-      await repo.importKeyFile(_file(ownIndex: 0));
-      await repo.importKeyFile(_file(directory: 2));
-      await repo.removeDirectory('0101010101010101');
-      final s = await repo.snapshot();
-      expect(s.directories.map((d) => d.name), ['سازمان 2']);
-      expect(await repo.ownDirectoryKeys(), isEmpty);
-      for (final table in ['kb_members', 'kb_member_phones']) {
-        final rows = await db.query(
-          table,
-          where: 'directory_id = ?',
-          whereArgs: ['0101010101010101'],
-        );
-        expect(rows, isEmpty, reason: table);
-      }
-    },
-  );
-
-  test('an own key is stored with its certificate', () async {
+  test('keys of two authorities live side by side', () async {
+    await repo.importKeyFile(_file(kid: 1, authority: 0xAA));
     expect(
-      await repo.importKeyFile(_file(ownIndex: 1)),
+      await repo.importKeyFile(_file(kid: 2, authority: 0xBB)),
       KeyImportOutcome.added,
     );
-    expect((await repo.ownDirectoryKeys()).single.cert, _b(103, 0x31));
-    // The schema has no room for one without it.
-    await expectLater(
-      db.update('kb_own_keys', {'cert': null}),
-      throwsA(isA<DatabaseException>()),
-    );
-    expect(await repo.nameFor('09121111111'), 'علی');
-    expect(await repo.nameFor('09129999999'), isNull);
+    expect(await repo.ownKeys(), hasLength(2));
   });
 
-  test('the certificate key id is the one Kotlin computes', () {
-    // Pinned on the Kotlin side by CertHandshakeTest.
-    expect(certKeyIdFor(_b(32, 7)), '6d0190893fd7bb4f');
+  test('removing a key leaves nothing behind', () async {
+    await repo.importKeyFile(_file());
+    await repo.removeKey('0101010101010101');
+    expect((await repo.snapshot()).isEmpty, isTrue);
+    expect(await repo.ownKeys(), isEmpty);
   });
 }

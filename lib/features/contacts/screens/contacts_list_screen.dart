@@ -153,10 +153,8 @@ class _ContactsListScreenState extends State<ContactsListScreen>
                 _buildSearchField(theme),
               // «دفترچه مخفی» — only while the secure section is open. Above
               // the list, not in it: the fast-scroll offsets stay untouched.
-              if (!_selectionMode && _query.trim().isEmpty) ...const [
-                HiddenContactsEntry(),
-                EncryptedContactsEntry(),
-              ],
+              if (!_selectionMode && _query.trim().isEmpty)
+                const HiddenContactsEntry(),
               Expanded(
                 child: BlocBuilder<ContactBloc, ContactState>(
                   builder: (context, state) {

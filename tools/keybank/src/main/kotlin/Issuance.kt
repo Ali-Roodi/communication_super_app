@@ -2,12 +2,10 @@ package ir.hamrasan.keybank
 
 import com.example.communication_super_app.smscrypto.keybank.AuthorityFile
 import com.example.communication_super_app.smscrypto.keybank.Canon
-import com.example.communication_super_app.smscrypto.keybank.Directory
 import com.example.communication_super_app.smscrypto.keybank.Issuer
 import com.example.communication_super_app.smscrypto.keybank.KeyFile
 import com.example.communication_super_app.smscrypto.keybank.MemberCert
 import com.example.communication_super_app.smscrypto.keybank.PasswordKdf
-import com.example.communication_super_app.smscrypto.keybank.UpdateFile
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -19,76 +17,130 @@ import java.time.format.DateTimeFormatter
  * Issuing key files into a folder — shared by the command line (`issue`) and
  * the issuance panel, so both write the same files and the same
  * `passwords.csv`.
+ *
+ * A key file holds its member's own key and certificate and nothing about
+ * anybody else, so a member's file depends on that member alone: adding,
+ * editing or re-keying one member writes one file, and every other member's
+ * file — and phone — stays exactly as it was.
  */
 object Issuance {
     const val PASSWORDS_FILE = "passwords.csv"
-    const val UPDATE_FILE = "update.hku"
 
     /** One member's file as written. */
-    class IssuedFile(val index: Int, val entry: Issuer.Entry, val file: File, val password: String) {
+    class IssuedFile(val entry: Issuer.Entry, val file: File, val password: String) {
         val phone: String get() = entry.phones.first()
     }
 
     /**
-     * Signs a directory of [roster] and writes one key file per member into
-     * [out], with `passwords.csv`. A member in [known] (by default what
+     * Writes a key file for every member of [roster] into [out], with
+     * `passwords.csv`. A member in [known] (by default what
      * `passwords.csv` already says) keeps their password; their key never
-     * changes (it is derived from their first number and generation), so
-     * re-issuing only adds what is new.
+     * changes (it is derived from their first number and generation).
      *
      * All or nothing: everything is written into a scratch folder first and
-     * moved into place only once every file exists. A failure half-way used
-     * to leave some files re-written — one of them, after «گوشی گم شد», under
-     * a new password that `passwords.csv` (written last) did not have yet.
+     * moved into place only once every file exists.
      */
     fun issue(
         authority: AuthorityFile.Contents,
         roster: Issuer.Roster,
         out: File,
         random: SecureRandom,
-        serial: Long = System.currentTimeMillis(),
         kdf: PasswordKdf = PasswordKdf.KEY_FILE,
         known: Map<String, String>? = null,
         progress: (done: Int, total: Int) -> Unit = { _, _ -> },
     ): List<IssuedFile> {
-        out.mkdirs()
-        val passwordsFile = File(out, PASSWORDS_FILE)
-        val passwords = known ?: readPasswords(passwordsFile)
-        val issued = Issuer.issue(authority.key, authority.directoryId, roster, serial, random)
+        val kept = known ?: readPasswords(File(out, PASSWORDS_FILE))
+        val passwords = roster.entries.associate { e ->
+            val phone = e.phones.first()
+            phone to (kept[phone] ?: Issuer.password(random))
+        }
+        return write(out, roster, passwords) { scratch ->
+            roster.entries.mapIndexed { i, entry ->
+                writeKeyFile(authority, entry, passwords.getValue(entry.phones.first()), scratch, out, random, kdf)
+                    .also { progress(i + 1, roster.entries.size) }
+            }
+        }
+    }
 
+    /**
+     * Writes the key file of [entry] alone (the other members' files are
+     * not touched), with `passwords.csv` for the whole [roster]: [password]
+     * for [entry], [known] for everyone else. [retired] is a file name to
+     * delete in the same step (the member's previous first number).
+     */
+    fun issueOne(
+        authority: AuthorityFile.Contents,
+        roster: Issuer.Roster,
+        entry: Issuer.Entry,
+        password: String,
+        out: File,
+        random: SecureRandom,
+        kdf: PasswordKdf = PasswordKdf.KEY_FILE,
+        known: Map<String, String>,
+        retired: String? = null,
+    ): IssuedFile = write(out, roster, known + (entry.phones.first() to password), retired) { scratch ->
+        listOf(writeKeyFile(authority, entry, password, scratch, out, random, kdf))
+    }.single()
+
+    /** Removes a member's file and their line in `passwords.csv`. */
+    fun removeOne(out: File, roster: Issuer.Roster, phone: String, known: Map<String, String>) {
+        write(out, roster, known - phone, retired = fileName(phone)) { emptyList() }
+    }
+
+    private fun writeKeyFile(
+        authority: AuthorityFile.Contents,
+        entry: Issuer.Entry,
+        password: String,
+        scratch: File,
+        out: File,
+        random: SecureRandom,
+        kdf: PasswordKdf,
+    ): IssuedFile {
+        val issued = Issuer.issue(authority.key, entry)
+        val name = fileName(entry.phones.first())
+        File(scratch, name).writeBytes(KeyFile.create(issued.identity, issued.cert, password, random, kdf))
+        return IssuedFile(entry, File(out, name), password)
+    }
+
+    /**
+     * Runs [files] into a scratch folder, writes `passwords.csv` for every
+     * member of [roster] from [passwords] there too, and only then moves it
+     * all into [out] (and deletes [retired]). A failure half-way leaves [out]
+     * as it was — it used to leave a file re-sealed under a new password that
+     * `passwords.csv` did not have yet.
+     */
+    private fun write(
+        out: File,
+        roster: Issuer.Roster,
+        passwords: Map<String, String>,
+        retired: String? = null,
+        files: (scratch: File) -> List<IssuedFile>,
+    ): List<IssuedFile> {
+        out.mkdirs()
         val scratch = File(out, SCRATCH_DIR)
         scratch.deleteRecursively()
         scratch.mkdirs()
         try {
-            val files = roster.entries.mapIndexed { i, entry ->
-                val phone = entry.phones.first()
-                val password = passwords[phone] ?: Issuer.password(random)
-                val name = fileName(i, phone)
-                File(scratch, name).writeBytes(KeyFile.create(issued.signed, i to issued.identities[i], password, random, kdf, issued.certs[i]))
-                progress(i + 1, roster.entries.size)
-                IssuedFile(i, entry, File(out, name), password)
-            }
+            val written = files(scratch)
             val lines = mutableListOf("name,phone,file,password")
-            files.forEach { lines += listOf(csv(it.entry.name), it.phone, it.file.name, it.password).joinToString(",") }
+            for (e in roster.entries) {
+                val phone = e.phones.first()
+                val password = passwords[phone] ?: continue
+                lines += listOf(csv(e.name), phone, fileName(phone), password).joinToString(",")
+            }
             // With a BOM, so Excel opens the Persian names as UTF-8.
             File(scratch, PASSWORDS_FILE).writeText("﻿" + lines.joinToString("\r\n") + "\r\n", Charsets.UTF_8)
-            // The same signed directory for everyone, without anyone's key:
-            // members whose own key did not change import it instead of their
-            // file, with no password. See UpdateFile.kt.
-            File(scratch, UPDATE_FILE).writeBytes(UpdateFile.create(issued.signed, authority.directoryId, random, kdf))
 
-            // Every file exists: now they replace the old ones.
-            for (f in files) move(File(scratch, f.file.name), f.file)
-            move(File(scratch, UPDATE_FILE), File(out, UPDATE_FILE))
-            move(File(scratch, PASSWORDS_FILE), passwordsFile)
+            // Everything exists: now it replaces what was there.
+            for (f in written) move(File(scratch, f.file.name), f.file)
+            move(File(scratch, PASSWORDS_FILE), File(out, PASSWORDS_FILE))
+            if (retired != null && written.none { it.file.name == retired }) File(out, retired).delete()
 
-            // A key file this round did not write carries an older directory (or
-            // a member who left): when the roster's order changes, the same
-            // member's file gets a new number and the old name would stay behind,
-            // ready to be handed out by mistake. Only our own NNN-*.hkb names.
-            val written = files.map { it.file.name }.toSet()
-            out.listFiles { f -> f.isFile && OWN_FILE.matches(f.name) && f.name !in written }?.forEach { it.delete() }
-            return files
+            // A key file of nobody on the roster any more must not stay behind,
+            // ready to be handed out by mistake. Only our own <number>.hkb names.
+            val current = roster.entries.map { fileName(it.phones.first()) }.toSet()
+            out.listFiles { f -> f.isFile && OWN_FILE.matches(f.name) && f.name !in current }?.forEach { it.delete() }
+            return written
         } finally {
             scratch.deleteRecursively()
         }
@@ -103,9 +155,10 @@ object Issuance {
     }
 
     private const val SCRATCH_DIR = ".issuing"
-    private val OWN_FILE = Regex("""\d{3}-[0-9]+\.hkb""")
+    private val OWN_FILE = Regex("""0[0-9]+\.hkb""")
 
-    fun fileName(index: Int, phone: String) = "%03d-%s.hkb".format(index + 1, phone)
+    /** A member's file is named by their first number: `09121234567.hkb`. */
+    fun fileName(phone: String) = "$phone.hkb"
 
     /** `passwords.csv` as phone → password; empty when there is none yet. */
     fun readPasswords(file: File): Map<String, String> {
@@ -130,33 +183,33 @@ object Issuance {
  *
  * Every change to the roster goes the same way: [prepare]-style validation
  * that writes nothing (the panel runs it before asking for confirmation), the
- * old roster kept under `backups/`, the new one written, every file
- * re-issued, the old roster put back if issuing throws, and one line in the
- * log.
+ * old roster kept under `backups/`, the new one written, the one member's
+ * file written (or deleted), the old roster put back if that throws, and one
+ * line in the log.
  */
 class AuthorityFolder(val dir: File) {
     val authorityFile = File(dir, AUTHORITY_FILE)
     val rosterFile = File(dir, ROSTER_FILE)
     val issuedDir = File(dir, ISSUED_DIR)
     val passwordsFile = File(issuedDir, Issuance.PASSWORDS_FILE)
-    val updateFile = File(issuedDir, Issuance.UPDATE_FILE)
 
     val log = IssuanceLog(File(dir, IssuanceLog.FILE))
 
     class MemberError(message: String) : Exception(message)
 
-    /** Where a member's phone stands, as far as the operator recorded. */
+    /**
+     * Where a member's phone stands, as far as the operator recorded. Only
+     * the member's own file matters: nothing anybody else is given changes
+     * what their phone needs.
+     */
     enum class DeliveryStatus {
-        /** Holds a file with the current directory and their current key. */
+        /** Holds their current key. */
         CURRENT,
-
-        /** Their key is current but the directory on their phone is older. */
-        STALE,
 
         /** They were given a new key («گوشی گم شد») that has not been delivered. */
         NEW_KEY,
 
-        /** No delivery recorded — a new member, or a folder from before the log. */
+        /** No delivery recorded — a new member. */
         NOT_RECORDED,
     }
 
@@ -166,23 +219,17 @@ class AuthorityFolder(val dir: File) {
         val entries: List<Issuer.Entry>,
         val passwords: Map<String, String>,
         val log: List<IssuanceLog.Entry> = emptyList(),
-        /** [IssuanceLog.fingerprint] of the roster; null while it has no member. */
-        val fingerprint: String? = null,
     ) {
         fun passwordOf(entry: Issuer.Entry): String? = passwords[entry.phones.first()]
 
         fun statusOf(entry: Issuer.Entry): DeliveryStatus {
             val phone = entry.phones.first()
-            val mine = log.filter { it.phone == phone }
-            val full = mine.lastOrNull { it.action == IssuanceLog.Action.DELIVERED } ?: return DeliveryStatus.NOT_RECORDED
-            if (full.generation != entry.generation) return DeliveryStatus.NEW_KEY
-            val latest = mine.last {
-                it.action == IssuanceLog.Action.DELIVERED || it.action == IssuanceLog.Action.UPDATE_DELIVERED
-            }
-            return if (latest.fingerprint == fingerprint) DeliveryStatus.CURRENT else DeliveryStatus.STALE
+            val delivered = log.lastOrNull { it.phone == phone && it.action == IssuanceLog.Action.DELIVERED }
+                ?: return DeliveryStatus.NOT_RECORDED
+            return if (delivered.generation == entry.generation) DeliveryStatus.CURRENT else DeliveryStatus.NEW_KEY
         }
 
-        /** Members whose phone does not hold the current directory and key. */
+        /** Members whose phone does not hold their current key. */
         val outdated: List<Issuer.Entry> get() = entries.filter { statusOf(it) != DeliveryStatus.CURRENT }
     }
 
@@ -190,16 +237,10 @@ class AuthorityFolder(val dir: File) {
         val text = if (rosterFile.isFile) rosterFile.readText(Charsets.UTF_8) else ""
         val organization = organizationOf(text)
         val roster = if (text.removePrefix("﻿").lines().any { isMemberLine(it) }) Issuer.parseRoster(text) else null
-        return Snapshot(
-            organization,
-            roster?.entries.orEmpty(),
-            Issuance.readPasswords(passwordsFile),
-            log.read(),
-            roster?.let(IssuanceLog::fingerprint),
-        )
+        return Snapshot(organization, roster?.entries.orEmpty(), Issuance.readPasswords(passwordsFile), log.read())
     }
 
-    fun keyFileOf(index: Int, entry: Issuer.Entry) = File(issuedDir, Issuance.fileName(index, entry.phones.first()))
+    fun keyFileOf(entry: Issuer.Entry) = File(issuedDir, Issuance.fileName(entry.phones.first()))
 
     /**
      * A checked change, nothing written yet: the old roster text (null when
@@ -217,8 +258,8 @@ class AuthorityFolder(val dir: File) {
     // ── Adding ───────────────────────────────────────────────────────────
 
     /**
-     * Adds a member to `roster.csv` and re-issues every key file.
-     * [organization] is only used when there is no roster yet.
+     * Adds a member to `roster.csv` and writes their key file — theirs
+     * only. [organization] is only used when there is no roster yet.
      */
     fun addMember(
         authority: AuthorityFile.Contents,
@@ -227,19 +268,19 @@ class AuthorityFolder(val dir: File) {
         random: SecureRandom,
         organization: String? = null,
         kdf: PasswordKdf = PasswordKdf.KEY_FILE,
-        progress: (done: Int, total: Int) -> Unit = { _, _ -> },
-    ): List<Issuance.IssuedFile> {
+    ): Issuance.IssuedFile {
         val p = prepare(name, phones, organization)
         val entry = p.roster.entries[p.index]
-        return commit(authority, p, random, kdf, progress, Issuance.readPasswords(passwordsFile)) { fp ->
-            logEntry(IssuanceLog.Action.ADD, entry, p.roster.entries.size, fp)
-        }
+        val known = Issuance.readPasswords(passwordsFile)
+        return commit(p, IssuanceLog.Action.ADD, entry) {
+            Issuance.issueOne(authority, p.roster, entry, Issuer.password(random), issuedDir, random, kdf, known)
+        }!!
     }
 
     /**
      * Everything [addMember] checks, without writing anything. The panel runs
      * it before asking for confirmation, so a mistake is reported before the
-     * operator has agreed to re-issue every file.
+     * operator has agreed to anything.
      *
      * A number that has had a key before (a member removed, a number moved)
      * starts at the next generation: a key, once retired, is never issued
@@ -281,7 +322,11 @@ class AuthorityFolder(val dir: File) {
         return Prepared(oldText, text, parse(text), index, keyChanged)
     }
 
-    /** Applies [prepareEdit]. A member whose first number changed keeps their password. */
+    /**
+     * Applies [prepareEdit] and writes the member's file again (the
+     * certificate names their first mobile). A member whose first number
+     * changed keeps their password; their old file is deleted.
+     */
     fun editMember(
         authority: AuthorityFile.Contents,
         index: Int,
@@ -289,19 +334,20 @@ class AuthorityFolder(val dir: File) {
         phones: List<String>,
         random: SecureRandom,
         kdf: PasswordKdf = PasswordKdf.KEY_FILE,
-        progress: (done: Int, total: Int) -> Unit = { _, _ -> },
-    ): List<Issuance.IssuedFile> {
+    ): Issuance.IssuedFile {
         val old = current().second.entries[index]
         val p = prepareEdit(index, name, phones)
         val entry = p.roster.entries[index]
-        val known = Issuance.readPasswords(passwordsFile).toMutableMap()
-        if (p.keyChanged) known[old.phones.first()]?.let { known[entry.phones.first()] = it }
-        return commit(authority, p, random, kdf, progress, known) { fp ->
-            logEntry(
-                IssuanceLog.Action.EDIT, entry, p.roster.entries.size, fp,
-                note = if (p.keyChanged) "شمارهٔ اول ${old.phones.first()} بود؛ کلید تازه" else "",
+        val known = Issuance.readPasswords(passwordsFile)
+        val password = known[old.phones.first()] ?: Issuer.password(random)
+        val note = if (p.keyChanged) "شمارهٔ اول ${old.phones.first()} بود؛ کلید تازه" else ""
+        return commit(p, IssuanceLog.Action.EDIT, entry, note) {
+            Issuance.issueOne(
+                authority, p.roster, entry, password, issuedDir, random, kdf,
+                known - old.phones.first(),
+                retired = Issuance.fileName(old.phones.first()),
             )
-        }
+        }!!
     }
 
     // ── A new key («گوشی گم شد») ─────────────────────────────────────────
@@ -320,23 +366,22 @@ class AuthorityFolder(val dir: File) {
 
     /**
      * A new key and a NEW password for member [index] — their phone is gone,
-     * and the paper with the old password may have gone with it. Everyone
-     * else keeps theirs; once they import the new directory, the old key is
-     * no longer accepted from or used for this member.
+     * and the paper with the old password may have gone with it. Nobody else
+     * needs anything: a phone that has talked to this member once with the
+     * new key refuses the old one from then on.
      */
     fun newKey(
         authority: AuthorityFile.Contents,
         index: Int,
         random: SecureRandom,
         kdf: PasswordKdf = PasswordKdf.KEY_FILE,
-        progress: (done: Int, total: Int) -> Unit = { _, _ -> },
-    ): List<Issuance.IssuedFile> {
+    ): Issuance.IssuedFile {
         val p = prepareNewKey(index)
         val entry = p.roster.entries[index]
-        val known = Issuance.readPasswords(passwordsFile) - entry.phones.first()
-        return commit(authority, p, random, kdf, progress, known) { fp ->
-            logEntry(IssuanceLog.Action.NEW_KEY, entry, p.roster.entries.size, fp)
-        }
+        val known = Issuance.readPasswords(passwordsFile)
+        return commit(p, IssuanceLog.Action.NEW_KEY, entry) {
+            Issuance.issueOne(authority, p.roster, entry, Issuer.password(random), issuedDir, random, kdf, known)
+        }!!
     }
 
     // ── Removing ─────────────────────────────────────────────────────────
@@ -353,21 +398,16 @@ class AuthorityFolder(val dir: File) {
     }
 
     /**
-     * Removes member [index] and re-issues everyone else's file; the removed
-     * member's file and password are gone from `issued/`. Until the others
-     * import their new file, their phones still know the removed member.
+     * Removes member [index] from the roster; their file and password are gone
+     * from `issued/`. Nothing is revoked (owner's decision): a certificate
+     * already on a phone stays valid.
      */
-    fun removeMember(
-        authority: AuthorityFile.Contents,
-        index: Int,
-        random: SecureRandom,
-        kdf: PasswordKdf = PasswordKdf.KEY_FILE,
-        progress: (done: Int, total: Int) -> Unit = { _, _ -> },
-    ): List<Issuance.IssuedFile> {
+    fun removeMember(index: Int) {
         val removed = current().second.entries[index]
         val p = prepareRemove(index)
-        return commit(authority, p, random, kdf, progress, Issuance.readPasswords(passwordsFile)) { fp ->
-            logEntry(IssuanceLog.Action.REMOVE, removed, p.roster.entries.size, fp)
+        commit(p, IssuanceLog.Action.REMOVE, removed) {
+            Issuance.removeOne(issuedDir, p.roster, removed.phones.first(), Issuance.readPasswords(passwordsFile))
+            null
         }
     }
 
@@ -377,20 +417,10 @@ class AuthorityFolder(val dir: File) {
     fun markDelivered(index: Int) = markDelivered(listOf(index))
 
     /** Records that each of [indices] was handed their current key file. */
-    fun markDelivered(indices: List<Int>) = mark(IssuanceLog.Action.DELIVERED, indices)
-
-    /**
-     * Records that each of [indices] imported the update file — the current
-     * directory, not a new key: a member whose key changed still needs their
-     * own file ([DeliveryStatus.NEW_KEY] stays).
-     */
-    fun markUpdated(indices: List<Int>) = mark(IssuanceLog.Action.UPDATE_DELIVERED, indices)
-
-    private fun mark(action: IssuanceLog.Action, indices: List<Int>) {
+    fun markDelivered(indices: List<Int>) {
         val s = snapshot()
-        val fp = s.fingerprint ?: return
         log.append(indices.mapNotNull { s.entries.getOrNull(it) }.map {
-            logEntry(action, it, s.entries.size, fp)
+            logEntry(IssuanceLog.Action.DELIVERED, it, s.entries.size)
         })
     }
 
@@ -402,29 +432,32 @@ class AuthorityFolder(val dir: File) {
         return text to parse(text)
     }
 
+    /**
+     * Backs the old roster up, writes the new one, runs [files] (the one
+     * member's file, or its removal), puts the old roster back if that
+     * throws, and logs one line.
+     */
     private fun commit(
-        authority: AuthorityFile.Contents,
         p: Prepared,
-        random: SecureRandom,
-        kdf: PasswordKdf,
-        progress: (Int, Int) -> Unit,
-        known: Map<String, String>,
-        logLine: (fingerprint: String) -> IssuanceLog.Entry,
-    ): List<Issuance.IssuedFile> {
+        action: IssuanceLog.Action,
+        entry: Issuer.Entry,
+        note: String = "",
+        files: () -> Issuance.IssuedFile?,
+    ): Issuance.IssuedFile? {
         if (p.oldText != null) {
             val backups = File(dir, BACKUP_DIR).apply { mkdirs() }
             File(backups, "roster-${LocalDateTime.now().format(STAMP)}.csv").writeText(p.oldText, Charsets.UTF_8)
         }
         rosterFile.writeText(p.text, Charsets.UTF_8)
         val issued = try {
-            Issuance.issue(authority, p.roster, issuedDir, random, kdf = kdf, known = known, progress = progress)
+            files()
         } catch (e: Exception) {
             if (p.oldText != null) rosterFile.writeText(p.oldText, Charsets.UTF_8) else rosterFile.delete()
             throw e
         }
-        // The files are issued; a log that cannot be written must not make
-        // the operator think they were not.
-        runCatching { log.append(listOf(logLine(IssuanceLog.fingerprint(p.roster)))) }
+        // The file is issued; a log that cannot be written must not make the
+        // operator think it was not.
+        runCatching { log.append(listOf(logEntry(action, entry, p.roster.entries.size, note))) }
         return issued
     }
 
@@ -432,11 +465,9 @@ class AuthorityFolder(val dir: File) {
         action: IssuanceLog.Action,
         entry: Issuer.Entry,
         members: Int,
-        fingerprint: String,
         note: String = "",
     ) = IssuanceLog.Entry(
-        LocalDateTime.now().withNano(0), action, entry.name, entry.phones.first(), entry.generation,
-        members, fingerprint, note,
+        LocalDateTime.now().withNano(0), action, entry.name, entry.phones.first(), entry.generation, members, note,
     )
 
     /** 0 for a number never keyed before, else one past the highest generation it ever had. */
@@ -465,7 +496,7 @@ class AuthorityFolder(val dir: File) {
         if (!(first.startsWith("09") && first.length == 11) && !first.startsWith("00")) {
             throw MemberError("شمارهٔ همراه باید با ۰۹ شروع شود و ۱۱ رقم باشد. شمارهٔ ثابت را در «شماره‌های دیگر» بنویسید.")
         }
-        if (numbers.size > Directory.MAX_PHONES) throw MemberError("حداکثر ${Directory.MAX_PHONES} شماره برای هر عضو.")
+        if (numbers.size > Issuer.MAX_PHONES) throw MemberError("حداکثر ${Issuer.MAX_PHONES} شماره برای هر عضو.")
         if (numbers.toSet().size != numbers.size) throw MemberError("یک شماره دو بار نوشته شده است.")
         return numbers
     }

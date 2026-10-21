@@ -158,7 +158,7 @@ private fun UnlockedScreen(state: KeysState, u: KeysState.Unlocked) {
                 Text("  قفل")
             }
         }
-        snapshot?.let { OutdatedBanner(state, it, u.folder) }
+        snapshot?.let { OutdatedBanner(state, it) }
         Row(horizontalArrangement = Arrangement.spacedBy(20.dp), modifier = Modifier.fillMaxHeight()) {
             NewMemberForm(state, needsOrganization = snapshot?.organization == null, memberCount = members.size, modifier = Modifier.weight(1.1f))
             MembersCard(state, snapshot, Modifier.weight(1f).fillMaxHeight())
@@ -174,7 +174,7 @@ private fun NewMemberForm(state: KeysState, needsOrganization: Boolean, memberCo
     val device = Activation.normalizeDeviceCode(form.deviceCode)
     val scroll = rememberScrollState()
     // After an issue the form is empty again: show it from the top.
-    LaunchedEffect(state.delivery) { if (state.delivery?.othersReissued != null) scroll.scrollTo(0) }
+    LaunchedEffect(state.delivery) { if (state.delivery?.event == KeysState.Event.ADDED) scroll.scrollTo(0) }
     // Any edit clears a message about the previous attempt.
     fun edit(set: () -> Unit) { set(); form.error = null }
 
@@ -183,7 +183,7 @@ private fun NewMemberForm(state: KeysState, needsOrganization: Boolean, memberCo
             OutlinedTextField(
                 form.organization, { v -> edit { form.organization = v } },
                 label = { Text("نام سازمان") },
-                supportingText = { Text("در برنامه بالای فهرست اعضا نشان داده می‌شود.") },
+                supportingText = { Text("در همین پنل و روی برگهٔ تحویل می‌آید؛ داخل فایل کلید نمی‌رود.") },
                 singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -231,7 +231,7 @@ private fun NewMemberForm(state: KeysState, needsOrganization: Boolean, memberCo
             }
             state.busy?.let { Hint(it) }
         }
-        state.progress?.let { LinearProgressIndicator(progress = { it }, modifier = Modifier.fillMaxWidth()) }
+        if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
     }
 
     if (confirm) {
@@ -240,9 +240,8 @@ private fun NewMemberForm(state: KeysState, needsOrganization: Boolean, memberCo
             title = { Text("افزودن «${form.name.trim()}»") },
             text = {
                 Text(
-                    "عضو جدید به فهرست اضافه می‌شود و فایل کلید خودش ساخته می‌شود. فقط همین فایل را لازم دارد: " +
-                        "${fa(memberCount)} عضو قبلی بدون هیچ فایل تازه‌ای با او پیام رمز رد و بدل می‌کنند — با شماره‌اش، و او با آن‌ها. " +
-                        "فایل بقیه هم تازه می‌شود (کلید و رمزشان همان قبلی است)، ولی فقط برای اینکه نام او را در فهرست گوشی ببینند. " +
+                    "عضو جدید به فهرست اضافه می‌شود و فقط فایل کلید خودش ساخته می‌شود. " +
+                        "به ${fa(memberCount)} عضو قبلی هیچ چیزی لازم نیست بدهید: با شماره‌اش به او پیام رمز می‌دهند و او به آن‌ها. " +
                         "از فهرست فعلی پشتیبان گرفته می‌شود (پوشهٔ backups).",
                 )
             },
@@ -260,7 +259,7 @@ private fun NewMemberForm(state: KeysState, needsOrganization: Boolean, memberCo
 
 @Composable
 private fun DeliveryDialog(state: KeysState, d: KeysState.Delivery) {
-    val justIssued = d.othersReissued != null
+    val justIssued = d.event != null
     val status = state.statusOf(d.index)
     val amber = Color(0xFFB26A00)
     AlertDialog(
@@ -297,28 +296,13 @@ private fun DeliveryDialog(state: KeysState, d: KeysState.Delivery) {
                 Note("فایل و رمز را از دو راه جدا به عضو بدهید؛ مثلاً فایل روی فلش یا پیام‌رسان، رمز روی برگهٔ چاپی یا حضوری.")
                 when {
                     d.event == KeysState.Event.NEW_KEY -> Note(
-                        "رمز این عضو عوض شد و فایل و رمز قبلی‌اش دیگر باز نمی‌شود. فایل و رمز تازه را روی گوشی تازه‌اش وارد کند.",
+                        "رمز این عضو عوض شد و فایل و رمز قبلی‌اش دیگر باز نمی‌شود. فایل و رمز تازه را روی گوشی تازه‌اش وارد کند. " +
+                            "به بقیه چیزی لازم نیست: هر گوشی‌ای که یک بار با گوشی تازهٔ او پیام رد و بدل کند، کلید قدیمی او را دیگر " +
+                            "قبول نمی‌کند؛ گوشی‌ای که هنوز چنین نکرده، کلید قدیمی را می‌پذیرد.",
                         color = amber,
                     )
                     d.event == KeysState.Event.EDITED && d.keyChanged -> Note(
                         "شمارهٔ همراه این عضو عوض شد، پس کلیدش هم عوض شد. رمزش همان قبلی است؛ فایل تازه را وارد کند.",
-                        color = amber,
-                    )
-                }
-                if (justIssued && d.othersReissued!! > 0) {
-                    Note(
-                        when (d.event) {
-                            KeysState.Event.NEW_KEY ->
-                                "فایل ${fa(d.othersReissued)} عضو دیگر هم تازه شد. کلید و رمزشان همان قبلی است. هر گوشی‌ای که یک بار با " +
-                                    "گوشی تازهٔ «${d.name}» پیام رد و بدل کند، کلید قدیمی او را دیگر قبول نمی‌کند؛ گوشی‌ای که هنوز چنین " +
-                                    "نکرده و فایل تازه را هم وارد نکرده، کلید قدیمی را می‌پذیرد."
-                            KeysState.Event.EDITED ->
-                                "فایل ${fa(d.othersReissued)} عضو دیگر هم تازه شد. کلید و رمزشان همان قبلی است؛ تا فایل تازه را وارد نکنند، " +
-                                    "این تغییر را نمی‌بینند."
-                            else ->
-                                "فایل ${fa(d.othersReissued)} عضو دیگر هم تازه شد (کلید و رمزشان همان قبلی است). برای پیام رمز با این " +
-                                    "عضو جدید لازم نیست؛ فقط اگر بخواهند نامش را در فهرست گوشی ببینند، فایل تازهٔ خودشان یا update.hku را وارد کنند."
-                        },
                         color = amber,
                     )
                 }
@@ -328,11 +312,6 @@ private fun DeliveryDialog(state: KeysState, d: KeysState.Delivery) {
         },
         confirmButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (status == AuthorityFolder.DeliveryStatus.STALE) {
-                    TextButton(onClick = { state.launch { state.markUpdated(d.index) } }) {
-                        Text("به‌روزرسانی را وارد کرد")
-                    }
-                }
                 if (status != null && status != AuthorityFolder.DeliveryStatus.CURRENT) {
                     OutlinedButton(onClick = { state.launch { state.markDelivered(d.index) } }) {
                         Icon(Icons.Outlined.CheckCircle, null, Modifier.size(18.dp))

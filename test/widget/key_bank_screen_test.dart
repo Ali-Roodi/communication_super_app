@@ -37,57 +37,46 @@ void main() {
     expect(find.text('وارد کردن فایل کلید'), findsNothing);
   });
 
-  testWidgets('an open bank lists its directories and the own key', (
-    tester,
-  ) async {
-    await pump(
-      tester,
-      const KeyBankState(
-        status: KeyBankStatus.ready,
-        snapshot: KeyBankSnapshot(
-          directories: [
-            DirectorySummary(
-              id: '01',
-              authorityId: 'aa',
-              name: 'سازمان آزمایشی',
-              serial: 1790000000000,
-              memberCount: 3,
-              ownName: 'علی',
-            ),
-          ],
+  const ready = KeyBankState(
+    status: KeyBankStatus.ready,
+    snapshot: KeyBankSnapshot(
+      keys: [
+        OwnKeySummary(
+          keyId: '0101010101010101',
+          authorityId: 'aa',
+          phone: '09121111111',
+          generation: 1,
+          importedAt: 1790000000000,
         ),
-      ),
-    );
-    expect(find.text('سازمان آزمایشی'), findsOneWidget);
-    expect(find.textContaining('کلید شما: علی'), findsOneWidget);
+      ],
+    ),
+  );
+
+  testWidgets('an open bank shows the own key and nobody else', (tester) async {
+    await pump(tester, ready);
+    expect(find.text('کلید شما'), findsOneWidget);
+    expect(find.textContaining('۰۹۱۲'), findsOneWidget);
+    expect(find.textContaining('نسل کلید ۱'), findsOneWidget);
     expect(find.text('وارد کردن فایل کلید'), findsOneWidget);
-    // Nothing of the passphrase groups is left on the screen.
-    expect(find.textContaining('گروه'), findsNothing);
-    expect(find.textContaining('شماره‌های من'), findsNothing);
+    // No list of members, no member count, no update file.
+    expect(find.textContaining('دفترچه'), findsNothing);
+    expect(find.textContaining('عضو'), findsNothing);
+    expect(find.textContaining('update'), findsNothing);
   });
 
-  testWidgets('removing a directory asks first', (tester) async {
-    await pump(
-      tester,
-      const KeyBankState(
-        status: KeyBankStatus.ready,
-        snapshot: KeyBankSnapshot(
-          directories: [
-            DirectorySummary(
-              id: '01',
-              authorityId: 'aa',
-              name: 'سازمان آزمایشی',
-              serial: 1790000000000,
-              memberCount: 3,
-            ),
-          ],
-        ),
-      ),
+  testWidgets('an empty bank says what is missing', (tester) async {
+    await pump(tester, const KeyBankState(status: KeyBankStatus.ready));
+    expect(
+      find.textContaining('هنوز فایل کلیدی وارد نشده است'),
+      findsOneWidget,
     );
-    expect(find.textContaining('بدون کلید شما'), findsOneWidget);
+  });
+
+  testWidgets('removing the key asks first', (tester) async {
+    await pump(tester, ready);
     await tester.tap(find.byTooltip('حذف'));
     await tester.pumpAndSettle();
-    expect(find.text('حذف دفترچه؟'), findsOneWidget);
-    verifyNever(() => bloc.add(any(that: isA<KeyBankRemoveDirectory>())));
+    expect(find.text('حذف کلید؟'), findsOneWidget);
+    verifyNever(() => bloc.add(any(that: isA<KeyBankRemoveKey>())));
   });
 }

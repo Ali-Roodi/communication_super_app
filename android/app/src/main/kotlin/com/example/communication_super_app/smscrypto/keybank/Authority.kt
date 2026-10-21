@@ -10,15 +10,15 @@ import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
 import org.bouncycastle.crypto.params.MLDSAParameters
 import org.bouncycastle.crypto.params.MLDSAPrivateKeyParameters
 import org.bouncycastle.crypto.params.MLDSAPublicKeyParameters
-import org.bouncycastle.crypto.params.ParametersWithContext
-import org.bouncycastle.crypto.params.ParametersWithRandom
 import org.bouncycastle.crypto.signers.Ed25519Signer
-import org.bouncycastle.crypto.signers.MLDSASigner
 
 /**
- * The key-bank authority's public key — **ML-DSA-65** (FIPS 204) plus
- * **Ed25519** (RFC 8032). A directory is accepted only when *both* signatures
- * verify, so a forgery needs both schemes broken.
+ * The key-bank authority's public key: an **ML-DSA-65** (FIPS 204) key and an
+ * **Ed25519** (RFC 8032) key. Member certificates ([MemberCert]) are signed
+ * with the Ed25519 half — a certificate travels inside the first SMS of every
+ * conversation and an ML-DSA signature is 3309 bytes. The ML-DSA half signs
+ * nothing today; it is part of the authority's identity ([authorityId] is
+ * taken over both), which is what the app's trust anchor pins.
  *
  * This is the one thing the app hardcodes (its trust anchor). It is not a
  * secret: knowing it lets one *check* a signature, never make one.
@@ -34,11 +34,7 @@ class AuthorityPublic internal constructor(
         const val ENCODED_BYTES = 1 + MLDSA_BYTES + ED25519_BYTES
         const val ID_BYTES = 8
 
-        internal const val SIGNATURE_BYTES = 1 + 64 + 3309
         private val ID_LABEL = Kdf.label("hamresan.authority.id.v1")
-
-        /** ML-DSA's context string and Ed25519's message prefix. */
-        internal val CONTEXT = Kdf.label("hamresan.directory.v1")
 
         fun parse(bytes: ByteArray): AuthorityPublic {
             if (bytes.size != ENCODED_BYTES || bytes[0] != FORMAT) {
@@ -54,23 +50,6 @@ class AuthorityPublic internal constructor(
     val encoded: ByteArray by lazy { byteArrayOf(FORMAT) + mldsa.encoded + ed25519.encoded }
 
     val authorityId: ByteArray by lazy { Kdf.sha256(ID_LABEL, encoded).copyOf(ID_BYTES) }
-
-    /** True only when both halves of [signature] verify over [message]. */
-    fun verify(message: ByteArray, signature: ByteArray): Boolean {
-        if (signature.size != SIGNATURE_BYTES || signature[0] != FORMAT) return false
-        val edOk = Ed25519Signer().run {
-            init(false, ed25519)
-            update(CONTEXT, 0, CONTEXT.size)
-            update(message, 0, message.size)
-            verifySignature(signature.copyOfRange(1, 65))
-        }
-        val mldsaOk = MLDSASigner().run {
-            init(false, ParametersWithContext(mldsa, CONTEXT))
-            update(message, 0, message.size)
-            verifySignature(signature.copyOfRange(65, SIGNATURE_BYTES))
-        }
-        return edOk and mldsaOk
-    }
 
     /** A [MemberCert]'s Ed25519 signature over [body] (its own context). */
     internal fun verifyCertificate(body: ByteArray, signature: ByteArray): Boolean {
@@ -131,26 +110,7 @@ class AuthorityKey private constructor(
 
     fun serialize(): ByteArray = byteArrayOf(FORMAT) + mldsaSeed + ed25519Seed + memberSeed
 
-    fun sign(message: ByteArray, random: SecureRandom): ByteArray {
-        val ed = Ed25519Signer().run {
-            init(true, ed25519)
-            update(AuthorityPublic.CONTEXT, 0, AuthorityPublic.CONTEXT.size)
-            update(message, 0, message.size)
-            generateSignature()
-        }
-        val ml = MLDSASigner().run {
-            init(true, ParametersWithContext(ParametersWithRandom(mldsa, random), AuthorityPublic.CONTEXT))
-            update(message, 0, message.size)
-            generateSignature()
-        }
-        return byteArrayOf(1) + ed + ml
-    }
-
-    /**
-     * Ed25519 alone, over a [MemberCert] body — which starts with its own
-     * label, so it can never be mistaken for a directory signature (that one
-     * is over the directory context prefix, and needs ML-DSA as well).
-     */
+    /** Ed25519 over a [MemberCert] body, which starts with its own label. */
     internal fun signCertificate(body: ByteArray): ByteArray = Ed25519Signer().run {
         init(true, ed25519)
         update(body, 0, body.size)

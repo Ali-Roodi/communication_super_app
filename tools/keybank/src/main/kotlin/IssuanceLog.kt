@@ -1,8 +1,6 @@
 package ir.hamrasan.keybank
 
-import com.example.communication_super_app.smscrypto.keybank.Issuer
 import java.io.File
-import java.security.MessageDigest
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
@@ -11,10 +9,9 @@ import java.time.format.DateTimeFormatter
  * (a member added, edited, given a new key, removed) and every delivery the
  * operator recorded, one line each, appended and never rewritten.
  *
- * It is also where "who holds an old file" comes from. A key file carries the
- * whole directory, so when the roster changes every member's file is out of
- * date until they import the new one; the panel cannot see a phone, so it
- * knows only what the operator recorded here ([Action.DELIVERED]).
+ * It is also where "who has not got their key yet" comes from: the panel
+ * cannot see a phone, so it knows only what the operator recorded here
+ * ([Action.DELIVERED]). Only a member's own file matters to their phone.
  *
  * A line the parser cannot read is skipped, never fatal: the file is plain
  * CSV and may be opened (and saved) in Excel.
@@ -27,11 +24,8 @@ class IssuanceLog(val file: File) {
         NEW_KEY("new-key"),
         REMOVE("remove"),
 
-        /** The operator handed a member their full key file. */
-        DELIVERED("delivered"),
-
-        /** A member imported the update file (the directory, not their key). */
-        UPDATE_DELIVERED("update-delivered");
+        /** The operator handed a member their key file. */
+        DELIVERED("delivered");
 
         val isIssue get() = this == ADD || this == EDIT || this == NEW_KEY || this == REMOVE
 
@@ -47,10 +41,8 @@ class IssuanceLog(val file: File) {
         /** The member's first number — the one their key is derived from. */
         val phone: String,
         val generation: Int,
-        /** How many members the directory had after this line. */
+        /** How many members the roster had after this line. */
         val members: Int,
-        /** [fingerprint] of the directory issued or delivered. */
-        val fingerprint: String,
         val note: String = "",
     )
 
@@ -78,14 +70,13 @@ class IssuanceLog(val file: File) {
         e.phone,
         e.generation.toString(),
         e.members.toString(),
-        e.fingerprint,
         e.note,
     ).joinToString(",") { csv(it) }
 
     private fun parse(line: String): Entry? {
         if (line.isBlank()) return null
         val f = splitCsv(line)
-        if (f.size < 7) return null
+        if (f.size < 6) return null
         return try {
             Entry(
                 time = LocalDateTime.parse(f[0], TIME),
@@ -94,8 +85,7 @@ class IssuanceLog(val file: File) {
                 phone = f[3],
                 generation = f[4].toInt(),
                 members = f[5].toInt(),
-                fingerprint = f[6],
-                note = f.getOrElse(7) { "" },
+                note = f.getOrElse(6) { "" },
             )
         } catch (e: Exception) {
             null
@@ -105,26 +95,8 @@ class IssuanceLog(val file: File) {
     companion object {
         const val FILE = "issuance-log.csv"
         private const val BOM = "﻿"
-        private const val HEADER = "time,action,member,phone,generation,members,directory,note"
+        private const val HEADER = "time,action,member,phone,generation,members,note"
         private val TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")
-
-        /**
-         * A short fingerprint of what a key file's directory says: the
-         * organization and every member's name, numbers and generation, in
-         * order. Two issues of the same roster share it (their serials differ,
-         * their content does not), so "this member's file is current" is a
-         * comparison of fingerprints.
-         */
-        fun fingerprint(roster: Issuer.Roster): String {
-            val text = buildString {
-                append(roster.organization)
-                for (e in roster.entries) {
-                    append('\n').append(e.name).append('|').append(e.phones.joinToString(";")).append('|').append(e.generation)
-                }
-            }
-            return MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8))
-                .take(6).joinToString("") { "%02x".format(it) }
-        }
 
         private fun csv(value: String) =
             if (value.any { it == ',' || it == '"' || it == '\n' || it == '\r' }) {

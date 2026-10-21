@@ -13,7 +13,7 @@ import org.bouncycastle.crypto.params.Argon2Parameters
 data class PasswordKdf(val iterations: Int, val memoryKiB: Int, val parallelism: Int) {
     companion object {
         /**
-         * Key files, update files and the authority file: 64 MiB, 3 passes,
+         * Key files and the authority file: 64 MiB, 3 passes,
          * one lane — RFC 9106's second recommended setting with one lane.
          * Paid once per import.
          */

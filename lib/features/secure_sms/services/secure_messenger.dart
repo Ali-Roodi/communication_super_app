@@ -93,6 +93,15 @@ class SecureMessenger {
   /// loses it.
   static const upgradeRetry = Duration(minutes: 30);
 
+  /// …but sooner when the peer has written to us since our offer — their
+  /// phone is on and in reach, and the offer (or its answer) was lost on the
+  /// way. All of it unseen: the user is never shown the upgrade.
+  static const upgradeRetryWhenHeard = Duration(minutes: 2);
+
+  /// How many answered upgrade offers wait on standby at once — with the
+  /// classical session, within what [SecureMessageStore.pruneSessions] keeps.
+  static const maxStandby = 2;
+
   /// A packet that could not be used for this long, or this many tries, is
   /// dropped: its handshake is not coming.
   static const maxWait = Duration(days: 7);
@@ -214,7 +223,8 @@ class SecureMessenger {
     int timestamp, {
     bool outgoing = false,
   }) async {
-    final phone = await _crypto.canonicalPhone(address) ?? address;
+    final number = await _crypto.canonicalPhone(address) ?? address;
+    final phone = plainThread(number);
     if (await _store.hasPlain(
       phone,
       outgoing: outgoing,
@@ -226,7 +236,7 @@ class SecureMessenger {
     if (await _store.conversation(phone) == null) {
       await _store.ensurePlainConversation(
         phone: phone,
-        name: await _hidden?.nameFor(phone) ?? phone,
+        name: await _hidden?.nameFor(number) ?? number,
         now: timestamp,
       );
     }
@@ -336,7 +346,7 @@ class SecureMessenger {
     InboxPacket packet,
     SmsPacketInfo info,
   ) async {
-    final own = await _identities.ownCert(phone: phone);
+    final own = await _identities.ownCert();
     if (own == null) {
       debugPrint('Certificate request dropped: this phone has no certificate');
       return _Outcome.done;
@@ -397,19 +407,14 @@ class SecureMessenger {
 
     final now = _clock();
     if (conversation == null || !conversation.encrypted) {
-      // A member who reached us first, or a hidden contact we talked to in
-      // plain SMS: from now on, encrypted.
+      // A member who reached us first. A hidden contact's plain SMS stay in
+      // their own thread (plainThread): this is a conversation of its own.
       await _store.upsertConversation(
         phone: phone,
-        name:
-            await _hidden?.nameFor(phone) ??
-            await _identities.nameFor(phone) ??
-            conversation?.name ??
-            phone,
+        name: await _hidden?.nameFor(phone) ?? conversation?.name ?? phone,
         peerKeyId: keyHex(answer.peer.keyId),
         peerPublic: answer.peer.cert,
         ownKeyId: own.keyId,
-        ownDirectory: own.directoryId,
         now: now,
         listed: false,
       );
@@ -528,11 +533,13 @@ class SecureMessenger {
     // The offerer was heard on the session we upgraded to: it has it, and
     // from now on it is the one we send on.
     if (session.kind == SessionKind.pqStandby) {
-      await _store.db.transaction(
-        (txn) => _store.setSessionKind(txn, phone, session.sid, SessionKind.pq),
-      );
+      await _store.db.transaction((txn) async {
+        await _store.setSessionKind(txn, phone, session.sid, SessionKind.pq);
+        // The other answers' sessions will never be used.
+        await _store.keepNewestStandby(txn, phone, keep: 0);
+      });
       debugPrint('Post-quantum upgrade confirmed');
-      _changed(phone); // the header now says «پساکوانتومی»
+      _changed(phone);
     }
     switch (opened.kind) {
       case SmsPayloadKind.pqOffer:
@@ -682,6 +689,9 @@ class SecureMessenger {
           break; // handled above
       }
     });
+    // The peer is evidently on: an upgrade still missing is offered again
+    // now, unseen (see [upgradeRetryWhenHeard]).
+    await _maybeUpgrade(phone);
     // A group change repaints the whole list (null); a pair's, that pair.
     _changed(groupChanged ? null : phone);
     return _Outcome.done;
@@ -701,16 +711,36 @@ class SecureMessenger {
   /// that has not answered yet.
   static const _unknownKid = '0000000000000000';
 
+  /// The thread a hidden contact's **plain** SMS are kept in: never the
+  /// encrypted conversation with the same number. An encrypted chat and a
+  /// plain one are two conversations, listed apart, and nothing ever moves
+  /// one into the other (owner's rule, 1405/07/29).
+  static String plainThread(String phone) => 'p:$phone';
+
+  /// Whether [thread] is a [plainThread].
+  static bool isPlainThread(String thread) => thread.startsWith('p:');
+
+  /// The number a thread sends to: the phone itself, or a plain thread's.
+  static String numberOf(String thread) =>
+      isPlainThread(thread) ? thread.substring(2) : thread;
+
   /// Offers the upgrade on our newest certificate session, once — and again
-  /// after [upgradeRetry] while no answer came.
+  /// after [upgradeRetry] while no answer came, or at once when the radio
+  /// said the offer did not go out.
   Future<void> _maybeUpgrade(String phone) async {
     final sessions = await _store.sessions(phone);
     if (sessions.any((s) => s.kind == SessionKind.pq)) return;
     final session = sessions.where((s) => s.sendable).firstOrNull;
     if (session == null || session.kind != SessionKind.certInitiated) return;
     final offered = session.offeredAt;
-    if (offered != null && _clock() - offered < upgradeRetry.inMilliseconds) {
-      return;
+    if (offered != null && !session.sendFailed) {
+      final waited = _clock() - offered;
+      final heard = await _store.lastReceivedAt(phone);
+      final heardSince =
+          heard != null &&
+          heard > offered &&
+          waited >= upgradeRetryWhenHeard.inMilliseconds;
+      if (waited < upgradeRetry.inMilliseconds && !heardSince) return;
     }
     final conversation = await _store.conversation(phone);
     final own = conversation?.ownKeyId == null
@@ -731,7 +761,7 @@ class SecureMessenger {
       await _store.updateSessionState(txn, phone, session.sid, sealed.state);
       await _store.setOfferedAt(txn, phone, session.sid, _clock());
     });
-    await _sendQuietly(phone, sealed.wire, 'pq-${_newId()}');
+    await _sendQuietly(phone, sealed.wire, _controlId(phone, session.sid));
     debugPrint('Post-quantum upgrade offered (${sealed.parts} parts)');
   }
 
@@ -770,13 +800,13 @@ class SecureMessenger {
       return;
     }
     await _store.db.transaction((txn) async {
-      // An earlier answer was lost — the offerer asked again — so the
-      // session it made is of no use to anybody.
-      await txn.delete(
-        'sm_sessions',
-        where: 'phone = ? AND kind = ?',
-        whereArgs: [phone, SessionKind.pqStandby],
-      );
+      // Every offer answered stays on standby until the offerer is heard on
+      // one of them — never "the newest replaces the rest": offers arrive
+      // out of order (one held up for twenty minutes, found on the phones),
+      // and the one the offerer completes is the answer IT received first.
+      // A late old offer used to delete the standby the offerer went on to
+      // use. Only the newest few are kept.
+      await _store.keepNewestStandby(txn, phone, keep: maxStandby - 1);
       await _store.updateSessionState(
         txn,
         phone,
@@ -880,7 +910,6 @@ class SecureMessenger {
       peerKeyId: peer.keyId,
       peerPublic: Uint8List(0),
       ownKeyId: peer.own.keyId,
-      ownDirectory: peer.own.directoryId,
       now: _clock(),
     );
     _changed(null);
@@ -912,21 +941,25 @@ class SecureMessenger {
     await _flush(phone);
   });
 
-  /// A conversation without a key, with a hidden contact the key bank does
-  /// not know: plain SMS, still kept out of the system's message store.
-  Future<void> startPlainConversation(String phone, String name) =>
+  /// A hidden contact's plain-SMS thread ([plainThread] of [phone]): SMS
+  /// still kept out of the system's message store, apart from any encrypted
+  /// conversation with the same number. Returns the thread.
+  Future<String> startPlainConversation(String phone, String name) =>
       _serial(() async {
+        final thread = plainThread(phone);
         await _store.ensurePlainConversation(
-          phone: phone,
+          phone: thread,
           name: name,
           now: _clock(),
         );
         _changed(null);
+        return thread;
       });
 
-  /// Sends [text] unencrypted to [phone] (a keyless conversation). Never
-  /// written to `content://sms`, like every SMS of the secure section.
+  /// Sends [text] unencrypted in plain thread [phone] (see [plainThread]).
+  /// Never written to `content://sms`, like every SMS of the secure section.
   Future<void> sendPlain(String phone, String text) => _serial(() async {
+    if (!isPlainThread(phone)) return;
     final now = _clock();
     final m = SecureMessage(
       id: _newId(),
@@ -945,7 +978,7 @@ class SecureMessenger {
 
   Future<void> _sendPlain(SecureMessage m) async {
     try {
-      await _send(m.phone, m.body, trackingId: m.id);
+      await _send(numberOf(m.phone), m.body, trackingId: m.id);
       await _store.advanceStatus(m.id, SecureMessageStatus.sent);
     } catch (e) {
       debugPrint('Sending a plain hidden SMS failed: ${e.runtimeType}');
@@ -955,13 +988,15 @@ class SecureMessenger {
   }
 
   /// A contact just hidden takes their SMS history along: [history] (from
-  /// the main database) is stored here as plain messages, already read.
+  /// the main database) is stored here as plain messages, already read — in
+  /// their plain thread, never in an encrypted conversation.
   Future<void> importPlainHistory(
-    String phone,
+    String number,
     String name,
     List<({bool outgoing, String body, int timestamp})> history,
   ) => _serial(() async {
     if (history.isEmpty) return;
+    final phone = plainThread(number);
     var last = 0;
     for (final h in history) {
       if (await _store.hasPlain(
@@ -1003,6 +1038,7 @@ class SecureMessenger {
   Future<void> rename(List<String> phones, String name) => _serial(() async {
     for (final phone in phones) {
       await _store.rename(phone, name);
+      await _store.rename(plainThread(phone), name);
     }
     _changed(null);
   });
@@ -1048,16 +1084,12 @@ class SecureMessenger {
   ///
   /// Our own key can be replaced: the authority gave us a new one («گوشی گم
   /// شد» in the issuance panel), or a key file was removed. The conversation
-  /// is then re-bound to the identity we hold now for that number (same
-  /// organization first) and its old sessions are dropped; the next send
-  /// starts a handshake with it. Null when we hold no key file any more:
-  /// nothing can be sent.
+  /// is then re-bound to the key we hold now and its old sessions are
+  /// dropped; the next send starts a handshake with it. Null when we hold no
+  /// key any more: nothing can be sent.
   Future<SecureConversation?> _current(SecureConversation c) async {
     if (!c.encrypted || await _keysCurrent(c)) return c;
-    final candidates = await _identities.forTypedNumber(c.phone);
-    final next =
-        candidates.where((p) => p.directoryId == c.ownDirectory).firstOrNull ??
-        candidates.firstOrNull;
+    final next = await _identities.forNumber(c.phone, name: c.name);
     if (next == null) {
       debugPrint('Conversation keys retired; the key bank has none for it');
       return null;
@@ -1069,7 +1101,6 @@ class SecureMessenger {
       peerKeyId: next.keyId,
       peerPublic: Uint8List(0),
       ownKeyId: next.own.keyId,
-      ownDirectory: next.own.directoryId,
       now: _clock(),
       listed: false,
     );
@@ -1280,9 +1311,31 @@ class SecureMessenger {
         kind: SessionKind.certInitiated,
       ),
     );
-    await _sendQuietly(phone, started.wire, 'hs-${_newId()}');
+    await _sendQuietly(phone, started.wire, _controlId(phone, started.sid!));
     debugPrint('Session request sent (${started.parts} parts)');
   }
+
+  /// The tracking id of a control SMS whose radio report the user is told
+  /// about: our session request and our upgrade offer, on session [sid].
+  static String _controlId(String phone, int sid) => 'cs:$phone:$sid';
+
+  /// «دوباره تلاش» on a channel that did not come: our unanswered request
+  /// goes and a new one is sent at once. A peer without هم‌رسان and a key
+  /// still never answers; one that was off or out of signal now can.
+  Future<void> retryChannel(String phone) => _serial(() async {
+    final stored = await _store.conversation(phone);
+    if (stored == null || !stored.encrypted) return;
+    final conversation = await _current(stored);
+    if (conversation == null) return;
+    var sessions = await _store.sessions(phone);
+    if (sessions.any((s) => !s.pending)) return;
+    for (final s in sessions.where((s) => s.pending)) {
+      await _store.deleteSession(phone, s.sid);
+    }
+    sessions = await _store.sessions(phone);
+    await _handshakeIfNeeded(conversation, sessions);
+    _changed(phone);
+  });
 
   /// `secure_meta` key: the SIM every encrypted SMS goes out on (a
   /// subscription id); absent = the system default SMS SIM. Dual-SIM phones
@@ -1328,8 +1381,9 @@ class SecureMessenger {
   Future<void> setCoverMode(String? mode) =>
       _store.setMeta(coverKey, mode == 'fa' || mode == 'en' ? mode! : 'off');
 
-  /// Handshake packets and receipts: no bubble to update; a failure is
-  /// logged, and the handshake is retried by [pendingTimeout].
+  /// Handshake packets and receipts: no bubble to update. A session request
+  /// or upgrade offer that could not be handed to the radio is marked failed
+  /// for the conversation screen, like one the radio reports failed.
   Future<void> _sendQuietly(
     String phone,
     String wire,
@@ -1339,6 +1393,11 @@ class SecureMessenger {
       await _send(phone, wire, trackingId: trackingId);
     } catch (e) {
       debugPrint('Sending a control SMS failed: ${e.runtimeType}');
+      final parts = trackingId.split(':');
+      final sid = parts.length == 3 && parts[0] == 'cs'
+          ? int.tryParse(parts[2])
+          : null;
+      if (sid != null) await _store.markSendFailed(phone, sid, true);
     }
   }
 
@@ -1435,6 +1494,19 @@ class SecureMessenger {
       _ => null,
     };
     if (to == null) return;
+    if (id.startsWith('cs:')) {
+      // Our session request or upgrade offer: the conversation screen says
+      // when one did not go out, and what to do.
+      final parts = id.split(':');
+      final sid = parts.length == 3 ? int.tryParse(parts[2]) : null;
+      if (sid == null) return;
+      if (to == SecureMessageStatus.delivered) return;
+      final failed = to == SecureMessageStatus.failed;
+      if (await _store.markSendFailed(parts[1], sid, failed)) {
+        _changed(parts[1]);
+      }
+      return;
+    }
     if (id.startsWith('g:')) {
       final parts = id.split(':');
       if (parts.length != 3) return;
@@ -1477,30 +1549,18 @@ class SecureMessenger {
 
   /// The creator renames or re-populates its group. Everyone — dropped
   /// members included — is sent the new definition.
-  /// [keep]: members staying whose key the bank no longer has (they are
-  /// reached over the conversation that already exists).
   Future<void> editGroup(
     String id, {
     required String name,
     required List<SecurePeer> members,
-    List<String> keep = const [],
   }) => _serial(() async {
     final g = await _groups.group(id);
     if (g == null || !g.isMine) return;
     await _ensurePeers(members);
-    final kept = {
-      for (final m in await _groups.allMembers(id))
-        if (keep.contains(m.phone)) m.phone: m.keyId,
-    };
     await _groups.editGroup(
       id: id,
       name: name,
-      members: [
-        for (final m in members) (phone: m.phone, keyId: m.keyId),
-        for (final e in kept.entries)
-          if (!members.any((m) => m.phone == e.key))
-            (phone: e.key, keyId: e.value),
-      ],
+      members: [for (final m in members) (phone: m.phone, keyId: m.keyId)],
     );
     _changed(null);
     for (final m in await _groups.allMembers(id)) {
@@ -1520,22 +1580,20 @@ class SecureMessenger {
         peerKeyId: p.keyId,
         peerPublic: Uint8List(0),
         ownKeyId: p.own.keyId,
-        ownDirectory: p.own.directoryId,
         now: _clock(),
         listed: false,
       );
     }
   }
 
-  /// A member we can reach: a conversation with a key, or one made from the
-  /// key bank by the key id the group gives. Null when the bank has none.
+  /// A member we can reach: a conversation with a key, or one made over our
+  /// certificate to the number the group gives. False when we hold no key.
   Future<bool> _reachable(String phone, String? keyId) async {
     final existing = await _store.conversation(phone);
     if (existing != null && existing.encrypted) return true;
     if (keyId == null) return false;
-    // A member of a directory we hold, or one the group's creator reaches by
-    // number: so can we.
-    final peer = (await _identities.forTypedNumber(phone)).firstOrNull;
+    // The group's creator reaches the member by number: so can we.
+    final peer = await _identities.forNumber(phone);
     if (peer == null) return false;
     await _ensurePeers([peer]);
     return true;

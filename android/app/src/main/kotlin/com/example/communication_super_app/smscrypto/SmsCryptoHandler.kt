@@ -3,10 +3,8 @@ package com.example.communication_super_app.smscrypto
 import android.os.SystemClock
 import com.example.communication_super_app.smscrypto.keybank.AuthorityPublic
 import com.example.communication_super_app.smscrypto.keybank.Canon
-import com.example.communication_super_app.smscrypto.keybank.Directory
 import com.example.communication_super_app.smscrypto.keybank.KeyFile
 import com.example.communication_super_app.smscrypto.keybank.MemberCert
-import com.example.communication_super_app.smscrypto.keybank.UpdateFile
 import android.util.Log
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -61,13 +59,10 @@ import kotlinx.coroutines.withContext
  *
  * Key bank (`keybank/`):
  * - `canonicalPhone {phone}` → String? — the spelling keys are derived from
- * - `openKeyFile {file, password, anchors}` → `{signed, directory, member}`
- * - `openUpdateFile {file, directoryIds, anchors}` → `{signed, directory}` —
- *   `update.hku`, sealed for a directory the phone holds; no password
+ * - `openKeyFile {file, password, anchors}` → `{authorityId, secret, keyId,
+ *   cert}` — the member's own key and its certificate (`cert` as
+ *   `certInfo` returns it); a key file holds nothing else
  *
- * A directory is `{authorityId, directoryId, serial, name, members: [{name,
- * phones, public, keyId}]}` (`public` is the member's X25519 key, `keyId`
- * its certificate key id); `member` is `{index, secret, public, keyId, cert}`.
  * `anchors` are the trusted authority public keys, passed in by Dart.
  *
  * Errors are the [SmsCryptoException.Code] names, plus `BAD_ARGS` and
@@ -133,18 +128,6 @@ class SmsCryptoHandler {
                 "openSealed" -> run(call, result) { openSealed(call) }
                 "canonicalPhone" -> run(call, result) { Canon.phone(call.string("phone")) }
                 "openKeyFile" -> run(call, result) { openKeyFile(call) }
-                "openUpdateFile" -> run(call, result) {
-                    val opened = UpdateFile.open(
-                        call.bytes("file"),
-                        call.argument<List<ByteArray>>("directoryIds") ?: emptyList(),
-                        anchors(call),
-                    )
-                    mapOf(
-                        "signed" to opened.signed.encode(),
-                        "directory" to directory(opened.directory),
-                        "member" to null,
-                    )
-                }
                 else -> result.notImplemented()
             }
         }
@@ -379,36 +362,14 @@ class SmsCryptoHandler {
 
     private fun openKeyFile(call: MethodCall): Map<String, Any?> {
         val opened = KeyFile.open(call.bytes("file"), call.string("password"), anchors(call))
-        // The member is named by their certificate's key id everywhere, own
-        // key included: the directory, the packets and the stored key agree.
-        val member = mapOf(
+        // Named by its certificate's key id, as the packets name it.
+        return mapOf(
+            "authorityId" to opened.authority.authorityId,
             "secret" to opened.identity.serialize(),
-            "public" to opened.identity.x25519Public,
             "keyId" to opened.cert.keyId,
-            "index" to opened.memberIndex,
             "cert" to cert(opened.cert),
         )
-        return mapOf(
-            "signed" to opened.signed.encode(),
-            "directory" to directory(opened.directory),
-            "member" to member,
-        )
     }
-
-    private fun directory(d: Directory): Map<String, Any> = mapOf(
-        "authorityId" to d.authorityId,
-        "directoryId" to d.directoryId,
-        "serial" to d.serial,
-        "name" to d.name,
-        "members" to d.members.map { m ->
-            mapOf(
-                "name" to m.name,
-                "phones" to m.phones,
-                "public" to m.x25519,
-                "keyId" to m.keyId,
-            )
-        },
-    )
 
     private fun anchors(call: MethodCall): List<AuthorityPublic> =
         (call.argument<List<ByteArray>>("anchors") ?: emptyList()).map { AuthorityPublic.parse(it) }

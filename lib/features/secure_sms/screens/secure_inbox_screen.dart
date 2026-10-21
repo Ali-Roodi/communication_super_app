@@ -12,6 +12,7 @@ import 'package:communication_super_app/features/secure/repositories/secure_mess
 import 'package:communication_super_app/features/secure/widgets/secure_locked_view.dart';
 
 import '../bloc/secure_messages_bloc.dart';
+import '../services/secure_messenger.dart';
 import 'secure_conversation_screen.dart';
 import 'secure_group_screen.dart';
 import 'secure_new_conversation_screen.dart';
@@ -19,8 +20,14 @@ import 'secure_new_conversation_screen.dart';
 /// «پیام‌های رمز» — the encrypted conversations. Reached from the row at the
 /// top of the inbox (only while the secure section is open) and from the
 /// «پیام رمز جدید» notification.
+///
+/// With [plain] it is «پیامک‌های رمزنشدهٔ دفترچه مخفی» instead: the hidden
+/// contacts' plain-SMS threads. The two never share a list or a thread
+/// (owner's rule, 1405/07/29); the encrypted list links to the plain one.
 class SecureInboxScreen extends StatelessWidget {
-  const SecureInboxScreen({super.key});
+  const SecureInboxScreen({super.key, this.plain = false});
+
+  final bool plain;
 
   @override
   Widget build(BuildContext context) {
@@ -31,7 +38,7 @@ class SecureInboxScreen extends StatelessWidget {
           final ready = state.status == SecureMessagesStatus.ready;
           return Scaffold(
             appBar: RtlAppBar(
-              title: 'پیام‌های رمز',
+              title: plain ? 'پیامک‌های رمزنشدهٔ مخفی' : 'پیام‌های رمز',
               actions: [
                 if (ready)
                   PopupMenuButton<String>(
@@ -100,9 +107,9 @@ class SecureInboxScreen extends StatelessWidget {
                     'بخش امن را باز کنید.',
               ),
               SecureMessagesStatus.loading => const SizedBox.shrink(),
-              SecureMessagesStatus.ready => _list(state),
+              SecureMessagesStatus.ready => _list(context, state, plain),
             },
-            floatingActionButton: ready
+            floatingActionButton: ready && !plain
                 ? FloatingActionButton.extended(
                     heroTag: 'secure_fab',
                     onPressed: () => Navigator.of(context).push(
@@ -121,20 +128,71 @@ class SecureInboxScreen extends StatelessWidget {
   }
 }
 
-/// Conversations and groups, newest first.
-Widget _list(SecureMessagesState state) {
+/// Conversations and groups, newest first — encrypted ones, or with
+/// [plain] the hidden contacts' plain threads only.
+Widget _list(BuildContext context, SecureMessagesState state, bool plain) {
+  final plainThreads = [
+    for (final c in state.conversations)
+      if (SecureMessenger.isPlainThread(c.phone)) c,
+  ];
   final rows = <({int at, Widget row})>[
     for (final c in state.conversations)
-      (at: c.lastAt, row: _ConversationRow(c)),
-    for (final g in state.groups) (at: g.lastAt, row: _GroupRow(g, state)),
+      if (SecureMessenger.isPlainThread(c.phone) == plain)
+        (at: c.lastAt, row: _ConversationRow(c)),
+    if (!plain)
+      for (final g in state.groups) (at: g.lastAt, row: _GroupRow(g, state)),
   ]..sort((a, b) => b.at.compareTo(a.at));
-  if (rows.isEmpty) return const _Empty();
+  final link = !plain && plainThreads.isNotEmpty
+      ? _PlainSectionRow(unread: plainThreads.where((c) => c.unread > 0).length)
+      : null;
+  if (rows.isEmpty && link == null) {
+    return plain ? const _Empty(plain: true) : const _Empty();
+  }
   return ListView.separated(
     padding: const EdgeInsets.only(top: 8, bottom: 96),
-    itemCount: rows.length,
+    itemCount: rows.length + (link == null ? 0 : 1),
     separatorBuilder: (_, _) => const Divider(height: 1, indent: 84),
-    itemBuilder: (context, i) => rows[i].row,
+    itemBuilder: (context, i) => link == null
+        ? rows[i].row
+        : i == 0
+        ? link
+        : rows[i - 1].row,
   );
+}
+
+/// At the top of «پیام‌های رمز»: the way to the hidden contacts' plain
+/// threads, which are never listed among the encrypted chats.
+class _PlainSectionRow extends StatelessWidget {
+  const _PlainSectionRow({required this.unread});
+  final int unread;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      leading: CircleAvatar(
+        radius: 26,
+        backgroundColor: scheme.errorContainer,
+        child: Icon(Icons.lock_open, color: scheme.onErrorContainer),
+      ),
+      title: const Text('پیامک‌های رمزنشدهٔ مخفی'),
+      subtitle: const Text('پیامک‌های عادی مخاطبان دفترچه مخفی'),
+      trailing: unread == 0
+          ? const Icon(Icons.chevron_left)
+          : CircleAvatar(
+              radius: 12,
+              backgroundColor: scheme.primary,
+              child: Text(
+                PersianUtils.toPersianNumber('$unread'),
+                style: TextStyle(fontSize: 12, color: scheme.onPrimary),
+              ),
+            ),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const SecureInboxScreen(plain: true)),
+      ),
+    );
+  }
 }
 
 class _GroupRow extends StatelessWidget {
@@ -247,7 +305,8 @@ class _GroupRow extends StatelessWidget {
 }
 
 class _Empty extends StatelessWidget {
-  const _Empty();
+  const _Empty({this.plain = false});
+  final bool plain;
 
   @override
   Widget build(BuildContext context) {
@@ -259,16 +318,21 @@ class _Empty extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              Icons.enhanced_encryption_outlined,
+              plain ? Icons.lock_open : Icons.enhanced_encryption_outlined,
               size: 48,
               color: scheme.onSurfaceVariant,
             ),
             const SizedBox(height: 16),
-            const Text('هنوز گفتگوی رمزی ندارید', textAlign: TextAlign.center),
+            Text(
+              plain ? 'پیامک رمزنشده‌ای نیست' : 'هنوز گفتگوی رمزی ندارید',
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 8),
             Text(
-              'برای شروع، «گفتگوی رمز» را بزنید. کسانی که کلیدشان در بانک کلید '
-              'است، در فهرست دیده می‌شوند.',
+              plain
+                  ? 'پیامک‌های عادی مخاطبان دفترچه مخفی اینجا می‌آیند.'
+                  : 'برای شروع، «گفتگوی رمز» را بزنید و از مخاطبین یکی را '
+                        'انتخاب کنید یا شمارهٔ همراهش را بنویسید.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
             ),

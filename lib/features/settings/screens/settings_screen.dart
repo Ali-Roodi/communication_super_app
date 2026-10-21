@@ -789,7 +789,7 @@ class _KeyBankRow extends StatelessWidget {
     return SettingsRow(
       icon: Icons.key_outlined,
       title: 'بانک کلید',
-      summary: 'فایل کلید سازمان و فایل به‌روزرسانی',
+      summary: 'فایل کلید شما که مرجع سازمان صادر کرده',
       onTap: () => Navigator.of(
         context,
       ).push(MaterialPageRoute(builder: (_) => const KeyBankScreen())),
