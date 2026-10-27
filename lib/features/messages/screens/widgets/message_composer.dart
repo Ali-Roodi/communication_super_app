@@ -1,6 +1,8 @@
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:communication_super_app/core/sim/sim_card.dart';
+import 'package:communication_super_app/core/sim/widgets/sim_picker.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/caret_line_fix.dart';
 import 'emoji_panel.dart';
@@ -31,6 +33,8 @@ class MessageComposer extends StatelessWidget {
     this.scheduleSummary,
     this.onClearSchedule,
     this.onEditSchedule,
+    this.sim,
+    this.onPickSim,
   });
 
   final TextEditingController controller;
@@ -84,6 +88,13 @@ class MessageComposer extends StatelessWidget {
   /// Tapping the banner re-opens the schedule sheet on the armed choice, so the
   /// time / repeat / jitter can be corrected without clearing and starting over.
   final VoidCallback? onEditSchedule;
+
+  /// The SIM this conversation sends on — the one the send will use. Null on
+  /// a single-SIM phone (where [SimChip] renders nothing at all).
+  final SimCard? sim;
+
+  /// Opens the conversation's SIM choice. Null hides the chip entirely.
+  final VoidCallback? onPickSim;
 
   /// Deletes the character (not the code unit — an emoji is a whole grapheme)
   /// before the cursor. Used when the parent supplies no [onStickerBackspace].
@@ -146,6 +157,11 @@ class MessageComposer extends StatelessWidget {
   /// Without it a ten-line message plus an open emoji panel is taller than the
   /// screen, and the composer's `Column` overflows.
   static const double _kReservedForChat = 200;
+
+  /// Height of the composer's inline controls (the «+» / emoji icon buttons at
+  /// compact density). The SIM chip is centred inside a box of this height so
+  /// it lines up with them instead of hanging off the bottom-aligned row.
+  static const double _kControlHeight = 40;
 
   /// How many lines fit above the keyboard (or the emoji panel) right now.
   ///
@@ -261,13 +277,27 @@ class MessageComposer extends StatelessWidget {
                             bottom: 8,
                           ),
                         ),
-                        // No SIM chip here. Google Messages puts the card on
-                        // the conversation's details page and nowhere else, and
-                        // a chip wedged between «+» and the hint text read as
-                        // part of the composer's furniture rather than as the
-                        // answer to «which card does this go out on» — which is
-                        // a property of the conversation, asked once, not of
-                        // every message being typed.
+                        // Inside the pill, next to «+»: the card this message
+                        // leaves on, in sight while it is written so a
+                        // dual-SIM user is not surprised by it (the mentor's
+                        // report). On a single-SIM phone SimChip renders
+                        // nothing, so the composer is byte-identical.
+                        //
+                        // Boxed to the icon-button height and centred in it:
+                        // the row is bottom-aligned (so the buttons stay on the
+                        // last line of a grown field), which left a bare chip
+                        // sitting below the text baseline.
+                        if (onPickSim != null)
+                          SizedBox(
+                            height: _kControlHeight,
+                            child: Center(
+                              child: SimChip(
+                                sim: sim,
+                                onTap: onPickSim!,
+                                dense: true,
+                              ),
+                            ),
+                          ),
                         const SizedBox(width: 6),
                         Expanded(
                           child: Padding(

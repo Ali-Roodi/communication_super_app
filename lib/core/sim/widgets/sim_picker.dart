@@ -71,12 +71,20 @@ class SimChip extends StatelessWidget {
     required this.sim,
     required this.onTap,
     this.dense = false,
+    this.verb = 'ارسال با',
   });
+
+  /// What the card is for, read out with it: «ارسال با» in the composer,
+  /// «تماس با» beside the call button.
+  final String verb;
 
   /// Null = the user has not chosen and there is no default: the chip invites
   /// the choice rather than lying about which card will be used.
   final SimCard? sim;
-  final VoidCallback onTap;
+
+  /// Null when there is nothing to choose (a second call can only use the
+  /// card the first one is on): the chip still names the card.
+  final VoidCallback? onTap;
   final bool dense;
 
   @override
@@ -100,10 +108,10 @@ class SimChip extends StatelessWidget {
     // A tonal pill, not bare text: it is a control, and inside the composer
     // pill a label with no ground of its own reads as part of the hint.
     return Semantics(
-      button: true,
+      button: onTap != null,
       label: selected == null
           ? 'انتخاب سیم‌کارت'
-          : 'ارسال با ${selected.slotLabel}، ${selected.name}',
+          : '$verb ${selected.slotLabel}، ${selected.name}',
       child: Material(
         color: tint.withValues(alpha: 0.10),
         shape: const StadiumBorder(),

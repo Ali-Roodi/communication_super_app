@@ -1,7 +1,9 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show SelectedContent;
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:communication_super_app/core/utils/script_direction.dart';
 import 'package:communication_super_app/core/utils/ussd_code.dart';
 import 'phone_action_sheet.dart';
 import 'ussd_action_sheet.dart';
@@ -13,6 +15,12 @@ import 'ussd_action_sheet.dart';
 /// underlined; tapping opens the browser, the USSD sheet or the phone sheet.
 /// When [enableTaps] is false (multi-select mode) links render styled but inert
 /// so bubble taps keep toggling selection.
+///
+/// Each paragraph reads in its own script's direction ([ScriptDirection]): an
+/// English message is left-aligned, and so is an English line inside a Persian
+/// one. A body in one direction is a single [Text]; a mixed one is a column of
+/// them, sized to the widest, whose selection copies back with the newlines
+/// between them ([_ParagraphsSelection]).
 class LinkifiedText extends StatefulWidget {
   final String text;
   final TextStyle? style;
@@ -164,9 +172,14 @@ class LinkifiedText extends StatefulWidget {
 class _LinkifiedTextState extends State<LinkifiedText> {
   final List<TapGestureRecognizer> _recognizers = [];
 
+  /// Only built for a body that mixes directions, and kept across rebuilds —
+  /// the selection it holds lives in it.
+  _ParagraphsSelection? _selection;
+
   @override
   void dispose() {
     _disposeRecognizers();
+    _selection?.dispose();
     super.dispose();
   }
 
@@ -221,9 +234,9 @@ class _LinkifiedTextState extends State<LinkifiedText> {
   Widget build(BuildContext context) {
     _disposeRecognizers();
     final base = widget.style ?? DefaultTextStyle.of(context).style;
-    return Text.rich(
+    Widget paragraph(({String text, TextDirection direction}) run) => Text.rich(
       LinkifiedText.buildSpan(
-        widget.text,
+        run.text,
         base: base,
         linkColor: widget.linkColor,
         recognizerFor: widget.enableTaps
@@ -234,6 +247,41 @@ class _LinkifiedTextState extends State<LinkifiedText> {
               }
             : null,
       ),
+      textDirection: run.direction,
+      textAlign: TextAlign.start,
     );
+
+    final runs = ScriptDirection.paragraphs(widget.text);
+    if (runs.length == 1) return paragraph(runs.single);
+    // Stretched to the widest run, so each one sits on its own side of the
+    // bubble while the bubble still shrinks to its text.
+    return SelectionContainer(
+      delegate: _selection ??= _ParagraphsSelection(),
+      child: IntrinsicWidth(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [for (final run in runs) paragraph(run)],
+        ),
+      ),
+    );
+  }
+}
+
+/// The selection over a mixed-direction body's paragraphs.
+///
+/// The framework's own delegate concatenates its children's text with nothing
+/// between them, so a selection across two paragraphs copied as one glued
+/// line. The newline [ScriptDirection.paragraphs] took out is put back here.
+class _ParagraphsSelection extends StaticSelectionContainerDelegate {
+  @override
+  SelectedContent? getSelectedContent() {
+    final parts = <String>[
+      for (final selectable in selectables)
+        if (selectable.getSelectedContent() case final SelectedContent part)
+          part.plainText,
+    ];
+    if (parts.isEmpty) return null;
+    return SelectedContent(plainText: parts.join('\n'));
   }
 }

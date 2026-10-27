@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:communication_super_app/core/sim/sim_call.dart';
+import 'package:communication_super_app/core/sim/sim_card.dart';
 import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:communication_super_app/core/sim/widgets/call_icon_button.dart';
 import 'package:communication_super_app/core/sim/widgets/sim_picker.dart';
@@ -53,6 +54,13 @@ class _NumberMenuRow extends StatelessWidget {
 /// highlight is not decoration: it is what says *what* the کپی is about to
 /// take, and it is the state every phone user expects a long-press on text to
 /// produce.
+///
+/// **Touching the number moves the caret** to the nearest gap between digits
+/// (a tap, or a finger slid along it), and the keys and the backspace then
+/// work there — a wrong second digit no longer means deleting everything after
+/// it. A touch beside the number puts the caret at that end. A number too long
+/// for the line is shrunk to fit rather than cut with «…», so every digit stays
+/// reachable.
 class DialerNumberDisplay extends StatefulWidget {
   final DialerState state;
   const DialerNumberDisplay({super.key, required this.state});
@@ -66,7 +74,35 @@ class _DialerNumberDisplayState extends State<DialerNumberDisplay> {
   /// selection highlight, the way selected text is.
   bool _selected = false;
 
+  /// The digits' box, measured to turn a touch into a caret position. It sits
+  /// inside a [FittedBox], and `globalToLocal` undoes that scale.
+  final GlobalKey _digitsKey = GlobalKey();
+
+  /// The digits as last laid out, for the same purpose.
+  TextPainter? _painter;
+
   DialerState get state => widget.state;
+
+  @override
+  void dispose() {
+    _painter?.dispose();
+    super.dispose();
+  }
+
+  /// Puts the caret at the gap nearest [globalPosition].
+  void _moveCaretTo(Offset globalPosition) {
+    final box = _digitsKey.currentContext?.findRenderObject() as RenderBox?;
+    final painter = _painter;
+    if (box == null || painter == null || !box.hasSize) return;
+    final local = box.globalToLocal(globalPosition);
+    final x = local.dx.clamp(0.0, painter.width);
+    final offset = painter
+        .getPositionForOffset(Offset(x, painter.height / 2))
+        .offset;
+    if (offset == state.caret) return;
+    HapticFeedback.selectionClick();
+    context.read<DialerBloc>().add(DialerCaretMoved(offset));
+  }
 
   /// The dialable part of whatever is on the clipboard, or empty.
   static Future<String> _clipboardNumber() async {
@@ -182,6 +218,86 @@ class _DialerNumberDisplayState extends State<DialerNumberDisplay> {
     }
   }
 
+  /// The typed number and its caret, laid out here by hand so the caret is
+  /// drawn — and a touch is read — against the very same glyphs.
+  Widget _digits(BuildContext context, ColorScheme scheme, double fontSize) {
+    final span = TextSpan(
+      text: PersianUtils.toPersianNumber(state.dialedNumber),
+      style: DefaultTextStyle.of(context).style.merge(
+        TextStyle(
+          fontSize: fontSize,
+          fontWeight: FontWeight.w400,
+          letterSpacing: 1.5,
+          color: scheme.onSurface,
+        ),
+      ),
+    );
+    final scaler = MediaQuery.textScalerOf(context);
+    _painter?.dispose();
+    final painter = _painter = TextPainter(
+      text: span,
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+      textScaler: scaler,
+    )..layout();
+    final caretX = painter
+        .getOffsetForCaret(TextPosition(offset: state.caret), Rect.zero)
+        .dx
+        .clamp(0.0, painter.width);
+    const caretRoom = 2.0;
+
+    return SizedBox(
+      key: _digitsKey,
+      width: painter.width + caretRoom,
+      height: painter.height,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: painter.width,
+            child: DecoratedBox(
+              // The selection highlight, drawn behind the digits while the
+              // long-press menu is up — the platform's own selection colour,
+              // so it reads as selected text and not as a chip.
+              decoration: BoxDecoration(
+                color: _selected
+                    ? scheme.primary.withValues(alpha: 0.28)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: RichText(
+                text: span,
+                textDirection: TextDirection.ltr,
+                maxLines: 1,
+                softWrap: false,
+                textScaler: scaler,
+              ),
+            ),
+          ),
+          // Hidden while the number is selected: a caret and a selection are
+          // two different states, and every text field drops the caret for
+          // the duration of the selection. Keyed by its position so a move
+          // restarts the blink visible, as a text field's caret does.
+          if (!_selected)
+            Positioned(
+              left: caretX - 1,
+              top: 0,
+              bottom: 0,
+              child: Center(
+                child: _BlinkingCaret(
+                  key: ValueKey(state.caret),
+                  height: fontSize,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -204,48 +320,20 @@ class _DialerNumberDisplayState extends State<DialerNumberDisplay> {
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onLongPress: () => _showNumberMenu(context),
+                onTapUp: hasNumber
+                    ? (d) => _moveCaretTo(d.globalPosition)
+                    : null,
+                onHorizontalDragStart: hasNumber
+                    ? (d) => _moveCaretTo(d.globalPosition)
+                    : null,
+                onHorizontalDragUpdate: hasNumber
+                    ? (d) => _moveCaretTo(d.globalPosition)
+                    : null,
                 child: Center(
                   child: hasNumber
-                      ? Directionality(
-                          textDirection: TextDirection.ltr,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Flexible(
-                                child: DecoratedBox(
-                                  // The selection highlight, drawn behind the
-                                  // digits while the long-press menu is up —
-                                  // the platform's own selection colour, so it
-                                  // reads as selected text and not as a chip.
-                                  decoration: BoxDecoration(
-                                    color: _selected
-                                        ? scheme.primary.withValues(alpha: 0.28)
-                                        : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: Text(
-                                    PersianUtils.toPersianNumber(
-                                      state.dialedNumber,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      fontSize: fontSize,
-                                      fontWeight: FontWeight.w400,
-                                      letterSpacing: 1.5,
-                                      color: scheme.onSurface,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              // Hidden while the number is selected: a caret
-                              // and a selection are two different states, and
-                              // every text field drops the caret for the
-                              // duration of the selection.
-                              if (!_selected) _BlinkingCaret(height: fontSize),
-                            ],
-                          ),
+                      ? FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: _digits(context, scheme, fontSize),
                         )
                       : const SizedBox.shrink(),
                 ),
@@ -281,10 +369,10 @@ class _DialerNumberDisplayState extends State<DialerNumberDisplay> {
   }
 }
 
-/// Thin blinking caret rendered at the end of the typed number.
+/// Thin blinking caret rendered where the next key goes.
 class _BlinkingCaret extends StatefulWidget {
   final double height;
-  const _BlinkingCaret({required this.height});
+  const _BlinkingCaret({super.key, required this.height});
 
   @override
   State<_BlinkingCaret> createState() => _BlinkingCaretState();
@@ -316,7 +404,6 @@ class _BlinkingCaretState extends State<_BlinkingCaret> {
       child: Container(
         width: 2,
         height: widget.height,
-        margin: const EdgeInsets.only(left: 2),
         color: Theme.of(context).colorScheme.primary,
       ),
     );
@@ -517,15 +604,19 @@ class _DialKeyState extends State<DialKey> with SingleTickerProviderStateMixin {
 
 // ── Green pill call button ───────────────────────────────────────────────────
 
-/// The wide green «تماس» pill under the keypad, with the SIM selector beside
-/// it on a dual-SIM phone.
+/// The wide green «تماس» pill under the keypad, with the SIM chip beside it
+/// on a dual-SIM phone.
 ///
-/// The chip is what makes the second card reachable at all when the user has
-/// pinned a default voice SIM in Android settings: without it the app would
-/// silently always dial the default, which is exactly the gap this closes.
-/// Long-pressing the pill itself does the same thing — Google Phone accepts
-/// both gestures.
-class DialerCallPill extends StatelessWidget {
+/// The chip names the card the call is about to go out on, so a dual-SIM user
+/// is not surprised by it (the mentor's report). It is resolved by the very
+/// rule the call is placed by ([SimService.callRoute]: the contact's card,
+/// the app's default, the phone's) and follows the number as it is typed —
+/// a contact with a card of their own changes it. «سیم‌کارت» on it means
+/// nothing decides and the call will ask. Tapping it picks a card for this
+/// call (kept until the number is cleared); long-pressing the pill picks one
+/// and calls at once. While a call is up the second leg can only use that
+/// call's card, so the chip names it and offers no choice.
+class DialerCallPill extends StatefulWidget {
   final bool enabled;
 
   /// A call is already up: this dial adds a second leg («افزودن تماس»), which
@@ -539,8 +630,88 @@ class DialerCallPill extends StatelessWidget {
     this.addCall = false,
   });
 
+  @override
+  State<DialerCallPill> createState() => _DialerCallPillState();
+}
+
+class _DialerCallPillState extends State<DialerCallPill> {
+  /// A card the user picked on the chip for this call.
+  SimCard? _picked;
+
+  /// What an ordinary dial of the typed number would use; null = it asks.
+  SimCard? _routed;
+
+  /// The live call's card is the only one a second leg can use.
+  bool _liveCall = false;
+
+  Timer? _resolveDebounce;
+
+  /// Bumped per resolution, so a slow answer for an older number cannot land
+  /// after the answer for the current one.
+  int _resolveSeq = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolve(context.read<DialerBloc>().state.dialedNumber, immediate: true);
+  }
+
+  @override
+  void dispose() {
+    _resolveDebounce?.cancel();
+    super.dispose();
+  }
+
+  /// Re-reads [_routed] for [number]. Debounced: it is two platform calls,
+  /// and typing a number is a burst of keys.
+  void _resolve(String number, {bool immediate = false}) {
+    _resolveDebounce?.cancel();
+    if (!SimService.isMultiSim) return;
+    final seq = ++_resolveSeq;
+    Future<void> run() async {
+      final route = number.isEmpty
+          ? null
+          : await SimService.instance.callRoute(number);
+      if (!mounted || seq != _resolveSeq) return;
+      setState(() {
+        // No number yet: the defaults alone decide. The native rule is not
+        // asked — a live call aside, there is no contact to look up.
+        _liveCall = route?.kind == CallRouteKind.liveCall;
+        _routed = route == null
+            ? SimService.defaultFor(SimUse.voice)
+            : (route.asks ? null : route.sim);
+      });
+    }
+
+    if (immediate || number.isEmpty) {
+      unawaited(run());
+    } else {
+      _resolveDebounce = Timer(const Duration(milliseconds: 250), run);
+    }
+  }
+
+  void _onNumberChanged(String number) {
+    // A pick is for this one call: an emptied field is a new one.
+    if (number.isEmpty && _picked != null) setState(() => _picked = null);
+    _resolve(number);
+  }
+
+  /// Keeps the choice for the dial instead of calling at once — the chip is
+  /// a choice, the pill is the action.
+  Future<void> _pickSim() async {
+    final number = context.read<DialerBloc>().state.dialedNumber;
+    final chosen = await showSimPicker(
+      context,
+      title: 'تماس با کدام سیم‌کارت؟',
+      subtitle: number.isEmpty ? null : number,
+      selected: _picked ?? _routed,
+    );
+    if (chosen == null || !mounted) return;
+    setState(() => _picked = chosen);
+  }
+
   /// Hands the dial to the BLoC, asking for a SIM only when there is a real
-  /// choice to make.
+  /// choice to make and none was picked on the chip.
   ///
   /// The picker cannot live inside `DialerBloc`: it needs a BuildContext, and
   /// a BLoC that pops UI is a BLoC that cannot be tested. The number itself
@@ -552,6 +723,7 @@ class DialerCallPill extends StatelessWidget {
     if (number.isEmpty) return;
 
     int? subscriptionId;
+    final picked = _liveCall ? null : _picked;
     if (forcePick && SimService.isMultiSim) {
       await HapticFeedback.mediumImpact();
       final route = await SimService.instance.callRoute(number);
@@ -560,10 +732,13 @@ class DialerCallPill extends StatelessWidget {
         context,
         title: 'تماس با کدام سیم‌کارت؟',
         subtitle: number,
-        selected: route.sim,
+        selected: picked ?? route.sim,
       );
       if (chosen == null) return; // dismissed = cancelled
       subscriptionId = chosen.subscriptionId;
+    } else if (picked != null &&
+        SimService.byId(picked.subscriptionId) != null) {
+      subscriptionId = picked.subscriptionId;
     } else {
       if (!context.mounted) return;
       final choice = await chooseVoiceSim(context, number);
@@ -576,9 +751,10 @@ class DialerCallPill extends StatelessWidget {
     navigator.maybePop();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final pill = Opacity(
+  Widget _pill(BuildContext context) {
+    final enabled = widget.enabled;
+    final addCall = widget.addCall;
+    return Opacity(
       opacity: enabled ? 1.0 : 0.45,
       child: Material(
         color: AppColors.callAnswerGreen,
@@ -587,7 +763,7 @@ class DialerCallPill extends StatelessWidget {
         child: InkWell(
           onTap: enabled ? () => _dial(context) : null,
           // Long-press = "this one call, on the other card".
-          onLongPress: enabled && SimService.isMultiSim
+          onLongPress: enabled && SimService.isMultiSim && !_liveCall
               ? () => _dial(context, forcePick: true)
               : null,
           child: SizedBox(
@@ -616,14 +792,42 @@ class DialerCallPill extends StatelessWidget {
         ),
       ),
     );
+  }
 
-    // No SIM chip beside the pill, on one card or two. Google Phone's keypad
-    // carries none either: the card is decided by Android's own default, and
-    // when nothing is pinned the picker opens on the dial itself
-    // ([chooseVoiceSim]) — which is a question asked at the moment it matters
-    // rather than a control sitting on the keypad for ever. The per-call
-    // override survives as the long-press on the pill.
-    return pill;
+  @override
+  Widget build(BuildContext context) {
+    return BlocListener<DialerBloc, DialerState>(
+      listenWhen: (a, b) => a.dialedNumber != b.dialedNumber,
+      listener: (_, state) => _onNumberChanged(state.dialedNumber),
+      child: SimAware(
+        builder: (context, _, _) {
+          final pill = _pill(context);
+          if (!SimService.isMultiSim) return pill;
+          // The chip is drawn OUTSIDE the pill and the row is balanced with an
+          // empty box of the same width, so the pill keeps its position: the
+          // keypad's centre of gravity is the call button, and moving it
+          // sideways on a dual-SIM phone would put it under a different thumb.
+          const double kSide = 72;
+          return Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(width: kSide),
+              pill,
+              SizedBox(
+                width: kSide,
+                child: Center(
+                  child: SimChip(
+                    sim: _liveCall ? _routed : (_picked ?? _routed),
+                    onTap: _liveCall ? null : _pickSim,
+                    verb: 'تماس با',
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 }
 

@@ -22,6 +22,7 @@ import '../bloc/message_bloc.dart';
 import '../bloc/message_event.dart';
 import '../repositories/thread_sim_repository.dart';
 import 'widgets/pinch_text_scale.dart';
+import 'widgets/thread_sim_choice.dart';
 
 /// What the details page did, for the conversation behind it to act on.
 enum ConversationDetailsOutcome {
@@ -373,27 +374,18 @@ class _ConversationDetailsScreenState extends State<ConversationDetailsScreen> {
     );
   }
 
-  /// Stored at once — a setting of the conversation, not of the next send —
-  /// and «پیش‌فرض» hands it back to the default, which it then follows.
+  /// See [chooseThreadSim].
   Future<void> _pickSim() async {
-    final fallback = ThreadSimRepository.defaultSim;
-    final chosen = await showSimChoice(
+    final chosen = await chooseThreadSim(
       context,
-      title: 'ارسال با کدام سیم‌کارت؟',
-      subtitle: _title,
-      defaultLabel: 'پیش‌فرض',
-      defaultSubtitle: fallback == null
-          ? null
-          : '${fallback.slotLabel} · ${fallback.name} — طبق تنظیم «سیم‌کارت‌ها»',
-      selected: _sim,
-      defaultSelected: !_simOwn,
+      threadId: widget.threadId,
+      title: _title,
+      current: _sim,
     );
     if (chosen == null || !mounted) return;
-    await ThreadSimRepository().choose(widget.threadId, chosen.sim);
-    if (!mounted) return;
     setState(() {
-      _sim = chosen.sim ?? ThreadSimRepository.defaultSim;
-      _simOwn = !chosen.isDefault;
+      _sim = chosen.sim;
+      _simOwn = chosen.own;
       _simChanged = true;
     });
   }

@@ -173,7 +173,8 @@ class _KeypadPanel extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             BlocBuilder<DialerBloc, DialerState>(
-              buildWhen: (a, b) => a.dialedNumber != b.dialedNumber,
+              buildWhen: (a, b) =>
+                  a.dialedNumber != b.dialedNumber || a.caret != b.caret,
               builder: (_, state) => DialerNumberDisplay(state: state),
             ),
             const SizedBox(height: 4),

@@ -3,9 +3,13 @@ package com.example.communication_super_app.contacts
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import com.example.communication_super_app.sim.SimRegistry
 import io.flutter.plugin.common.MethodChannel
+import java.util.concurrent.Executors
 
 /**
  * The SIM address book (`content://icc/adn`).
@@ -29,6 +33,7 @@ class SimContactsHandler(private val context: Context) {
     companion object {
         const val CHANNEL = "com.example.communication_super_app/sim_contacts"
         private const val TAG = "SimContactsHandler"
+        private val METHODS = setOf("getSimContacts", "insertSimContact", "deleteSimContact")
 
         /** Abbreviated-dialling-numbers table of the default SIM. */
         private val ADN_URI: Uri = Uri.parse("content://icc/adn")
@@ -47,32 +52,53 @@ class SimContactsHandler(private val context: Context) {
             }
     }
 
+    /**
+     * Every ICC call runs here, never on the main thread. A query of
+     * `content://icc/adn` is answered by the phone process reading the card
+     * itself, and the first one after boot — before anything has warmed the
+     * telephony cache, which on a fresh install nothing has — takes seconds
+     * per card. On the main thread that froze the whole app the first time the
+     * address book was read, and only that time: «دفعه اول بعد از نصب، در
+     * خواندن لیست مخاطبین، اپ هنگ کرد» (the mentor's dual-SIM phone,
+     * 1405/08/05). One thread, so a write and a read of the same card never
+     * overlap — process-wide, for the same reason and so a re-created
+     * activity does not start another.
+     */
+    private val io get() = Shared.io
+    private val main get() = Shared.main
+
+    private object Shared {
+        val io = Executors.newSingleThreadExecutor { r ->
+            Thread(r, "sim-contacts").apply { isDaemon = true }
+        }
+        val main = Handler(Looper.getMainLooper())
+    }
+
     fun setup(channel: MethodChannel) {
         channel.setMethodCallHandler { call, result ->
-            try {
-                when (call.method) {
-                    "getSimContacts" -> result.success(readAll())
-                    "insertSimContact" -> {
-                        val subId = call.argument<Int>("subscriptionId")
-                            ?: SimRegistry.INVALID_SUBSCRIPTION_ID
-                        val name = call.argument<String>("name").orEmpty()
-                        val number = call.argument<String>("number").orEmpty()
-                        result.success(insert(subId, name, number))
+            val method = call.method
+            if (method !in METHODS) {
+                result.notImplemented()
+                return@setMethodCallHandler
+            }
+            val subId = call.argument<Int>("subscriptionId")
+                ?: SimRegistry.INVALID_SUBSCRIPTION_ID
+            val name = call.argument<String>("name").orEmpty()
+            val number = call.argument<String>("number").orEmpty()
+            io.execute {
+                try {
+                    val answer: Any = when (method) {
+                        "getSimContacts" -> readAll()
+                        "insertSimContact" -> insert(subId, name, number)
+                        else -> delete(subId, name, number)
                     }
-                    "deleteSimContact" -> {
-                        val subId = call.argument<Int>("subscriptionId")
-                            ?: SimRegistry.INVALID_SUBSCRIPTION_ID
-                        val name = call.argument<String>("name").orEmpty()
-                        val number = call.argument<String>("number").orEmpty()
-                        result.success(delete(subId, name, number))
-                    }
-                    else -> result.notImplemented()
+                    main.post { result.success(answer) }
+                } catch (e: SecurityException) {
+                    main.post { result.error("PERMISSION_DENIED", e.message, null) }
+                } catch (e: Exception) {
+                    Log.e(TAG, "sim contacts call failed: ${e.message}", e)
+                    main.post { result.error("SIM_CONTACTS_ERROR", e.message, null) }
                 }
-            } catch (e: SecurityException) {
-                result.error("PERMISSION_DENIED", e.message, null)
-            } catch (e: Exception) {
-                Log.e(TAG, "sim contacts call failed: ${e.message}", e)
-                result.error("SIM_CONTACTS_ERROR", e.message, null)
             }
         }
     }
@@ -85,16 +111,16 @@ class SimContactsHandler(private val context: Context) {
      * contacts.
      */
     private fun readAll(): List<Map<String, Any?>> {
+        val started = SystemClock.elapsedRealtime()
         val subs = SimRegistry.subscriptions(context)
         // No subscription list (permission refused, or a device that reports
         // none): still try the default ADN, which is the single-SIM case.
-        if (subs.isEmpty()) {
-            return read(SimRegistry.INVALID_SUBSCRIPTION_ID, slotIndex = 0)
+        val out = if (subs.isEmpty()) {
+            read(SimRegistry.INVALID_SUBSCRIPTION_ID, slotIndex = 0)
+        } else {
+            subs.flatMap { read(it.subscriptionId, it.slotIndex) }
         }
-        val out = ArrayList<Map<String, Any?>>()
-        for (sim in subs) {
-            out += read(sim.subscriptionId, sim.slotIndex)
-        }
+        Log.i(TAG, "read ${subs.size} card(s) in ${SystemClock.elapsedRealtime() - started} ms")
         return out
     }
 

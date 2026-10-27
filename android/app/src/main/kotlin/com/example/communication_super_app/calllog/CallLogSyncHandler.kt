@@ -12,6 +12,8 @@ import com.example.communication_super_app.sim.SimRegistry
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 /**
  * Bridges the device call-log provider to Flutter for two-way sync:
@@ -41,6 +43,15 @@ class CallLogSyncHandler(private val context: Context) {
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    /** One thread, so a delete and the read after it stay in order. */
+    private val io get() = Io.executor
+
+    private object Io {
+        val executor: ExecutorService = Executors.newSingleThreadExecutor { r ->
+            Thread(r, "call-log").apply { isDaemon = true }
+        }
+    }
     private var eventSink: EventChannel.EventSink? = null
     private var observer: ContentObserver? = null
 
@@ -61,12 +72,8 @@ class CallLogSyncHandler(private val context: Context) {
                         result.success(0)
                         return@setMethodCallHandler
                     }
-                    try {
-                        result.success(deleteFromProvider(ids))
-                    } catch (e: SecurityException) {
-                        result.error("PERMISSION_DENIED", "WRITE_CALL_LOG not granted", null)
-                    } catch (e: Exception) {
-                        result.error("DELETE_FAILED", e.message, null)
+                    offMain(result, "WRITE_CALL_LOG", "DELETE_FAILED") {
+                        deleteFromProvider(ids)
                     }
                 }
                 // Ids only — the deletion half of the mirror-sync needs to know
@@ -79,12 +86,8 @@ class CallLogSyncHandler(private val context: Context) {
                         is Long -> v
                         else -> 0L
                     }
-                    try {
-                        result.success(queryIdsSince(sinceMs))
-                    } catch (e: SecurityException) {
-                        result.error("PERMISSION_DENIED", "READ_CALL_LOG not granted", null)
-                    } catch (e: Exception) {
-                        result.error("QUERY_FAILED", e.message, null)
+                    offMain(result, "READ_CALL_LOG", "QUERY_FAILED") {
+                        queryIdsSince(sinceMs)
                     }
                 }
                 // Full rows for the import half of the mirror-sync. This used
@@ -102,28 +105,16 @@ class CallLogSyncHandler(private val context: Context) {
                 "callLogEntries" -> {
                     val since = call.longArgument("sinceMs")
                     val until = call.longArgument("untilMs")
-                    try {
-                        result.success(queryEntries(since, until))
-                    } catch (e: SecurityException) {
-                        result.error("PERMISSION_DENIED", "READ_CALL_LOG not granted", null)
-                    } catch (e: Exception) {
-                        result.error("QUERY_FAILED", e.message, null)
+                    offMain(result, "READ_CALL_LOG", "QUERY_FAILED") {
+                        queryEntries(since, until)
                     }
                 }
                 // "Clear the call history" — the whole provider table, not the
                 // ids that happen to be paged into the list. Deleting by id
                 // would silently leave everything below the scroll position.
                 "deleteAllCallLogs" -> {
-                    try {
-                        result.success(
-                            context.contentResolver.delete(
-                                CallLog.Calls.CONTENT_URI, null, null,
-                            ),
-                        )
-                    } catch (e: SecurityException) {
-                        result.error("PERMISSION_DENIED", "WRITE_CALL_LOG not granted", null)
-                    } catch (e: Exception) {
-                        result.error("DELETE_FAILED", e.message, null)
+                    offMain(result, "WRITE_CALL_LOG", "DELETE_FAILED") {
+                        context.contentResolver.delete(CallLog.Calls.CONTENT_URI, null, null)
                     }
                 }
                 // Registration can fail at app start if READ_CALL_LOG hasn't
@@ -149,6 +140,33 @@ class CallLogSyncHandler(private val context: Context) {
                 eventSink = null
             }
         })
+    }
+
+    /**
+     * Runs a provider call on [io] and answers on the main thread. The reads
+     * used to run on the main thread itself: the first import of a long call
+     * history on a fresh install held it for as long as the read took, and
+     * the app took no touch for that long. A missing grant still answers
+     * PERMISSION_DENIED, naming [permission].
+     */
+    private fun offMain(
+        result: MethodChannel.Result,
+        permission: String,
+        failure: String,
+        work: () -> Any,
+    ) {
+        io.execute {
+            try {
+                val answer = work()
+                mainHandler.post { result.success(answer) }
+            } catch (e: SecurityException) {
+                mainHandler.post {
+                    result.error("PERMISSION_DENIED", "$permission not granted", null)
+                }
+            } catch (e: Exception) {
+                mainHandler.post { result.error(failure, e.message, null) }
+            }
+        }
     }
 
     /** Dart sends whole numbers as Int until they outgrow it, then as Long. */

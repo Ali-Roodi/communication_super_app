@@ -53,6 +53,7 @@ import 'widgets/message_composer.dart';
 import 'widgets/pinch_text_scale.dart';
 import 'widgets/schedule_send_sheet.dart';
 import 'widgets/scheduled_bubble.dart';
+import 'widgets/thread_sim_choice.dart';
 import '../services/spam_prompt_store.dart';
 import 'package:communication_super_app/core/navigation/app_route_observer.dart';
 
@@ -382,6 +383,27 @@ class _ConversationScreenState extends State<ConversationScreen>
       // A later async seed must not undo an explicit choice.
       _simPickedByUser = true;
     });
+  }
+
+  /// The composer's SIM chip: the same choice as «ارسال با» on the details
+  /// page ([chooseThreadSim]).
+  Future<void> _pickSim() async {
+    final chosen = await chooseThreadSim(
+      context,
+      threadId: widget.threadId,
+      title: _title,
+      current: _sim,
+    );
+    if (chosen == null || !mounted) return;
+    if (chosen.own && chosen.sim != null) {
+      _adoptSim(chosen.sim!);
+    } else {
+      // Back on the default: follow it again when it changes.
+      setState(() {
+        _simPickedByUser = false;
+        _sim = chosen.sim;
+      });
+    }
   }
 
   /// «جزئیات گفتگو» — Google Messages' details page, opened by tapping the
@@ -1883,6 +1905,8 @@ class _ConversationScreenState extends State<ConversationScreen>
       onClearSchedule: () => setState(() => _pendingSchedule = null),
       // Tapping the banner re-opens the sheet seeded with the armed choice.
       onEditSchedule: _armSchedule,
+      sim: _sim,
+      onPickSim: SimService.isMultiSim ? _pickSim : null,
     );
   }
 

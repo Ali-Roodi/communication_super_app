@@ -72,6 +72,15 @@ class DialerState extends Equatable {
   // ── Keypad ────────────────────────────────────────────────
   final String dialedNumber;
 
+  /// Where the next key goes in [dialedNumber], when the user put the caret
+  /// somewhere other than the end by touching the number. Null = the end,
+  /// which is also where every whole-number change (a paste into an empty
+  /// field, a clear, a call) leaves it. Read it through [caret].
+  final int? dialCaret;
+
+  /// The caret as an index into [dialedNumber], 0 to its length.
+  int get caret => dialCaret ?? dialedNumber.length;
+
   /// Tones typed on the in-call keypad during the current call, oldest
   /// first. Kept here, not in the call screen, so they survive closing the
   /// keypad and the screen being re-pushed — Google Phone shows them again
@@ -136,6 +145,7 @@ class DialerState extends Equatable {
 
   const DialerState({
     this.dialedNumber = '',
+    this.dialCaret,
     this.dtmfDigits = '',
     this.matchingNumbers = const [],
     this.isNumberInContacts = false,
@@ -167,6 +177,10 @@ class DialerState extends Equatable {
 
   DialerState copyWith({
     String? dialedNumber,
+
+    /// Omitted with a new [dialedNumber], the caret goes to its end; a caret
+    /// at or past the end is stored as null, so there is one way to say "end".
+    int? dialCaret,
     String? dtmfDigits,
     List<PhoneMatch>? matchingNumbers,
     bool? isNumberInContacts,
@@ -210,8 +224,13 @@ class DialerState extends Equatable {
     /// wrong SIM badge is worse than none.
     bool clearActiveSubscriptionId = false,
   }) {
+    final number = dialedNumber ?? this.dialedNumber;
+    final caret = dialCaret ?? (dialedNumber != null ? null : this.dialCaret);
     return DialerState(
-      dialedNumber: dialedNumber ?? this.dialedNumber,
+      dialedNumber: number,
+      dialCaret: caret == null || caret >= number.length
+          ? null
+          : (caret < 0 ? 0 : caret),
       dtmfDigits: dtmfDigits ?? this.dtmfDigits,
       matchingNumbers: matchingNumbers ?? this.matchingNumbers,
       isNumberInContacts: isNumberInContacts ?? this.isNumberInContacts,
@@ -243,6 +262,7 @@ class DialerState extends Equatable {
   @override
   List<Object?> get props => [
     dialedNumber,
+    dialCaret,
     dtmfDigits,
     matchingNumbers,
     isNumberInContacts,

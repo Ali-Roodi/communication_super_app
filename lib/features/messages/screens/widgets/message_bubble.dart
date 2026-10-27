@@ -8,6 +8,7 @@ import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
+import 'package:communication_super_app/core/utils/script_direction.dart';
 import '../../models/message_model.dart';
 import '../../models/one_time_code.dart';
 import '../../models/template_wire.dart';
@@ -103,6 +104,9 @@ class MessageBubbleBody extends StatelessWidget {
       decoration: BoxDecoration(color: bubbleColor, borderRadius: radius),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        // The start of an English message is its left edge: the code chip and
+        // the link preview line up under the text, not across the bubble.
+        textDirection: ScriptDirection.of(body) ?? TextDirection.rtl,
         mainAxisSize: MainAxisSize.min,
         children: [
           SelectableBubbleText(

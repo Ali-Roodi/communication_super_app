@@ -45,6 +45,7 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     on<DialerNumberSet>(_onNumberSet);
     on<DialerNumberCleared>(_onNumberCleared);
     on<DialerNumberDeleted>(_onNumberDeleted);
+    on<DialerCaretMoved>(_onCaretMoved);
     on<DialerFilterContacts>(_onFilterContacts);
 
     // ── Call handlers (Step 3) ───────────────────────────────
@@ -96,12 +97,24 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
     }
   }
 
+  /// [state]'s number with [text] put in at the caret, and the caret after it.
+  ({String number, int caret}) _insertAtCaret(String text) {
+    final typed = state.dialedNumber;
+    final at = state.caret;
+    return (
+      number: typed.substring(0, at) + text + typed.substring(at),
+      caret: at + text.length,
+    );
+  }
+
   void _onNumberPressed(DialerNumberPressed event, Emitter<DialerState> emit) {
-    final newNumber = state.dialedNumber + event.number;
+    final edit = _insertAtCaret(event.number);
+    final newNumber = edit.number;
     _debounceTimer?.cancel();
     emit(
       state.copyWith(
         dialedNumber: newNumber,
+        dialCaret: edit.caret,
         isLoadingContacts: true,
         clearError: true,
       ),
@@ -127,11 +140,13 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
   void _onNumberSet(DialerNumberSet event, Emitter<DialerState> emit) {
     final cleaned = sanitizeDialable(event.number);
     if (cleaned.isEmpty) return;
-    final next = event.append ? state.dialedNumber + cleaned : cleaned;
+    final edit = event.append ? _insertAtCaret(cleaned) : null;
+    final next = edit?.number ?? cleaned;
     _debounceTimer?.cancel();
     emit(
       state.copyWith(
         dialedNumber: next,
+        dialCaret: edit?.caret,
         isLoadingContacts: true,
         clearError: true,
       ),
@@ -154,11 +169,11 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
   }
 
   void _onNumberDeleted(DialerNumberDeleted event, Emitter<DialerState> emit) {
-    if (state.dialedNumber.isEmpty) return;
-    final newNumber = state.dialedNumber.substring(
-      0,
-      state.dialedNumber.length - 1,
-    );
+    final at = state.caret;
+    // Nothing before the caret: nothing to delete, the digits after it stay.
+    if (at == 0) return;
+    final typed = state.dialedNumber;
+    final newNumber = typed.substring(0, at - 1) + typed.substring(at);
     _debounceTimer?.cancel();
 
     if (newNumber.isEmpty) {
@@ -171,11 +186,23 @@ class DialerBloc extends Bloc<DialerEvent, DialerState> {
         ),
       );
     } else {
-      emit(state.copyWith(dialedNumber: newNumber, isLoadingContacts: true));
+      emit(
+        state.copyWith(
+          dialedNumber: newNumber,
+          dialCaret: at - 1,
+          isLoadingContacts: true,
+        ),
+      );
       _debounceTimer = Timer(const Duration(milliseconds: 300), () {
         add(DialerFilterContacts(newNumber));
       });
     }
+  }
+
+  void _onCaretMoved(DialerCaretMoved event, Emitter<DialerState> emit) {
+    final position = event.position.clamp(0, state.dialedNumber.length);
+    if (position == state.caret) return;
+    emit(state.copyWith(dialCaret: position));
   }
 
   Future<void> _onFilterContacts(

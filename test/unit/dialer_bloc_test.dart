@@ -60,6 +60,98 @@ void main() {
       await bloc.close();
     });
 
+    group('caret', () {
+      Future<DialerBloc> typed(String digits) async {
+        final bloc = makeBloc();
+        for (final d in digits.split('')) {
+          bloc.add(DialerNumberPressed(d));
+        }
+        await settle();
+        return bloc;
+      }
+
+      test('starts at the end and follows typing', () async {
+        final bloc = await typed('0912');
+        expect(bloc.state.caret, 4);
+        expect(bloc.state.dialCaret, isNull);
+        await bloc.close();
+      });
+
+      test('a key goes in at the caret and the caret moves past it', () async {
+        final bloc = await typed('0912');
+        bloc.add(const DialerCaretMoved(1));
+        bloc.add(const DialerNumberPressed('8'));
+        await settle();
+        expect(bloc.state.dialedNumber, '08912');
+        expect(bloc.state.caret, 2);
+        await bloc.close();
+      });
+
+      test('delete removes the digit before the caret only', () async {
+        final bloc = await typed('0812');
+        bloc.add(const DialerCaretMoved(2));
+        bloc.add(const DialerNumberDeleted());
+        bloc.add(const DialerNumberPressed('9'));
+        await settle();
+        expect(bloc.state.dialedNumber, '0912');
+        expect(bloc.state.caret, 2);
+        await bloc.close();
+      });
+
+      test('delete at the start leaves the number alone', () async {
+        final bloc = await typed('0912');
+        bloc.add(const DialerCaretMoved(0));
+        bloc.add(const DialerNumberDeleted());
+        await settle();
+        expect(bloc.state.dialedNumber, '0912');
+        expect(bloc.state.caret, 0);
+        await bloc.close();
+      });
+
+      test('a paste goes in at the caret', () async {
+        final bloc = await typed('0912');
+        bloc.add(const DialerCaretMoved(4));
+        bloc.add(const DialerCaretMoved(1));
+        bloc.add(const DialerNumberSet('۳۳', append: true));
+        await settle();
+        expect(bloc.state.dialedNumber, '033912');
+        expect(bloc.state.caret, 3);
+        await bloc.close();
+      });
+
+      test('a whole-number change puts the caret back at the end', () async {
+        final bloc = await typed('0912');
+        bloc.add(const DialerCaretMoved(1));
+        bloc.add(const DialerNumberSet('02188776655'));
+        await settle();
+        expect(bloc.state.dialCaret, isNull);
+        bloc.add(const DialerCaretMoved(3));
+        bloc.add(const DialerNumberCleared());
+        await settle();
+        expect(bloc.state.dialCaret, isNull);
+        expect(bloc.state.caret, 0);
+        await bloc.close();
+      });
+
+      test('a move is clamped to the number', () async {
+        final bloc = await typed('12');
+        bloc.add(const DialerCaretMoved(-3));
+        await settle();
+        expect(bloc.state.caret, 0);
+        bloc.add(const DialerCaretMoved(9));
+        await settle();
+        expect(bloc.state.caret, 2);
+        expect(bloc.state.dialCaret, isNull);
+        await bloc.close();
+      });
+
+      test('a caret of 0 is kept, not read as the end', () {
+        const state = DialerState(dialedNumber: '12', dialCaret: 1);
+        expect(state.copyWith(dialCaret: 0).caret, 0);
+        expect(state.copyWith(dialedNumber: '2', dialCaret: 0).dialCaret, 0);
+      });
+    });
+
     test('delete on empty number is a no-op', () async {
       final bloc = makeBloc();
       bloc.add(const DialerNumberDeleted());

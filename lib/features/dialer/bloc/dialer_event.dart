@@ -28,7 +28,7 @@ class DialerNumberPressed extends DialerEvent {
 class DialerNumberSet extends DialerEvent {
   final String number;
 
-  /// Append to what is already typed instead of replacing it — what «چسباندن»
+  /// Insert at the caret instead of replacing what is typed — what «چسباندن»
   /// does mid-number.
   final bool append;
 
@@ -42,8 +42,19 @@ class DialerNumberCleared extends DialerEvent {
   const DialerNumberCleared();
 }
 
+/// Deletes the character before the caret.
 class DialerNumberDeleted extends DialerEvent {
   const DialerNumberDeleted();
+}
+
+/// The user touched the number: the next key goes at [position] (0 = before
+/// the first digit, the length = after the last).
+class DialerCaretMoved extends DialerEvent {
+  final int position;
+  const DialerCaretMoved(this.position);
+
+  @override
+  List<Object?> get props => [position];
 }
 
 class DialerLoadContacts extends DialerEvent {
