@@ -122,7 +122,7 @@ class FakeCrypto implements SmsCryptoService {
     'text': text,
     'del': deleteAfterSeen,
     if (groupId != null) 'gid': keyHex(groupId),
-    if (ttlSeconds != null) 'ttl': ttlSeconds,
+    'ttl': ?ttlSeconds,
   });
 
   @override

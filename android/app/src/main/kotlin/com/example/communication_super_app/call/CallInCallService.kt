@@ -1726,7 +1726,7 @@ class CallInCallService : InCallService() {
 
     /**
      * A missed call from a hidden contact: «تماس بی‌پاسخ» and nothing else —
-     * no name, no number, no call-back action (owner's decision, 1405/07/06).
+     * no name, no number, no call-back action (design decision, 1405/07/06).
      * Tapping it opens the hidden call history, which asks for the section.
      * Not marked for [markMissedCall] either: that stores the number in the
      * clear.
@@ -1843,7 +1843,7 @@ class CallInCallService : InCallService() {
     private fun lookupContactName(phone: String): String? {
         if (phone.isEmpty()) return null
         // A hidden contact: named only while the section is open, and never
-        // from the address book (owner's decision, 1405/07/06).
+        // from the address book (design decision, 1405/07/06).
         if (HiddenNumbers.isHidden(this, phone)) return HiddenNumbers.nameFor(phone)
         return try {
             val uri = Uri.withAppendedPath(

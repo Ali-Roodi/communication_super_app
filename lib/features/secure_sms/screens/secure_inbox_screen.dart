@@ -23,7 +23,7 @@ import 'secure_new_conversation_screen.dart';
 ///
 /// With [plain] it is «پیامک‌های رمزنشدهٔ دفترچه مخفی» instead: the hidden
 /// contacts' plain-SMS threads. The two never share a list or a thread
-/// (owner's rule, 1405/07/29); the encrypted list links to the plain one.
+/// (design rule, 1405/07/29); the encrypted list links to the plain one.
 class SecureInboxScreen extends StatelessWidget {
   const SecureInboxScreen({super.key, this.plain = false});
 

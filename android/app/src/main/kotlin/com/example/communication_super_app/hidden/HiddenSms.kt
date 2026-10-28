@@ -6,7 +6,7 @@ import com.example.communication_super_app.smscrypto.SecureSmsInbox
 import org.json.JSONObject
 
 /**
- * An SMS from a hidden number, plain or encrypted (owner's decision,
+ * An SMS from a hidden number, plain or encrypted (design decision,
  * 1405/07/06: a hidden contact's normal SMS are hidden too). It never enters
  * `content://sms` (`SmsDeliverReceiver` skips it) nor the `messages` table:
  * the whole message — sender included — is sealed into [SealedInbox], and the

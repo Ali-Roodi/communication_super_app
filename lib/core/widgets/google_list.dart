@@ -332,7 +332,7 @@ class SearchPill extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (trailing != null) trailing!,
+                ?trailing,
                 const SizedBox(width: 8),
               ],
             ),

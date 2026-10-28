@@ -1,61 +1,60 @@
-# Communication Super App
+# هم‌رسان (Hamresan)
 
-A Flutter application for managing contacts, messages, call history, and notes.
+An Android SMS and phone app with a Persian (RTL) interface — the phone's default
+SMS app and default dialer — in three editions:
 
-## Setup Instructions
+| Edition | Delivered as |
+|---|---|
+| **تجاری** (commercial) | The store APK (بازار / مایکت) |
+| **بین‌سازمانی** (inter-organizational) | The commercial APK, unlocked in the app by an activation code |
+| **سازمانی** (organization) | A separate APK, distributed directly, that opens only with its own activation code |
 
-### Prerequisites
-- Flutter SDK (3.10.1 or higher)
-- Android Studio / Xcode
-- Android SDK / iOS SDK
+The two secure editions add a secure section with its own PIN, post-quantum
+encrypted SMS and encrypted groups, a key bank issued by the organization's
+authority, a hidden phonebook, a device security check and intruder photos; the
+organization edition adds cover text.
 
-### Installation
+Flutter (Dart) for the app, Kotlin for the Android side, BLoC for state, SQLite
+and SQLCipher for storage. No backend.
 
-1. Clone the repository
-2. Run `flutter pub get`
-3. **Important**: Fix the telephony package namespace issue:
-   - **Windows**: Run `.\scripts\fix_telephony_namespace.ps1`
-   - **Linux/Mac**: Run `chmod +x scripts/fix_telephony_namespace.sh && ./scripts/fix_telephony_namespace.sh`
-4. Run `flutter run`
+## Build
 
-### Known Issues & Fixes
+Requirements: Flutter (Dart SDK ^3.10.1), the Android SDK, JDK 21 (for the
+release scripts and the Windows tool).
 
-#### Telephony Package Namespace Error
-The `telephony` package (0.2.0) is discontinued and missing a required `namespace` declaration in its Android Gradle configuration. This has been fixed by:
-- Adding `namespace = "com.shounakmulay.telephony"` to the telephony package's `build.gradle` file
-- A script is provided to automatically apply this fix after `flutter pub get`
-
-**Note**: If you clear the Flutter pub cache, you'll need to run the fix script again.
-
-## Features
-
-- **Authentication**: PIN-based authentication
-- **Contacts**: Manage contacts with phone numbers and emails
-- **Messages**: Send and receive SMS messages
-- **Call History**: View and manage call logs
-- **Notes**: Create and manage notes
-- **Dialer**: Make phone calls directly from the app
-
-## Project Structure
-
-```
-lib/
-├── core/           # Core utilities, themes, navigation
-├── features/       # Feature modules
-│   ├── authentication/
-│   ├── contacts/
-│   ├── messages/
-│   ├── call_history/
-│   ├── notes/
-│   └── dialer/
-└── main.dart       # App entry point
+```bash
+flutter pub get
+flutter run                          # commercial (the default flavor)
+flutter run --flavor organization    # organization
+flutter analyze
+flutter test
 ```
 
-## Dependencies
+Release APKs — every check run, versionCode from git:
 
-- `flutter_bloc`: State management
-- `sqflite`: Local database
-- `telephony`: SMS functionality (discontinued, patched)
-- `permission_handler`: Runtime permissions
-- `flutter_secure_storage`: Secure storage for authentication
-- `call_log`: Access device call logs
+```bash
+scripts/release_build.sh                        # the store APK
+scripts/release_build.sh --flavor organization  # the organization APK (never to a store)
+```
+
+A release build needs `android/key.properties` and the signing keystore, which
+are **not** in this repository.
+
+## Layout
+
+```
+lib/                 the Flutter app (core/ + one folder per feature)
+android/             the Android side (Kotlin under app/src/main/kotlin/…)
+test/                Dart unit and widget tests
+tools/keybank/       Windows: key-bank CLI and «پنل صدور هم‌رسان» (MSI)
+scripts/             release builds, keystore backup
+docs/                documentation — start at docs/README.md
+```
+
+## Documentation
+
+- [`docs/README.md`](docs/README.md) — the index.
+- [`docs/DEVELOPER_GUIDE.md`](docs/DEVELOPER_GUIDE.md) — read before changing
+  anything: the rules that apply everywhere and which area note covers what.
+- [`docs/architecture/editions.md`](docs/architecture/editions.md) — the editions,
+  activation, the secure section and SMS encryption.

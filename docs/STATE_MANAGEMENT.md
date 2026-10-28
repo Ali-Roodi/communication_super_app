@@ -20,24 +20,35 @@ BlocListener<XBloc, XState>(listenWhen: …, listener: …) // side effects (sna
 
 ### Registered BLoCs
 
-| BLoC                 | Constructed with                       | Eager init event |
-|----------------------|----------------------------------------|------------------|
-| `ThemeBloc`          | —                                      | `LoadTheme` |
-| `AuthBloc`           | `AuthRepository`                       | `CheckAuthStatus` |
-| `ContactBloc`        | `ContactRepository`                    | — |
-| `MessageBloc`        | `MessageRepository`, `SmsService`, `ContactRepository` (optional, default real) | — (starts on first `LoadThreads`) |
-| `DraftBloc`          | `DraftRepository`                      | — |
-| `CallLogBloc`        | `CallLogService`, `CallLogRepository` (optional, default real) | — |
-| `DialerBloc`         | `ContactRepository`                    | `DialerLoadContacts` (in ctor) |
-| `FavoritesBloc`      | `FavoritesRepository`                  | `LoadFavorites` |
-| `SearchBloc`         | `ContactRepository`, `CallLogRepository` | — |
-| `SettingsBloc`       | —                                      | `LoadSettings` |
-| `BlockedNumbersBloc` | `BlockedNumbersRepository`             | `LoadBlocked` |
+| BLoC | Eager | Init event |
+|---|---|---|
+| `ThemeBloc` | — | `LoadTheme` |
+| `EditionBloc` | yes | `LoadEdition` — the edition and its activation |
+| `AuthBloc` | — | `CheckAuthStatus` |
+| `SecureSessionBloc` | yes | `SecureSessionRefresh` — the secure section's lock state |
+| `KeyBankBloc` | — | — |
+| `SecureMessagesBloc` | — | — |
+| `SimBloc` | — | `LoadSims` |
+| `ContactBloc` | — | — |
+| `MessageBloc` | — | — (starts on the first `LoadThreads`) |
+| `DraftBloc` | — | — |
+| `TemplateBloc` | — | — |
+| `ScheduledMessageBloc` | yes | `LoadScheduled` — re-arms the delivery alarm |
+| `CallLogBloc` | — | — |
+| `HiddenBloc` | yes | — (follows the secure section) |
+| `DialerBloc` | — | contacts in its constructor |
+| `FavoritesBloc` | — | `LoadFavorites` |
+| `SearchBloc` | — | — |
+| `SettingsBloc` | — | `LoadSettings` |
+| `BlockedNumbersBloc` | — | `LoadBlocked` |
 
-> Note: every stateful BLoC now takes its repositories/services through the
-> constructor (optional, defaulting to the real implementations), so
-> `AppBlocProviders` constructs them with no args while tests inject mocks. This
-> is the preferred style — see `STATE_MANAGEMENT.md` §6.
+"Eager" is `lazy: false`: created at startup, not on first read. The comments in
+`app_bloc_providers.dart` say why each one has to be; the order there matters
+(`test/widget/app_bloc_providers_test.dart` builds them in it).
+
+Every BLoC takes its repositories and services through the constructor
+(optional, defaulting to the real ones), so `AppBlocProviders` builds them with
+no arguments and tests inject mocks.
 
 ## 2. Event / State conventions
 
@@ -80,11 +91,11 @@ These are **load-bearing** behaviours — do not "simplify" them away:
 
 | Cache | Owner | Why |
 |-------|-------|-----|
-| `_hasImported` | `MessageBloc` (static) | Import device SMS once per session |
+| `_hasImported` | `MessageBloc` (static) | Run the full device mirror-sync once per session; resumes run a throttled one |
 | `_cachedPhoneToName` | `MessageBloc` | Resolve contact names without re-fetching device contacts every `LoadThreads` |
 | `_cache` (call logs) | `CallLogService` (static) | Avoid re-reading the device call log on every tab visit |
 | `_listening` | `SmsService` | Register the SMS `EventChannel` at most once |
-| `sms_imported_v1` | `SharedPreferences` | Persist the "already imported" flag across restarts |
+| `contact_name_cache` | SQLite table | Name the first paint of the inbox and «اخیر» before the address book answers (see `DEVELOPER_GUIDE.md`) |
 
 ## 5. Side effects
 
@@ -102,4 +113,5 @@ implementations), so they can be unit-tested with mocks — e.g.
 `MessageBloc(repository: …, smsService: …, contactRepository: …)`. `SettingsBloc`
 is tested with `SharedPreferences.setMockInitialValues`. Repository tests run the
 real schema on an in-memory `sqflite_common_ffi` database (see
-`CONTRIBUTING.md`). Current suite: **450 tests**.
+`CONTRIBUTING.md`). The native side has its own JVM tests under
+`android/app/src/test/` (crypto vectors, wire format, key bank, cover text).

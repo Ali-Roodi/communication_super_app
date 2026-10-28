@@ -35,7 +35,7 @@ enum ActivationTarget {
 ///
 /// **MIRROR of the mentor's Windows code generator** — and of `Activation.java`
 /// in the earlier S2MS app, which is what that generator was written against.
-/// The format is kept exactly (owner's decision); change nothing here without
+/// The format is kept exactly (design decision); change nothing here without
 /// the generator changing with it, or every code it issues stops working:
 ///
 /// 1. The device shows its **device code**: BLAKE3 of the ANDROID_ID's bytes,

@@ -2,84 +2,99 @@
 
 ## TL;DR — there is no remote network layer
 
-This application makes **no HTTP/REST/GraphQL/WebSocket calls** and ships **no
-API client, DTO, or serialization layer**. There is no `dio`/`http` dependency
-and no backend. All data is **local to the device**. "Network", in the cellular
-sense, only appears as SMS/voice carrier connectivity, which is mediated by
-Android, not by app code.
+The app makes **no HTTP, REST or WebSocket calls to a backend** and has no API
+client. All data is local to the phone; the only "network" is the carrier — SMS
+and voice — which Android mediates. The single exception is optional crash
+reporting (below), off unless compiled in **and** turned on by the user, and
+compiled out of the organization edition entirely.
 
-This document therefore describes the app's **external data boundaries** — the
-substitute for a network layer — and the contracts at each boundary.
+So this document describes the app's **data boundaries** and the contract at each.
 
-## 1. The four data boundaries
+## 1. The boundaries
 
 ```
-                ┌──────────────────────────────────────────┐
-   BLoCs ──────▶│ Repositories  (Dart, lib/features/*/repos)│
-                └───────┬─────────────┬─────────────┬───────┘
-                        ▼             ▼             ▼
-                 ┌────────────┐ ┌───────────┐ ┌──────────────────┐
-                 │  SQLite    │ │  Platform │ │  Device plugins   │
-                 │ (sqflite)  │ │  channels │ │ contacts/call_log │
-                 └────────────┘ │ (Kotlin)  │ │ telephony/auth    │
-                                └───────────┘ └──────────────────┘
+ BLoCs ─▶ Repositories / services (Dart)
+             │            │              │                 │
+             ▼            ▼              ▼                 ▼
+          SQLite     Platform        Device plugins    Key/value
+       (main + the   channels        (contacts,        (SharedPreferences,
+       SQLCipher     (Kotlin)        notifications,    secure storage)
+       secure.db)                    permissions)
 ```
 
-### Boundary A — SQLite (`DatabaseHelper`)
-- Single database `communication_app.db`, version 8, opened lazily by a
-  singleton.
-- Repositories own all SQL. Schema and migrations live in `DatabaseHelper`.
-- **Invariant:** every batch insert into `messages` uses
-  `ConflictAlgorithm.ignore` against the unique content index
-  `(phone_number, body, timestamp, type)` so live-received and later-imported
-  copies of the same SMS collapse to one row.
+### A — SQLite
 
-### Boundary B — Android platform channels (the closest thing to a "network API")
-Two named channels, each with a request side (`MethodChannel`) and, where
-relevant, a push side (`EventChannel`):
+- **Main database** `communication_app.db` (`DatabaseHelper`, version 1). Read
+  and written by Kotlin too, while the app is dead and with no key — so it holds
+  nothing secret. Batch inserts into `messages` use `ConflictAlgorithm.ignore`
+  against the unique content index `(phone_number, body, timestamp, type)`.
+- **Secure database** `secure.db` (SQLCipher, `lib/features/secure/`, the only
+  importer of `sqflite_sqlcipher`), opened with the vault key while the secure
+  section is open.
 
-| Channel name (`com.example.communication_super_app/…`) | Dart wrapper | Direction | Payload contract |
-|---|---|---|---|
-| `…/sms`         | `NativeSmsService` | Dart→native | `sendSms(phoneNumber, message)` → `{success, timestamp}` |
-| `…/sms_events`  | `NativeSmsService` | native→Dart | `SmsReceivedEvent{address, body, timestamp}` |
-| `…/call`        | `NativeCallService`| Dart→native | `makeCall/endCall/answer/reject/hold/mute/setSpeakerphone/sendDtmf/isInCall` |
-| `…/call_events` | `NativeCallService`| native→Dart | `{event, phone, direction}` mapped to `NativeCallEvent` |
+### B — Platform channels (`com.example.communication_super_app/…`)
 
-**Error contract (SMS send):** the native side returns typed `PlatformException`
-codes — `NO_SIM_CARD`, `NO_SERVICE`, `PERMISSION_DENIED`, `SMS_SEND_FAILED` —
-which `SmsService` forwards and `MessageBloc._localizedSendError` maps to Persian
-user messages. **Treat these codes as a stable contract**; both sides must change
-together.
+| Channel | Purpose |
+|---|---|
+| `sms`, `sms_events` | Send, query the provider, delete; incoming SMS pushed to Dart |
+| `call`, `call_events` | The call lifecycle as the default dialer |
+| `call_log`, `call_log_events` | Call-log reads and change notifications |
+| `sim`, `sim_events` | SIM roster, defaults, the SIM rule for calls |
+| `sim_contacts`, `contact_extras`, `contact_groups`, `contact_link` | The address book beyond what `flutter_contacts` offers |
+| `scheduled_sms` | The native scheduled-SMS deliverer and its alarm |
+| `blocked` | The phone-wide block list |
+| `intents`, `media`, `location` | Deep links, contact photos, the location for «ارسال موقعیت» |
+| `app_lock` | Biometric prompt, notification privacy, lock session |
+| `device_identity` | The device code for activation |
+| `secure_vault`, `key_file` | The secure section's Keystore vault, the key-file picker |
+| `sms_crypto` | Stateless SMS crypto: handshake, encrypt/decrypt, cover text |
+| `hidden` | Hidden-phonebook tags, sealed inbox, device check, intruder photos |
 
-### Boundary C — Device plugins
-| Plugin | Used by | Notes |
-|--------|---------|-------|
-| `another_telephony` | `SmsService.importDeviceMessages` + receive fallback | Maintained fork of the discontinued `telephony`. Import is capped at 500 inbox + 500 sent to stay under the Binder transaction limit. |
-| `call_log` | `CallLogService` | Read device call history; mapping runs on a background `Isolate`. |
-| `flutter_contacts` | `ContactRepository` | Device contacts (the real contact store; the `contacts` SQLite table is largely vestigial). |
-| `permission_handler` | `PermissionService` | Batched at `PermissionGate`. |
-| `local_auth`, `flutter_secure_storage` | `authentication` | Credentials + biometric. |
-| `flutter_local_notifications` | `NotificationService` | Incoming-SMS notifications. |
+Error codes returned across a channel (for SMS send: `NO_SIM_CARD`,
+`NO_SERVICE`, `PERMISSION_DENIED`, `SMS_SEND_FAILED`, `HIDDEN_NUMBER`) are a
+**contract**: both sides change together. Files that mirror each other across the
+boundary are listed in `DEVELOPER_GUIDE.md` («Kotlin/Dart mirrors»).
 
-### Boundary D — Key/value (`SharedPreferences` + `flutter_secure_storage`)
-- `SharedPreferences`: theme mode, settings flags, `sms_imported_v1`.
-- `flutter_secure_storage`: PIN/pattern + auth type (never `SharedPreferences`).
+### C — Device plugins
 
-## 2. Resilience patterns at the boundaries
+| Plugin | Used by |
+|---|---|
+| `flutter_contacts` | `ContactRepository` — the device address book is the contact store |
+| `permission_handler` | `PermissionService`, only behind `PermissionGate` |
+| `flutter_local_notifications` | Notifications posted from Dart (most SMS notifications are native) |
+| `flutter_secure_storage` | PIN hash, recovery code, activation code |
+| `url_launcher`, `path_provider`, `package_info_plus`, `shared_preferences` | as named |
 
-- **Best-effort init:** `NotificationService().initialize()` is wrapped in
-  try/catch in `main()` so a notification-channel failure never blocks boot.
-- **Graceful permission denial:** `MessageBloc` shows local messages (or a
-  localized error if empty) when SMS import fails.
-- **Native→plugin fallback:** if the native SMS receiver can't initialize,
-  `SmsService` falls back to the `another_telephony` listener (foreground-only).
-- **De-duplication windows:** a 5-second in-memory hash set drops duplicate
-  incoming SMS in addition to the DB unique index.
+**No plugin may request a runtime permission itself** — that is why `call_log`,
+`another_telephony`, `image_picker` and `image_cropper` were removed (see
+`DEVELOPER_GUIDE.md`).
 
-## 3. If a real backend is ever added
+### D — Key/value
 
-Introduce a `core/network/` layer (an `http`/`dio` client + typed
-`Result`/`Either` error type + DTO↔model mappers), inject the client into
-repositories, and keep BLoCs unchanged. Do **not** let widgets call the network
-directly — preserve the `Widget → BLoC → Repository → boundary` direction
-documented in `ARCHITECTURE.md`.
+- `SharedPreferences`: theme, settings, small UI state.
+- `flutter_secure_storage`: the salted, stretched PIN, the recovery-code hash,
+  activation codes.
+
+### The one outbound connection: crash reporting
+
+`CrashReporting` (pure-Dart `sentry`) sends crash reports only when a DSN was
+compiled in **and** the user turned «تشخیص خطا» on. Every string is redacted
+(runs of 4+ digits replaced), no message content, no screenshots. The
+organization build compiles it out (`CrashReporting.isAvailable`).
+
+## 2. Resilience at the boundaries
+
+- Start-up never waits on a failing boundary: notification init is best-effort,
+  the gates render blank instead of a spinner, the inbox and «اخیر» paint from
+  SQLite before the device answers.
+- A refused permission leaves the rest usable; each screen says what is missing.
+- Duplicate SMS (live receive and the later mirror-sync) collapse in the content
+  index; native work that would block the main thread (ICC, call-log reads) runs
+  on its own executor.
+
+## 3. If a backend is ever added
+
+Add a `core/network/` layer (a client, a typed result, DTO ↔ model mappers),
+inject it into repositories and keep BLoCs unchanged; widgets never call the
+network. Mind the organization edition: it is handed over on the promise that
+nothing on it talks to a third-party server.

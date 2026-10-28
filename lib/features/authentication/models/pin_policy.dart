@@ -1,6 +1,6 @@
 /// How long a PIN is.
 ///
-/// The **app PIN** is 4 digits in every edition (owner's decision,
+/// The **app PIN** is 4 digits in every edition (design decision,
 /// 1405/07/27). The secure section has its own PIN, always [secureLength]
 /// digits — it guards the data, the app PIN only the app.
 ///

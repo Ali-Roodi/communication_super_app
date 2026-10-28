@@ -10,7 +10,7 @@ import 'package:sqflite/sqflite.dart';
 ///
 /// Only an explicit choice is stored. A conversation without one sends on the
 /// default — the app's own (Settings → «سیم‌کارت‌ها»), else the phone's — and
-/// so follows that default when it changes, which is the owner's rule: "from
+/// so follows that default when it changes, which is the product rule: "from
 /// the phone's default at first, then a personal choice for each". The native
 /// quick reply reads the same table (`SmsNotificationActionReceiver
 /// .chosenThreadSim`) and the same default, so a reply from the shade and one

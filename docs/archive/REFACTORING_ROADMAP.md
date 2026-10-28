@@ -1,3 +1,6 @@
+> **Archived — historical.** A refactoring pass that is finished. Current state:
+> [`../DEVELOPER_GUIDE.md`](../DEVELOPER_GUIDE.md) and [`../README.md`](../README.md).
+
 # REFACTORING ROADMAP
 
 This file records refactors **done in this pass** and the prioritized backlog of
@@ -32,7 +35,7 @@ the near-zero automated test coverage.
 Result: **`flutter analyze` → No issues found.** · **`flutter test` → 138/138 passing** (was 22).
 Since this pass the suite has grown to **450** with every feature commit; the
 per-area invariants now live in `docs/architecture/*.md` (indexed from
-`DEVELOPER_GUIDE.md`).
+`docs/DEVELOPER_GUIDE.md`).
 
 ## 🔜 Backlog (prioritized)
 

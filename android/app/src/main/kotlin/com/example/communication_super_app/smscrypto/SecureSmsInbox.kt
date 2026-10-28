@@ -15,7 +15,7 @@ import com.example.communication_super_app.R
 /**
  * Where an encrypted SMS (`#E:` — [Wire.looksEncrypted]) goes when it arrives:
  * **not** into `content://sms`, **not** into the app's `messages` table, and
- * with **no** sender or text in the notification (owner's decisions,
+ * with **no** sender or text in the notification (design decisions,
  * 1405/07/05; matrix rows 11 and 22).
  *
  * The receivers run while the app is dead and the secure section is locked,

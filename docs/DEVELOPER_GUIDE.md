@@ -1,6 +1,7 @@
 # Hamresan — developer guide
 
-What applies wherever you work in this codebase.
+What applies wherever you work in this codebase: the commands, the rules that hold
+everywhere, and the architecture. Start here; the area notes it points to carry the detail.
 
 ## Commands
 
@@ -90,7 +91,7 @@ This is a Flutter Android SMS/phone app with a Persian (RTL) UI. The internal ap
 - **Nothing on the way in draws a spinner.** The two gates before the app — the permission check and the auth-state read — render a blank `Scaffold`, and `hasAllRequiredPermissions` runs its four reads with `Future.wait` instead of one after another. Each resolves in a few frames, so a spinner there does not inform anybody; it just makes every single launch look like it is loading, which is exactly how it was reported. Measured cold start on the test device: ~1.8 s from `am start` to a painted, populated «اخیر», no dropped frames.
 - **Nothing before the app draws a spinner, and «اخیر» paints from SQLite.** `DefaultAppGate` used to hold a full-screen `CircularProgressIndicator` over four *sequential* platform reads on every launch, and `CallLogBloc._onLoadCallLogs` used to `await` the device mirror-sync **and** the whole address book before its first emit. Between them that was the reported «هر بار ۲ ثانیه لودینگ». Now: the gate renders blank and runs its four reads with `Future.wait`; the call log emits the local page immediately — **named from `ContactNameCache`**, not as bare numbers (that first-paint-then-names flicker was itself reported: «شماره‌ها نشان داده می‌شوند و با یک فاصله کوتاه اسم‌ها می‌آیند») — overlays the authoritative names as a *second* emit, and runs the device pass detached (`_backgroundSync`, once per bloc — `ensureSynced` reports "I went to the device", which on a phone with an empty call log is true every time, so an unlatched re-dispatch would loop). A spinner is emitted only when there is genuinely nothing to show, and «تماس اخیری وجود ندارد» is withheld until the device has actually been read once. Measured on the test device: a populated, named «اخیر» one second after `am start`.
 - **An empty inbox during the first import says so** (`ThreadsLoaded.syncing` → `MessagesImportingState`). A fresh install has nothing local while the mirror-sync walks the whole provider, and «هیچ پیامکی موجود نیست» over a phone full of messages reads as data loss. The rows replace it page by page as the import lands.
-- **`MainNavigation`** is a bottom-nav shell with 4 tabs: Dialer (0), Call History (1), Contacts (2), Messages (3).
+- **`MainNavigation`** is a bottom-nav shell with 4 tabs: «اخیر» (0), «موردعلاقه‌ها» (1), «مخاطبین» (2), «پیام‌ها» (3). The keypad is not a tab: a button on the first two tabs opens it as a sheet (`showDialerBottomSheet`).
 - **`MainNavigation` picks its landing tab** when the app is opened: «پیام‌ها» if an SMS arrived while the app was away, «اخیر» if a call was missed, the newer of the two when both happened. The comparison point is a persisted `last_foreground_at` (stamped on every non-resumed lifecycle event), so "new" means *since the user last looked* — not "unread", which would re-hijack the tab on every launch until the inbox was emptied. It costs **no new queries**: every tab is mounted from the start, so it listens to `MessageBloc` / `CallLogBloc` state the app already produces, waits a short grace window for both to answer (picking the newer needs both, and one of them may have nothing to report), then unsubscribes. A notification deep link marks the decision resolved so the grace timer cannot swing the tab under an already-open conversation. A first-ever launch has no stored moment and lands on the default.
 
 ### Feature structure
@@ -101,10 +102,10 @@ bloc/       # BLoC events, states, bloc class
 models/     # Data models
 repositories/ # SQLite access via DatabaseHelper
 screens/    # Flutter UI widgets
-services/   # (messages, call_history only) Native/plugin bridging
+services/   # Native / plugin bridging and orchestration (where the feature needs it)
 ```
 
-Features: `authentication`, `messages`, `contacts`, `dialer`, `call_history`.
+Features: `authentication`, `call_history`, `contacts`, `dialer`, `edition`, `favorites`, `hidden`, `keybank`, `messages`, `search`, `secure`, `secure_sms`, `security`, `settings`.
 
 ### State management
 
@@ -127,7 +128,7 @@ Single SQLite database (`communication_app.db`, version 1) managed by `DatabaseH
 - `blocked_numbers.is_spam` / `reported_at` mark «مسدود کردن و گزارش هرزنامه» as opposed to a plain block. One table, not two lists: Google keeps both in the same page and only one of them is a report.
 - `messages.device_sms_id` is the row id of the message inside the device SMS provider (`content://sms`). It is the key of the mirror-sync diff and of global deletes. Null means "no known provider row" (e.g. sent while the app wasn't the default SMS app) — such rows are never deleted by the sync.
 
-**There are no migrations.** Nothing has been released and only the owner has builds, so `DatabaseHelper._createDB` (and `SecureStore._onCreate` for `secure.db`) is the whole schema, at version 1: change the table there and reinstall the test phones. No code may handle "a row / file / setting an earlier build wrote". The first change after a build has actually shipped to someone else raises `AppConstants.databaseVersion` and adds an `onUpgrade`.
+**There are no migrations.** Nothing has been released and only the developer has builds, so `DatabaseHelper._createDB` (and `SecureStore._onCreate` for `secure.db`) is the whole schema, at version 1: change the table there and reinstall the test phones. No code may handle "a row / file / setting an earlier build wrote". The first change after a build has actually shipped to someone else raises `AppConstants.databaseVersion` and adds an `onUpgrade`.
 
 ### Contact search
 

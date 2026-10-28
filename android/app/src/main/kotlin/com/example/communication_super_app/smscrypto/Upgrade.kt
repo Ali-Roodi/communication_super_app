@@ -8,7 +8,7 @@ import org.bouncycastle.crypto.params.MLKEMPublicKeyParameters
 
 /**
  * Makes a [CertHandshake] session post-quantum, in the background, once the
- * conversation is already running — the owner's trade (1405/07/25): the
+ * conversation is already running — a deliberate trade (1405/07/25): the
  * first message goes after two SMS parts each way, and the ~20 parts of
  * ML-KEM follow behind it instead of in front.
  *

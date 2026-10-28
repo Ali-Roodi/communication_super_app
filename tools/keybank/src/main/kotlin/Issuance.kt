@@ -399,7 +399,7 @@ class AuthorityFolder(val dir: File) {
 
     /**
      * Removes member [index] from the roster; their file and password are gone
-     * from `issued/`. Nothing is revoked (owner's decision): a certificate
+     * from `issued/`. Nothing is revoked (design decision): a certificate
      * already on a phone stays valid.
      */
     fun removeMember(index: Int) {

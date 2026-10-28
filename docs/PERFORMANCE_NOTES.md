@@ -88,10 +88,10 @@ runs inside SQLite against a temp table of the provider ids.
 
 - **Main-isolate DB work.** Repositories run on the main isolate. Bulk reads
   (full thread list, full contacts) are fine at current caps but will degrade if
-  caps are raised — keep pagination and the 500-row import cap.
-- **`another_telephony` import payload.** The plugin marshals all matching rows through
-  one MethodChannel call. The 500-cap exists to stay under the ~1 MB Binder
-  transaction limit; **do not remove it** without moving import to native.
+  caps are raised — keep pagination.
+- **Binder payload.** The mirror-sync reads the provider natively, by id lists
+  and then pages of missing ids (`querySmsIds` / `querySmsByIds`), to stay under
+  the ~1 MB Binder transaction limit; **keep it paged**.
 - **Contact fetch cost.** `flutter_contacts.getAllContacts()` is slow on large
   address books. It is intentionally cached per session; avoid calling it inside
   list `itemBuilder`s or per-event handlers.
@@ -123,8 +123,9 @@ flutter run --profile        # then open DevTools → Performance / CPU
   **Messages** (first-run import).
 - Check the **raster** thread for avatar-heavy lists.
 
-## 5. Quick wins available (see REFACTORING_ROADMAP)
+## 5. Measured start-up
 
-- Fix K1 normalization so contact enrichment hits the cache instead of falling
-  through (fewer "unknown" rows, no perf cost).
-- Thumbnail-cache contact avatars for list rows.
+On the test device (Samsung A33): a populated, named «اخیر» about one second after
+`am start`, no dropped frames. The two gates before the app render blank, and
+`hasAllRequiredPermissions` runs its reads in parallel. Keep it that way: a
+spinner on the way in makes every launch look like it is loading.

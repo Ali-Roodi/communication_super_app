@@ -5,7 +5,7 @@ import 'package:communication_super_app/core/services/app_handoff.dart';
 
 import '../bloc/secure_session_bloc.dart';
 
-/// Locks the secure section the moment the app leaves the foreground (owner's
+/// Locks the secure section the moment the app leaves the foreground (design
 /// decision, 1405/07/05) and tells it when the app is back.
 ///
 /// Only `paused`/`hidden` count as leaving, as in `AppLockWrapper`:

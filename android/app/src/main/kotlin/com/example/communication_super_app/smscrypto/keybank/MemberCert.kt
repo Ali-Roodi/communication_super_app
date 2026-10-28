@@ -19,7 +19,7 @@ import com.example.communication_super_app.smscrypto.cryptoError
  *
  * The signature is Ed25519 only: an ML-DSA signature is 3309 bytes, thirty
  * SMS parts on every first contact.
- * The owner chose the classical one (1405/07/25); what it authenticates is a
+ * The classical one was chosen (1405/07/25); what it authenticates is a
  * handshake happening *now*, which a future quantum computer cannot reach
  * back into. The confidentiality of what follows is made post-quantum by the
  * session's upgrade (`Upgrade`). The authority's id is signed but not sent —
@@ -27,7 +27,7 @@ import com.example.communication_super_app.smscrypto.cryptoError
  *
  * [generation] is the roster's: «گوشی گم شد» in the issuance panel raises it,
  * and a phone that has seen a member's generation *n* refuses a certificate
- * below it. There is no expiry and no revocation list — owner's decision.
+ * below it. There is no expiry and no revocation list — design decision.
  *
  * Only Iranian mobile numbers (`09` + 9 digits) get one: a landline cannot
  * receive the SMS the handshake is made of.

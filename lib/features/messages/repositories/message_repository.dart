@@ -585,7 +585,7 @@ class MessageRepository {
   /// sent ourselves) would erase good data on every sync.
   Map<String, Object?> _linkValues(int deviceId, int? subscriptionId) => {
     'device_sms_id': deviceId,
-    if (subscriptionId != null) 'subscription_id': subscriptionId,
+    'subscription_id': ?subscriptionId,
   };
 
   Future<void> reconcileDeviceRows(

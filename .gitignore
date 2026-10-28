@@ -112,8 +112,8 @@ app.*.symbols
 
 # MD files
 *.md
-# ...but keep the project documentation under docs/ and the root guides.
-!docs/*.md
+# ...but keep the project documentation under docs/ and the README files.
+!docs/**/*.md
 !README.md
 
 # The mentor report and user manual: their PDF and HTML source are tracked;

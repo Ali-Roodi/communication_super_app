@@ -1,107 +1,132 @@
 # PROJECT STRUCTURE
 
-The codebase is **feature-first**: cross-cutting concerns live under `lib/core/`,
-and every user-facing capability is a self-contained folder under
-`lib/features/`.
+The codebase is **feature-first**: cross-cutting code lives under `lib/core/`,
+every user-facing capability is a folder under `lib/features/`, and the Android
+side of each one sits under the same Kotlin package.
 
 ## Top-level
 
 ```
 lib/
-  main.dart                 App entry, MaterialApp, theme wiring
+  main.dart                 Entry: flavor check, crash reporting, MaterialApp, the gates
   core/                     Cross-cutting, feature-agnostic code
-  features/                 One folder per feature (see below)
+  features/                 One folder per feature (below)
 android/app/src/main/kotlin/com/example/communication_super_app/
-  MainActivity.kt
-  SmsHandler.kt             SMS BroadcastReceiver + send MethodChannel
-  call/                     ConnectionService-based call stack
+                            Native side: SMS, calls, contacts, SIMs, crypto (below)
+android/app/src/test/       JVM tests of the native code (crypto, wire format, key bank)
 test/
-  unit/                     Logic, BLoC, and repository (in-memory DB) tests
-  widget/                   Widget tests for extracted presentation widgets
-docs/                       This documentation
-assets/fonts/               Vazirmatn (Persian brand font)
+  unit/                     Logic, BLoC and repository tests (in-memory SQLite)
+  widget/                   Widget tests
+tools/keybank/              Windows tool: key bank CLI + «پنل صدور هم‌رسان» (MSI)
+scripts/                    Release builds, keystore backup
+docs/                       This documentation (index: docs/README.md)
+assets/fonts/               Vazirmatn
 ```
 
 ## `lib/core/`
 
 ```
 core/
-  bloc_providers/app_bloc_providers.dart   MultiBlocProvider for all BLoCs
-  constants/app_constants.dart             DB name/version, table + storage keys
-  database/database_helper.dart            Singleton SQLite open + migrations
-  navigation/main_navigation.dart          Bottom-nav shell, fade IndexedStack
-  services/
-    app_lock_service.dart                  In-memory lock state
-    image_picker_service.dart              Contact avatar picking
-    permission_service.dart                Batched runtime permissions
-  theme/
-    app_colors.dart  app_dimensions.dart  app_theme.dart  theme_bloc.dart
-  utils/
-    date_formatter.dart                    Persian date/time formatting
-    persian_utils.dart                     Persian digit conversion
-    phone_normalizer.dart                  Canonical 09xxxxxxxxx normalization
-  widgets/
-    app_lock_wrapper.dart  avatar_widget.dart  lock_button.dart
-    permission_gate.dart   rtl_app_bar.dart    caret_line_fix.dart (composer caret, see
-                                               conversation-and-composer.md)
+  bloc_providers/   AppBlocProviders — every BLoC, created once
+  constants/        AppConstants — DB name/version, table names, storage keys
+  database/         DatabaseHelper — the single main SQLite database (schema v1)
+  edition/          AppEdition (build flavor), ActivationCode / ActivationTarget
+  navigation/       MainNavigation (tabs), CallUiCoordinator, ReturnToCallBar
+  services/         permissions, crash reporting, deep links, AppHandoff,
+                    location, image picking, device-sync queue
+  sim/              SimService / SimBloc / SimCard and the SIM widgets
+  theme/            colors, dimensions, surface roles, ThemeBloc
+  utils/            phone normalization, SearchText, Jalali dates, BLAKE3,
+                    ScriptDirection, USSD, Persian digits
+  widgets/          PermissionGate, DefaultAppGate, AppLockWrapper, shared rows,
+                    avatars, selection bar, undo snack bar
 ```
 
 ## `lib/features/`
 
-Every feature uses the same sub-layout: `bloc/ models/ repositories/ screens/`
-(plus `services/` where native bridging is needed, and `screens/widgets/` for
-extracted leaf widgets).
+Every feature uses the same sub-layout — `bloc/ models/ repositories/ screens/`,
+plus `services/` where it bridges to native code or orchestrates, and `widgets/`
+or `screens/widgets/` for extracted widgets.
+
+| Feature | What it is |
+|---|---|
+| `authentication` | App PIN / pattern, recovery code, app lock, biometric unlock |
+| `call_history` | «اخیر» — the call log, mirrored from the device |
+| `contacts` | The device address book: list, detail, edit, labels, merge, SIM contacts |
+| `dialer` | Keypad, the call screens, speed dial, auto redial |
+| `favorites` | «موردعلاقه‌ها» |
+| `messages` | SMS inbox, conversation, composer, drafts, templates, scheduled and group SMS |
+| `search` | Unified search across contacts, calls and messages |
+| `settings` | Settings pages, blocked numbers |
+| `edition` | Edition state and activation (`EditionBloc`, `OrganizationActivationGate`) |
+| `secure` | The secure section: its PIN, vault, SQLCipher `secure.db` |
+| `keybank` | «بانک کلید» — key files, trust anchors |
+| `secure_sms` | «پیام‌های رمز» — encrypted SMS and groups |
+| `hidden` | «دفترچه مخفی» — hidden contacts and their calls and SMS |
+| `security` | Device check, intruder photos |
+
+## Native side (`android/app/src/main/kotlin/com/example/communication_super_app/`)
 
 ```
-features/
-  authentication/    PIN/pattern setup + entry + app-lock screens
-  messages/          SMS threads, conversation, drafts, templates, categories
-    services/        native_sms_service · sms_service · notification_service
-    screens/widgets/ message_bubble · thread_tile · message_list_states ·
-                     messages_app_bars · thread_options_sheet ·
-                     conversation_app_bars · message_composer · conversation_sheets
-  contacts/          device-contact list, add/edit, detail screens
-  dialer/            keypad + call lifecycle + «تماس مجدد خودکار»
-    services/        native_call_service · auto_redial_policy · speed_dial_service
-    widgets/         dialer_widgets.dart (keypad keys, number display, rows…)
-  call_history/      recents list (call_log plugin → SQLite cache)
-    services/        call_log_service
-    screens/widgets/ call_detail_sheet · call_log_tile
-  favorites/         starred numbers
-  search/            cross-feature search (contacts + call logs)
-  settings/          settings + blocked numbers
+MainActivity.kt           Channels, intents, window flags
+SmsHandler.kt             SMS send / query channel
+SmsDeliverReceiver.kt     SMS_DELIVER (default SMS app): writes the provider
+IncomingSmsReceiver.kt    SMS_RECEIVED: persists while the app is dead, notifies
+SmsNotifier.kt …          Incoming-SMS notifications and their actions
+BlockedNumbers.kt         Native mirror of the block list
+TemplateWire.kt           Template SMS wire format (mirror of the Dart model)
+call/                     InCallService (default dialer), call rules, missed calls
+calllog/                  Call-log sync
+contacts/                 Contact extras, groups, links, SIM contacts
+scheduled/                Scheduled SMS: alarm, worker, boot re-arm
+sim/                      SIM registry and the one SIM rule for calls
+edition/                  Device identity (activation)
+secure/                   Keystore vault for the secure section
+security/                 App lock, biometric gate, device check, intruder camera
+hidden/                   Hidden-phonebook tags, sealed inbox, call-log sweep
+smscrypto/                SMS encryption: handshake, ratchet, wire format, cover text
+  keybank/                Key files, member certificates, authority (shared with tools/)
+media/                    Contact photos
 ```
 
-### Naming conventions
+## Database
 
-- BLoC triad files are always `<f>_bloc.dart`, `<f>_event.dart`,
-  `<f>_state.dart`.
-- A screen file is named `<thing>_screen.dart` and exposes a single public
-  `…Screen` widget.
-- Extracted presentational widgets live in a `widgets/` folder next to the
-  screens that use them; public when referenced across files, private (`_Foo`)
-  when used only within their own file.
-- Repositories are suffixed `_repository.dart`; platform/plugin wrappers are
-  suffixed `_service.dart`.
+### Main database (`communication_app.db`, `DatabaseHelper`, version 1)
 
-## Database tables (owned by `DatabaseHelper`, `databaseVersion = 8`)
+`contacts` · `messages` · `message_search` · `call_logs` · `favorites` ·
+`blocked_numbers` · `archived_threads` · `pinned_threads` · `unread_marks` ·
+`drafts` · `message_categories` · `message_templates` · `scheduled_messages` ·
+`thread_sim` · `speed_dial` · `message_groups` · `message_group_members` ·
+`message_group_targets` · `contact_name_cache` · `secure_queue` · `sealed_queue`
 
-| Table                | Key                      | Purpose |
-|----------------------|--------------------------|---------|
-| `contacts`           | `id` (TEXT)              | App-saved contacts (mostly superseded by device contacts) |
-| `messages`           | `id` (TEXT)              | SMS, `thread_id` = normalized number |
-| `call_logs`          | `id` (TEXT)              | Local cache of device call history |
-| `favorites`          | `normalized` (UNIQUE)    | Starred numbers |
-| `blocked_numbers`    | `normalized` (UNIQUE)    | Blocked numbers |
-| `archived_threads`   | `thread_id`              | Archived conversation state |
-| `pinned_threads`     | `thread_id`              | Pinned conversation state |
-| `message_categories` | `id`                     | Draft labels |
-| `drafts`             | `id`                     | Saved (unsent) drafts |
-| `scheduled_messages` | `id`                     | Queued outgoing SMS, optionally recurring (زمان‌بندی ارسال) |
-| `notes`              | `id`                     | **Unused** — feature removed; table kept for migration safety (see KNOWN_ISSUES) |
+The invariants of each table are in `DEVELOPER_GUIDE.md` (Database) and the
+area notes. Nothing secret is ever written here: Kotlin opens this database
+while the app is dead, with no key. `secure_queue` and `sealed_queue` hold only
+ciphertext waiting for the secure section.
 
-## Generated / config files (do not hand-edit casually)
+### Secure database (`secure.db`, SQLCipher)
 
-- `pubspec.yaml` / `pubspec.lock` — dependencies.
-- `analysis_options.yaml` — lint config (`flutter_lints`).
-- `android/` Gradle + manifest — permissions and the default-SMS/dialer roles.
+Opened only by `lib/features/secure/` with the vault key; holds encrypted
+conversations, the key bank, hidden contacts and intruder photos. See
+`architecture/editions.md`.
+
+There are **no migrations** yet: both schemas are version 1 and nothing has
+shipped. The first change after a release raises the version and adds an
+`onUpgrade`.
+
+## Naming conventions
+
+- BLoC files are `<f>_bloc.dart`, `<f>_event.dart`, `<f>_state.dart` (or one file
+  for a small bloc).
+- A screen file is `<thing>_screen.dart` and exposes one public `…Screen`.
+- Repositories end in `_repository.dart`; platform and plugin wrappers in
+  `_service.dart`.
+- Extracted widgets live in a `widgets/` folder next to the screens using them.
+
+## Build and config files
+
+- `pubspec.yaml` — dependencies; `default-flavor: commercial`.
+- `android/app/build.gradle.kts` — the two flavors, the shared applicationId and
+  signing key, the organization versionCode band.
+- `analysis_options.yaml` — `flutter_lints`.
+- `android/key.properties` and the keystore are **never** in git.

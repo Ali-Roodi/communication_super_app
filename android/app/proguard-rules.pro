@@ -30,7 +30,7 @@
 
 # Default-SMS-app role: all four role-required components. Losing any one of
 # them makes the app ineligible for ROLE_SMS, which silently breaks two-way
-# device sync (see DEVELOPER_GUIDE.md, "Default SMS app role & device sync").
+# device sync (see docs/DEVELOPER_GUIDE.md, "Default SMS app role & device sync").
 -keep class com.example.communication_super_app.SmsDeliverReceiver { *; }
 -keep class com.example.communication_super_app.MmsReceiver { *; }
 -keep class com.example.communication_super_app.HeadlessSmsSendService { *; }

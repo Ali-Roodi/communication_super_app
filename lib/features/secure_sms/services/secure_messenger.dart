@@ -699,8 +699,8 @@ class SecureMessenger {
 
   // ── The post-quantum upgrade (`Upgrade`) ────────────────────────────────
   //
-  // A certificate session is classical (two SMS parts instead of ten: the
-  // owner's trade). Its initiator then offers its ML-KEM key on it, in the
+  // A certificate session is classical (two SMS parts instead of ten: a
+  // deliberate trade). Its initiator then offers its ML-KEM key on it, in the
   // background and after whatever was queued; the answer makes a new,
   // post-quantum session on both sides. The accepter keeps it on standby —
   // sends nothing on it — until the offerer is heard on it (`pqDone`, one
@@ -714,7 +714,7 @@ class SecureMessenger {
   /// The thread a hidden contact's **plain** SMS are kept in: never the
   /// encrypted conversation with the same number. An encrypted chat and a
   /// plain one are two conversations, listed apart, and nothing ever moves
-  /// one into the other (owner's rule, 1405/07/29).
+  /// one into the other (design rule, 1405/07/29).
   static String plainThread(String phone) => 'p:$phone';
 
   /// Whether [thread] is a [plainThread].
@@ -1428,7 +1428,7 @@ class SecureMessenger {
   // ── Seen, delete ─────────────────────────────────────────────────────────
 
   /// The conversation is on screen: its messages are seen. Sends one
-  /// «دیده شد» covering everything new (owner's decision: automatic and
+  /// «دیده شد» covering everything new (design decision: automatic and
   /// batched — each receipt is an SMS), unless turned off.
   Future<void> markSeen(String phone) => _serial(() async {
     await _store.markShown(phone, _clock());
@@ -1644,7 +1644,7 @@ class SecureMessenger {
   });
 
   /// The group is on screen: its messages are seen. One «دیده شد» per sender
-  /// (to them only — owner's decision), unless receipts are off. It covers
+  /// (to them only — design decision), unless receipts are off. It covers
   /// that pair's session up to the newest group message, one-to-one messages
   /// before it included: a receipt names a point in a session, not a thread.
   Future<void> markGroupSeen(String groupId) => _serial(() async {

@@ -28,7 +28,7 @@ import javax.crypto.spec.SecretKeySpec
  * Names are different: they are known **only while the section is open**,
  * pushed from Dart into process memory ([setNames]) and dropped on lock
  * ([clearNames]). A hidden contact who calls while the section is locked is
- * shown as the bare number (owner's decision, 1405/07/06).
+ * shown as the bare number (design decision, 1405/07/06).
  *
  * Also kept here: the section's **sealing public key**, which [SealedInbox]
  * seals records to. Public, so plain storage is fine.

@@ -1,25 +1,32 @@
 # CONTRIBUTING
 
-Guidelines for working in this repository. Read `ARCHITECTURE.md` and
-`STATE_MANAGEMENT.md` first.
+Guidelines for working in this repository. Read `DEVELOPER_GUIDE.md` first —
+it holds the rules that apply everywhere and points to the area notes — then
+`ARCHITECTURE.md` and `STATE_MANAGEMENT.md`.
 
 ## Setup
 
 ```bash
 flutter pub get
-flutter run            # debug on a connected device/emulator
+flutter run                         # commercial flavor (the default)
+flutter run --flavor organization   # the organization edition
 ```
-Android only (uses SMS/call platform channels). A physical device is recommended
-for SMS/call features.
+Android only (SMS and call platform channels). A physical device is needed for
+SMS and call features; test the organization flavor on an emulator or a spare
+phone — once it is installed, the commercial build cannot replace it without an
+uninstall (`docs/architecture/editions.md`).
 
 ## Everyday commands
 
 ```bash
 flutter analyze        # must be ZERO issues before committing
 dart format lib test   # format before committing
-flutter test           # run unit + widget tests (450 currently)
+flutter test           # unit + widget tests
+cd android && ./gradlew :app:testCommercialDebugUnitTest   # JVM tests of the native code
+android/gradlew -p tools/keybank test :panel:test         # the Windows key-bank tool and panel
 flutter test test/unit/phone_normalizer_test.dart   # single file
-flutter build apk --release
+scripts/release_build.sh                        # the store APK, every check run
+scripts/release_build.sh --flavor organization  # the organization APK
 # Device diagnostics that are OFF in a store build:
 flutter build apk --release --dart-define=CARET_TRACE=true   # one `[caret]` logcat line per caret move
 adb logcat -s flutter | grep -E '\[caret\]|\[redial\]'      # `[redial]` prints every DISCONNECTED verdict
@@ -74,11 +81,12 @@ adb logcat -s flutter | grep -E '\[caret\]|\[redial\]'      # `[redial]` prints 
   stripping for thread IDs / matching keys.
 
 ### Database changes
-1. Add/alter the table in `DatabaseHelper` (`_createDB` for fresh installs).
-2. Bump `AppConstants.databaseVersion`.
-3. Add an **additive** `_onUpgrade` block for the new version (never drop data on
-   upgrade — see `DESIGN_DECISIONS.md` D9).
-4. All `messages` batch inserts use `ConflictAlgorithm.ignore`.
+1. Nothing has shipped, so there are **no migrations**: change the table in
+   `DatabaseHelper._createDB` (or `SecureStore._onCreate` for `secure.db`) and
+   reinstall the test phones. The first change after a release raises
+   `AppConstants.databaseVersion` and adds an `onUpgrade`.
+2. Nothing secret goes into the main database — Kotlin opens it with no key.
+3. All `messages` batch inserts use `ConflictAlgorithm.ignore`.
 
 ### State guards
 Several BLoC behaviours protect the UX (no flash-to-loading on background
@@ -97,7 +105,11 @@ as "redundant".**
 
 ## Native (Android) changes
 
-- SMS: `android/.../SmsHandler.kt` + channels `…/sms`, `…/sms_events`.
-- Calls: `android/.../call/**` + channels `…/call`, `…/call_events`.
+- SMS: `SmsHandler.kt`, the two receivers, channels `…/sms`, `…/sms_events`.
+- Calls: `call/**`, channels `…/call`, `…/call_events`.
+- Several Kotlin and Dart files mirror each other and must change together; the
+  list is in `DEVELOPER_GUIDE.md` («Kotlin/Dart mirrors»).
+- No plugin may request a runtime permission — every grant goes through
+  `PermissionGate`.
 - The Dart error-code contract (`NO_SIM_CARD`, `NO_SERVICE`, …) is shared with
   Kotlin — change both sides together (see `NETWORK_LAYER.md` §1 Boundary B).

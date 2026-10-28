@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 /// The authorities whose member certificates this build accepts — the one
-/// thing the key bank hardcodes (owner's decision, 1405/07/05: only the
+/// thing the key bank hardcodes (design decision, 1405/07/05: only the
 /// authority's **public** key; nothing secret is ever built into the app).
 ///
 /// An authority public key is ML-DSA-65 + Ed25519, 1985 bytes, printed as hex
@@ -14,7 +14,7 @@ class TrustAnchors {
   /// The production authorities. The authority was created anew on
   /// 1405/07/29 (id `7fda025a5a997b93`), when key files stopped carrying any
   /// list of members; its private file and password are kept **off the
-  /// repository**, with the owner. Another authority is added as one more
+  /// repository**, with the authority holder. Another authority is added as one more
   /// hex string. See `docs/architecture/editions.md`.
   static const List<String> _production = [
     // 7fda025a5a997b93

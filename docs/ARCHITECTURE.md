@@ -1,146 +1,125 @@
 # ARCHITECTURE
 
-> Communication Super App — internal name **هم‌رسان**.
-> A Flutter Android SMS / phone "super-app" with a Persian (RTL) UI.
+> هم‌رسان — a Flutter Android SMS / phone app with a Persian (RTL) UI, in three
+> editions: تجاری (commercial), بین‌سازمانی (inter-organizational) and سازمانی
+> (organization).
+
+The rules that hold everywhere are in `DEVELOPER_GUIDE.md`; each area has a note
+under `architecture/`. This page is the overview.
 
 ## 1. Overview
 
-The app is a **feature-first, layered, single-module Flutter application**. There
-is **no remote backend and no HTTP layer** — every piece of data comes from one
-of three local sources:
+A **feature-first, layered, single-module Flutter application** with a large
+native Android half. There is no backend: data comes from
 
-1. **SQLite** (`sqflite`) — the app's own database (`communication_app.db`).
-2. **Android platform channels** — native Kotlin code for SMS send/receive and
-   the call lifecycle (`MethodChannel` + `EventChannel`).
-3. **Device plugins** — `flutter_contacts`, `call_log`, `another_telephony`,
-   `permission_handler`, `local_auth`, `flutter_secure_storage`.
+1. **SQLite** — the main database, and the SQLCipher `secure.db` of the secure
+   section;
+2. **platform channels** — Kotlin for SMS, calls, the call log, SIMs, the address
+   book beyond the plugin, the Keystore vault and the SMS crypto;
+3. **device plugins** — `flutter_contacts`, `permission_handler`,
+   `flutter_secure_storage`, `flutter_local_notifications`.
 
-State is managed exclusively with **BLoC** (`flutter_bloc`). All BLoCs are
-provided once, globally, at the top of the widget tree.
+State is **BLoC** only, every BLoC provided once at the top of the tree.
 
-## 2. Boot / startup flow
+The app is the phone's **default SMS app and default dialer**: it owns the SMS
+provider writes and every call screen. Most of the hard-won behaviour lives where
+those roles meet the device — see `architecture/sms-role-and-sync.md` and
+`architecture/dialer-and-calls.md`.
+
+## 2. Start-up
 
 ```
 main()
- └─ NotificationService().initialize()      // best-effort, never crashes boot
- └─ SystemChrome.setPreferredOrientations() // portrait only
- └─ runApp(MyApp)
-     └─ AppBlocProviders          (MultiBlocProvider — all BLoCs)
-         └─ BlocBuilder<ThemeBloc>   → MaterialApp (theme + themeMode)
-             └─ AppLockWrapper          (re-locks on resume)
-                 └─ AuthWrapperScreen   (routes on AuthBloc state)
-                     ├─ AuthNotSet       → PinSetupScreen
-                     ├─ AuthSet          → PinAuthScreen
-                     └─ AuthAuthenticated→ PermissionGate
-                         └─ MainNavigation (bottom-nav shell)
+ ├─ AppEdition.verifyBuildFlavor()        unknown flavor → refuse to start
+ └─ CrashReporting.runApp
+     ├─ NotificationService().initialize()   best-effort
+     └─ runApp(MyApp)
+         └─ AppBlocProviders                  every BLoC
+             └─ MaterialApp (theme, calendar)
+                 ├─ builder: ReturnToCallBar → SecureSessionGuard → AppLockWrapper
+                 └─ home: CallUiCoordinator           call screens surface over anything
+                       └─ OrganizationActivationGate  organization APK: activation first
+                           └─ AuthWrapperScreen        PIN setup / PIN entry
+                               └─ PermissionGate        every runtime permission, batched
+                                   └─ DefaultAppGate     the SMS and dialer roles
+                                       └─ MainNavigation
 ```
 
-- **`AuthWrapperScreen`** chooses the auth screen based on `AuthBloc` state.
-- **`PermissionGate`** batches *all* runtime permission requests (SMS, Phone,
-  Contacts, Notifications) **before** `MainNavigation` mounts. This is
-  deliberate: several tab screens used to request permissions simultaneously
-  from inside an `IndexedStack`, which crashed the app.
-- **`MainNavigation`** is a 4-tab `NavigationBar` shell:
-  `Recents (0) · Favorites (1) · Contacts (2) · Messages (3)`. The dialer is
-  **not** a tab — it opens from a FAB as a `DraggableScrollableSheet`.
+- **`CallUiCoordinator`** sits above the auth flow so an incoming call is
+  answerable on the PIN screen; the app lock is a route it can push over.
+- **`OrganizationActivationGate`** keeps an organization APK closed until a code
+  issued for that edition is entered (`architecture/editions.md`).
+- **`PermissionGate`** is the only place a runtime permission is requested.
+- **`MainNavigation`**: «اخیر» · «موردعلاقه‌ها» · «مخاطبین» · «پیام‌ها»; the
+  keypad opens as a sheet. On launch it lands on the tab where something new
+  happened (`DEVELOPER_GUIDE.md`).
+- Nothing on the way in draws a spinner: the gates render blank, the inbox and
+  «اخیر» paint from SQLite and are named from `contact_name_cache`.
 
 ## 3. Layering
 
-Each feature follows the same internal layering (top → bottom = UI → data):
-
 ```
 features/<name>/
-  screens/        Flutter widgets (+ screens/widgets/ for extracted leaf widgets)
-  bloc/           <name>_bloc.dart · <name>_event.dart · <name>_state.dart
-  services/       (messages, call_history, dialer only) native / plugin bridging
-  repositories/   data access — wraps DatabaseHelper or a device plugin
-  models/         immutable data models (Equatable)
+  screens/        widgets (+ widgets/ for extracted pieces)
+  bloc/           events, states, bloc
+  services/       native / plugin bridging and orchestration
+  repositories/   data access — DatabaseHelper, SecureStore or a plugin
+  models/         immutable models (Equatable)
 ```
 
-**Dependency direction** is strictly downward:
-
 ```
-Widget ──reads/adds──▶ BLoC ──awaits──▶ Repository ──┬─▶ DatabaseHelper (SQLite)
-                          │                           └─▶ Service ─▶ Platform channel / plugin
-                          └─ never touches the DB or platform channels directly
+Widget ──event──▶ BLoC ──▶ Repository / Service ──┬─▶ SQLite
+                                                  ├─▶ platform channel ─▶ Kotlin
+                                                  └─▶ plugin
 ```
 
-A widget never calls a repository or platform channel directly; it dispatches a
-BLoC event. A BLoC never builds UI. A repository never imports `flutter_bloc`.
+A widget never touches a repository or a channel; a BLoC never builds UI.
 
-## 4. Module map
+## 4. Editions
 
-| Layer            | Lives in                          | Responsibility |
-|------------------|-----------------------------------|----------------|
-| App shell        | `lib/core/navigation`, `lib/main.dart` | Boot, tabs, lifecycle lock |
-| Cross-cutting    | `lib/core/{theme,utils,widgets,constants,services}` | Theme tokens, RTL helpers, phone normalization, shared widgets |
-| Persistence      | `lib/core/database/database_helper.dart` | Single SQLite database + migrations |
-| Features         | `lib/features/*`                  | Authentication, messages, contacts, dialer, call_history, favorites, search, settings |
-| Native (Android) | `android/.../kotlin/**`           | SMS BroadcastReceiver + ConnectionService call stack |
+One codebase, **two APKs** (Gradle flavors `commercial` and `organization`), one
+applicationId and one signing key. The inter-organizational edition is the
+commercial APK unlocked by an activation code. The organization APK has a
+versionCode band two billion above the store build, so a store can never replace
+it. Edition-specific code branches on compile-time constants
+(`kOrganizationBuild`), so the other edition's code is absent, not just hidden.
+Everything secure — the secure section, encrypted SMS and groups, the key bank,
+the hidden phonebook, the device check, intruder photos, cover text — is in
+`architecture/editions.md`.
 
-## 5. The two native bridges
+## 5. The native bridges
 
-### 5.1 SMS bridge (`messages/services`)
-- **Receive:** `SmsHandler.kt` `BroadcastReceiver` → `EventChannel`
-  (`…/sms_events`) → `NativeSmsService` → `SmsService.listenToIncomingSms()` →
-  persist + notify + `MessageBloc.add(ReceiveMessage)`.
-- **Send:** `SmsService.sendSms` → `NativeSmsService` → `MethodChannel`
-  (`…/sms`) → `SmsHandler.sendSms` (pre-flight SIM/service checks).
-- **Fallback:** if the native receiver fails to initialize, `SmsService` falls
-  back to the `another_telephony` plugin (foreground-only, see code comments).
+- **SMS** — `SmsHandler` (send, provider queries), `SmsDeliverReceiver` (the
+  default-SMS-app write), `IncomingSmsReceiver` (persists and notifies while the
+  app is dead), native notifications. The inbox is a **mirror** of the device
+  provider kept in step by `SmsService.syncDeviceMessages`.
+- **Calls** — the app holds `ROLE_DIALER`; `CallInCallService` receives every
+  call and the Flutter screens are the only call UI. Device-specific invariants
+  (Samsung's placeholder calls, teardown paths, the keyguard) are in
+  `architecture/dialer-and-calls.md`.
+- **SMS crypto** — `smscrypto/` in Kotlin (Bouncy Castle): member certificates
+  and a two-part handshake, a background ML-KEM-768 upgrade, a per-direction
+  ratchet with AES-256-GCM, the `#E:` wire format, cover text. Stateless over the
+  `sms_crypto` channel; state lives in `secure.db`. Pinned by golden vectors.
+- **SIMs** — `SimRegistry` holds the one SIM rule for calls; Dart only asks it.
 
-### 5.2 Call bridge (`dialer/services`)
-- `NativeCallService` is a singleton wrapping a `MethodChannel` (`…/call`) and an
-  `EventChannel` (`…/call_events`).
-- **The app holds `ROLE_DIALER`** and `CallInCallService` (Kotlin) is the only
-  call UI on the device: telecom states are mirrored into `DialerBloc.callStatus`
-  and `CallUiCoordinator` pushes `IncomingCallScreen`/`InCallScreen`. The
-  «Option A» hand-off to the system dialer that this section used to describe is
-  gone; the `ConnectionService` VoIP path is the dormant one. Details and every
-  device-specific invariant: `docs/architecture/dialer-and-calls.md`.
-- **«تماس مجدد خودکار»** (auto redial, off by default) is decided in
-  `DialerBloc` on the `DISCONNECTED` event from the cause the native side now
-  ships with it (`CallInCallService.disconnectPayload`), and lives on
-  `DialerState.autoRedial` beside the call status while the ended-call screen
-  counts down. Settings mirror it into `AutoRedialPolicy`.
+## 6. Permissions
 
-### 5.3 Android permissions & manifest
-
-`android/app/src/main/AndroidManifest.xml` declares every permission the native
-bridges rely on. Runtime-dangerous ones are batch-requested by `PermissionGate`
-before `MainNavigation` is built (see §3); the rest are install-time grants.
-
-| Group         | Permissions |
-| ------------- | ----------- |
-| SMS           | `SEND_SMS`, `RECEIVE_SMS`, `READ_SMS` |
-| Phone / calls | `CALL_PHONE`, `READ_PHONE_STATE`, `READ_CALL_LOG`, `WRITE_CALL_LOG`, `MANAGE_OWN_CALLS`, `PROCESS_OUTGOING_CALLS` |
-| Contacts      | `READ_CONTACTS`, `WRITE_CONTACTS` |
-| System        | `POST_NOTIFICATIONS`, `RECORD_AUDIO`, `VIBRATE`, `RECEIVE_BOOT_COMPLETED`, `USE_EXACT_ALARM`, `SCHEDULE_EXACT_ALARM` (background scheduled-SMS delivery) |
-
-`SmsHandler` registers the `SMS_RECEIVED` `BroadcastReceiver`, and the
-ConnectionService call stack relies on `MANAGE_OWN_CALLS` / `RECORD_AUDIO` for
-the dormant PHASE-2 VoIP path (§5.2). When adding a native capability, declare
-its permission here and add it to `PermissionService` if it is runtime-dangerous.
-
-## 6. Key architectural decisions (see `DESIGN_DECISIONS.md`)
-
-- **Global BLoC provisioning** — no per-screen providers; `context.read` only.
-- **Phone number as the join key** — `messages.thread_id`, favorites, blocked
-  numbers and contact matching are all keyed on the normalized national number
-  (`09xxxxxxxxx`) produced by `PhoneNormalizer`, **not** on a contacts-table id,
-  because contacts are read from the device, not stored as rows.
-- **Session-scoped one-shot work** — SMS import, the SMS listener, and the
-  phone→name cache each run once per app session, guarded by flags.
+Declared in `android/app/src/main/AndroidManifest.xml`; the runtime ones are
+requested only by `PermissionGate` (SMS, phone and call log, contacts,
+notifications) or, for the two optional ones, by the app itself at the moment
+they are turned on (camera for intruder photos, location for «ارسال موقعیت») —
+never by a plugin. Both flavors carry the
+same manifest; an edition-only permission would go into a flavor manifest.
 
 ## 7. Where to add things
 
-- **New screen for an existing feature:** `features/<f>/screens/`, wrap the root
-  in `Directionality(rtl)` or use `RtlAppBar`; dispatch to the existing BLoC.
-- **New persisted entity:** add a table in `DatabaseHelper`, bump
-  `AppConstants.databaseVersion`, add an `_onUpgrade` migration block, add a
-  model + repository, then a BLoC if it has interactive state.
-- **New cross-feature widget/util:** put it under `lib/core/` only if ≥2 features
-  use it; otherwise keep it local to the feature.
+- **A screen for an existing feature:** `features/<f>/screens/`, RTL root, the
+  existing BLoC.
+- **Persisted data:** a table in `DatabaseHelper._createDB` (or `secure.db` if it
+  is secret), a model and repository, a BLoC if it has interactive state.
+- **Anything native:** check the mirrors list in `DEVELOPER_GUIDE.md` first.
+- **Shared code:** `lib/core/` only when two features use it.
 
-See `PROJECT_STRUCTURE.md` for the full tree and `STATE_MANAGEMENT.md` for BLoC
+See `PROJECT_STRUCTURE.md` for the tree and `STATE_MANAGEMENT.md` for BLoC
 conventions.

@@ -29,7 +29,7 @@ import 'conversation_screen.dart';
 /// A blocked number's conversation leaves the inbox and lives here, still
 /// readable. Each row offers رفع مسدودی / گزارش هرزنامه / حذف گفتگو, and a
 /// long-press selects — with «انتخاب همه» — so a hundred spam senders are
-/// unblocked, or have their conversations deleted, in one go (owner's request,
+/// unblocked, or have their conversations deleted, in one go (design decision,
 /// 1405/07/27). Deleting a conversation deletes its SMS from the phone too
 /// (`deleteThreadGlobally`) and keeps the number blocked; «رفع مسدودی» takes
 /// the number off the phone's own blocked list as well

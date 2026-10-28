@@ -26,7 +26,7 @@ as app rows, so there is no stable FK to join on. The same number arrives in
 many formats (`+98…`, `0098…`, `9…`); normalizing prevents duplicate threads.
 **Trade-off:** numbers that genuinely differ only by formatting are merged
 (desired); non-Iranian numbers fall back to a digits-only string and may match
-less precisely. See `KNOWN_ISSUES` K3.
+less precisely. See `KNOWN_ISSUES` K6.
 
 ---
 
@@ -73,14 +73,17 @@ the same number collapse to one. Extremely rare; accepted.
 
 ---
 
-### D5 — One-shot, session-scoped heavy work
-**Decision:** device-SMS import, the SMS listener registration, and the
-phone→name map each run once per session (flags / `SharedPreferences`).
-**Why:** these are expensive (Binder payloads, full contact fetch). Re-running
-on every tab switch or resume caused multi-second jank.
-**Trade-off:** new device-side SMS/contacts during a session aren't picked up
-until a forced refresh. Acceptable; the app is the SMS source of truth while
-running.
+### D5 — The inbox is a mirror of the device, kept in step cheaply
+**Decision:** the full device mirror-sync and the SMS listener registration run
+once per session; resumes run a throttled sync (2 min), a delta call-log sync and
+an address-book re-read at most every 10 min. The first paint comes from SQLite,
+named from `contact_name_cache`.
+**Why:** a full read of the provider or the address book is seconds on a real
+phone; doing it on every resume or before every paint was the reported
+«هر بار ۲ ثانیه لودینگ».
+**Trade-off:** a change made on the device by another app can take until the
+next throttled sync to show. See `architecture/sms-role-and-sync.md` and
+`PERFORMANCE_NOTES.md`.
 
 ---
 
@@ -109,26 +112,73 @@ Brand font is **Vazirmatn**.
 **Why:** the product is Persian-first (internal name هم‌رسان).
 **Trade-off:** every new screen must remember the RTL wrapper; there is no
 localization (l10n) layer — strings are inline Persian literals (see
-`KNOWN_ISSUES` K4).
+`KNOWN_ISSUES` K7).
 
 ---
 
-### D9 — Single SQLite database, migration-only schema changes
-**Decision:** one DB file, version-bumped with additive `_onUpgrade` blocks;
-tables for removed features are **kept**, not dropped.
-**Why:** dropping tables/columns on a shipped DB risks data loss and complex
-down-migrations. Additive migrations are safe.
-**Trade-off:** vestigial tables may linger. Exception: the unused `notes` table
-(never written to) was dropped in the v8→v9 migration since removing it is
-data-loss-free (`DROP TABLE IF EXISTS notes`).
+### D9 — One main database and one secure database, no migrations yet
+**Decision:** the main database (`DatabaseHelper`) and the SQLCipher
+`secure.db` are each one schema at version 1. Nothing has shipped, so a schema
+change edits `_createDB` / `_onCreate` and the test phones are reinstalled; no
+code handles data an earlier build wrote.
+**Why:** 26 migrations had piled up for data that existed only on development
+phones; each was code to read, test and get wrong.
+**Trade-off:** none until the first release — from then on, every change raises
+the version and adds an `onUpgrade`.
 
 ---
 
 ### D10 — Refactor by safe widget extraction, not rewrite
-**Decision (this pass):** large screen files were reduced by extracting
-**presentation-only leaf widgets** into `widgets/` files, with no business-logic
-or BLoC-contract changes, verified by `flutter analyze` after each step.
-**Why:** the project has near-zero test coverage; behavioural rewrites would be
-unverifiable and risky.
-**Trade-off:** some large `State` classes (form builders, list screens) remain
-big; their decomposition is deferred to `REFACTORING_ROADMAP.md`.
+**Decision:** large screens are reduced by extracting presentation-only widgets
+into `widgets/` files, with no change to business logic or BLoC contracts.
+**Why:** behaviour on real phones is the hard part of this app and much of it is
+verified by hand; a rewrite would re-open what is already settled.
+**Trade-off:** some large `State` classes remain. The finished refactoring pass
+is in `archive/REFACTORING_ROADMAP.md`.
+
+---
+
+### D11 — Two APKs, one applicationId, one signing key
+**Decision:** the commercial and organization editions are Gradle flavors of one
+codebase with the same package and key; the inter-organizational edition is the
+commercial APK unlocked by an activation code. The organization versionCode is
+`2_000_000_000 + N`.
+**Why:** a store decides «نصب است» by package name, so every edition must share
+it; the versionCode band is then what keeps a store from ever "updating" an
+organization phone to the commercial build.
+**Trade-off:** once the organization APK is on a phone, the commercial one cannot
+be installed over it without an uninstall. See `architecture/editions.md`.
+
+---
+
+### D12 — Nothing secret outside the secure section
+**Decision:** secret data lives only in the SQLCipher `secure.db`, opened with a
+Keystore-bound key while the section is open. An encrypted SMS never enters
+`content://sms` or `messages`; a hidden contact leaves no trace outside the
+section.
+**Why:** the main database is opened by Kotlin while the app is dead, with no
+key, and the SMS provider is readable by other apps.
+**Trade-off:** encrypted messages are read only inside the section, behind its
+own PIN.
+
+---
+
+### D13 — SMS encryption: certificate handshake now, post-quantum upgrade after
+**Decision:** a session starts with a two-part classical handshake authenticated
+by member certificates from the key bank, then upgrades to ML-KEM-768 in the
+background; messages use a per-direction ratchet with AES-256-GCM.
+**Why:** the full post-quantum handshake costs about ten SMS parts before the
+first message; the upgrade makes the conversation post-quantum seconds later
+without the user waiting.
+**Trade-off:** the first messages of a session are protected classically until
+the upgrade lands. The wire format is pinned by golden vectors.
+
+---
+
+### D14 — Only `PermissionGate` asks for permissions
+**Decision:** no plugin in this app may request a runtime permission.
+**Why:** these plugins keep a single `MethodChannel.Result`; two overlapping
+requests crash the process (`Reply already submitted`), and a plugin's own
+dialog double-asks.
+**Trade-off:** `call_log`, `another_telephony`, `image_picker` and
+`image_cropper` were replaced by native code of our own.

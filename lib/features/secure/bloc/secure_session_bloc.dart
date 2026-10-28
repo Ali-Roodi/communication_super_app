@@ -207,7 +207,7 @@ class SecureSessionState extends Equatable {
 /// The secure section's session: whether it exists, and whether it is open.
 ///
 /// Rules:
-/// * it opens with **its own PIN** (owner's request, 1405/07/27) — 6 digits,
+/// * it opens with **its own PIN** (design decision, 1405/07/27) — 6 digits,
 ///   never the app PIN, with its own attempt budget
 ///   ([PinAttemptLimiter.secureSection]) checked before the vault's PBKDF2
 ///   runs. The app PIN — set, changed, removed or recovered — never touches
@@ -215,7 +215,7 @@ class SecureSessionState extends Equatable {
 ///   releases a second, Keystore-sealed copy of the key (`SecureBiometric`);
 /// * it locks the moment the app leaves the foreground;
 /// * a forgotten section PIN loses its content — there is no recovery path
-///   into it (owner's decision, 1405/07/05).
+///   into it (design decision, 1405/07/05).
 ///
 /// While open, the window is FLAG_SECURE. After a background lock the flag is
 /// kept until the next resume: the recents thumbnail is taken on the way out,

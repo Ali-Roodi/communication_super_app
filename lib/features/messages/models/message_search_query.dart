@@ -5,7 +5,7 @@ import 'package:communication_super_app/core/utils/search_text.dart';
 ///
 /// ## Why two stages
 ///
-/// `SearchText` is the app's ONE matcher (see DEVELOPER_GUIDE.md → «Contact search») and
+/// `SearchText` is the app's ONE matcher (see docs/DEVELOPER_GUIDE.md → «Contact search») and
 /// SQL cannot be it: `LIKE` has no idea that ي ≡ ی, that a ZWNJ or a harakat is
 /// invisible, or that «۵» is `5`, and this database carries no FTS5/ICU table to
 /// fold for it. So a body search runs:

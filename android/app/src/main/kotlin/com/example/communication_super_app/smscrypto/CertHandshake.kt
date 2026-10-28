@@ -29,7 +29,7 @@ import org.bouncycastle.crypto.params.X25519PublicKeyParameters
  *   A's can compute `X25519(X_A, eB)`, so A's first message proves A to B.
  * - **Forward secrecy** from the ephemeral-ephemeral term: a key stolen later
  *   does not open what was recorded before.
- * - **Not post-quantum.** The owner chose two SMS parts over the ten an
+ * - **Not post-quantum.** Two SMS parts were chosen over the ten an
  *   ML-KEM ciphertext costs (1405/07/25). The session carries a [Session.root]
  *   for [Upgrade], which the initiator runs in the background right after: from
  *   then on the messages are post-quantum too.

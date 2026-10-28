@@ -325,7 +325,7 @@ class _MessageResult extends StatelessWidget {
     // Flattened FIRST and matched on the flattened copy: `SearchText.matchRange`
     // returns indices into the string it was given, so measuring the range on
     // the raw body and painting the collapsed one would highlight the wrong
-    // characters (see DEVELOPER_GUIDE.md → «Contact search»).
+    // characters (see docs/DEVELOPER_GUIDE.md → «Contact search»).
     final flat = TemplateWire.displayText(
       hit.message.body,
     ).replaceAll(_whitespaceRun, ' ').trim();
