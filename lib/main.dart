@@ -12,6 +12,7 @@ import 'core/theme/theme_bloc.dart';
 import 'core/bloc_providers/app_bloc_providers.dart';
 import 'core/widgets/app_lock_wrapper.dart';
 import 'features/authentication/screens/auth_wrapper_screen.dart';
+import 'features/edition/screens/organization_activation_gate.dart';
 import 'features/messages/services/notification_service.dart';
 import 'features/secure/widgets/secure_session_guard.dart';
 import 'features/settings/bloc/settings_bloc.dart';
@@ -94,8 +95,11 @@ class MyApp extends StatelessWidget {
                 },
                 // CallUiCoordinator sits ABOVE the auth flow: an incoming call
                 // must surface its UI even on the PIN screen (default-dialer
-                // duty) — the rest of the app stays locked.
-                home: const CallUiCoordinator(child: AuthWrapperScreen()),
+                // duty) — the rest of the app stays locked. An organization
+                // APK that is not activated stops before the PIN.
+                home: const CallUiCoordinator(
+                  child: OrganizationActivationGate(child: AuthWrapperScreen()),
+                ),
               );
             },
           );

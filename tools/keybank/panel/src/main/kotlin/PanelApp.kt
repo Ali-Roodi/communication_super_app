@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Business
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Lock
@@ -50,6 +51,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import ir.hamrasan.keybank.Activation
 
 /** The logo's own ground (`Hamresan-Logo.svg`, `@color/ic_launcher_background`). */
 val Navy = Color(0xFF023066)
@@ -95,7 +97,8 @@ fun PanelTheme(content: @Composable () -> Unit) {
     }
 }
 
-enum class Section { Activation, Keys }
+/** The rail, top to bottom. The two activation menus are apart on purpose: their codes differ and neither opens the other. */
+enum class Section { Activation, OrgActivation, Keys }
 
 fun main(args: Array<String>) {
     if (args.firstOrNull() == "--self-test") {
@@ -127,6 +130,7 @@ fun Panel(
     keys: KeysState,
     start: Section = Section.Activation,
     activation: ActivationState = remember { ActivationState() },
+    orgActivation: ActivationState = remember { ActivationState() },
 ) {
     var section by remember { mutableStateOf(start) }
     Column(Modifier.fillMaxSize()) {
@@ -141,7 +145,13 @@ fun Panel(
                     selected = section == Section.Activation,
                     onClick = { section = Section.Activation },
                     icon = { Icon(Icons.Outlined.Key, null) },
-                    label = { Text("کد فعال‌سازی", textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
+                    label = { Text("فعال‌سازی بین‌سازمانی", textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
+                )
+                NavigationRailItem(
+                    selected = section == Section.OrgActivation,
+                    onClick = { section = Section.OrgActivation },
+                    icon = { Icon(Icons.Outlined.Business, null) },
+                    label = { Text("فعال‌سازی سازمانی", textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
                 )
                 NavigationRailItem(
                     selected = section == Section.Keys,
@@ -153,7 +163,8 @@ fun Panel(
             VerticalDivider()
             Box(Modifier.fillMaxSize().padding(28.dp)) {
                 when (section) {
-                    Section.Activation -> ActivationScreen(activation)
+                    Section.Activation -> ActivationScreen(activation, Activation.Target.INTER_ORGANIZATION)
+                    Section.OrgActivation -> ActivationScreen(orgActivation, Activation.Target.ORGANIZATION)
                     Section.Keys -> KeysScreen(keys)
                 }
             }
@@ -172,7 +183,7 @@ private fun Header() {
         Column {
             Text("پنل صدور هم‌رسان", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, fontFamily = Vazirmatn)
             Text(
-                "کد فعال‌سازی نسخهٔ بین‌سازمانی و فایل کلید اعضا",
+                "کد فعال‌سازی نسخه‌های بین‌سازمانی و سازمانی، و فایل کلید اعضا",
                 color = Color.White.copy(alpha = 0.75f),
                 fontSize = 12.sp,
                 fontFamily = Vazirmatn,

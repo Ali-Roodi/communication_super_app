@@ -29,16 +29,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ir.hamrasan.keybank.Activation
 
-/** What the activation screen keeps while the panel is open: the field and this session's codes. */
+/** What an activation screen keeps while the panel is open: the field and this session's codes. One per [Activation.Target]. */
 class ActivationState {
     var input by mutableStateOf("")
     val history = mutableStateListOf<Pair<String, String>>()
 }
 
 @Composable
-fun ActivationScreen(state: ActivationState) {
+fun ActivationScreen(state: ActivationState, target: Activation.Target) {
     val device = Activation.normalizeDeviceCode(state.input)
-    val code = device?.let(Activation::activationCodeFor)
+    val code = device?.let { Activation.activationCodeFor(it, target) }
+    val organization = target == Activation.Target.ORGANIZATION
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
     LaunchedEffect(device) {
@@ -53,10 +54,15 @@ fun ActivationScreen(state: ActivationState) {
         Modifier.verticalScroll(rememberScrollState()).widthIn(max = 760.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        Section("کد فعال‌سازی نسخهٔ بین‌سازمانی", Modifier.fillMaxWidth()) {
+        Section(if (organization) "کد فعال‌سازی نسخهٔ سازمانی" else "کد فعال‌سازی نسخهٔ بین‌سازمانی", Modifier.fillMaxWidth()) {
             Text(
-                "کاربر کد دستگاهش را در گوشی می‌بیند: تنظیمات ← درباره برنامه ← نسخه بین‌سازمانی. آن کد ۶ نویسه‌ای را این‌جا وارد کنید " +
-                    "و کد فعال‌سازی را به او بدهید تا در همان صفحه وارد کند.",
+                if (organization) {
+                    "نسخهٔ سازمانی تا فعال نشود باز نمی‌شود و همان صفحهٔ اول، کد دستگاه را نشان می‌دهد. آن کد ۶ نویسه‌ای را این‌جا وارد کنید " +
+                        "و کد فعال‌سازی را به کاربر بدهید تا در همان صفحه وارد کند."
+                } else {
+                    "کاربر کد دستگاهش را در گوشی می‌بیند: تنظیمات ← درباره برنامه ← نسخه بین‌سازمانی. آن کد ۶ نویسه‌ای را این‌جا وارد کنید " +
+                        "و کد فعال‌سازی را به او بدهید تا در همان صفحه وارد کند."
+                },
                 style = MaterialTheme.typography.bodyMedium,
             )
             OutlinedTextField(
@@ -97,8 +103,13 @@ fun ActivationScreen(state: ActivationState) {
         }
 
         Note(
-            "کد فعال‌سازی فقط منوی نسخهٔ بین‌سازمانی را باز می‌کند و رمز نیست. پیام رمز بدون فایل کلیدی که مرجع " +
-                "امضا کرده ممکن نیست؛ آن در بخش «فایل کلید اعضا» ساخته می‌شود.",
+            if (organization) {
+                "این کد فقط نسخهٔ سازمانی را باز می‌کند؛ کد نسخهٔ بین‌سازمانی همان گوشی با آن فرق دارد و در نسخهٔ سازمانی پذیرفته نمی‌شود. " +
+                    "کد فعال‌سازی رمز نیست: پیام رمز بدون فایل کلیدی که مرجع امضا کرده ممکن نیست؛ آن در بخش «فایل کلید اعضا» ساخته می‌شود."
+            } else {
+                "کد فعال‌سازی فقط منوی نسخهٔ بین‌سازمانی را باز می‌کند و رمز نیست. پیام رمز بدون فایل کلیدی که مرجع " +
+                    "امضا کرده ممکن نیست؛ آن در بخش «فایل کلید اعضا» ساخته می‌شود. نسخهٔ سازمانی کد خودش را دارد."
+            },
         )
     }
 }

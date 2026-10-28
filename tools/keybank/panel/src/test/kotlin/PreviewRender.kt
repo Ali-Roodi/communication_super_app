@@ -55,6 +55,32 @@ class PreviewRender {
         }
         render("01-activation") { Panel(KeysState(rememberFile = false), start = Section.Activation, activation = state) }
         render("02-activation-bad") { Panel(KeysState(rememberFile = false), activation = ActivationState().apply { input = "4f33xb" }) }
+        render("02b-org-activation") {
+            Panel(KeysState(rememberFile = false), start = Section.OrgActivation, orgActivation = ActivationState().apply { input = "ef10c7" })
+        }
+    }
+
+    @Test
+    fun anOrganizationMemberGetsTheOrganizationCode() {
+        val (keys, dir) = unlocked(withMembers = false)
+        val form = MemberForm().apply {
+            organization = "سازمان نمونه"; name = "عضو سازمانی"; mobile = "09120000003"; deviceCode = "B60966"
+            target = ir.hamrasan.keybank.Activation.Target.ORGANIZATION
+        }
+        render("03b-org-member-form") { Panel(keys, start = Section.Keys) }
+        runBlocking { keys.addMember(form) }
+        val d = keys.delivery!!
+        kotlin.test.assertEquals("f87be27c18", d.activationCode)
+        kotlin.test.assertEquals(ir.hamrasan.keybank.Activation.Target.ORGANIZATION, d.target)
+        // The form keeps the edition for the next member of the same batch.
+        kotlin.test.assertEquals(ir.hamrasan.keybank.Activation.Target.ORGANIZATION, form.target)
+        val sheet = DeliverySheet.html("سازمان نمونه", d)
+        kotlin.test.assertTrue("کد فعال‌سازی نسخهٔ سازمانی" in sheet)
+        kotlin.test.assertTrue("f87be-27c18" in sheet)
+        kotlin.test.assertTrue("اولین باز شدن" in sheet)
+        kotlin.test.assertFalse("نسخه بین‌سازمانی" in sheet)
+        render("03c-org-member-issued") { Panel(keys, start = Section.Keys) }
+        dir.deleteRecursively()
     }
 
     @Test

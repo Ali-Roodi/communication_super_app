@@ -3,7 +3,7 @@ package ir.hamrasan.keybank
 import org.bouncycastle.crypto.digests.Blake3Digest
 
 /**
- * The inter-organizational activation code — the issuing side.
+ * The activation code — the issuing side, for both editions that take one.
  *
  * **MIRROR of `lib/core/edition/activation_code.dart`** (which is itself the
  * mentor's original generator, kept exactly): change one without the other
@@ -12,13 +12,25 @@ import org.bouncycastle.crypto.digests.Blake3Digest
  * there).
  *
  * 1. The phone shows a **device code**: BLAKE3(ANDROID_ID), first 3 bytes, hex.
- * 2. Interleave it with the app id `111111`: `d0 1 d1 1 … d5 1`.
+ * 2. Interleave it with the [Target]'s app id: `d0 1 d1 1 … d5 1` for `111111`.
  * 3. The **activation code** is BLAKE3 of that, first 5 bytes, lowercase hex.
+ *
+ * [Target.INTER_ORGANIZATION] is the mentor's own format (his generator issues
+ * it too); [Target.ORGANIZATION] is ours alone — a code for one is refused by
+ * the other. Both are pinned in `ActivationTest` and `activation_code_test.dart`.
  *
  * There is no secret in it — see `docs/architecture/editions.md`.
  */
 object Activation {
-    const val APP_ID = "111111"
+    /** What a code opens. **MIRROR of `ActivationTarget` in the app.** */
+    enum class Target(val appId: String) {
+        /** The commercial app becoming the inter-organizational edition. */
+        INTER_ORGANIZATION("111111"),
+
+        /** The organization APK, which opens nothing until activated. */
+        ORGANIZATION("222222"),
+    }
+
     const val DEVICE_CODE_LENGTH = 6
     const val ACTIVATION_CODE_LENGTH = 10
 
@@ -26,13 +38,13 @@ object Activation {
     fun deviceCodeFor(androidId: String): String =
         blake3Hex(androidId.toByteArray(Charsets.UTF_8), DEVICE_CODE_LENGTH / 2)
 
-    /** The activation code for a canonical (lowercase hex) [deviceCode]. */
-    fun activationCodeFor(deviceCode: String): String {
+    /** The [target] activation code for a canonical (lowercase hex) [deviceCode]. */
+    fun activationCodeFor(deviceCode: String, target: Target): String {
         require(deviceCode.length == DEVICE_CODE_LENGTH && deviceCode.all { it in HEX }) {
             "a device code is 6 lowercase hex characters"
         }
         val combined = StringBuilder()
-        for (i in 0 until DEVICE_CODE_LENGTH) combined.append(deviceCode[i]).append(APP_ID[i])
+        for (i in 0 until DEVICE_CODE_LENGTH) combined.append(deviceCode[i]).append(target.appId[i])
         return blake3Hex(combined.toString().toByteArray(Charsets.UTF_8), ACTIVATION_CODE_LENGTH / 2)
     }
 

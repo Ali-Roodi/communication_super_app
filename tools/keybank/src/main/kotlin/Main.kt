@@ -17,7 +17,7 @@ import kotlin.system.exitProcess
  *   public  <authority.hka>
  *   issue   <authority.hka> <roster.csv> <output folder>
  *   inspect <key file .hkb> <authority public key .txt>
- *   activation <device code>
+ *   activation <device code> [--organization]
  *
  * Passwords are asked on the console; HAMRESAN_KEYBANK_PASSWORD (authority
  * file) and HAMRESAN_KEYFILE_PASSWORD (inspect) are read instead when set,
@@ -71,9 +71,11 @@ private fun usage(): Nothing {
                   passwords.csv are reused.
           inspect <file.hkb> <authority-public.txt>
                   Opens and verifies a key file.
-          activation <device code>
-                  The inter-organizational activation code for the 6-character
-                  device code a phone shows. Needs no authority.
+          activation <device code> [--organization]
+                  The activation code for the 6-character device code a phone
+                  shows: the inter-organizational edition by default, the
+                  organization APK with --organization (the two differ, and
+                  neither opens the other). Needs no authority.
 
         The roster is UTF-8 (Excel: «CSV UTF-8»); its first line names the
         organization: organization,<name>. For Persian text in the console,
@@ -140,9 +142,13 @@ private fun issue(args: Array<String>) {
 }
 
 private fun activation(args: Array<String>) {
-    if (args.size != 2) usage()
+    val target = when {
+        args.size == 2 -> Activation.Target.INTER_ORGANIZATION
+        args.size == 3 && args[2] == "--organization" -> Activation.Target.ORGANIZATION
+        else -> usage()
+    }
     val device = Activation.normalizeDeviceCode(args[1]) ?: fail("a device code is 6 hex characters, e.g. 4f339b")
-    println(Activation.activationCodeFor(device))
+    println(Activation.activationCodeFor(device, target))
 }
 
 private fun inspect(args: Array<String>) {

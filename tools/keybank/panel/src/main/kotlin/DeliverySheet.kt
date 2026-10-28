@@ -20,15 +20,24 @@ object DeliverySheet {
     private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
 
     fun html(organization: String, d: KeysState.Delivery): String {
+        val forOrganization = d.target == Activation.Target.ORGANIZATION
         val activation = d.activationCode?.let {
-            """<div class="box"><div class="lbl">کد فعال‌سازی نسخهٔ بین‌سازمانی</div><div class="code">${Activation.display(it)}</div></div>"""
+            """<div class="box"><div class="lbl">${activationLabel(d.target)}</div><div class="code">${Activation.display(it)}</div></div>"""
         } ?: ""
         val steps = listOf(
-            "<b>نصب:</b> برنامهٔ هم‌رسان را نصب و باز کنید.",
-            if (d.activationCode != null) {
-                "<b>فعال‌سازی:</b> تنظیمات ← درباره برنامه ← نسخه بین‌سازمانی. کد فعال‌سازی بالا را وارد کنید."
-            } else {
-                "<b>فعال‌سازی:</b> برنامه باید نسخهٔ بین‌سازمانی باشد (تنظیمات ← درباره برنامه ← نسخه بین‌سازمانی). کد فعال‌سازی را از مسئول بگیرید."
+            if (forOrganization) "<b>نصب:</b> برنامهٔ هم‌رسان سازمانی را نصب و باز کنید." else "<b>نصب:</b> برنامهٔ هم‌رسان را نصب و باز کنید.",
+            when {
+                forOrganization && d.activationCode != null ->
+                    "<b>فعال‌سازی:</b> برنامه در اولین باز شدن کد فعال‌سازی می‌خواهد. کد فعال‌سازی بالا را وارد کنید."
+                forOrganization ->
+                    "<b>فعال‌سازی:</b> برنامه در اولین باز شدن کد دستگاه را نشان می‌دهد؛ آن را به مسئول بدهید و کد فعال‌سازی را بگیرید."
+                d.activationCode != null ->
+                    "<b>فعال‌سازی:</b> تنظیمات ← درباره برنامه ← نسخه بین‌سازمانی. کد فعال‌سازی بالا را وارد کنید."
+                d.target == null ->
+                    "<b>فعال‌سازی:</b> کد فعال‌سازی را از مسئول بگیرید. نسخهٔ سازمانی آن را در اولین باز شدن می‌خواهد؛ " +
+                        "نسخهٔ بین‌سازمانی در تنظیمات ← درباره برنامه ← نسخه بین‌سازمانی."
+                else ->
+                    "<b>فعال‌سازی:</b> برنامه باید نسخهٔ بین‌سازمانی باشد (تنظیمات ← درباره برنامه ← نسخه بین‌سازمانی). کد فعال‌سازی را از مسئول بگیرید."
             },
             "<b>فایل کلید:</b> فایل <span class=\"ltr\">${esc(d.file.name)}</span> را جداگانه دریافت کنید و در برنامه از مسیر " +
                 "تنظیمات ← بانک کلید ← وارد کردن فایل کلید باز کنید. رمز بالا را وارد کنید (حروف بزرگ و کوچک و خط تیره مهم نیست).",

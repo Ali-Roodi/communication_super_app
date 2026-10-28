@@ -30,7 +30,12 @@ object SelfTest {
         out.mkdirs()
         val log = StringBuilder()
         val ok = try {
-            check(Activation.activationCodeFor("b60966") == "9c4a48e93a") { "activation code differs from the app" }
+            check(Activation.activationCodeFor("b60966", Activation.Target.INTER_ORGANIZATION) == "9c4a48e93a") {
+                "activation code differs from the app"
+            }
+            check(Activation.activationCodeFor("b60966", Activation.Target.ORGANIZATION) == "f87be27c18") {
+                "organization activation code differs from the app"
+            }
             log.appendLine("activation: ok")
 
             val random = SecureRandom()
@@ -58,7 +63,7 @@ object SelfTest {
                 check(opened.cert.phone == "09120000002" && d.index == 1) { "key file does not open as issued" }
                 // The newcomer's file is theirs alone: the first member's file did not change.
                 check(firstFile.readBytes().contentEquals(firstBytes)) { "another member's file was rewritten" }
-                check(d.activationCode == "9c4a48e93a") { "delivery activation code" }
+                check(d.activationCode == "9c4a48e93a" && d.target == Activation.Target.INTER_ORGANIZATION) { "delivery activation code" }
                 log.appendLine("issue + open: ok")
 
                 // The two members talk over their certificates alone, as two
@@ -105,6 +110,9 @@ object SelfTest {
                 keys.delivery = null
                 render(out, "keys") { Panel(keys, start = Section.Keys) }
                 render(out, "activation") { Panel(KeysState(rememberFile = false), activation = ActivationState().apply { input = "4f339b" }) }
+                render(out, "org-activation") {
+                    Panel(KeysState(rememberFile = false), start = Section.OrgActivation, orgActivation = ActivationState().apply { input = "4f339b" })
+                }
                 File(out, "sheet.html").writeText(DeliverySheet.html("سازمان آزمون", d))
                 log.appendLine("render: ok")
             } finally {

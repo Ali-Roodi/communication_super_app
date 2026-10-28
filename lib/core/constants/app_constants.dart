@@ -121,6 +121,11 @@ class AppConstants {
   /// See `ActivationRepository`.
   static const String interOrgActivationKey = 'inter_org_activation_code';
 
+  /// The organization APK's activation code, kept apart from
+  /// [interOrgActivationKey]: an organization APK installed over an activated
+  /// commercial one inherits that storage, and its code must not open it.
+  static const String orgActivationKey = 'org_activation_code';
+
   // Auth Types
   static const String authTypePin = 'pin';
   static const String authTypePattern = 'pattern';

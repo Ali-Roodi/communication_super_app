@@ -29,6 +29,7 @@ import androidx.compose.material.icons.outlined.Print
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -204,12 +205,26 @@ private fun NewMemberForm(state: KeysState, needsOrganization: Boolean, memberCo
             supportingText = { Text("چند شماره را با ؛ یا ویرگول جدا کنید. پیام رمزی که از این شماره‌ها برسد هم از او شناخته می‌شود.") },
             textStyle = LtrText, singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth(),
         )
+        Text("برنامهٔ عضو", style = MaterialTheme.typography.labelLarge, color = Color(0xFF5A6474))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            for ((t, label) in listOf(
+                Activation.Target.INTER_ORGANIZATION to "هم‌رسان بین‌سازمانی",
+                Activation.Target.ORGANIZATION to "هم‌رسان سازمانی",
+            )) {
+                FilterChip(
+                    selected = form.target == t,
+                    onClick = { edit { form.target = t } },
+                    label = { Text(label) },
+                    enabled = !busy,
+                )
+            }
+        }
         OutlinedTextField(
             form.deviceCode, { v -> edit { form.deviceCode = v } },
             label = { Text("کد دستگاه (اختیاری)") },
             supportingText = {
                 Text(
-                    if (device != null) "کد فعال‌سازی: ${Activation.display(Activation.activationCodeFor(device))}"
+                    if (device != null) "کد فعال‌سازی: ${Activation.display(Activation.activationCodeFor(device, form.target))}"
                     else "اگر بدهید، کد فعال‌سازی هم روی برگهٔ تحویل می‌آید.",
                 )
             },
@@ -291,7 +306,7 @@ private fun DeliveryDialog(state: KeysState, d: KeysState.Delivery) {
                     Text("این فایل هنوز ساخته نشده است.", color = MaterialTheme.colorScheme.error)
                 }
                 d.password?.let { CopyRow(if (d.event == KeysState.Event.NEW_KEY) "رمز تازهٔ فایل" else "رمز فایل", it, big = true) }
-                d.activationCode?.let { CopyRow("کد فعال‌سازی", Activation.display(it), copyValue = it) }
+                d.activationCode?.let { CopyRow(activationLabel(d.target), Activation.display(it), copyValue = it) }
                 Note("فایل و رمز را از دو راه جدا به عضو بدهید؛ مثلاً فایل روی فلش یا پیام‌رسان، رمز روی برگهٔ چاپی یا حضوری.")
                 when {
                     d.event == KeysState.Event.NEW_KEY -> Note(

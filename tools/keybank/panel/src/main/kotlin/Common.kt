@@ -1,6 +1,7 @@
 package ir.hamrasan.panel
 
 import androidx.compose.foundation.BorderStroke
+import ir.hamrasan.keybank.Activation
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -114,4 +115,11 @@ fun CopyRow(label: String, value: String, copyValue: String = value, big: Boolea
 @Composable
 fun Hint(text: String, color: Color = Color(0xFF5A6474), size: TextUnit = 13.sp) {
     Text(text, color = color, fontSize = size, style = MaterialTheme.typography.bodySmall)
+}
+
+/** What an activation code is called wherever it is handed over — the two editions' codes differ. */
+fun activationLabel(target: Activation.Target?): String = when (target) {
+    Activation.Target.ORGANIZATION -> "کد فعال‌سازی نسخهٔ سازمانی"
+    Activation.Target.INTER_ORGANIZATION -> "کد فعال‌سازی نسخهٔ بین‌سازمانی"
+    null -> "کد فعال‌سازی"
 }

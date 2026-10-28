@@ -49,6 +49,8 @@ class KeysState(
         val event: Event? = null,
         /** Whether this member's key changed in that issue. */
         val keyChanged: Boolean = false,
+        /** The edition [activationCode] is for; known only right after an issue. */
+        val target: Activation.Target? = null,
     )
 
     /** A short result or error shown in its own dialog. */
@@ -207,9 +209,10 @@ class KeysState(
                 mine.entry.phones,
                 mine.file,
                 mine.password,
-                deviceCode?.let(Activation::activationCodeFor),
+                deviceCode?.let { Activation.activationCodeFor(it, form.target) },
                 event = Event.ADDED,
                 keyChanged = true,
+                target = form.target,
             )
             form.clear()
         } catch (e: AuthorityFolder.MemberError) {
@@ -383,6 +386,9 @@ class MemberForm {
     var mobile by mutableStateOf("")
     var others by mutableStateOf("")
     var deviceCode by mutableStateOf("")
+
+    /** Which app the member runs — what the device code is turned into. Kept by [clear]: a batch is usually one edition. */
+    var target by mutableStateOf(Activation.Target.INTER_ORGANIZATION)
     var organization by mutableStateOf("")
     var error by mutableStateOf<String?>(null)
 

@@ -17,17 +17,19 @@ class LoadEdition extends EditionEvent {
   const LoadEdition();
 }
 
-/// Checks [code] against this device and, on a match, unlocks the
-/// inter-organizational edition.
-class ActivateInterOrganization extends EditionEvent {
+/// Checks [code] against this device and, on a match, activates: the
+/// inter-organizational edition in the commercial build, the app itself in the
+/// organization build.
+class ActivateEdition extends EditionEvent {
   final String code;
-  const ActivateInterOrganization(this.code);
+  const ActivateEdition(this.code);
   @override
   List<Object?> get props => [code];
 }
 
 /// Drops back to the commercial edition. The stored code is forgotten, so the
-/// same code (it does not change for a device) activates it again.
+/// same code (it does not change for a device) activates it again. Commercial
+/// build only: an organization APK has nothing to fall back to.
 class DeactivateInterOrganization extends EditionEvent {
   const DeactivateInterOrganization();
 }
@@ -46,15 +48,20 @@ enum ActivationFailure {
 }
 
 class EditionState extends Equatable {
-  /// The edition the app is in right now: [AppEdition.current] for an
-  /// organization build, and for the commercial build either
-  /// [AppEdition.commercial] or — after activation —
+  /// The edition the app is in right now: [AppEdition.organization] for an
+  /// organization build — activated or not, see [activated] — and for the
+  /// commercial build either [AppEdition.commercial] or, after activation,
   /// [AppEdition.interOrganization].
   final AppEdition edition;
 
-  /// The code the user reads to the mentor. Null until loaded, and in an
-  /// organization build (which has nothing to activate) or on a device with no
-  /// identity — [deviceCodeUnavailable] tells those apart.
+  /// A stored activation code verified against this device. In the commercial
+  /// build it is the same fact as [edition] being inter-organizational; in the
+  /// organization build it is what lets the app open at all
+  /// (`OrganizationActivationGate`).
+  final bool activated;
+
+  /// The code the user reads to the mentor. Null until loaded, or on a device
+  /// with no identity — [deviceCodeUnavailable] tells those apart.
   final String? deviceCode;
 
   final bool loaded;
@@ -74,6 +81,7 @@ class EditionState extends Equatable {
 
   const EditionState({
     required this.edition,
+    this.activated = false,
     this.deviceCode,
     this.loaded = false,
     this.deviceCodeUnavailable = false,
@@ -83,11 +91,18 @@ class EditionState extends Equatable {
   });
 
   /// The editions that carry the secure features (lock icon, encrypted SMS,
-  /// hidden phonebook). What later phases branch on.
-  bool get hasSecureFeatures => edition != AppEdition.commercial;
+  /// hidden phonebook). What later phases branch on. An organization APK that
+  /// is not activated has none — the gate keeps it closed anyway; this keeps
+  /// the secure section closed even behind the gate.
+  bool get hasSecureFeatures => switch (edition) {
+    AppEdition.commercial => false,
+    AppEdition.interOrganization => true,
+    AppEdition.organization => activated,
+  };
 
   EditionState copyWith({
     AppEdition? edition,
+    bool? activated,
     String? deviceCode,
     bool? loaded,
     bool? deviceCodeUnavailable,
@@ -97,6 +112,7 @@ class EditionState extends Equatable {
     int? failedAttempts,
   }) => EditionState(
     edition: edition ?? this.edition,
+    activated: activated ?? this.activated,
     deviceCode: deviceCode ?? this.deviceCode,
     loaded: loaded ?? this.loaded,
     deviceCodeUnavailable: deviceCodeUnavailable ?? this.deviceCodeUnavailable,
@@ -108,6 +124,7 @@ class EditionState extends Equatable {
   @override
   List<Object?> get props => [
     edition,
+    activated,
     deviceCode,
     loaded,
     deviceCodeUnavailable,
@@ -119,38 +136,40 @@ class EditionState extends Equatable {
 
 // ── Bloc ────────────────────────────────────────────────────────────────────
 
-/// The edition the running app is in.
+/// The edition the running app is in, and whether it is activated.
 ///
 /// The build decides between commercial and organization at compile time
-/// ([AppEdition.current]); this bloc adds the one runtime transition there is —
-/// commercial → inter-organizational, by activation code — and is what every
-/// edition-dependent screen reads.
+/// ([AppEdition.current]); this bloc adds activation on top: commercial →
+/// inter-organizational, and organization not-yet-usable → usable. Every
+/// edition-dependent screen reads it.
 class EditionBloc extends Bloc<EditionEvent, EditionState> {
-  EditionBloc(this._repository)
-    : super(const EditionState(edition: AppEdition.current)) {
+  EditionBloc(this._repository, {AppEdition build = AppEdition.current})
+    : _build = build,
+      super(EditionState(edition: build)) {
     on<LoadEdition>(_onLoad);
-    on<ActivateInterOrganization>(_onActivate);
+    on<ActivateEdition>(_onActivate);
     on<DeactivateInterOrganization>(_onDeactivate);
   }
 
   final ActivationRepository _repository;
 
-  /// Activation exists only in the commercial build. The organization build
-  /// is its edition by construction and never reads a device code.
-  static const bool _canActivate = AppEdition.current == AppEdition.commercial;
+  /// [AppEdition.current] outside tests.
+  final AppEdition _build;
+
+  bool get _isCommercialBuild => _build == AppEdition.commercial;
+
+  /// The edition an activation (or its absence) leaves the app in.
+  AppEdition _editionFor({required bool activated}) => _isCommercialBuild
+      ? (activated ? AppEdition.interOrganization : AppEdition.commercial)
+      : _build;
 
   Future<void> _onLoad(LoadEdition event, Emitter<EditionState> emit) async {
-    if (!_canActivate) {
-      emit(state.copyWith(loaded: true));
-      return;
-    }
     final deviceCode = await _repository.deviceCode();
     final activated = deviceCode != null && await _repository.isActivated();
     emit(
       state.copyWith(
-        edition: activated
-            ? AppEdition.interOrganization
-            : AppEdition.commercial,
+        edition: _editionFor(activated: activated),
+        activated: activated,
         deviceCode: deviceCode,
         deviceCodeUnavailable: deviceCode == null,
         loaded: true,
@@ -159,10 +178,10 @@ class EditionBloc extends Bloc<EditionEvent, EditionState> {
   }
 
   Future<void> _onActivate(
-    ActivateInterOrganization event,
+    ActivateEdition event,
     Emitter<EditionState> emit,
   ) async {
-    if (!_canActivate || state.checking) return;
+    if (state.checking || state.activated) return;
     emit(state.copyWith(checking: true));
     ActivationFailure? failure;
     try {
@@ -175,7 +194,8 @@ class EditionBloc extends Bloc<EditionEvent, EditionState> {
     emit(
       failure == null
           ? state.copyWith(
-              edition: AppEdition.interOrganization,
+              edition: _editionFor(activated: true),
+              activated: true,
               checking: false,
               clearLastFailure: true,
               failedAttempts: 0,
@@ -192,11 +212,12 @@ class EditionBloc extends Bloc<EditionEvent, EditionState> {
     DeactivateInterOrganization event,
     Emitter<EditionState> emit,
   ) async {
-    if (!_canActivate) return;
+    if (!_isCommercialBuild) return;
     await _repository.deactivate();
     emit(
       state.copyWith(
         edition: AppEdition.commercial,
+        activated: false,
         clearLastFailure: true,
         failedAttempts: 0,
       ),

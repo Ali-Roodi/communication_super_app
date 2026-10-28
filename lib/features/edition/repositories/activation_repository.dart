@@ -5,7 +5,8 @@ import 'package:communication_super_app/core/constants/app_constants.dart';
 import 'package:communication_super_app/core/edition/activation_code.dart';
 import '../services/device_identity_service.dart';
 
-/// Whether this install has unlocked the inter-organizational edition.
+/// Whether this install is activated for [target] — the inter-organizational
+/// edition in the commercial build, the app itself in the organization build.
 ///
 /// What is stored is the **activation code itself**, not an "activated" flag,
 /// and it is re-verified against the device's own identity on every read. So
@@ -14,13 +15,21 @@ import '../services/device_identity_service.dart';
 /// regenerates ANDROID_ID — fails the check and reads as not activated.
 class ActivationRepository {
   ActivationRepository({
+    this.target = ActivationTarget.ofBuild,
     DeviceIdentityService? identity,
     FlutterSecureStorage? storage,
   }) : _identity = identity ?? DeviceIdentityService(),
        _storage = storage ?? const FlutterSecureStorage();
 
+  final ActivationTarget target;
   final DeviceIdentityService _identity;
   final FlutterSecureStorage _storage;
+
+  /// One key per target, so neither code is ever read as the other's.
+  String get _key => switch (target) {
+    ActivationTarget.interOrganization => AppConstants.interOrgActivationKey,
+    ActivationTarget.organization => AppConstants.orgActivationKey,
+  };
 
   /// The 6-character code the user reads to the mentor, or null when the
   /// device has no identity to derive it from.
@@ -35,7 +44,11 @@ class ActivationRepository {
     if (stored == null) return false;
     final device = await deviceCode();
     if (device == null) return false;
-    return ActivationCode.matches(deviceCode: device, input: stored);
+    return ActivationCode.matches(
+      deviceCode: device,
+      input: stored,
+      target: target,
+    );
   }
 
   /// Stores [input] when it is this device's activation code.
@@ -48,22 +61,25 @@ class ActivationRepository {
     if (device == null) return false;
     final code = ActivationCode.normalize(input);
     if (code == null ||
-        !ActivationCode.matches(deviceCode: device, input: code)) {
+        !ActivationCode.matches(
+          deviceCode: device,
+          input: code,
+          target: target,
+        )) {
       return false;
     }
-    await _storage.write(key: AppConstants.interOrgActivationKey, value: code);
+    await _storage.write(key: _key, value: code);
     return true;
   }
 
-  Future<void> deactivate() =>
-      _storage.delete(key: AppConstants.interOrgActivationKey);
+  Future<void> deactivate() => _storage.delete(key: _key);
 
   /// A storage failure (a Keystore key invalidated by a restore, say) reads as
   /// "not activated": the user can enter the code again, whereas guessing
   /// "activated" would unlock an edition on no evidence at all.
   Future<String?> _readStored() async {
     try {
-      return await _storage.read(key: AppConstants.interOrgActivationKey);
+      return await _storage.read(key: _key);
     } catch (e) {
       debugPrint('Activation code unreadable: $e');
       return null;

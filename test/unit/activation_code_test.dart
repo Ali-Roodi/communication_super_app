@@ -14,6 +14,21 @@ const _reference = [
   ('3f6c1e0b9a27d845', '33b957', '0c310a2277'),
 ];
 
+const _inter = ActivationTarget.interOrganization;
+const _org = ActivationTarget.organization;
+
+/// The organization APK's codes for the same device codes. Ours, not the
+/// mentor's; pinned to the same values in `tools/keybank`'s `ActivationTest`,
+/// whose BLAKE3 is Bouncy Castle's — two implementations agreeing.
+const _organization = [
+  ('10e9fa', '2e68ceefcf'),
+  ('5cd04a', '16e4d9c787'),
+  ('65a992', '3496a31e3a'),
+  ('806736', 'b0c1e7c455'),
+  ('33b957', 'a3d4ec8c14'),
+  ('b60966', 'f87be27c18'),
+];
+
 final String _zwnj = String.fromCharCode(0x200C);
 final String _lrm = String.fromCharCode(0x200E);
 
@@ -22,9 +37,16 @@ void main() {
     for (final (androidId, deviceCode, activationCode) in _reference) {
       test('ANDROID_ID $androidId', () {
         expect(ActivationCode.deviceCodeFor(androidId), deviceCode);
-        expect(ActivationCode.activationCodeFor(deviceCode), activationCode);
         expect(
-          ActivationCode.matches(deviceCode: deviceCode, input: activationCode),
+          ActivationCode.activationCodeFor(deviceCode, target: _inter),
+          activationCode,
+        );
+        expect(
+          ActivationCode.matches(
+            deviceCode: deviceCode,
+            input: activationCode,
+            target: _inter,
+          ),
           isTrue,
         );
       });
@@ -35,7 +57,7 @@ void main() {
     final device = ActivationCode.deviceCodeFor('9774d56d682e549c');
     expect(device, matches(RegExp(r'^[0-9a-f]{6}$')));
     expect(
-      ActivationCode.activationCodeFor(device),
+      ActivationCode.activationCodeFor(device, target: _inter),
       matches(RegExp(r'^[0-9a-f]{10}$')),
     );
   });
@@ -70,29 +92,48 @@ void main() {
   group('matches', () {
     test('a tolerant spelling of the right code is accepted', () {
       expect(
-        ActivationCode.matches(deviceCode: '33b957', input: '0C31-0A22-77'),
+        ActivationCode.matches(
+          deviceCode: '33b957',
+          input: '0C31-0A22-77',
+          target: _inter,
+        ),
         isTrue,
       );
     });
 
     test('another device\'s code is rejected', () {
       expect(
-        ActivationCode.matches(deviceCode: '33b957', input: 'ba57b3b74f'),
+        ActivationCode.matches(
+          deviceCode: '33b957',
+          input: 'ba57b3b74f',
+          target: _inter,
+        ),
         isFalse,
       );
     });
 
     test('a one-character change is rejected', () {
       expect(
-        ActivationCode.matches(deviceCode: '33b957', input: '0c310a2276'),
+        ActivationCode.matches(
+          deviceCode: '33b957',
+          input: '0c310a2276',
+          target: _inter,
+        ),
         isFalse,
       );
     });
 
     test('malformed input or device code is rejected, never thrown', () {
-      expect(ActivationCode.matches(deviceCode: '33b957', input: ''), isFalse);
       expect(
-        ActivationCode.matches(deviceCode: '33b95', input: '0c310a2277'),
+        ActivationCode.matches(deviceCode: '33b957', input: '', target: _inter),
+        isFalse,
+      );
+      expect(
+        ActivationCode.matches(
+          deviceCode: '33b95',
+          input: '0c310a2277',
+          target: _inter,
+        ),
         isFalse,
       );
     });
@@ -101,12 +142,63 @@ void main() {
   test('activationCodeFor refuses a device code of the wrong length', () {
     // Activation.checkCode answers false for one (index out of range).
     expect(
-      () => ActivationCode.activationCodeFor('33b95'),
+      () => ActivationCode.activationCodeFor('33b95', target: _inter),
       throwsArgumentError,
     );
     expect(
-      () => ActivationCode.activationCodeFor('33b9577'),
+      () => ActivationCode.activationCodeFor('33b9577', target: _inter),
       throwsArgumentError,
     );
+  });
+
+  group('the organization target', () {
+    for (final (deviceCode, code) in _organization) {
+      test('device $deviceCode', () {
+        expect(
+          ActivationCode.activationCodeFor(deviceCode, target: _org),
+          code,
+        );
+        expect(
+          ActivationCode.matches(
+            deviceCode: deviceCode,
+            input: code,
+            target: _org,
+          ),
+          isTrue,
+        );
+      });
+    }
+
+    test('a code for one edition never opens the other', () {
+      for (final (_, deviceCode, interCode) in _reference) {
+        final orgCode = ActivationCode.activationCodeFor(
+          deviceCode,
+          target: _org,
+        );
+        expect(orgCode, isNot(interCode));
+        expect(
+          ActivationCode.matches(
+            deviceCode: deviceCode,
+            input: interCode,
+            target: _org,
+          ),
+          isFalse,
+        );
+        expect(
+          ActivationCode.matches(
+            deviceCode: deviceCode,
+            input: orgCode,
+            target: _inter,
+          ),
+          isFalse,
+        );
+      }
+    });
+
+    test('the app ids are the documented ones', () {
+      expect(_inter.appId, '111111'); // the mentor's generator — fixed
+      expect(_org.appId, '222222');
+      expect(ActivationTarget.ofBuild, _inter); // a test run is commercial
+    });
   });
 }

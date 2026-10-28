@@ -1,8 +1,37 @@
 import 'dart:convert';
 
+import 'package:communication_super_app/core/edition/app_edition.dart';
 import 'package:communication_super_app/core/utils/blake3.dart';
 
-/// The activation code that unlocks the inter-organizational edition.
+/// What an activation code opens. The derivation is one; only the app id the
+/// device code is interleaved with differs, so a code issued for one edition
+/// is refused by the other — and the organization APK, which an outsider must
+/// not be able to use (matrix row 1), cannot be opened with a code the
+/// commercial app accepts.
+enum ActivationTarget {
+  /// The commercial build becoming the inter-organizational edition. `111111`
+  /// is `Activation.getConstantAppId()` of the mentor's generator — fixed.
+  interOrganization(appId: '111111'),
+
+  /// The organization APK, which does nothing until activated. Ours — the
+  /// mentor's generator has no such edition: issued only by `tools/keybank`
+  /// (its CLI and the panel's «فعال‌سازی نسخهٔ سازمانی»).
+  organization(appId: '222222');
+
+  const ActivationTarget({required this.appId});
+
+  /// Interleaved with the device code, one character after each of its six.
+  final String appId;
+
+  /// The one this binary activates. A compile-time constant, like
+  /// [AppEdition.current].
+  static const ActivationTarget ofBuild = kOrganizationBuild
+      ? ActivationTarget.organization
+      : ActivationTarget.interOrganization;
+}
+
+/// The activation code: what unlocks the inter-organizational edition in the
+/// commercial build, and what opens the organization APK at all.
 ///
 /// **MIRROR of the mentor's Windows code generator** — and of `Activation.java`
 /// in the earlier S2MS app, which is what that generator was written against.
@@ -12,10 +41,12 @@ import 'package:communication_super_app/core/utils/blake3.dart';
 /// 1. The device shows its **device code**: BLAKE3 of the ANDROID_ID's bytes,
 ///    first 3 bytes, lowercase hex — 6 characters.
 /// 2. The mentor types it into the Windows app, which interleaves it with the
-///    app id `111111` — `d0 1 d1 1 d2 1 d3 1 d4 1 d5 1`, 12 characters — and
+///    target's app id — `d0 1 d1 1 … d5 1` for `111111`, 12 characters — and
 ///    answers with the **activation code**: BLAKE3 of that string, first 5
 ///    bytes, lowercase hex — 10 characters.
 /// 3. This app computes the same thing and compares.
+///
+/// The device code is the same for both targets; only step 2 differs.
 ///
 /// No server is involved, which is the point — and also the limit: the whole
 /// derivation is in this binary, so it keeps honest users honest and cannot
@@ -23,9 +54,6 @@ import 'package:communication_super_app/core/utils/blake3.dart';
 /// see `docs/architecture/editions.md`.
 class ActivationCode {
   ActivationCode._();
-
-  /// `Activation.getConstantAppId()`.
-  static const String appId = '111111';
 
   /// `Activation.CODE_LENGTH / 2` bytes → 6 hex characters.
   static const int deviceCodeLength = 6;
@@ -45,7 +73,10 @@ class ActivationCode {
   );
 
   /// The activation code the Windows app issues for [deviceCode].
-  static String activationCodeFor(String deviceCode) {
+  static String activationCodeFor(
+    String deviceCode, {
+    required ActivationTarget target,
+  }) {
     if (deviceCode.length != deviceCodeLength) {
       // Activation.checkCode answers false here (index out of range); refusing
       // to produce a code at all is the same outcome, stated.
@@ -55,6 +86,7 @@ class ActivationCode {
         'must be 6 characters',
       );
     }
+    final appId = target.appId;
     final combined = StringBuffer();
     for (var i = 0; i < deviceCodeLength; i++) {
       combined
@@ -94,11 +126,18 @@ class ActivationCode {
     return code;
   }
 
-  /// Whether [input] is the activation code for [deviceCode].
-  static bool matches({required String deviceCode, required String input}) {
+  /// Whether [input] is the [target] activation code for [deviceCode].
+  static bool matches({
+    required String deviceCode,
+    required String input,
+    required ActivationTarget target,
+  }) {
     final code = normalize(input);
     if (code == null || deviceCode.length != deviceCodeLength) return false;
-    return _constantTimeEquals(code, activationCodeFor(deviceCode));
+    return _constantTimeEquals(
+      code,
+      activationCodeFor(deviceCode, target: target),
+    );
   }
 
   static bool _isIgnorable(int rune) =>
