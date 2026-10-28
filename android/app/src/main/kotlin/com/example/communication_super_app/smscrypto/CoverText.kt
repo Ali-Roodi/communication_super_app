@@ -7,84 +7,73 @@ import java.security.MessageDigest
  * as ordinary-looking words instead of `#E:` + Base64, and turned back
  * exactly on the other side.
  *
- * Every byte of the packet becomes one word of a fixed 256-word list
- * (Persian or English), two checksum words follow — the first two bytes of
- * SHA-256(`hamresan.cover.v1` ‖ packet) — and a full stop closes every
- * ninth word. A receiver needs no key to recognise one: every word must be
- * in one list and the checksum must hold (a 1-in-65 536 accident at most,
- * on a message of at least [MIN_WORDS] list words), so the native receivers
- * turn a cover text back into its `#E:` form ([uncover]) before anything
- * else looks at it, and the rest of the pipeline never knows.
+ * The packet is already encrypted and authenticated by its session; this is
+ * only its spelling. Two checksum bytes follow it — the first two bytes of
+ * SHA-256(`hamresan.cover.v2` ‖ packet) — then a single 1 bit and as many 0
+ * bits as reach a multiple of [BITS], and every [BITS] bits become one word
+ * of a frozen 4096-word list ([CoverWords], Persian or English). That is the
+ * idea of the mentor's «یکتا» (n bits per word from a 2ⁿ-word bank) without
+ * its own password layers, which the session already provides; the trailing
+ * 1 bit is what lets a receiver drop the padding without a side symbol.
  *
- * The lists are **frozen**: a change is a new format, not an edit
- * (`CoverTextTest` pins their hash). Words carry no ZWNJ and no Arabic
- * variants of letters, and a receiver folds those anyway.
+ * Sentences end where a word's value says so ([sentenceEnds]), between
+ * [MIN_SENTENCE] and [MAX_SENTENCE] words, and English ones open with a
+ * capital: nothing a receiver needs, so it can only make the text read more
+ * like text.
  *
- * Cost: one word per byte. A short Persian message (~40 bytes) is 2–3 SMS
- * parts in English cover and 3–4 in Persian, against one as `#E:`, which
+ * A receiver needs no key to recognise one: every word must be in one list,
+ * the padding must be there and the checksum must hold (a 1-in-65 536
+ * accident at most, on at least [MIN_WORDS] list words), so the native
+ * receivers turn a cover text back into its `#E:` form ([uncover]) before
+ * anything else looks at it, and the rest of the pipeline never knows.
+ *
+ * Cost: 12 bits a word. A short Persian message (~40 bytes) is ~28 words —
+ * 3 SMS parts in Persian cover, 2 in English — against one as `#E:`, which
  * is why only messages and receipts are covered — never a handshake.
  */
 object CoverText {
-    private const val LABEL = "hamresan.cover.v1"
+    private const val LABEL = "hamresan.cover.v2"
     private const val CHECK_BYTES = 2
-    private const val SENTENCE = 9
 
-    /** The smallest packet a cover can carry, plus its checksum. */
-    const val MIN_WORDS = 20 + CHECK_BYTES
+    /** Bits a word carries: the lists have 2^12 words. */
+    private const val BITS = 12
+
+    private const val MIN_SENTENCE = 5
+    private const val MAX_SENTENCE = 12
+
+    /** The smallest packet a cover carries (20 bytes) with its checksum and padding bit. */
+    const val MIN_WORDS = ((20 + CHECK_BYTES) * 8 + 1 + BITS - 1) / BITS
 
     /** Covers bigger than this are not tried (a handshake is ~1150 bytes). */
-    private const val MAX_WORDS = 400
+    private const val MAX_WORDS = 300
 
-    val PERSIAN: List<String> = (
-            "خانه کتاب آب نان باغ گل درخت کوه دریا رود شهر روستا خیابان کوچه مدرسه دانشگاه " +
-            "کلاس معلم دانشجو پدر مادر برادر خواهر دوست همسایه مهمان سفر راه جاده ماشین قطار هواپیما " +
-            "کشتی دوچرخه بازار مغازه پول قیمت کار شغل اداره شرکت کارگر مدیر جلسه نامه پیام تلفن " +
-            "ساعت روز شب صبح ظهر عصر هفته ماه سال بهار تابستان پاییز زمستان باران برف باد " +
-            "ابر آفتاب آسمان زمین ستاره دشت جنگل صحرا سنگ چوب آهن طلا نقره میز صندلی تخت " +
-            "فرش پنجره در دیوار سقف اتاق آشپزخانه حمام چای قهوه شیر شکر نمک برنج گوشت مرغ " +
-            "ماهی سیب پرتقال انگور هندوانه انار خرما گردو بادام پسته غذا سفره بشقاب قاشق چنگال لیوان " +
-            "کاسه پیراهن کفش کلاه کیف لباس رنگ سبز آبی قرمز زرد سفید سیاه بزرگ کوچک خوب " +
-            "زیبا تازه گرم سرد بلند کوتاه نزدیک دور شاد آرام تند سریع روشن تاریک قلم دفتر " +
-            "کاغذ عکس فیلم آهنگ ساز شعر داستان قصه بازی ورزش توپ تیم مسابقه برنده جایزه دکتر " +
-            "بیمار دارو بیمارستان سلامت قلب دست پا سر چشم گوش دهان صدا فکر خواب رویا امید " +
-            "عشق مهر لبخند خنده گریه سوال جواب درس مشق امتحان نمره فردا امروز دیروز همیشه گاهی " +
-            "هرگز اینجا آنجا بالا پایین جلو عقب کنار وسط اول آخر نیمه همه هیچ چند بسیار " +
-            "کم زیاد کمی خیلی شاید باید باشد رفت آمد دید گفت خورد نشست ایستاد خواند نوشت " +
-            "شنید ساخت داد گرفت برد آورد دوید پرید خندید پرسید ماند گذشت رسید افتاد شکست بست " +
-            "کشید ریخت پخت شست دوخت صدف ماسه موج ساحل قایق بندر چراغ شمع کلید قفل جعبه"
-        ).split(' ')
+    val PERSIAN: List<String> get() = CoverWords.PERSIAN
+    val ENGLISH: List<String> get() = CoverWords.ENGLISH
 
-    val ENGLISH: List<String> = (
-            "time year people way day man thing woman life child world school state family student group " +
-            "country problem hand part place case week company system program question work government number night point " +
-            "home water room mother area money story fact month lot right study book eye job word " +
-            "business issue side kind head house service friend father power hour game line end member law " +
-            "car city community name president team minute idea kid body information back parent face others level " +
-            "office door health person art war history party result change morning reason research girl guy moment " +
-            "air teacher force education foot boy age policy music market sense nation plan college interest death " +
-            "experience effect class control care field development role effort rate heart drug show leader light voice " +
-            "wife police mind price report decision son view relationship town road arm difference value building action " +
-            "model season society tax director position player record paper space ground form event official matter center " +
-            "couple site project activity star table need court oil situation cost industry figure street image phone " +
-            "data picture practice piece land product doctor wall patient worker news test movie north love support " +
-            "technology step baby computer type attention film tree source organization hair window evidence population truth song " +
-            "camera garden river summer winter spring autumn island forest bridge flower letter coffee dinner lunch breakfast " +
-            "village mountain ocean desert rain snow wind cloud sun moon planet animal bird horse fish dog " +
-            "cat bread apple orange lemon sugar salt butter cheese milk tea juice glass plate spoon knife"
-        ).split(' ')
+    private val faIndex: Map<String, Int> by lazy { index(CoverWords.PERSIAN) }
+    private val enIndex: Map<String, Int> by lazy { index(CoverWords.ENGLISH) }
 
-    private val faIndex: Map<String, Int> = PERSIAN.withIndex().associate { (i, w) -> w to i }
-    private val enIndex: Map<String, Int> = ENGLISH.withIndex().associate { (i, w) -> w to i }
+    private fun index(words: List<String>): Map<String, Int> {
+        check(words.size == 1 shl BITS) { "a cover list has ${1 shl BITS} words" }
+        return HashMap<String, Int>(words.size * 2).apply { words.forEachIndexed { i, w -> put(w, i) } }
+    }
 
     enum class Language { PERSIAN, ENGLISH }
 
     fun encode(packet: ByteArray, language: Language): String {
         val words = if (language == Language.PERSIAN) PERSIAN else ENGLISH
-        val all = packet + check(packet)
+        val values = toValues(packet + check(packet))
         val out = StringBuilder()
-        all.forEachIndexed { i, b ->
-            if (i > 0) out.append(if (i % SENTENCE == 0) ". " else " ")
-            out.append(words[b.toInt() and 0xFF])
+        var run = 0
+        values.forEachIndexed { i, v ->
+            val word = words[v]
+            if (i > 0) out.append(' ')
+            out.append(if (run == 0 && language == Language.ENGLISH) word.replaceFirstChar(Char::uppercaseChar) else word)
+            run++
+            if (i < values.size - 1 && sentenceEnds(v, run)) {
+                out.append('.')
+                run = 0
+            }
         }
         return out.append('.').toString()
     }
@@ -100,10 +89,10 @@ object CoverText {
             enIndex.containsKey(tokens[0]) -> enIndex
             else -> return null
         }
-        val bytes = ByteArray(tokens.size)
-        for ((i, t) in tokens.withIndex()) {
-            bytes[i] = (index[t] ?: return null).toByte()
-        }
+        val values = IntArray(tokens.size)
+        for ((i, t) in tokens.withIndex()) values[i] = index[t] ?: return null
+        val bytes = fromValues(values) ?: return null
+        if (bytes.size <= CHECK_BYTES) return null
         val packet = bytes.copyOf(bytes.size - CHECK_BYTES)
         val got = bytes.copyOfRange(bytes.size - CHECK_BYTES, bytes.size)
         return if (got.contentEquals(check(packet))) packet else null
@@ -116,15 +105,50 @@ object CoverText {
         return Wire.PREFIX + java.util.Base64.getEncoder().withoutPadding().encodeToString(packet)
     }
 
+    /** Whether a sentence closes after a word of value [v], [run] words into it. */
+    private fun sentenceEnds(v: Int, run: Int): Boolean =
+        run >= MAX_SENTENCE || (run >= MIN_SENTENCE && v % 5 == 0)
+
+    /** [bytes], then a 1 bit and 0 bits up to a whole word, as word values. */
+    private fun toValues(bytes: ByteArray): IntArray {
+        val totalBits = bytes.size * 8 + 1
+        val count = (totalBits + BITS - 1) / BITS
+        val values = IntArray(count)
+        for (bit in 0 until totalBits) {
+            val one = if (bit < bytes.size * 8) {
+                (bytes[bit / 8].toInt() shr (7 - bit % 8)) and 1 == 1
+            } else {
+                true // the padding's leading 1
+            }
+            if (one) values[bit / BITS] = values[bit / BITS] or (1 shl (BITS - 1 - bit % BITS))
+        }
+        return values
+    }
+
+    /** The bytes [values] carry, or null when the padding is not a 1 then 0s. */
+    private fun fromValues(values: IntArray): ByteArray? {
+        val totalBits = values.size * BITS
+        fun bitAt(i: Int) = (values[i / BITS] shr (BITS - 1 - i % BITS)) and 1
+        var last = totalBits - 1
+        while (last >= 0 && bitAt(last) == 0) last--
+        // The 1 must sit in the last word, and what is before it must be whole bytes.
+        if (last < totalBits - BITS || last % 8 != 0) return null
+        val bytes = ByteArray(last / 8)
+        for (i in 0 until last) {
+            if (bitAt(i) == 1) bytes[i / 8] = (bytes[i / 8].toInt() or (1 shl (7 - i % 8))).toByte()
+        }
+        return bytes
+    }
+
     private fun normalize(token: String): String {
         val t = token.trim('.', '،', ',', '!', '?', '؟', '؛', ';', ':')
         val sb = StringBuilder(t.length)
         for (ch in t) {
             when (ch) {
-                '\u064A', '\u0649' -> sb.append('\u06CC')
-                '\u0643' -> sb.append('\u06A9')
-                '\u200C', '\u200D', '\u200E', '\u200F', '\u064B', '\u064C', '\u064D',
-                '\u064E', '\u064F', '\u0650', '\u0651', '\u0652' -> Unit
+                'ي', 'ى' -> sb.append('ی')
+                'ك' -> sb.append('ک')
+                '‌', '‍', '‎', '‏', 'ً', 'ٌ', 'ٍ',
+                'َ', 'ُ', 'ِ', 'ّ', 'ْ' -> Unit
                 else -> sb.append(ch.lowercaseChar())
             }
         }
