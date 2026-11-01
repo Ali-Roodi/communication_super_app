@@ -16,6 +16,7 @@ what.
 | [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md) | The non-obvious decisions and what each one trades |
 | [PERFORMANCE_NOTES.md](PERFORMANCE_NOTES.md) | What keeps it fast, and what must not regress |
 | [KNOWN_ISSUES.md](KNOWN_ISSUES.md) | What is open, accepted or not yet verified |
+| [FINAL_DEVICE_TESTS.md](FINAL_DEVICE_TESTS.md) | The checklist still to run on two real phones; every feature adds its items |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Setup, commands, conventions, definition of done |
 
 ## Area notes — `architecture/`

@@ -51,7 +51,7 @@ So this document describes the app's **data boundaries** and the contract at eac
 | `hidden` | Hidden-phonebook tags, sealed inbox, device check, intruder photos |
 
 Error codes returned across a channel (for SMS send: `NO_SIM_CARD`,
-`NO_SERVICE`, `PERMISSION_DENIED`, `SMS_SEND_FAILED`, `HIDDEN_NUMBER`) are a
+`NO_SERVICE`, `PERMISSION_DENIED`, `SMS_SEND_FAILED`, `HIDDEN_NUMBER`, `NUMBER_NOT_ALLOWED`) are a
 **contract**: both sides change together. Files that mirror each other across the
 boundary are listed in `DEVELOPER_GUIDE.md` («Kotlin/Dart mirrors»).
 

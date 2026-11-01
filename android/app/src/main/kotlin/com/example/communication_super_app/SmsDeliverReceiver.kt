@@ -76,6 +76,11 @@ class SmsDeliverReceiver : BroadcastReceiver() {
             Log.d(TAG, "Blocked SMS not written to provider")
             return
         }
+        // «فهرست سیاه و سفید»: lands nowhere either.
+        if (!NumberLists.allows(context, address, NumberListRules.Channel.SMS_IN)) {
+            Log.d(TAG, "SMS refused by the number lists not written to provider")
+            return
+        }
 
         // Which SIM took the message. The broadcast carries it as the
         // "subscription" extra; every other SMS app reads the provider column,

@@ -50,6 +50,15 @@ class SetAdPrefixes extends SettingsEvent {
   List<Object?> get props => [prefixes];
 }
 
+/// «فهرست سیاه و سفید» — the whole configuration; entries are re-normalised.
+class SetNumberLists extends SettingsEvent {
+  final NumberLists lists;
+  const SetNumberLists(this.lists);
+
+  @override
+  List<Object?> get props => [lists];
+}
+
 /// «اندازه متن پیام». Dispatched by the settings row and by the pinch gesture
 /// on a conversation — one value, so the two can never disagree.
 class SetMessageTextScale extends SettingsEvent {

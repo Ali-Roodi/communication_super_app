@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
+import 'package:communication_super_app/features/settings/models/number_lists.dart';
+import 'package:communication_super_app/features/settings/services/number_lists_bridge.dart';
 
 import 'sim_card.dart';
 import 'sim_service.dart';
@@ -35,15 +37,37 @@ Future<bool> placeCall(
   SimCard? suggested,
 }) async {
   if (number.trim().isEmpty) return false;
+  // «فهرست سیاه و سفید» — asked before the SIM question, which would be
+  // pointless for a call that is not going to be placed.
+  if (!await const NumberListsBridge().allows(number, ListChannel.callOut)) {
+    if (context.mounted) _sayNotAllowed(context);
+    return false;
+  }
+  if (!context.mounted) return false;
   final choice = sim != null
       ? (go: true, subscriptionId: sim.subscriptionId)
       : await chooseVoiceSim(context, number, suggested: suggested);
   if (!choice.go) return false;
-  await NativeCallService.instance.makeCall(
-    number,
-    subscriptionId: choice.subscriptionId,
-  );
+  try {
+    await NativeCallService.instance.makeCall(
+      number,
+      subscriptionId: choice.subscriptionId,
+    );
+  } on PlatformException catch (e) {
+    // The lists changed between the question above and the dial.
+    if (e.code != 'NUMBER_NOT_ALLOWED') rethrow;
+    if (context.mounted) _sayNotAllowed(context);
+    return false;
+  }
   return true;
+}
+
+void _sayNotAllowed(BuildContext context) {
+  ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+    const SnackBar(
+      content: Text('تماس با این شماره در «فهرست سیاه و سفید» مجاز نیست'),
+    ),
+  );
 }
 
 /// The card an ordinary dial of [number] goes out on, asking only when the

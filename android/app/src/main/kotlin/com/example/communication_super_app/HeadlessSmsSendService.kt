@@ -23,7 +23,9 @@ class HeadlessSmsSendService : Service() {
         try {
             val text = intent?.getStringExtra(Intent.EXTRA_TEXT)
             val recipient = intent?.data?.schemeSpecificPart
-            if (!text.isNullOrBlank() && !recipient.isNullOrBlank()) {
+            if (!text.isNullOrBlank() && !recipient.isNullOrBlank() &&
+                NumberLists.allows(this, recipient, NumberListRules.Channel.SMS_OUT)
+            ) {
                 @Suppress("DEPRECATION")
                 val smsManager = SmsManager.getDefault()
                 smsManager.sendTextMessage(recipient, null, text, null, null)

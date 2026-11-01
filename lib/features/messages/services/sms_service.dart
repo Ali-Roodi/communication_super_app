@@ -12,6 +12,8 @@ import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:communication_super_app/features/secure/services/sms_crypto_service.dart';
 import 'package:uuid/uuid.dart';
 import 'package:communication_super_app/features/secure/services/hidden_bridge.dart';
+import 'package:communication_super_app/features/settings/models/number_lists.dart';
+import 'package:communication_super_app/features/settings/services/number_lists_bridge.dart';
 
 import 'notification_service.dart';
 import 'native_sms_service.dart';
@@ -29,6 +31,7 @@ class SmsServiceResult {
   ///  'SMS_SEND_FAILED'  – generic failure
   ///  'HIDDEN_NUMBER'    – the number is in «دفترچه مخفی»: its messages go
   ///                       through the secure section, never this path
+  ///  'NUMBER_NOT_ALLOWED' – «فهرست سیاه و سفید» closes sending to it
   final String? errorCode;
 
   const SmsServiceResult._({required this.success, this.errorCode});
@@ -157,6 +160,16 @@ class SmsService {
     // (phase G) — refused before anything is persisted.
     if (await const HiddenBridge().isHidden(phoneNumber)) {
       return const SmsServiceResult.fail('HIDDEN_NUMBER');
+    }
+
+    // «فهرست سیاه و سفید» — refused before anything is persisted, so a number
+    // the lists close leaves no «ارسال نشد» bubble behind. The native send
+    // refuses it too, for every path that does not come through here.
+    if (!await const NumberListsBridge().allows(
+      phoneNumber,
+      ListChannel.smsOut,
+    )) {
+      return const SmsServiceResult.fail('NUMBER_NOT_ALLOWED');
     }
 
     final normalized = _normalizePhoneNumber(phoneNumber);

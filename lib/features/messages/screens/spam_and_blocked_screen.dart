@@ -16,6 +16,7 @@ import 'package:communication_super_app/features/settings/bloc/settings_bloc.dar
 import 'package:communication_super_app/features/settings/bloc/settings_state.dart';
 import 'package:communication_super_app/features/settings/models/blocked_number_model.dart';
 import 'package:communication_super_app/features/settings/screens/call_block_rules_page.dart';
+import 'package:communication_super_app/features/settings/screens/number_lists_page.dart';
 import '../bloc/message_bloc.dart';
 import '../bloc/message_event.dart';
 import '../bloc/message_state.dart';
@@ -561,7 +562,8 @@ class _BlockedRow extends StatelessWidget {
 
 /// «مسدود کردن تماس» — the rules that refuse a call by what kind of caller it
 /// is (no caller id, not a contact, foreign, advertising prefix), one row that
-/// opens [CallBlockRulesPage].
+/// opens [CallBlockRulesPage]; and «فهرست سیاه و سفید» ([NumberListsPage]),
+/// the number and pattern lists for SMS and calls both ways.
 ///
 /// Above the list and outside its BlocBuilder on purpose: a rule is not an
 /// entry — there is no number to list for a caller who withheld theirs — and
@@ -583,6 +585,7 @@ class _CallRulesRow extends StatelessWidget {
           state.blockInternational,
           state.blockAdvertising,
         ].where((on) => on).length;
+        final lists = state.numberLists.activeChannels;
         return Padding(
           padding: const EdgeInsets.only(top: 4),
           child: GroupedList(
@@ -595,6 +598,16 @@ class _CallRulesRow extends StatelessWidget {
                     : '${PersianUtils.toPersianNumber('$active')} قانون فعال',
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const CallBlockRulesPage()),
+                ),
+              ),
+              SettingsRow(
+                icon: Icons.rule_outlined,
+                title: 'فهرست سیاه و سفید',
+                summary: lists == 0
+                    ? 'پیامک و تماس، دریافتی و ارسالی'
+                    : '${PersianUtils.toPersianNumber('$lists')} مورد محدود',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const NumberListsPage()),
                 ),
               ),
             ],

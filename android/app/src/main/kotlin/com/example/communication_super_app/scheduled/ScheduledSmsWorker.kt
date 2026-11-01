@@ -8,6 +8,8 @@ import android.os.Build
 import android.provider.Telephony
 import android.telephony.SmsManager
 import android.util.Log
+import com.example.communication_super_app.NumberListRules
+import com.example.communication_super_app.NumberLists
 import com.example.communication_super_app.hidden.HiddenNumbers
 import com.example.communication_super_app.hidden.HiddenSms
 import com.example.communication_super_app.sim.SimRegistry
@@ -82,6 +84,15 @@ object ScheduledSmsWorker {
                     row.subscriptionId
                 } else {
                     SimRegistry.defaultSmsSubscriptionId()
+                }
+                // «فهرست سیاه و سفید»: an attempt like a refused send, so the
+                // row still fails for good only after its retries — the list
+                // may be changed in between.
+                if (!NumberLists.allows(context, row.phoneNumber, NumberListRules.Channel.SMS_OUT)) {
+                    db.update(
+                        TABLE, failAttempt(row, now, "NUMBER_NOT_ALLOWED"), "id = ?", arrayOf(row.id),
+                    )
+                    continue
                 }
                 val sent = sendSms(context, row.phoneNumber, row.body, subscriptionId)
                 if (sent && HiddenNumbers.isHidden(context, row.phoneNumber)) {
@@ -400,11 +411,15 @@ object ScheduledSmsWorker {
     }
 
     /** Mirror of `ScheduledMessage.withFailedAttempt`. Always releases the claim. */
-    private fun failAttempt(row: Row, now: Long): ContentValues {
+    private fun failAttempt(
+        row: Row,
+        now: Long,
+        errorCode: String = "SMS_SEND_FAILED",
+    ): ContentValues {
         val attempts = row.attemptCount + 1
         return ContentValues().apply {
             put("attempt_count", attempts)
-            put("last_error", "SMS_SEND_FAILED")
+            put("last_error", errorCode)
             putNull("claim_token")
             putNull("claimed_at")
             if (attempts >= MAX_ATTEMPTS) {

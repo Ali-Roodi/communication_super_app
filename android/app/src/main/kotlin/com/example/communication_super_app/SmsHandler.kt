@@ -141,6 +141,11 @@ class SmsHandler(
                     Log.d(TAG, "Dropped live SMS from blocked number")
                     return
                 }
+                // «فهرست سیاه و سفید»: dropped the same way.
+                if (!NumberLists.allows(context, address, NumberListRules.Channel.SMS_IN)) {
+                    Log.d(TAG, "Dropped live SMS refused by the number lists")
+                    return
+                }
 
                 // A hidden contact: sealed whole, then the same bare nudge.
                 if (com.example.communication_super_app.hidden.HiddenSms.receive(
@@ -563,6 +568,13 @@ class SmsHandler(
 
             if (message.isBlank()) {
                 return@withContext Result.failure(IllegalArgumentException("Message cannot be empty"))
+            }
+
+            // «فهرست سیاه و سفید». Dart asks first so a refused message leaves
+            // nothing behind; this is what holds for every other caller (the
+            // secure messenger, a group's fan-out).
+            if (!NumberLists.allows(context, phoneNumber, NumberListRules.Channel.SMS_OUT)) {
+                return@withContext Result.failure(Exception("NUMBER_NOT_ALLOWED"))
             }
 
             // Pre-flight checks before calling the fire-and-forget sendTextMessage.
@@ -1172,6 +1184,7 @@ class SmsHandler(
                                 val code = when {
                                     errorMsg == "NO_SIM_CARD" -> "NO_SIM_CARD"
                                     errorMsg == "NO_SERVICE" -> "NO_SERVICE"
+                                    errorMsg == "NUMBER_NOT_ALLOWED" -> "NUMBER_NOT_ALLOWED"
                                     error is SecurityException -> "PERMISSION_DENIED"
                                     else -> "SMS_SEND_FAILED"
                                 }

@@ -21,6 +21,8 @@ import com.example.communication_super_app.sim.SimRegistry
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
 import com.example.communication_super_app.BlockedNumbers
+import com.example.communication_super_app.NumberListRules
+import com.example.communication_super_app.NumberLists
 import com.example.communication_super_app.R
 import com.example.communication_super_app.hidden.HiddenCallLog
 import com.example.communication_super_app.hidden.HiddenHandler
@@ -702,6 +704,23 @@ class CallInCallService : InCallService() {
         // outside its UI. The in-call screen has no account picker; left alone
         // the call would sit here for ever, so the contact's own card answers,
         // else the subscription default, else the first card.
+        // «فهرست سیاه و سفید» for a call being placed — by the keypad, the
+        // shade's «تماس», or another app dialling through the system. Only a
+        // call that is still being set up: a call that is already live when
+        // the service binds (the role moved mid-call) is never cut off.
+        if (isBeingPlaced(call) &&
+            !NumberLists.allows(applicationContext, phoneOf(call), NumberListRules.Channel.CALL_OUT)
+        ) {
+            Log.d(TAG, "Disconnecting a call refused by the number lists")
+            call.disconnect()
+            android.widget.Toast.makeText(
+                applicationContext,
+                "تماس با این شماره در «فهرست سیاه و سفید» مجاز نیست",
+                android.widget.Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
+
         if (call.state == Call.STATE_SELECT_PHONE_ACCOUNT) selectAccountFor(call)
 
         // Blocked caller: reject immediately, show nothing. Telecom records
@@ -758,6 +777,15 @@ class CallInCallService : InCallService() {
                 call.reject(false, null)
                 return
             }
+        }
+
+        // «فهرست سیاه و سفید» — rejected like the blocked list.
+        if (call.state == Call.STATE_RINGING &&
+            !NumberLists.allows(applicationContext, phoneOf(call), NumberListRules.Channel.CALL_IN)
+        ) {
+            Log.d(TAG, "Rejecting call refused by the number lists")
+            call.reject(false, null)
+            return
         }
 
         trackedCalls.add(call)
@@ -1751,6 +1779,18 @@ class CallInCallService : InCallService() {
             )
             .build()
         nm.notify(HiddenHandler.MISSED_NOTICE_ID, notification)
+    }
+
+    /** An outgoing call that has not connected yet; a conference host is not one. */
+    private fun isBeingPlaced(call: Call): Boolean {
+        if (call.details?.hasProperty(Call.Details.PROPERTY_CONFERENCE) == true) return false
+        return when (call.state) {
+            Call.STATE_NEW,
+            Call.STATE_SELECT_PHONE_ACCOUNT,
+            Call.STATE_CONNECTING,
+            Call.STATE_DIALING -> true
+            else -> false
+        }
     }
 
     /**

@@ -16,7 +16,7 @@ Part of the architecture notes for this repo. Index and the rules that apply eve
 **So do a hidden-phonebook contact's SMS, plain or encrypted** (phase G): `SmsDeliverReceiver` skips the provider, `HiddenSms.receive` seals the whole message into `sealed_queue` before either receiver's normal path, `querySms*` filter the number out of the mirror-sync, and `SmsService.sendSms` refuses it (`HIDDEN_NUMBER`). See `editions.md`.
 
 **Sending:**
-`SmsService.sendSms` → `NativeSmsService.sendSms` → `MethodChannel` (`com.example.communication_super_app/sms`) → `SmsHandler.kt.sendSms`. The native side performs pre-flight SIM/service checks before calling `SmsManager`. Error codes: `NO_SIM_CARD`, `NO_SERVICE`, `PERMISSION_DENIED`, `SMS_SEND_FAILED`.
+`SmsService.sendSms` → `NativeSmsService.sendSms` → `MethodChannel` (`com.example.communication_super_app/sms`) → `SmsHandler.kt.sendSms`. The native side performs pre-flight SIM/service checks before calling `SmsManager`. Error codes: `NO_SIM_CARD`, `NO_SERVICE`, `PERMISSION_DENIED`, `SMS_SEND_FAILED`, `NUMBER_NOT_ALLOWED` («فهرست سیاه و سفید», see `inbox-search-and-groups.md`).
 
 ### Default SMS app role & device sync
 

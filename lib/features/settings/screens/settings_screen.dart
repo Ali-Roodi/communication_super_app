@@ -36,6 +36,7 @@ import 'package:communication_super_app/features/settings/bloc/settings_event.da
 import 'package:communication_super_app/features/settings/bloc/settings_state.dart';
 import 'package:communication_super_app/features/messages/screens/spam_and_blocked_screen.dart';
 import 'package:communication_super_app/features/settings/screens/call_block_rules_page.dart';
+import 'package:communication_super_app/features/settings/screens/number_lists_page.dart';
 import 'package:communication_super_app/features/settings/screens/privacy_policy_page.dart';
 import 'package:communication_super_app/features/settings/screens/settings_subpages.dart';
 
@@ -92,6 +93,12 @@ class SettingsScreen extends StatelessWidget {
                   title: 'مسدود کردن تماس',
                   summary: 'ناشناس، خارج از مخاطبین، بین‌المللی، تبلیغاتی',
                   onTap: () => _push(context, const CallBlockRulesPage()),
+                ),
+                SettingsRow(
+                  icon: Icons.rule_outlined,
+                  title: 'فهرست سیاه و سفید',
+                  summary: 'چه کسانی پیامک و تماس بدهند یا بگیرند',
+                  onTap: () => _push(context, const NumberListsPage()),
                 ),
                 // Only where the question exists: a single-SIM phone has no
                 // card to choose.

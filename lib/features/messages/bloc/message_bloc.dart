@@ -928,6 +928,8 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         return 'دسترسی به ارسال پیامک رد شد. لطفاً مجوزهای لازم را بررسی کنید.';
       case 'HIDDEN_NUMBER':
         return 'این شماره در دفترچه مخفی است؛ از بخش امن پیام دهید.';
+      case 'NUMBER_NOT_ALLOWED':
+        return 'ارسال پیامک به این شماره در «فهرست سیاه و سفید» مجاز نیست.';
       default:
         return 'خطا در ارسال پیامک. لطفاً مجدداً تلاش کنید.';
     }

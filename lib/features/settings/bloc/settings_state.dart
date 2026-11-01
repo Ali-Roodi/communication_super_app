@@ -4,9 +4,11 @@ import 'package:communication_super_app/core/utils/calendar_type.dart';
 import 'package:communication_super_app/core/utils/message_text_scale.dart';
 import 'package:communication_super_app/features/dialer/services/auto_redial_policy.dart';
 import 'package:communication_super_app/features/dialer/services/call_block_prefixes.dart';
+import 'package:communication_super_app/features/settings/models/number_lists.dart';
 
 export 'package:communication_super_app/core/utils/calendar_type.dart';
 export 'package:communication_super_app/features/dialer/services/call_block_prefixes.dart';
+export 'package:communication_super_app/features/settings/models/number_lists.dart';
 
 /// Which boolean setting an event targets (keeps the event surface small).
 ///
@@ -114,6 +116,9 @@ class SettingsState extends Equatable {
   /// (`0942`); see [CallBlockPrefixes].
   final List<String> adPrefixes;
 
+  /// «فهرست سیاه و سفید»; see [NumberLists].
+  final NumberLists numberLists;
+
   /// «تعداد تلاش‌ها» for [autoRedial] — one of
   /// [AutoRedialPolicy.attemptChoices].
   final int autoRedialAttempts;
@@ -142,6 +147,7 @@ class SettingsState extends Equatable {
     this.blockAdvertising = false,
     this.hideNotificationContent = true,
     this.adPrefixes = CallBlockPrefixes.defaults,
+    this.numberLists = const NumberLists(),
     this.autoRedialAttempts = AutoRedialPolicy.defaultAttempts,
     this.calendarType = CalendarType.jalali,
     this.messageTextScale = MessageTextScale.normal,
@@ -199,6 +205,7 @@ class SettingsState extends Equatable {
     bool? blockAdvertising,
     bool? hideNotificationContent,
     List<String>? adPrefixes,
+    NumberLists? numberLists,
     int? autoRedialAttempts,
     CalendarType? calendarType,
     double? messageTextScale,
@@ -221,6 +228,7 @@ class SettingsState extends Equatable {
       hideNotificationContent:
           hideNotificationContent ?? this.hideNotificationContent,
       adPrefixes: adPrefixes ?? this.adPrefixes,
+      numberLists: numberLists ?? this.numberLists,
       autoRedialAttempts: autoRedialAttempts ?? this.autoRedialAttempts,
       calendarType: calendarType ?? this.calendarType,
       messageTextScale: messageTextScale ?? this.messageTextScale,
@@ -289,6 +297,7 @@ class SettingsState extends Equatable {
     blockAdvertising,
     hideNotificationContent,
     adPrefixes,
+    numberLists,
     autoRedialAttempts,
     calendarType,
     messageTextScale,

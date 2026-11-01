@@ -9,6 +9,7 @@ import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/message_text_scale.dart';
 import 'package:communication_super_app/features/messages/services/sms_service.dart';
 import 'package:communication_super_app/features/authentication/services/notification_privacy_sync.dart';
+import 'package:communication_super_app/features/settings/services/number_lists_bridge.dart';
 import 'settings_event.dart';
 import 'settings_state.dart';
 
@@ -35,14 +36,20 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     '${_prefix}keypadTones',
   ];
 
-  SettingsBloc() : super(const SettingsState()) {
+  /// [numberLists] is the native mirror of «فهرست سیاه و سفید».
+  SettingsBloc({NumberListsBridge numberLists = const NumberListsBridge()})
+    : _numberLists = numberLists,
+      super(const SettingsState()) {
     on<LoadSettings>(_onLoad);
     on<SetBoolSetting>(_onSetBool);
     on<SetCalendarType>(_onSetCalendar);
     on<SetMessageTextScale>(_onSetMessageTextScale);
     on<SetAutoRedialAttempts>(_onSetAutoRedialAttempts);
     on<SetAdPrefixes>(_onSetAdPrefixes);
+    on<SetNumberLists>(_onSetNumberLists);
   }
+
+  final NumberListsBridge _numberLists;
 
   static String _keyOf(BoolSetting k) => '$_prefix${k.name}';
 
@@ -91,6 +98,22 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     }
     return List.unmodifiable(out);
   }
+
+  static const _listModePrefix = '${_prefix}list_mode_';
+  static const _listBlackKey = '${_prefix}list_black';
+  static const _listWhiteKey = '${_prefix}list_white';
+  static const _listContactsKey = '${_prefix}list_contacts';
+
+  /// «فهرست سیاه و سفید» as stored, entries re-normalised.
+  static NumberLists _readNumberLists(SharedPreferences prefs) => NumberLists(
+    modes: Map.unmodifiable({
+      for (final c in ListChannel.values)
+        c: ListMode.of(prefs.getString('$_listModePrefix${c.key}')),
+    }),
+    black: NumberLists.clean(prefs.getStringList(_listBlackKey) ?? const []),
+    white: NumberLists.clean(prefs.getStringList(_listWhiteKey) ?? const []),
+    contactsAllowed: prefs.getBool(_listContactsKey) ?? false,
+  );
 
   /// Pushes the «مسدود کردن تماس» rules to `CallPrefs` as one set.
   static Future<void> _mirrorCallRules(SettingsState s) =>
@@ -150,6 +173,7 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
         blockAdvertising: b(BoolSetting.blockAdvertising),
         hideNotificationContent: b(BoolSetting.hideNotificationContent),
         adPrefixes: _readAdPrefixes(prefs),
+        numberLists: _readNumberLists(prefs),
         autoRedialAttempts: autoRedialAttempts,
         calendarType: calendar,
         // Clamped on read: a preference written by a future build with a wider
@@ -175,6 +199,7 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
       ),
     );
     unawaited(_mirrorCallRules(state));
+    unawaited(_numberLists.mirror(state.numberLists));
     unawaited(NotificationPrivacySync.sync());
 
     for (final key in _retiredKeys) {
@@ -234,6 +259,25 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(_adPrefixesKey, clean);
     unawaited(_mirrorCallRules(next));
+  }
+
+  Future<void> _onSetNumberLists(
+    SetNumberLists event,
+    Emitter<SettingsState> emit,
+  ) async {
+    final lists = event.lists.copyWith(
+      black: NumberLists.clean(event.lists.black),
+      white: NumberLists.clean(event.lists.white),
+    );
+    emit(state.copyWith(numberLists: lists));
+    final prefs = await SharedPreferences.getInstance();
+    for (final c in ListChannel.values) {
+      await prefs.setString('$_listModePrefix${c.key}', lists.modeOf(c).key);
+    }
+    await prefs.setStringList(_listBlackKey, lists.black);
+    await prefs.setStringList(_listWhiteKey, lists.white);
+    await prefs.setBool(_listContactsKey, lists.contactsAllowed);
+    unawaited(_numberLists.mirror(lists));
   }
 
   Future<void> _onSetMessageTextScale(

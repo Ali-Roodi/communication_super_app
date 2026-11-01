@@ -70,6 +70,11 @@ class IncomingSmsReceiver : BroadcastReceiver() {
             Log.d(TAG, "Dropped background SMS from blocked number")
             return
         }
+        // «فهرست سیاه و سفید»: dropped the same way.
+        if (!NumberLists.allows(context, address, NumberListRules.Channel.SMS_IN)) {
+            Log.d(TAG, "Dropped background SMS refused by the number lists")
+            return
+        }
 
         // A hidden contact: sealed whole for the secure section.
         if (com.example.communication_super_app.hidden.HiddenSms.receive(

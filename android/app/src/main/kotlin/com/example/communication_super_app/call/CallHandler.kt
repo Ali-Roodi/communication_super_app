@@ -13,6 +13,8 @@ import android.telecom.TelecomManager
 import android.telecom.VideoProfile
 import android.telephony.PhoneNumberUtils
 import android.util.Log
+import com.example.communication_super_app.NumberListRules
+import com.example.communication_super_app.NumberLists
 import com.example.communication_super_app.sim.SimRegistry
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -182,6 +184,36 @@ class CallHandler(
                             ),
                         )
                         result.success(true)
+                    }
+                    // «فهرست سیاه و سفید» — the whole configuration as one
+                    // set, re-normalised here; see [NumberLists].
+                    "setNumberLists" -> {
+                        val modes = call.argument<Map<String, String>>("modes").orEmpty()
+                        NumberLists.setConfig(
+                            context,
+                            NumberListRules.Config(
+                                modes = NumberListRules.Channel.values().associateWith {
+                                    NumberListRules.Mode.of(modes[it.key])
+                                },
+                                black = (call.argument<List<String>>("black") ?: emptyList())
+                                    .mapNotNull { NumberListRules.normalizePattern(it) }
+                                    .distinct(),
+                                white = (call.argument<List<String>>("white") ?: emptyList())
+                                    .mapNotNull { NumberListRules.normalizePattern(it) }
+                                    .distinct(),
+                                contactsAllowed = call.argument<Boolean>("contactsAllowed") ?: false,
+                            ),
+                        )
+                        result.success(true)
+                    }
+                    // The one decision, asked by Dart before a send or a call
+                    // so a refusal leaves nothing behind.
+                    "numberAllowed" -> {
+                        val channel = NumberListRules.Channel.of(call.argument<String>("channel"))
+                        val phone = call.argument<String>("phone") ?: ""
+                        result.success(
+                            channel == null || NumberLists.allows(context, phone, channel),
+                        )
                     }
                     "setPinToAnswerCalls" -> {
                         CallPrefs.setPinToAnswerCalls(
@@ -391,6 +423,13 @@ class CallHandler(
         // via getSchemeSpecificPart(). Uri.parse("tel:$clean") would truncate
         // at the `#` — it would read as a fragment.
         val uri = Uri.fromParts("tel", clean, null)
+
+        // «فهرست سیاه و سفید». Asked here as well as in the in-call service,
+        // which only sees the call while this app is the default dialer.
+        if (!NumberLists.allows(context, clean, NumberListRules.Channel.CALL_OUT)) {
+            result.error("NUMBER_NOT_ALLOWED", "number lists", null)
+            return
+        }
 
         // Which SIM to dial from. A card picked for this one call wins. Without
         // one, the contact's own «سیم‌کارت تماس» does (its stored handle, as

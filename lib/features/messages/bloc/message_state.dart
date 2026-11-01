@@ -66,7 +66,8 @@ class MessageSent extends MessageState {
 /// Emitted when SMS sending fails.  Carries a typed [errorCode] so the UI can
 /// show an appropriate localized message without replacing the conversation.
 class MessageSendFailed extends MessageState {
-  /// One of: 'NO_SIM_CARD', 'NO_SERVICE', 'PERMISSION_DENIED', 'SMS_SEND_FAILED', 'HIDDEN_NUMBER'
+  /// One of: 'NO_SIM_CARD', 'NO_SERVICE', 'PERMISSION_DENIED', 'SMS_SEND_FAILED',
+  /// 'HIDDEN_NUMBER', 'NUMBER_NOT_ALLOWED'
   final String errorCode;
   final String userMessage;
 

@@ -82,6 +82,19 @@ class SmsNotificationActionReceiver : BroadcastReceiver() {
             dismiss(context, intent)
             return
         }
+        // «فهرست سیاه و سفید»: nothing is sent or recorded, and the user is told
+        // why the card went away.
+        if (!NumberLists.allows(context, address, NumberListRules.Channel.SMS_OUT)) {
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(
+                    context,
+                    "ارسال پیامک به این شماره در «فهرست سیاه و سفید» مجاز نیست",
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
+            }
+            dismiss(context, intent)
+            return
+        }
 
         // 1. Send — on the card the conversation would use in the app: the
         //    one the user chose for it («ارسال با», `thread_sim`), else the
