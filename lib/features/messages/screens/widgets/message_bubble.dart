@@ -611,17 +611,71 @@ class MessageSendButton extends StatelessWidget {
   /// The composer is armed with a time, so tapping schedules instead of sends.
   final bool scheduled;
 
+  /// The name of the card the message leaves on, written under the icon
+  /// (matrix row 5). Null on a single-SIM phone, where the button stays the
+  /// plain circle.
+  final String? simName;
+
   const MessageSendButton({
     super.key,
     required this.enabled,
     required this.onSend,
     this.onSchedule,
     this.scheduled = false,
+    this.simName,
   });
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final name = simName;
+    final fg = enabled ? cs.onPrimaryContainer : cs.onSurfaceVariant;
+    if (name != null) {
+      // The same tonal button, grown into a rounded square just wide enough
+      // for a short name under the icon.
+      const shape = RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(22)),
+      );
+      return Material(
+        color: enabled ? cs.primaryContainer : cs.surfaceContainerHighest,
+        shape: shape,
+        child: InkWell(
+          customBorder: shape,
+          onTap: enabled ? onSend : null,
+          onLongPress: enabled && onSchedule != null ? onSchedule : null,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              minWidth: 52,
+              maxWidth: 72,
+              minHeight: 52,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    scheduled ? Icons.schedule_send : Icons.send,
+                    color: fg,
+                    size: 22,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(
+                      context,
+                    ).textTheme.labelSmall?.copyWith(color: fg, height: 1.1),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     // Tonal circle, matching the composer's «ارسال» affordance in Google
     // Messages (it is never a saturated fill).
     return Material(

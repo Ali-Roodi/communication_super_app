@@ -34,7 +34,7 @@ class SimHandler(private val context: Context) {
                     "getSubscriptions" -> result.success(
                         // withNumbers: the picker shows each card's own number.
                         SimRegistry.subscriptions(context, withNumbers = true)
-                            .map { it.toMap() }
+                            .map { SimRegistry.toMapFor(context, it) }
                     )
                     // Call-log rows record a PhoneAccount *id string*, not a
                     // subscription id, and no public API maps the two. This
@@ -62,6 +62,19 @@ class SimHandler(private val context: Context) {
                                     (SimRegistry.subscriptionOfAccount(context, handle) ?: -1),
                             ),
                         )
+                    }
+                    // «نام سیم‌کارت»: stored natively (the notifications use it
+                    // with no engine), then the roster is re-sent so every
+                    // listening screen shows it.
+                    "setSimName" -> {
+                        SimRegistry.setCustomName(
+                            context,
+                            call.argument<Int>("subscriptionId")
+                                ?: SimRegistry.INVALID_SUBSCRIPTION_ID,
+                            call.argument<String>("name"),
+                        )
+                        emit()
+                        result.success(null)
                     }
                     "setAppDefaults" -> {
                         SimRegistry.setAppDefaults(
@@ -148,7 +161,8 @@ class SimHandler(private val context: Context) {
 
     private fun emit() {
         val payload =
-            SimRegistry.subscriptions(context, withNumbers = true).map { it.toMap() }
+            SimRegistry.subscriptions(context, withNumbers = true)
+                .map { SimRegistry.toMapFor(context, it) }
         // OnSubscriptionsChangedListener fires on the main looper already, but
         // the initial replay can come from the platform channel thread.
         android.os.Handler(android.os.Looper.getMainLooper()).post {

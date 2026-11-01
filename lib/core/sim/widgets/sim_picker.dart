@@ -72,7 +72,13 @@ class SimChip extends StatelessWidget {
     required this.onTap,
     this.dense = false,
     this.verb = 'ارسال با',
+    this.numberOnly = false,
   });
+
+  /// The SIM icon with just the slot's number («۱» / «۲») in place of «سیم ۱»
+  /// — the composer's chip, inside the pill next to the hint (design
+  /// decision, 1405/08/11). The words still travel as the semantics label.
+  final bool numberOnly;
 
   /// What the card is for, read out with it: «ارسال با» in the composer,
   /// «تماس با» beside the call button.
@@ -112,6 +118,10 @@ class SimChip extends StatelessWidget {
       label: selected == null
           ? 'انتخاب سیم‌کارت'
           : '$verb ${selected.slotLabel}، ${selected.name}',
+      // The label says it whole; the chip's own «۱» or «سیم ۱» would be read
+      // after it a second time.
+      excludeSemantics: true,
+      onTap: onTap,
       child: Material(
         color: tint.withValues(alpha: 0.10),
         shape: const StadiumBorder(),
@@ -133,7 +143,13 @@ class SimChip extends StatelessWidget {
                 ),
                 const SizedBox(width: 3),
                 Text(
-                  selected?.slotLabel ?? 'سیم‌کارت',
+                  selected == null
+                      ? 'سیم‌کارت'
+                      : numberOnly
+                      ? PersianUtils.toPersianNumber(
+                          '${selected.slotIndex + 1}',
+                        )
+                      : selected.slotLabel,
                   style:
                       (dense
                               ? Theme.of(context).textTheme.labelSmall

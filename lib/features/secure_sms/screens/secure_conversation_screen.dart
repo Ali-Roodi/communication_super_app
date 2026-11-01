@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
@@ -560,6 +561,16 @@ class SecureComposer extends StatelessWidget {
   /// A small line under the field (a group's SMS cost).
   final String? note;
 
+  /// The name of the card secure messages leave on, or null on a single-SIM
+  /// phone. Read from the one secure bloc both conversation screens share.
+  static String? _simName(BuildContext context) {
+    if (!SimService.isMultiSim) return null;
+    final chosen = context.select<SecureMessagesBloc, int?>(
+      (bloc) => bloc.state.smsSim,
+    );
+    return (SimService.byId(chosen) ?? SimService.defaultFor(SimUse.sms))?.name;
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -639,11 +650,34 @@ class SecureComposer extends StatelessWidget {
                 const SizedBox(width: 6),
                 ValueListenableBuilder<TextEditingValue>(
                   valueListenable: controller,
-                  builder: (context, value, _) => IconButton.filled(
-                    tooltip: 'ارسال',
-                    onPressed: value.text.trim().isEmpty ? null : onSend,
-                    icon: const Icon(Icons.send),
-                  ),
+                  builder: (context, value, _) {
+                    final button = IconButton.filled(
+                      tooltip: 'ارسال',
+                      onPressed: value.text.trim().isEmpty ? null : onSend,
+                      icon: const Icon(Icons.send),
+                    );
+                    final name = _simName(context);
+                    if (name == null) return button;
+                    // Matrix row 5: the card the message leaves on — the
+                    // «ارسال با سیم …» of the «پیام‌های رمز» menu, else the
+                    // default — named under the button. Dual-SIM only.
+                    return ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 72),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          button,
+                          Text(
+                            name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(color: scheme.onSurfaceVariant),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
               ],
             ),

@@ -6,7 +6,8 @@ import 'package:communication_super_app/core/sim/widgets/sim_picker.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 
-/// «سیم‌کارت‌ها» — the card calls and SMS use when nothing more specific
+/// «سیم‌کارت‌ها» — each card's name (matrix row 5: it is what the call and send
+/// buttons carry), and the card calls and SMS use when nothing more specific
 /// applies (a pick for one call, a contact's «سیم‌کارت تماس», a
 /// conversation's «ارسال با»).
 ///
@@ -55,11 +56,48 @@ class SimSettingsPage extends StatelessWidget {
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
+              const SectionLabel('نام سیم‌کارت‌ها'),
+              GroupedList(
+                children: [
+                  for (final sim in SimService.cached)
+                    SettingsRow(
+                      icon: Icons.sim_card_outlined,
+                      title: sim.slotLabel,
+                      summary: sim.customName.isEmpty
+                          ? 'بدون نام · ${_isolate(sim.operatorName)}'
+                          : '${_isolate(sim.customName)} · '
+                                '${_isolate(sim.operatorName)}',
+                      onTap: () => _rename(context, sim),
+                    ),
+                ],
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+                child: Text(
+                  'نامی که برای هر سیم‌کارت بگذارید (مثلاً «کاری» یا «شخصی») '
+                  'روی دکمهٔ تماس و ارسال و در اعلان‌ها نوشته می‌شود؛ بدون نام، '
+                  'نام اپراتور نوشته می‌شود.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  /// One name as its own direction run: two Latin names («Work · Irancell»)
+  /// would otherwise be laid out as one left-to-right run, in reverse order.
+  static String _isolate(String name) => '\u2068$name\u2069';
+
+  Future<void> _rename(BuildContext context, SimCard sim) async {
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) => _SimNameDialog(sim: sim),
+    );
+    if (name == null) return;
+    await SimService.instance.setSimName(sim.subscriptionId, name);
   }
 
   /// What a row says: the chosen card, «هر بار بپرس», or «پیش‌فرض گوشی»
@@ -121,3 +159,56 @@ class SimSettingsPage extends StatelessWidget {
 
 /// «هر بار بپرس», as the sheet answers it.
 const SimChoice _askChoice = SimChoice.other('ask');
+
+/// Answers the new name — empty to remove it — or null when dismissed.
+class _SimNameDialog extends StatefulWidget {
+  const _SimNameDialog({required this.sim});
+
+  final SimCard sim;
+
+  @override
+  State<_SimNameDialog> createState() => _SimNameDialogState();
+}
+
+class _SimNameDialogState extends State<_SimNameDialog> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.sim.customName,
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: AlertDialog(
+        title: Text('نام ${widget.sim.slotLabel}'),
+        content: TextField(
+          controller: _controller,
+          autofocus: true,
+          maxLength: SimCard.maxNameLength,
+          decoration: InputDecoration(
+            hintText: widget.sim.operatorName,
+            helperText: 'خالی بگذارید تا نام اپراتور نوشته شود',
+            helperMaxLines: 2,
+          ),
+          onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('انصراف'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+            child: const Text('ذخیره'),
+          ),
+        ],
+      ),
+    );
+  }
+}

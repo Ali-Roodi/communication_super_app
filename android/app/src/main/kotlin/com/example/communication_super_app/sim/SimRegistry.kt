@@ -191,7 +191,8 @@ object SimRegistry {
         if (subscriptionId == INVALID_SUBSCRIPTION_ID) return null
         val info = subscriptions(context)
             .firstOrNull { it.subscriptionId == subscriptionId } ?: return null
-        val name = info.displayName.ifBlank { info.carrierName }
+        val name = customName(context, subscriptionId)
+            ?: info.displayName.ifBlank { info.carrierName }
         val slot = "سیم ${persianDigits(info.slotIndex + 1)}"
         return if (name.isBlank()) slot else "$slot · $name"
     }
@@ -533,6 +534,42 @@ object SimRegistry {
             .putInt(KEY_SMS, sms)
             .apply()
     }
+
+    // ── The name the user gave a card in the app (Settings → «سیم‌کارت‌ها») ──
+    // Kept here rather than in Dart because the incoming-call and SMS
+    // notifications name the card with no Flutter engine ([labelOf]); Dart
+    // reads it back with the roster ([toMapFor]). Keyed by subscription, like
+    // every other stored SIM preference.
+
+    private const val KEY_NAME_PREFIX = "name_"
+
+    /** Longest name a card may be given — it has to fit on a button. */
+    const val MAX_NAME_LENGTH = 16
+
+    fun customName(context: Context, subscriptionId: Int): String? = try {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_NAME_PREFIX + subscriptionId, null)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+    } catch (e: Exception) {
+        null
+    }
+
+    /** A blank [name] removes it, and the card is named by its carrier again. */
+    fun setCustomName(context: Context, subscriptionId: Int, name: String?) {
+        val clean = name?.trim()?.take(MAX_NAME_LENGTH).orEmpty()
+        val edit = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        if (clean.isEmpty()) {
+            edit.remove(KEY_NAME_PREFIX + subscriptionId)
+        } else {
+            edit.putString(KEY_NAME_PREFIX + subscriptionId, clean)
+        }
+        edit.apply()
+    }
+
+    /** [SimInfo.toMap] plus the card's in-app name, for Dart. */
+    fun toMapFor(context: Context, info: SimInfo): Map<String, Any?> =
+        info.toMap() + ("customName" to customName(context, info.subscriptionId))
 
     private fun appDefault(context: Context, key: String): Int =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(key, APP_FOLLOW_PHONE)

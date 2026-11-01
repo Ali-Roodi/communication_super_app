@@ -751,9 +751,16 @@ class _DialerCallPillState extends State<DialerCallPill> {
     navigator.maybePop();
   }
 
+  /// The card the call will use, as the chip names it; null = it will ask.
+  SimCard? get _callSim => _liveCall ? _routed : (_picked ?? _routed);
+
   Widget _pill(BuildContext context) {
     final enabled = widget.enabled;
     final addCall = widget.addCall;
+    // Matrix row 5: the card's name — the one given in the app, else the
+    // operator's — is written on the button itself, under «تماس». Dual-SIM
+    // only, like every SIM affordance.
+    final simName = SimService.isMultiSim ? _callSim?.name : null;
     return Opacity(
       opacity: enabled ? 1.0 : 0.45,
       child: Material(
@@ -778,12 +785,31 @@ class _DialerCallPillState extends State<DialerCallPill> {
                   size: 24,
                 ),
                 const SizedBox(width: 10),
-                Text(
-                  addCall ? 'افزودن تماس' : 'تماس',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w500,
+                Flexible(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        addCall ? 'افزودن تماس' : 'تماس',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w500,
+                          height: 1.2,
+                        ),
+                      ),
+                      if (simName != null)
+                        Text(
+                          simName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            height: 1.2,
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ],
@@ -817,7 +843,7 @@ class _DialerCallPillState extends State<DialerCallPill> {
                 width: kSide,
                 child: Center(
                   child: SimChip(
-                    sim: _liveCall ? _routed : (_picked ?? _routed),
+                    sim: _callSim,
                     onTap: _liveCall ? null : _pickSim,
                     verb: 'تماس با',
                   ),

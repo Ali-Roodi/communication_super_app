@@ -106,7 +106,7 @@ class SettingsScreen extends StatelessWidget {
                   SettingsRow(
                     icon: Icons.sim_card_outlined,
                     title: 'سیم‌کارت‌ها',
-                    summary: 'سیم‌کارت پیش‌فرض تماس و پیامک',
+                    summary: 'نام سیم‌کارت‌ها و سیم‌کارت پیش‌فرض تماس و پیامک',
                     onTap: () => _push(context, const SimSettingsPage()),
                   ),
                 SettingsRow(

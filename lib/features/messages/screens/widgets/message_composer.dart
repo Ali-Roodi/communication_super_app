@@ -2,6 +2,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:communication_super_app/core/sim/sim_card.dart';
+import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:communication_super_app/core/sim/widgets/sim_picker.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/caret_line_fix.dart';
@@ -295,6 +296,7 @@ class MessageComposer extends StatelessWidget {
                                 sim: sim,
                                 onTap: onPickSim!,
                                 dense: true,
+                                numberOnly: true,
                               ),
                             ),
                           ),
@@ -375,6 +377,9 @@ class MessageComposer extends StatelessWidget {
                   onSend: onSend,
                   onSchedule: onSchedule,
                   scheduled: scheduledAt != null,
+                  // The card the chip names, written on the button too
+                  // (matrix row 5); dual-SIM only.
+                  simName: SimService.isMultiSim ? sim?.name : null,
                 ),
               ],
             ),

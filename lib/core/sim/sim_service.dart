@@ -337,6 +337,24 @@ class SimService {
     revision.value++;
   }
 
+  /// «نام سیم‌کارت» — names [subscriptionId] in the app; blank removes the
+  /// name. Stored natively, then the roster is re-read so every screen (and
+  /// the next notification) shows it.
+  Future<void> setSimName(int subscriptionId, String name) async {
+    final clean = name.trim();
+    try {
+      await _method.invokeMethod<void>('setSimName', {
+        'subscriptionId': subscriptionId,
+        'name': clean.length > SimCard.maxNameLength
+            ? clean.substring(0, SimCard.maxNameLength)
+            : clean,
+      });
+    } catch (e) {
+      debugPrint('setSimName failed: $e');
+    }
+    await load();
+  }
+
   Future<void> _mirrorAppDefaults() async {
     try {
       await _method.invokeMethod<void>('setAppDefaults', {

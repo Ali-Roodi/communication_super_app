@@ -19,6 +19,7 @@ class SimCard extends Equatable {
     required this.number,
     this.color,
     this.isEmbedded = false,
+    this.customName = '',
   });
 
   /// Sentinel for "no particular SIM" — mirrors
@@ -39,6 +40,15 @@ class SimCard extends Equatable {
 
   final bool isEmbedded;
 
+  /// The name the user gave this card in the app (Settings → «سیم‌کارت‌ها»),
+  /// or empty. Stored natively (`SimRegistry.customName`), because the
+  /// notifications name the card with no Flutter engine.
+  final String customName;
+
+  /// Longest [customName] — mirrors `SimRegistry.MAX_NAME_LENGTH`; it has to
+  /// fit on the call and send buttons.
+  static const int maxNameLength = 16;
+
   factory SimCard.fromMap(Map<String, dynamic> map) {
     return SimCard(
       subscriptionId:
@@ -49,6 +59,7 @@ class SimCard extends Equatable {
       number: map['number'] as String? ?? '',
       color: (map['color'] as num?)?.toInt(),
       isEmbedded: map['isEmbedded'] as bool? ?? false,
+      customName: (map['customName'] as String? ?? '').trim(),
     );
   }
 
@@ -56,20 +67,29 @@ class SimCard extends Equatable {
   String get slotLabel =>
       'سیم ${PersianUtils.toPersianNumber('${slotIndex + 1}')}';
 
-  /// What the user named this SIM, falling back to the carrier and finally to
-  /// the slot, so this is never empty.
+  /// What the user named this SIM — in the app first, then in Android's own
+  /// settings — falling back to the carrier and finally to the slot, so this
+  /// is never empty. It is what the call and send buttons carry (matrix row 5).
   String get name {
+    if (customName.isNotEmpty) return customName;
+    if (displayName.trim().isNotEmpty) return displayName.trim();
+    if (carrierName.trim().isNotEmpty) return carrierName.trim();
+    return slotLabel;
+  }
+
+  /// The operator, as the card reports it — what [name] falls back to.
+  String get operatorName {
     if (displayName.trim().isNotEmpty) return displayName.trim();
     if (carrierName.trim().isNotEmpty) return carrierName.trim();
     return slotLabel;
   }
 
   /// Second line of a SIM row: the card's own number when the carrier wrote
-  /// one, otherwise the carrier name — and nothing at all when [name] already
-  /// *is* the carrier name, which is the common case.
+  /// one, otherwise the operator — and nothing at all when [name] already
+  /// *is* the operator, which is the common case.
   String? get subtitle {
     if (number.trim().isNotEmpty) return PersianUtils.displayPhone(number);
-    final carrier = carrierName.trim();
+    final carrier = customName.isNotEmpty ? operatorName : carrierName.trim();
     if (carrier.isEmpty || carrier == name) return null;
     return carrier;
   }
@@ -91,6 +111,7 @@ class SimCard extends Equatable {
     number,
     color,
     isEmbedded,
+    customName,
   ];
 }
 
