@@ -69,6 +69,10 @@ Blocking was already enforced in four receive paths and still felt broken, for t
 - **The page selects** like every list in the app: long-press a row → `SelectionAppBar` with «انتخاب همه» · «رفع مسدودی» · «حذف گفتگو», tap toggles while selecting, back leaves the selection first. «رفع مسدودی» is one `UnblockNumbers` event → `unblockAll`, one transaction (rows read in 400-key chunks), then the system list — a hundred spam senders in one gesture, with «واگرد» re-blocking each with its report flag. «حذف گفتگو» is asked first (it cannot be undone), counts only the selected numbers that *have* a conversation, deletes them through `MessageBloc` `DeleteThreads` (from the phone too) and **keeps the numbers blocked**. The row's ⋮ menu offers the same actions singly. The «مسدود کردن تماس» row stays in place, dimmed and inert, while selecting — hiding it moved the list up under the finger that had just long-pressed.
   - The rows' names and previews are read in **one batch** for the whole list (`getAllThreads(restrictToThreadIds:, includeBlocked: true)`, inbox and archive, names from `ContactNameCache`), not a contact lookup and a message query per row — two hundred round trips with a hundred blocked senders. They are re-read when the blocked set changes and on the inbox emit that follows a delete.
 
+### Label filter on the inbox
+
+The chip row under the inbox header filters conversations by a contact label (matrix row 36) and pages the inbox in while the filtered list is short. One source and one widget with the contacts tab — see «Groups as filters» in `contacts.md`.
+
 ### «فهرست سیاه و سفید» — who may text or call, both ways
 
 Matrix row 10 (priority 1, every edition). `NumberListsPage` (Settings → عمومی, and a row under «مسدود کردن تماس» in «هرزنامه و مسدودشده»). Four channels — پیامک دریافتی / ارسالی, تماس ورودی / خروجی — each with its own mode, which is the matrix's «همه / موردی / به‌جز»:

@@ -24,6 +24,10 @@ import 'package:communication_super_app/features/contacts/screens/device_contact
 import 'package:communication_super_app/features/contacts/screens/contact_labels_screen.dart';
 import 'package:communication_super_app/features/contacts/screens/duplicate_contacts_screen.dart';
 import 'package:communication_super_app/features/contacts/services/contact_extras_service.dart';
+import 'package:communication_super_app/features/contacts/services/contact_filters.dart';
+import 'package:communication_super_app/features/contacts/widgets/contact_filter_bar.dart';
+import 'package:communication_super_app/features/secure/bloc/secure_session_bloc.dart';
+import 'package:communication_super_app/features/secure_sms/bloc/secure_messages_bloc.dart';
 import 'package:communication_super_app/features/contacts/services/contact_link_service.dart';
 import 'package:communication_super_app/features/contacts/widgets/merge_contacts_dialog.dart';
 import 'package:communication_super_app/features/contacts/services/sim_contacts_service.dart';
@@ -77,6 +81,20 @@ class _ContactsListScreenState extends State<ContactsListScreen>
   /// «انتخاب همه» selects what the user is actually looking at.
   List<ContactModel> _visible = const [];
 
+  /// The filter chip in use (matrix row 36); null is «همه».
+  ContactFilter? _filter;
+
+  /// The selected label's or messenger's contact ids; null while they load
+  /// (the list stays whole meanwhile) and for «رمز», which is worked out from
+  /// the secure section's conversations on every build.
+  Set<String>? _filterIds;
+
+  // Memoized filter result, so the sections are not regrouped on rebuilds
+  // that change nothing (the grouping is keyed on the list's identity).
+  List<ContactModel>? _filterSource;
+  Object? _filterKey;
+  List<ContactModel> _filtered = const [];
+
   // Memoized section grouping (rebuilt only when the contact list or the active
   // alphabet changes).
   List<ContactModel>? _lastContacts;
@@ -107,6 +125,54 @@ class _ContactsListScreenState extends State<ContactsListScreen>
         context.read<ContactBloc>().add(const LoadContacts());
       }
     });
+    ContactFilters.instance.revision.addListener(_onFiltersChanged);
+    unawaited(ContactFilters.instance.load());
+  }
+
+  void _onFiltersChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _selectFilter(ContactFilter? filter) async {
+    setState(() {
+      _filter = filter;
+      _filterIds = null;
+    });
+    await _loadFilterIds();
+  }
+
+  /// Fetches the members of the selected label or messenger — again after the
+  /// address book changed under it.
+  Future<void> _loadFilterIds() async {
+    final filter = _filter;
+    if (filter == null || filter.kind == ContactFilterKind.secure) return;
+    final ids = await ContactFilters.instance.contactIds(filter);
+    if (mounted && _filter == filter) setState(() => _filterIds = ids);
+  }
+
+  /// [contacts] narrowed to the selected filter. A filter that is no longer
+  /// offered (hidden, a label deleted, the secure section locked) is «همه».
+  List<ContactModel> _applyFilter(
+    List<ContactModel> contacts,
+    List<ContactFilter> offered,
+    Iterable<String> securePhones,
+  ) {
+    final filter = _filter;
+    if (filter == null || !offered.contains(filter)) return contacts;
+    final Set<String>? ids = filter.kind == ContactFilterKind.secure
+        ? ContactFilters.secureMembers(contacts, securePhones)
+        : _filterIds;
+    if (ids == null) return contacts;
+    final key = (filter, ids);
+    if (identical(_filterSource, contacts) && _filterKey == key) {
+      return _filtered;
+    }
+    _filterSource = contacts;
+    _filterKey = key;
+    return _filtered = [
+      for (final c in contacts)
+        if (ids.contains(c.id)) c,
+    ];
   }
 
   /// Applies a typed query after a short pause.
@@ -123,6 +189,7 @@ class _ContactsListScreenState extends State<ContactsListScreen>
 
   @override
   void dispose() {
+    ContactFilters.instance.revision.removeListener(_onFiltersChanged);
     _searchDebounce?.cancel();
     _searchController.dispose();
     _scrollController.dispose();
@@ -133,6 +200,25 @@ class _ContactsListScreenState extends State<ContactsListScreen>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // «رمز» exists only while the secure section is open (matrix rows 3, 36):
+    // with the lock closed nothing here hints that encrypted conversations do.
+    final secureOpen = context.select<SecureSessionBloc, bool>(
+      (b) => b.state.isUnlocked,
+    );
+    // Joined, so the select compares by value and a secure-state emit that
+    // changes no number does not rebuild the address book.
+    final securePhones = secureOpen
+        ? context
+              .select<SecureMessagesBloc, String>(
+                (b) => [
+                  for (final c in b.state.conversations)
+                    if (c.encrypted) c.phone,
+                ].join(','),
+              )
+              .split(',')
+              .where((p) => p.isNotEmpty)
+        : const <String>[];
+    final offered = ContactFilters.instance.visible(secureOpen: secureOpen);
 
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -155,8 +241,21 @@ class _ContactsListScreenState extends State<ContactsListScreen>
               // the list, not in it: the fast-scroll offsets stay untouched.
               if (!_selectionMode && _query.trim().isEmpty)
                 const HiddenContactsEntry(),
+              if (!_selectionMode)
+                ContactFilterBar(
+                  filters: offered,
+                  all: ContactFilters.instance.all(secureOpen: secureOpen),
+                  selected: offered.contains(_filter) ? _filter : null,
+                  onSelected: _selectFilter,
+                ),
               Expanded(
-                child: BlocBuilder<ContactBloc, ContactState>(
+                child: BlocConsumer<ContactBloc, ContactState>(
+                  // The address book changed: the labels and messengers, and
+                  // who is in the one selected, may have too.
+                  listenWhen: (_, current) => current is ContactsLoaded,
+                  listener: (_, _) => ContactFilters.instance.load().then(
+                    (_) => _loadFilterIds(),
+                  ),
                   builder: (context, state) {
                     if (state is ContactLoading) {
                       return const Center(child: CircularProgressIndicator());
@@ -168,12 +267,23 @@ class _ContactsListScreenState extends State<ContactsListScreen>
                       if (state.contacts.isEmpty) {
                         return _buildEmptyState(theme);
                       }
+                      final contacts = _applyFilter(
+                        state.contacts,
+                        offered,
+                        securePhones,
+                      );
+                      if (contacts.isEmpty) {
+                        return const EmptyState(
+                          icon: Icons.group_off_outlined,
+                          title: 'مخاطبی در این گروه نیست',
+                        );
+                      }
                       return _query.trim().isEmpty
                           ? _buildSectionedList(
-                              _getOrBuildSections(state.contacts),
+                              _getOrBuildSections(contacts),
                               theme,
                             )
-                          : _buildSearchResults(state.contacts, theme);
+                          : _buildSearchResults(contacts, theme);
                     }
                     return const SizedBox.shrink();
                   },

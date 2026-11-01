@@ -13,6 +13,17 @@ class MessagesEmptyState extends StatelessWidget {
   );
 }
 
+/// A label chip is selected and nobody in the label has a conversation.
+class EmptyFilterState extends StatelessWidget {
+  const EmptyFilterState({super.key});
+
+  @override
+  Widget build(BuildContext context) => const EmptyState(
+    icon: Icons.group_off_outlined,
+    title: 'گفتگویی با این گروه نیست',
+  );
+}
+
 /// The inbox is empty *because the first device import has not finished yet*.
 ///
 /// A first install has nothing local and the mirror-sync walks the whole

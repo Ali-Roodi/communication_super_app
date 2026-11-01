@@ -13,6 +13,7 @@ import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.provider.ContactsContract
+import android.util.Log
 import androidx.core.content.ContextCompat
 import com.example.communication_super_app.sim.SimRegistry
 import io.flutter.plugin.common.MethodCall
@@ -40,6 +41,7 @@ class ContactExtrasHandler(
 
     companion object {
         const val CHANNEL = "com.example.communication_super_app/contact_extras"
+        private const val TAG = "ContactExtras"
         private const val REQUEST_PICK_RINGTONE = 9101
 
         /**
@@ -93,6 +95,17 @@ class ContactExtrasHandler(
                     setCallingSim(id, call.argument<Int>("subscriptionId") ?: -1)
                 )
                 "getConnectedApps" -> result.success(getConnectedApps(id))
+                // The whole address book's Data rows: off the main thread.
+                "getMessengerAccounts" -> Thread {
+                    val accounts = try {
+                        getMessengerAccounts()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "messenger accounts failed: ${e.message}")
+                        emptyList()
+                    }
+                    android.os.Handler(android.os.Looper.getMainLooper())
+                        .post { result.success(accounts) }
+                }.start()
                 "openConnectedAction" -> result.success(
                     openConnectedAction(
                         (call.argument<Any>("dataId") as? Number)?.toLong(),
@@ -498,6 +511,55 @@ class ContactExtrasHandler(
             }
         }
         return byKey.values.toList()
+    }
+
+    /**
+     * Every messenger that keeps a copy of the address book, with the contacts
+     * it holds — the «مخاطبین شبکه‌های اجتماعی» filters (matrix row 36).
+     *
+     * A messenger is recognised by what it writes, not by its sync adapter: it
+     * puts its own actions («پیام»، «تماس») on each contact as Data rows of a
+     * custom MIME type, which no address-book account (Google, Samsung, the
+     * phone, the SIM) does. `supportsUploading` cannot tell them apart — Eitaa
+     * declares it, exactly like Google (SM A336E, 1405/08/11).
+     *
+     * `[{key: accountType, package, label, icon, contactIds}]`, largest first.
+     */
+    private fun getMessengerAccounts(): List<Map<String, Any?>> {
+        val contactsByType = LinkedHashMap<String, MutableSet<String>>()
+        val firstRow = HashMap<String, Pair<String?, String>>() // type → (pkg, mime)
+        context.contentResolver.query(
+            ContactsContract.Data.CONTENT_URI,
+            arrayOf(
+                ContactsContract.Data.CONTACT_ID,
+                ContactsContract.Data.MIMETYPE,
+                ContactsContract.Data.RES_PACKAGE,
+                ContactsContract.RawContacts.ACCOUNT_TYPE,
+            ),
+            "${ContactsContract.Data.MIMETYPE} LIKE ?",
+            arrayOf("vnd.android.cursor.item/vnd.%"),
+            null,
+        )?.use { c ->
+            while (c.moveToNext()) {
+                val mime = c.getString(1) ?: continue
+                if (mime in KNOWN_MIME_TYPES) continue
+                val type = c.getString(3) ?: continue
+                contactsByType.getOrPut(type) { LinkedHashSet() }.add(c.getLong(0).toString())
+                firstRow.getOrPut(type) { c.getString(2) to mime }
+            }
+        }
+        return contactsByType.mapNotNull { (type, ids) ->
+            val (resPackage, mime) = firstRow[type] ?: return@mapNotNull null
+            val pkg = resPackage ?: packageForAccountType(type) ?: packageFromMimeType(mime)
+            if (pkg == context.packageName) return@mapNotNull null
+            mapOf(
+                "key" to type,
+                "package" to (pkg ?: ""),
+                "label" to appLabel(pkg, type, mime),
+                "icon" to pkg?.let { appIcon(it) },
+                "contactIds" to ids.toList(),
+            )
+        }.sortedByDescending { (it["contactIds"] as List<*>).size }
     }
 
     private fun packageForAccountType(type: String?): String? {

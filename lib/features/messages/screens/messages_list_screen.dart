@@ -22,7 +22,11 @@ import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import 'package:communication_super_app/core/utils/search_text.dart';
+import 'package:communication_super_app/features/contacts/bloc/contact_bloc.dart';
+import 'package:communication_super_app/features/contacts/bloc/contact_state.dart';
 import 'package:communication_super_app/features/contacts/models/contact_model.dart';
+import 'package:communication_super_app/features/contacts/services/contact_filters.dart';
+import 'package:communication_super_app/features/contacts/widgets/contact_filter_bar.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/core/widgets/undo_snack_bar.dart';
 import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
@@ -82,6 +86,49 @@ class _MessagesListScreenState extends State<MessagesListScreen>
 
   bool get _selectionMode => _selected.isNotEmpty;
 
+  /// The label chip in use (matrix row 36: groups as a filter of the inbox);
+  /// null is «همه». Only labels: a messenger is not a conversation, and the
+  /// encrypted ones have their own «پیام‌های رمز» row.
+  ContactFilter? _filter;
+
+  /// The selected label's members' numbers, as thread ids; null while they
+  /// load (the inbox stays whole meanwhile).
+  Set<String>? _filterThreads;
+
+  List<ContactFilter> get _offeredFilters =>
+      ContactFilters.instance.visible(secureOpen: false, messengers: false);
+
+  void _onFiltersChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _selectFilter(ContactFilter? filter) async {
+    setState(() {
+      _filter = filter;
+      _filterThreads = null;
+    });
+    await _loadFilterThreads();
+  }
+
+  /// Who is in the selected label, as the numbers their conversations are
+  /// keyed by — again whenever the address book changes.
+  Future<void> _loadFilterThreads() async {
+    final filter = _filter;
+    if (filter == null) return;
+    final ids = await ContactFilters.instance.contactIds(filter);
+    if (!mounted || _filter != filter) return;
+    final state = context.read<ContactBloc>().state;
+    final contacts = state is ContactsLoaded ? state.contacts : const [];
+    setState(() {
+      _filterThreads = ids == null
+          ? null
+          : {
+              for (final c in contacts)
+                if (ids.contains(c.id)) ...ContactFilters.numbersOf(c),
+            };
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -95,6 +142,8 @@ class _MessagesListScreenState extends State<MessagesListScreen>
     _scrollController.addListener(_onScroll);
     _loadDrafts();
     _checkDefaultSmsApp();
+    ContactFilters.instance.revision.addListener(_onFiltersChanged);
+    unawaited(ContactFilters.instance.load());
   }
 
   Future<void> _checkDefaultSmsApp() async {
@@ -179,6 +228,7 @@ class _MessagesListScreenState extends State<MessagesListScreen>
 
   @override
   void dispose() {
+    ContactFilters.instance.revision.removeListener(_onFiltersChanged);
     appRouteObserver.unsubscribe(this);
     _searchDebounce?.cancel();
     _scrollController.removeListener(_onScroll);
@@ -446,6 +496,12 @@ class _MessagesListScreenState extends State<MessagesListScreen>
       textDirection: TextDirection.rtl,
       child: MultiBlocListener(
         listeners: [
+          // A label's members are contacts; when the address book changes,
+          // so may the conversations the selected label shows.
+          BlocListener<ContactBloc, ContactState>(
+            listenWhen: (_, current) => current is ContactsLoaded,
+            listener: (_, _) => _loadFilterThreads(),
+          ),
           BlocListener<BlockedNumbersBloc, BlockedNumbersState>(
             // The inbox hides blocked conversations, so the list has to be
             // re-read whenever the blocked set changes — after a block, an
@@ -499,6 +555,20 @@ class _MessagesListScreenState extends State<MessagesListScreen>
                 ),
               if (!_selectionMode && !_searching)
                 const SliverToBoxAdapter(child: SecureInboxEntry()),
+              if (!_selectionMode && !_searching)
+                SliverToBoxAdapter(
+                  child: ContactFilterBar(
+                    filters: _offeredFilters,
+                    all: ContactFilters.instance.all(
+                      secureOpen: false,
+                      messengers: false,
+                    ),
+                    selected: _offeredFilters.contains(_filter)
+                        ? _filter
+                        : null,
+                    onSelected: _selectFilter,
+                  ),
+                ),
               ..._buildBodySlivers(context),
             ],
           ),
@@ -590,13 +660,37 @@ class _MessagesListScreenState extends State<MessagesListScreen>
             // the previous query's rows are not the answer to this one.
             return filler(const Center(child: CircularProgressIndicator()));
           }
-          final threads = searching
+          final merged = searching
               ? _searchResults!
               : _mergeOverlays(inbox.threads, scheduled);
-          if (threads.isEmpty) {
+          final members = _filterThreads;
+          final filtering =
+              !searching &&
+              members != null &&
+              _offeredFilters.contains(_filter);
+          final threads = filtering
+              ? [
+                  for (final t in merged)
+                    if (members.contains(t.threadId)) t,
+                ]
+              : merged;
+          // A label narrows the pages loaded so far, and a short list cannot
+          // be scrolled to the end that asks for the next one — so while it is
+          // short, the next page is asked for here (the bloc ignores a request
+          // while one is running).
+          if (filtering && inbox.hasMore && threads.length < 12) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                context.read<MessageBloc>().add(const LoadMoreThreads());
+              }
+            });
+          }
+          if (threads.isEmpty && !(filtering && inbox.hasMore)) {
             return filler(
               searching
                   ? const MessagesNoResults()
+                  : filtering
+                  ? const EmptyFilterState()
                   : inbox.syncing
                   ? const MessagesImportingState()
                   : const MessagesEmptyState(),

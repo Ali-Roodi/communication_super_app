@@ -203,6 +203,53 @@ class ContactExtrasService {
       return const [];
     }
   }
+
+  /// Every messenger keeping a copy of the address book, with the contacts it
+  /// holds (matrix row 36) — largest first. Empty when it cannot be read.
+  Future<List<MessengerAccount>> getMessengerAccounts() async {
+    try {
+      final list = await _channel.invokeListMethod<dynamic>(
+        'getMessengerAccounts',
+      );
+      if (list == null) return const [];
+      return [
+        for (final e in list)
+          MessengerAccount.fromMap(Map<String, dynamic>.from(e as Map)),
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+}
+
+/// A messenger (Eitaa, WhatsApp, Telegram…) as a group of contacts: the ones
+/// it holds a copy of. Recognised natively by the actions it writes onto them.
+class MessengerAccount {
+  const MessengerAccount({
+    required this.key,
+    required this.label,
+    required this.contactIds,
+    this.package = '',
+    this.icon,
+  });
+
+  /// The account type — stable, what a hidden filter is remembered by.
+  final String key;
+  final String label;
+  final String package;
+  final Uint8List? icon;
+  final Set<String> contactIds;
+
+  factory MessengerAccount.fromMap(Map<String, dynamic> map) =>
+      MessengerAccount(
+        key: map['key'] as String? ?? '',
+        label: map['label'] as String? ?? '',
+        package: map['package'] as String? ?? '',
+        icon: map['icon'] as Uint8List?,
+        contactIds: {
+          for (final id in (map['contactIds'] as List?) ?? const []) '$id',
+        },
+      );
 }
 
 /// The contact's ringtone, voicemail routing and owning account.
