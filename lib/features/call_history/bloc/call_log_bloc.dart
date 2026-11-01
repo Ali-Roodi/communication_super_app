@@ -131,13 +131,28 @@ class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
       if (_observeDeviceChanges) {
         await NativeCallLogService.instance.initialize();
       }
-      await _service.ensureSynced();
+      // A first import paints its first slice as soon as it is written —
+      // the list is then on screen and the rest fills in through the reload
+      // below.
+      await _service.ensureSynced(
+        onProgress: () {
+          if (!isClosed && state is! CallLogsLoaded) add(const LoadCallLogs());
+        },
+      );
     } catch (_) {
       // Keep whatever the mirror already holds; the list is already on screen.
     }
     _deviceSyncDone = true;
     if (!isClosed) add(const LoadCallLogs());
+    if (_syncAfterFirstImport && !isClosed) {
+      _syncAfterFirstImport = false;
+      add(const SyncCallLogs());
+    }
   }
+
+  /// The provider changed while the first import was running; one silent
+  /// pass catches it up afterwards.
+  bool _syncAfterFirstImport = false;
 
   /// The one-per-process device pass: started, and finished. [_deviceSyncDone]
   /// is what tells «the mirror is empty» apart from «the mirror has not been
@@ -207,6 +222,13 @@ class CallLogBloc extends Bloc<CallLogEvent, CallLogState> {
     SyncCallLogs event,
     Emitter<CallLogState> emit,
   ) async {
+    // The first import is still running: a second pass now would import the
+    // whole history again beside it (the role grant fires the provider
+    // observer at exactly that moment). It runs once the import is done.
+    if (!_deviceSyncDone) {
+      _syncAfterFirstImport = true;
+      return;
+    }
     final current = state;
     final limit = current is CallLogsLoaded
         ? (current.callLogs.length > _callLogPageSize

@@ -2,6 +2,8 @@ import 'dart:isolate';
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show VoidCallback;
+
 import 'package:permission_handler/permission_handler.dart';
 import '../models/call_log_model.dart';
 import '../repositories/call_log_repository.dart';
@@ -46,7 +48,14 @@ class CallLogService {
   /// has any reason to re-read the mirror. False means "the mirror was already
   /// populated and nothing was imported", which is the ordinary launch, and a
   /// caller that re-queried on it would repaint the list for nothing.
-  Future<bool> ensureSynced({bool forceRefresh = false}) async {
+  ///
+  /// [onProgress] is called each time a first import has written a slice —
+  /// the caller can paint what is already there instead of waiting for the
+  /// whole history (see [_importWindow]).
+  Future<bool> ensureSynced({
+    bool forceRefresh = false,
+    VoidCallback? onProgress,
+  }) async {
     // Piggyback on an in-flight sync instead of starting a second one.
     final inFlight = _loading;
     if (inFlight != null) {
@@ -59,7 +68,7 @@ class CallLogService {
     var imported = false;
     try {
       if (forceRefresh || !await _repository.hasAnyCallLogs()) {
-        await syncFromDevice(force: forceRefresh);
+        await syncFromDevice(force: forceRefresh, onProgress: onProgress);
         imported = true;
       }
     } catch (_) {
@@ -79,6 +88,10 @@ class CallLogService {
   /// ten-year call history can't block the UI thread in one shot.
   static const Duration _importChunk = Duration(days: 30);
 
+  /// The first slice is short: it is what «اخیر» paints from on a fresh
+  /// install, and the newest week is the part anyone looks at.
+  static const Duration _firstImportChunk = Duration(days: 7);
+
   /// Overlap applied to the incremental fetch: a call that ended just before
   /// the last sync can land in the provider a moment later, so re-reading a
   /// short tail is cheaper than missing rows.
@@ -96,7 +109,32 @@ class CallLogService {
   /// 2. **Deletions**: the device's *ids* alone are read natively and diffed
   ///    against the stored ids, so nothing is re-written to spot a delete. If
   ///    the native side can't answer, the diff is skipped rather than guessed.
-  Future<List<CallLogModel>?> syncFromDevice({bool force = false}) async {
+  Future<List<CallLogModel>?> syncFromDevice({
+    bool force = false,
+    VoidCallback? onProgress,
+  }) async {
+    // One pass at a time: two overlapping first imports wrote the whole
+    // history twice. A pass that had to wait finds the mirror filled and
+    // only fetches what is newer.
+    while (_syncing != null) {
+      await _syncing;
+    }
+    final done = Completer<void>();
+    _syncing = done.future;
+    try {
+      return await _syncFromDevice(force: force, onProgress: onProgress);
+    } finally {
+      _syncing = null;
+      done.complete();
+    }
+  }
+
+  Future<void>? _syncing;
+
+  Future<List<CallLogModel>?> _syncFromDevice({
+    required bool force,
+    VoidCallback? onProgress,
+  }) async {
     final hasPermission = await requestPermissions();
     if (!hasPermission) return null;
 
@@ -105,7 +143,7 @@ class CallLogService {
 
     final List<CallLogModel> deviceLogs;
     if (newestLocalMs == null) {
-      await _importWindow(windowStart);
+      await _importWindow(windowStart, onProgress: onProgress);
       deviceLogs = const [];
     } else {
       final since = DateTime.fromMillisecondsSinceEpoch(
@@ -130,16 +168,32 @@ class CallLogService {
   ///
   /// Nothing is accumulated — a whole call history held in a list while it is
   /// also being written is exactly the peak the low-memory phones die on.
-  Future<void> _importWindow(DateTime windowStart) async {
+  ///
+  /// Newest first, the first slice only a week, and [onProgress] after every
+  /// slice written: on a fresh install «اخیر» used to wait for the *whole*
+  /// year — every slice queued behind the address-book read and the SMS
+  /// import ([DeviceSyncQueue]) — and on the mentor's phone that spinner
+  /// read as a hang (1405/08/11). Now it paints the newest calls as soon as
+  /// they are in and fills in behind them.
+  Future<void> _importWindow(
+    DateTime windowStart, {
+    VoidCallback? onProgress,
+  }) async {
     var chunkEnd = DateTime.now();
+    var chunk = _firstImportChunk;
+    var first = true;
     while (chunkEnd.isAfter(windowStart)) {
-      final chunkStart = chunkEnd.subtract(_importChunk);
+      final chunkStart = chunkEnd.subtract(chunk);
+      chunk = _importChunk;
       final slice = await _fetchDeviceLogs(
         since: chunkStart.isBefore(windowStart) ? windowStart : chunkStart,
         until: chunkEnd,
+        queued: !first,
       );
+      first = false;
       if (slice.isNotEmpty) {
         await _repository.saveCallLogsBatch(slice);
+        onProgress?.call();
       }
       chunkEnd = chunkStart;
       await Future<void>.delayed(Duration.zero);
@@ -328,9 +382,15 @@ class CallLogService {
 
   /// Reads the device call log and maps it to models (contact fields left null;
   /// they are filled by [_resolveContactNames]).
+  ///
+  /// [queued] false skips [DeviceSyncQueue] — only for the first slice of a
+  /// first import, which is a week of calls and what «اخیر» is waiting to
+  /// paint. Behind the queue it waited for the whole address book to be read
+  /// first (thousands of contacts on a real phone).
   Future<List<CallLogModel>> _fetchDeviceLogs({
     DateTime? since,
     DateTime? until,
+    bool queued = true,
   }) async {
     // The SIM roster must exist BEFORE the rows are mapped: each row's
     // subscription is resolved from its PhoneAccount id and then persisted, so
@@ -344,12 +404,12 @@ class CallLogService {
     // itself and replies twice on one `MethodChannel.Result` when a second
     // call arrives while its permission dialog is up, which killed the app on
     // every fresh install. See `NativeCallLogService.deviceCallLogEntries`.
-    final entries = await DeviceSyncQueue.run(
-      () => NativeCallLogService.instance.deviceCallLogEntries(
-        sinceMs: since?.millisecondsSinceEpoch,
-        untilMs: until?.millisecondsSinceEpoch,
-      ),
-    );
+    Future<List<Map<String, dynamic>>> read() =>
+        NativeCallLogService.instance.deviceCallLogEntries(
+          sinceMs: since?.millisecondsSinceEpoch,
+          untilMs: until?.millisecondsSinceEpoch,
+        );
+    final entries = await (queued ? DeviceSyncQueue.run(read) : read());
 
     // Map on a background isolate to avoid UI jank.
     final mapped = await Isolate.run<List<Map<String, dynamic>>>(() {

@@ -95,6 +95,18 @@ class ContactExtrasHandler(
                     setCallingSim(id, call.argument<Int>("subscriptionId") ?: -1)
                 )
                 "getConnectedApps" -> result.success(getConnectedApps(id))
+                // The address book as the contact list needs it: off the main
+                // thread, null when it cannot be read.
+                "readAddressBook" -> Thread {
+                    val book = try {
+                        readAddressBook()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "address book read failed: ${e.message}")
+                        null
+                    }
+                    android.os.Handler(android.os.Looper.getMainLooper())
+                        .post { result.success(book) }
+                }.start()
                 // The whole address book's Data rows: off the main thread.
                 "getMessengerAccounts" -> Thread {
                     val accounts = try {
@@ -512,6 +524,84 @@ class ContactExtrasHandler(
         }
         return byKey.values.toList()
     }
+
+    /**
+     * Every visible contact with exactly what `ContactRepository` builds a
+     * `ContactModel` from — display name, given and family name, numbers, the
+     * first e-mail — as `[{id, displayName, first, last, phones, email}]`.
+     *
+     * One Data query over three MIME types. `flutter_contacts`'
+     * `getContacts(withProperties: true)` read every Data row of every contact
+     * with every column and built a full object per contact: 12 s for 3 000
+     * contacts on the emulator, and the first launch's call-log import and
+     * database writes waited behind it — «اخیر» on a fresh install looked hung
+     * (the mentor's report, 1405/08/11). Same rows as that read
+     * (`IN_VISIBLE_GROUP = 1`); a contact's primary number comes first.
+     */
+    private fun readAddressBook(): List<Map<String, Any?>>? {
+        if (context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            return null
+        }
+        val name = ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE
+        val phone = ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE
+        val email = ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE
+        val byId = LinkedHashMap<Long, MutableMap<String, Any?>>()
+        context.contentResolver.query(
+            ContactsContract.Data.CONTENT_URI,
+            arrayOf(
+                ContactsContract.Data.CONTACT_ID,
+                ContactsContract.Data.MIMETYPE,
+                ContactsContract.Data.DISPLAY_NAME_PRIMARY,
+                ContactsContract.Data.DATA1,
+                ContactsContract.Data.DATA2,
+                ContactsContract.Data.DATA3,
+            ),
+            "${ContactsContract.Data.IN_VISIBLE_GROUP} = 1 AND " +
+                "${ContactsContract.Data.MIMETYPE} IN (?, ?, ?)",
+            arrayOf(name, phone, email),
+            "${ContactsContract.Data.CONTACT_ID}, " +
+                "${ContactsContract.Data.IS_SUPER_PRIMARY} DESC, " +
+                "${ContactsContract.Data.IS_PRIMARY} DESC, " +
+                ContactsContract.Data._ID,
+        )?.use { c ->
+            while (c.moveToNext()) {
+                val id = c.getLong(0)
+                val entry = byId.getOrPut(id) {
+                    hashMapOf(
+                        "id" to id.toString(),
+                        "displayName" to (c.getString(2) ?: ""),
+                        "first" to "",
+                        "last" to "",
+                        "phones" to ArrayList<String>(),
+                        "email" to null,
+                    )
+                }
+                when (c.getString(1)) {
+                    name -> {
+                        entry["first"] = c.getString(4) ?: ""
+                        entry["last"] = c.getString(5) ?: ""
+                    }
+                    phone -> {
+                        val number = c.getString(3)?.trim().orEmpty()
+                        @Suppress("UNCHECKED_CAST")
+                        val phones = entry["phones"] as ArrayList<String>
+                        // A linked contact carries the same number once per
+                        // raw contact; the list shows it once.
+                        if (number.isNotEmpty() && phones.none { same(it, number) }) {
+                            phones.add(number)
+                        }
+                    }
+                    email -> if (entry["email"] == null) entry["email"] = c.getString(3)
+                }
+            }
+        }
+        return byId.values.toList()
+    }
+
+    private fun same(a: String, b: String): Boolean =
+        a.filter { it.isDigit() || it == '+' } == b.filter { it.isDigit() || it == '+' }
 
     /**
      * Every messenger that keeps a copy of the address book, with the contacts

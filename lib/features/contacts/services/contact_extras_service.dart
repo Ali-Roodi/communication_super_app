@@ -204,6 +204,20 @@ class ContactExtrasService {
     }
   }
 
+  /// The visible address book with just what a contact row needs — see
+  /// `ContactExtrasHandler.readAddressBook`. Null when it cannot be read (no
+  /// permission, a provider error, no native side), so the caller can fall
+  /// back to the full `flutter_contacts` read.
+  Future<List<Map<String, dynamic>>?> readAddressBook() async {
+    try {
+      final list = await _channel.invokeListMethod<dynamic>('readAddressBook');
+      if (list == null) return null;
+      return [for (final e in list) Map<String, dynamic>.from(e as Map)];
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Every messenger keeping a copy of the address book, with the contacts it
   /// holds (matrix row 36) — largest first. Empty when it cannot be read.
   Future<List<MessengerAccount>> getMessengerAccounts() async {

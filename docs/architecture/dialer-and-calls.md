@@ -225,3 +225,5 @@ tone by itself after `DTMF_MAX_MS` in case the release never comes. Verified on
 the SM A336E (VoLTE): Telecom logs `playDtmfTone` / `stopDtmfTone` exactly as
 far apart as the key was held, before and after closing the pad and after a
 minimize/restore.
+
+**A fresh install paints «اخیر» from the first slice** (1405/08/11, the mentor's «hangs on اخیر»): the first import reads the newest 7 days first, outside `DeviceSyncQueue`, and `CallLogBloc` reloads as each slice is written instead of after the whole year. `syncFromDevice` runs one pass at a time, and a `SyncCallLogs` arriving during the first import (the role grant fires the provider observer) is deferred to one pass after it — it used to start a second full import beside the first. Measured on the emulator with 3 000 contacts, 20 000 calls and 20 000 SMS: list on screen 1.8 s after the phone role, was 10–15 s.

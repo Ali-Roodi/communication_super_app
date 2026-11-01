@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_contacts/flutter_contacts.dart' as device_contacts;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:communication_super_app/core/services/device_sync_queue.dart';
+import 'package:communication_super_app/features/contacts/services/contact_extras_service.dart';
 import 'package:communication_super_app/core/utils/contact_name_style.dart';
 import 'package:communication_super_app/core/utils/persian_alphabet.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
@@ -98,16 +99,53 @@ class ContactRepository {
       // Queued: on a cold start this read races the SMS and call-log imports,
       // and three large channel payloads resident at once is what kills the
       // app on a low-memory phone (see [DeviceSyncQueue]).
-      final contacts = await DeviceSyncQueue.run(
-        () => device_contacts.FlutterContacts.getContacts(
-          withProperties: true,
-          withThumbnail: false,
-          withPhoto: false,
-        ),
+      //
+      // Natively, three MIME types only (`readAddressBook`): the full
+      // `flutter_contacts` read took 12 s on 3 000 contacts and everything
+      // else on a first launch waited behind it. That read stays as the
+      // fallback when the native one cannot answer.
+      final book = await DeviceSyncQueue.run(
+        () => ContactExtrasService.instance.readAddressBook(),
       );
-
       final now = DateTime.now();
       final list = <ContactModel>[];
+      if (book != null) {
+        for (final c in book) {
+          final phones = [
+            for (final p in (c['phones'] as List?) ?? const [])
+              if ('$p'.isNotEmpty) '$p',
+          ];
+          final first = c['first'] as String? ?? '';
+          final last = c['last'] as String? ?? '';
+          final displayName = c['displayName'] as String? ?? '';
+          list.add(
+            ContactModel(
+              id: c['id'] as String,
+              name: ContactNameStyle.format(
+                displayName: displayName.isNotEmpty ? displayName : 'بدون نام',
+                first: first,
+                last: last,
+              ),
+              firstName: first,
+              lastName: last,
+              phoneNumber: phones.isNotEmpty ? phones.first : '',
+              phoneNumbers: phones,
+              email: c['email'] as String?,
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+        }
+      }
+      final contacts = book != null
+          ? const <device_contacts.Contact>[]
+          : await DeviceSyncQueue.run(
+              () => device_contacts.FlutterContacts.getContacts(
+                withProperties: true,
+                withThumbnail: false,
+                withPhoto: false,
+              ),
+            );
       for (final c in contacts) {
         final phones = c.phones
             .map((p) => p.number)
