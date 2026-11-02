@@ -427,7 +427,12 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       return;
     }
     _lastSyncProgressAt = now;
-    if (state is ThreadsLoaded) add(const LoadThreads());
+    // The inbox on screen may be the archive: reloading the active one under
+    // it left «بایگانی» spinning for the whole first import, and for good.
+    final current = state;
+    if (current is ThreadsLoaded) {
+      add(LoadThreads(archived: current.archived));
+    }
   }
 
   /// Whether a search-index backfill is already walking.

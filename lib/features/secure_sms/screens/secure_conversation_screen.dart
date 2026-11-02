@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:communication_super_app/core/widgets/infinite_scroll.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -213,15 +214,26 @@ class _SecureConversationScreenState extends State<SecureConversationScreen> {
                             ),
                           ),
                         )
-                      : ListView.builder(
-                          reverse: true,
-                          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-                          itemCount: messages.length,
-                          itemBuilder: (context, i) => _Bubble(
-                            messages[messages.length - 1 - i],
-                            // In a plain conversation the banner says it
-                            // once; a mark on every bubble is noise.
-                            markPlain: encrypted,
+                      // Reversed, so the list's end is the top: scrolling up
+                      // to the oldest loaded message reads the page before it.
+                      : InfiniteScroll(
+                          hasMore: state.openHasMore,
+                          onLoadMore: () => context
+                              .read<SecureMessagesBloc>()
+                              .add(const SecureLoadOlder()),
+                          child: ListView.builder(
+                            reverse: true,
+                            padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                            itemCount:
+                                messages.length + (state.openHasMore ? 1 : 0),
+                            itemBuilder: (context, i) => i == messages.length
+                                ? const LoadMoreIndicator()
+                                : _Bubble(
+                                    messages[messages.length - 1 - i],
+                                    // In a plain conversation the banner says
+                                    // it once; a mark on every bubble is noise.
+                                    markPlain: encrypted,
+                                  ),
                           ),
                         ),
                 ),

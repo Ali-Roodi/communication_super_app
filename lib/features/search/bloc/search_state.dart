@@ -42,22 +42,31 @@ class SearchResults extends SearchState {
   /// that answer instantly feel as slow as the one that does not.
   final bool messagesReady;
 
+  /// More message hits exist past [messages]; the list pages them in as it
+  /// scrolls (`LoadMoreSearchMessages`).
+  final bool messagesHasMore;
+
   const SearchResults({
     required this.query,
     required this.contacts,
     required this.callLogs,
     this.messages = const [],
     this.messagesReady = false,
+    this.messagesHasMore = false,
   });
 
   bool get isEmpty => contacts.isEmpty && callLogs.isEmpty && messages.isEmpty;
 
-  SearchResults withMessages(List<MessageSearchHit> messages) => SearchResults(
+  SearchResults withMessages(
+    List<MessageSearchHit> messages, {
+    required bool hasMore,
+  }) => SearchResults(
     query: query,
     contacts: contacts,
     callLogs: callLogs,
     messages: messages,
     messagesReady: true,
+    messagesHasMore: hasMore,
   );
 
   @override
@@ -67,5 +76,6 @@ class SearchResults extends SearchState {
     callLogs,
     messages,
     messagesReady,
+    messagesHasMore,
   ];
 }

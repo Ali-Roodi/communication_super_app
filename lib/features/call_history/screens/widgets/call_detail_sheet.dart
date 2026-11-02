@@ -8,7 +8,9 @@ import 'package:communication_super_app/core/theme/app_dimensions.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
+import 'package:communication_super_app/core/widgets/infinite_scroll.dart';
 import 'package:communication_super_app/core/widgets/phone_contact_avatar.dart';
+import 'package:communication_super_app/features/call_history/repositories/call_log_repository.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
 import 'package:communication_super_app/features/call_history/bloc/call_log_bloc.dart';
@@ -130,148 +132,155 @@ class _CallDetailSheet extends StatelessWidget {
       child: ConstrainedBox(
         constraints: BoxConstraints(maxHeight: maxHeight),
         child: SafeArea(
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const SizedBox(height: 4),
-                PhoneContactAvatar(
-                  phoneNumber: log.phoneNumber,
-                  name: displayName,
-                  size: 80,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  displayName,
-                  style: theme.textTheme.titleLarge,
-                  textAlign: TextAlign.center,
-                ),
-                if (hasName) ...[
-                  const SizedBox(height: 4),
-                  Directionality(
-                    textDirection: TextDirection.ltr,
-                    child: Text(
-                      PersianUtils.displayPhone(log.phoneNumber),
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.textTheme.bodyMedium?.color?.withValues(
-                          alpha: 0.7,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 20),
-                _ActionChips(log: log, hasName: hasName),
-                const SizedBox(height: 12),
-                const Divider(height: 1),
-
-                // ── Activity log: calls + SMS, newest first ──────────
-                _ActivityLog(calls: calls, phoneNumber: log.phoneNumber),
-
-                const Divider(height: 1),
-                FavoriteToggleTile(
-                  phoneNumber: log.phoneNumber,
-                  name: log.contactName,
-                  contactId: log.contactId,
-                  favoritesBloc: context.read<FavoritesBloc>(),
-                  onDone: (added) {
-                    Navigator.of(context).pop();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          added
-                              ? 'به موردعلاقه‌ها افزوده شد'
-                              : 'از موردعلاقه‌ها حذف شد',
-                        ),
-                      ),
-                    );
-                  },
-                ),
-                // «تماس با سیم ۱» / «تماس با سیم ۲» — Google Phone lists
-                // these here, and they are what reaches the non-default card
-                // without touching an Android setting. Absent on one SIM.
-                ...simCallRows(
-                  pageContext,
-                  log.phoneNumber,
-                  onBeforeCall: () => Navigator.of(context).pop(),
-                ),
-                // Keeping the number, and reaching the person behind it: the
-                // same pair Google Phone lists in its «Call details» sheet.
-                // «افزودن به مخاطب موجود» is the one that was missing, and it
-                // is the more common of the two.
-                if (hasName)
-                  ListTile(
-                    leading: const Icon(Icons.edit_outlined),
-                    title: const Text('ویرایش مخاطب'),
-                    onTap: () => _editContact(context, log.phoneNumber),
-                  )
-                else
-                  ListTile(
-                    leading: const Icon(Icons.person_search_outlined),
-                    title: const Text('افزودن به مخاطب موجود'),
-                    onTap: () {
-                      final callLogBloc = context.read<CallLogBloc>();
-                      Navigator.of(context).pop();
-                      addNumberToExistingContact(
-                        pageContext,
-                        log.phoneNumber,
-                      ).then((saved) {
-                        if (saved) callLogBloc.add(const RefreshCallLogs());
-                      });
-                    },
-                  ),
-                ListTile(
-                  leading: const Icon(Icons.copy_outlined),
-                  title: const Text('کپی شماره'),
-                  onTap: () {
-                    Clipboard.setData(ClipboardData(text: log.phoneNumber));
-                    Navigator.of(context).pop();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('شماره کپی شد')),
-                    );
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(
-                    Icons.block,
-                    color: AppColors.callRejectRed,
-                  ),
-                  title: const Text(
-                    'مسدود کردن و گزارش هرزنامه',
-                    style: TextStyle(color: AppColors.callRejectRed),
-                  ),
-                  onTap: () {
-                    // The sheet closes first, and the confirmation runs against
-                    // the page underneath: the dialog and its undo snack bar
-                    // both have to outlive this route.
-                    Navigator.of(context).pop();
-                    blockNumberWithConfirm(
-                      pageContext,
+          // A sliver view so the history below the actions is built lazily
+          // and pages in as it scrolls; shrink-wrapped so a short history
+          // still yields a short sheet.
+          child: CustomScrollView(
+            shrinkWrap: true,
+            slivers: [
+              SliverToBoxAdapter(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(height: 4),
+                    PhoneContactAvatar(
                       phoneNumber: log.phoneNumber,
-                      contactName: log.contactName,
-                    );
-                  },
+                      name: displayName,
+                      size: 80,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      displayName,
+                      style: theme.textTheme.titleLarge,
+                      textAlign: TextAlign.center,
+                    ),
+                    if (hasName) ...[
+                      const SizedBox(height: 4),
+                      Directionality(
+                        textDirection: TextDirection.ltr,
+                        child: Text(
+                          PersianUtils.displayPhone(log.phoneNumber),
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.textTheme.bodyMedium?.color
+                                ?.withValues(alpha: 0.7),
+                          ),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 20),
+                    _ActionChips(log: log, hasName: hasName),
+                    const SizedBox(height: 12),
+                    const Divider(height: 1),
+                    FavoriteToggleTile(
+                      phoneNumber: log.phoneNumber,
+                      name: log.contactName,
+                      contactId: log.contactId,
+                      favoritesBloc: context.read<FavoritesBloc>(),
+                      onDone: (added) {
+                        Navigator.of(context).pop();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              added
+                                  ? 'به موردعلاقه‌ها افزوده شد'
+                                  : 'از موردعلاقه‌ها حذف شد',
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    // «تماس با سیم ۱» / «تماس با سیم ۲» — Google Phone lists
+                    // these here, and they are what reaches the non-default card
+                    // without touching an Android setting. Absent on one SIM.
+                    ...simCallRows(
+                      pageContext,
+                      log.phoneNumber,
+                      onBeforeCall: () => Navigator.of(context).pop(),
+                    ),
+                    // Keeping the number, and reaching the person behind it: the
+                    // same pair Google Phone lists in its «Call details» sheet.
+                    // «افزودن به مخاطب موجود» is the one that was missing, and it
+                    // is the more common of the two.
+                    if (hasName)
+                      ListTile(
+                        leading: const Icon(Icons.edit_outlined),
+                        title: const Text('ویرایش مخاطب'),
+                        onTap: () => _editContact(context, log.phoneNumber),
+                      )
+                    else
+                      ListTile(
+                        leading: const Icon(Icons.person_search_outlined),
+                        title: const Text('افزودن به مخاطب موجود'),
+                        onTap: () {
+                          final callLogBloc = context.read<CallLogBloc>();
+                          Navigator.of(context).pop();
+                          addNumberToExistingContact(
+                            pageContext,
+                            log.phoneNumber,
+                          ).then((saved) {
+                            if (saved) callLogBloc.add(const RefreshCallLogs());
+                          });
+                        },
+                      ),
+                    ListTile(
+                      leading: const Icon(Icons.copy_outlined),
+                      title: const Text('کپی شماره'),
+                      onTap: () {
+                        Clipboard.setData(ClipboardData(text: log.phoneNumber));
+                        Navigator.of(context).pop();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('شماره کپی شد')),
+                        );
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(
+                        Icons.block,
+                        color: AppColors.callRejectRed,
+                      ),
+                      title: const Text(
+                        'مسدود کردن و گزارش هرزنامه',
+                        style: TextStyle(color: AppColors.callRejectRed),
+                      ),
+                      onTap: () {
+                        // The sheet closes first, and the confirmation runs against
+                        // the page underneath: the dialog and its undo snack bar
+                        // both have to outlive this route.
+                        Navigator.of(context).pop();
+                        blockNumberWithConfirm(
+                          pageContext,
+                          phoneNumber: log.phoneNumber,
+                          contactName: log.contactName,
+                        );
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(
+                        Icons.delete_outline,
+                        color: AppColors.callRejectRed,
+                      ),
+                      title: Text(
+                        count > 1
+                            ? 'حذف (${PersianUtils.toPersianNumber('$count')} تماس)'
+                            : 'حذف',
+                        style: const TextStyle(color: AppColors.callRejectRed),
+                      ),
+                      onTap: () {
+                        context.read<CallLogBloc>().add(
+                          DeleteCallLogs(groupIds ?? [log.id]),
+                        );
+                        Navigator.of(context).pop();
+                      },
+                    ),
+                    // The history goes last: it pages without end, and the
+                    // actions above must not drift out of reach as it grows.
+                    const Divider(height: 1),
+                  ],
                 ),
-                ListTile(
-                  leading: const Icon(
-                    Icons.delete_outline,
-                    color: AppColors.callRejectRed,
-                  ),
-                  title: Text(
-                    count > 1
-                        ? 'حذف (${PersianUtils.toPersianNumber('$count')} تماس)'
-                        : 'حذف',
-                    style: const TextStyle(color: AppColors.callRejectRed),
-                  ),
-                  onTap: () {
-                    context.read<CallLogBloc>().add(
-                      DeleteCallLogs(groupIds ?? [log.id]),
-                    );
-                    Navigator.of(context).pop();
-                  },
-                ),
-              ],
-            ),
+              ),
+              // ── Activity log: calls + SMS, newest first ──────────
+              _ActivityLog(seed: calls, phoneNumber: log.phoneNumber),
+            ],
           ),
         ),
       ),
@@ -428,44 +437,132 @@ class _ActionChip extends StatelessWidget {
 
 // ── Activity log: merged calls + SMS timeline ─────────────────────────────────
 
-/// The per-number breakdown: every loaded call AND the recent SMS exchanged
-/// with this number, merged into one newest-first timeline.
-class _ActivityLog extends StatelessWidget {
-  final List<CallLogModel> calls;
+/// The per-number breakdown: every call AND every SMS exchanged with this
+/// number, merged into one newest-first timeline and read from SQLite a page
+/// of each at a time as the sheet scrolls.
+///
+/// Two sources paged separately cannot simply be concatenated: below the
+/// oldest row of the source that still has pages, the other source's next
+/// page may interleave. So only rows at or after that cut are shown, and the
+/// rest appear once the lagging source has caught up.
+class _ActivityLog extends StatefulWidget {
+  /// What the open «اخیر» page already holds for this number — the first
+  /// paint, so the sheet does not open on an empty history.
+  final List<CallLogModel> seed;
   final String phoneNumber;
 
-  /// Keeps the sheet scannable — the full history lives in the conversation.
-  static const int _maxSmsRows = 30;
-  static const int _maxTotalRows = 50;
+  const _ActivityLog({required this.seed, required this.phoneNumber});
 
-  const _ActivityLog({required this.calls, required this.phoneNumber});
+  @override
+  State<_ActivityLog> createState() => _ActivityLogState();
+}
 
-  Future<List<MessageModel>> _loadMessages() {
-    final threadId = PhoneNormalizer.toThreadId(phoneNumber);
-    if (threadId.isEmpty) return Future.value(const []);
-    return MessageRepository().getMessagesByThread(
-      threadId,
-      limit: _maxSmsRows,
-      orderDesc: true,
-    );
+class _ActivityLogState extends State<_ActivityLog> {
+  static const int _page = 30;
+
+  final _calls = <CallLogModel>[];
+  final _messages = <MessageModel>[];
+  bool _callsMore = true;
+  bool _messagesMore = true;
+  bool _loading = false;
+  bool _loadedOnce = false;
+  late final String _threadId = PhoneNormalizer.toThreadId(widget.phoneNumber);
+
+  bool get _hasMore => _callsMore || _messagesMore;
+
+  @override
+  void initState() {
+    super.initState();
+    _messagesMore = _threadId.isNotEmpty;
+    _loadMore();
+  }
+
+  Future<void> _loadMore() async {
+    if (_loading || !_hasMore) return;
+    _loading = true;
+    try {
+      final results = await Future.wait([
+        _callsMore
+            ? CallLogRepository().getCallLogsForNumber(
+                widget.phoneNumber,
+                limit: _page,
+                offset: _calls.length,
+              )
+            : Future.value(const <CallLogModel>[]),
+        _messagesMore
+            ? MessageRepository().getMessagesByThread(
+                _threadId,
+                limit: _page,
+                offset: _messages.length,
+                orderDesc: true,
+              )
+            : Future.value(const <MessageModel>[]),
+      ]);
+      if (!mounted) return;
+      final calls = results[0] as List<CallLogModel>;
+      final messages = results[1] as List<MessageModel>;
+      setState(() {
+        _calls.addAll(calls);
+        _messages.addAll(messages);
+        if (_callsMore) _callsMore = calls.length == _page;
+        if (_messagesMore) _messagesMore = messages.length == _page;
+        _loadedOnce = true;
+      });
+    } catch (e) {
+      // A failed read must not become a retry every frame from the end row.
+      debugPrint('call detail history page failed: $e');
+      if (mounted) {
+        setState(() {
+          _callsMore = false;
+          _messagesMore = false;
+          _loadedOnce = true;
+        });
+      }
+    } finally {
+      _loading = false;
+    }
+  }
+
+  /// The oldest moment both sources are complete down to.
+  DateTime? get _cut {
+    DateTime? cut;
+    void lower(bool more, List<DateTime> stamps) {
+      if (!more || stamps.isEmpty) return;
+      final oldest = stamps.last;
+      if (cut == null || oldest.isAfter(cut!)) cut = oldest;
+    }
+
+    lower(_callsMore, [for (final c in _calls) c.timestamp]);
+    lower(_messagesMore, [for (final m in _messages) m.timestamp]);
+    return cut;
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return FutureBuilder<List<MessageModel>>(
-      future: _loadMessages(),
-      builder: (context, snap) {
-        final messages = snap.data ?? const <MessageModel>[];
-        // Merge and sort newest-first.
-        final items = <(DateTime, Widget)>[
-          for (final c in calls) (c.timestamp, _CallRow(call: c, theme: theme)),
-          for (final m in messages)
-            (m.timestamp, _SmsRow(message: m, theme: theme)),
-        ]..sort((a, b) => b.$1.compareTo(a.$1));
-        return Column(
-          children: [for (final it in items.take(_maxTotalRows)) it.$2],
-        );
+    final calls = _loadedOnce ? _calls : widget.seed;
+    final cut = _loadedOnce ? _cut : null;
+    final items = <(DateTime, Widget)>[
+      for (final c in calls) (c.timestamp, _CallRow(call: c, theme: theme)),
+      for (final m in _messages)
+        (m.timestamp, _SmsRow(message: m, theme: theme)),
+    ]..sort((a, b) => b.$1.compareTo(a.$1));
+    final shown = cut == null
+        ? items
+        : items.where((it) => !it.$1.isBefore(cut)).toList();
+    final more = !_loadedOnce || _hasMore;
+    // The sliver lives inside the sheet's scroll view, so it pages itself:
+    // the end row being built — scrolled into the cache extent — asks for the
+    // next page, and every page that lands rebuilds it to ask again until
+    // the view is full.
+    return SliverList.builder(
+      itemCount: shown.length + (more ? 1 : 0),
+      itemBuilder: (context, i) {
+        if (i < shown.length) return shown[i].$2;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _loadMore();
+        });
+        return const LoadMoreIndicator();
       },
     );
   }

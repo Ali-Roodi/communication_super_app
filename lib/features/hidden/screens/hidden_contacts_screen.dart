@@ -104,52 +104,64 @@ class _List extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return ListView(
-      padding: const EdgeInsets.only(bottom: 96),
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-          child: TextField(
-            controller: search,
-            decoration: const InputDecoration(
-              hintText: 'جستجو در دفترچه مخفی',
-              prefixIcon: Icon(Icons.search),
-            ),
-            onChanged: onQuery,
-          ),
-        ),
-        if (contacts.isEmpty)
-          Padding(
-            padding: const EdgeInsets.all(32),
-            child: Text(
-              'نتیجه‌ای یافت نشد',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: scheme.onSurfaceVariant),
-            ),
-          ),
-        for (final c in contacts)
-          ListTile(
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 4,
-            ),
-            leading: CircleAvatar(
-              backgroundColor: scheme.primaryContainer,
-              child: Text(
-                PersianUtils.getInitials(c.name),
-                style: TextStyle(color: scheme.onPrimaryContainer),
+    // Rows built only as they scroll in: a phonebook can be long.
+    return CustomScrollView(
+      slivers: [
+        SliverList.list(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: TextField(
+                controller: search,
+                decoration: const InputDecoration(
+                  hintText: 'جستجو در دفترچه مخفی',
+                  prefixIcon: Icon(Icons.search),
+                ),
+                onChanged: onQuery,
               ),
             ),
-            title: Text(c.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-            subtitle: Text(
-              numbersLine(c),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => HiddenContactScreen(id: c.id)),
-            ),
-          ),
+            if (contacts.isEmpty)
+              Padding(
+                padding: const EdgeInsets.all(32),
+                child: Text(
+                  'نتیجه‌ای یافت نشد',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: scheme.onSurfaceVariant),
+                ),
+              ),
+          ],
+        ),
+        SliverList.builder(
+          itemCount: contacts.length,
+          itemBuilder: (context, i) {
+            final c = contacts[i];
+            return ListTile(
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 4,
+              ),
+              leading: CircleAvatar(
+                backgroundColor: scheme.primaryContainer,
+                child: Text(
+                  PersianUtils.getInitials(c.name),
+                  style: TextStyle(color: scheme.onPrimaryContainer),
+                ),
+              ),
+              title: Text(c.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: Text(
+                numbersLine(c),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => HiddenContactScreen(id: c.id),
+                ),
+              ),
+            );
+          },
+        ),
+        const SliverToBoxAdapter(child: SizedBox(height: 96)),
       ],
     );
   }

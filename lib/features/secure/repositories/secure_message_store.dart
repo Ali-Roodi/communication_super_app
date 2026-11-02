@@ -768,14 +768,20 @@ class SecureMessageStore {
 
   // ── Messages ─────────────────────────────────────────────────────────────
 
-  Future<List<SecureMessage>> messages(String phone) async {
+  /// A conversation's messages, oldest first. With [limit], only the newest
+  /// [limit] of them — the window the conversation screen pages back through.
+  Future<List<SecureMessage>> messages(String phone, {int? limit}) async {
     final rows = await db.query(
       'sm_messages',
       where: 'phone = ?',
       whereArgs: [phone],
-      orderBy: 'timestamp, rowid',
+      orderBy: limit == null
+          ? 'timestamp, rowid'
+          : 'timestamp DESC, rowid DESC',
+      limit: limit,
     );
-    return rows.map(SecureMessage.fromRow).toList();
+    final list = rows.map(SecureMessage.fromRow).toList();
+    return limit == null ? list : list.reversed.toList();
   }
 
   Future<SecureMessage?> message(String id) async {

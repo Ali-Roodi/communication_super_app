@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/sim/sim_call.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
+import 'package:communication_super_app/core/widgets/infinite_scroll.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/features/secure/services/hidden_bridge.dart';
 import 'package:communication_super_app/features/secure/widgets/secure_locked_view.dart';
@@ -87,12 +88,21 @@ class _HiddenCallsScreenState extends State<HiddenCallsScreen> {
               HiddenStatus.ready =>
                 state.calls.isEmpty
                     ? const _Empty()
-                    : ListView.builder(
-                        padding: const EdgeInsets.only(top: 8, bottom: 32),
-                        itemCount: state.calls.length,
-                        itemBuilder: (context, i) => HiddenCallTile(
-                          call: state.calls[i],
-                          name: state.names[state.calls[i].phone],
+                    : InfiniteScroll(
+                        hasMore: state.callsHasMore,
+                        onLoadMore: () => context.read<HiddenBloc>().add(
+                          const HiddenLoadMoreCalls(),
+                        ),
+                        child: ListView.builder(
+                          padding: const EdgeInsets.only(top: 8, bottom: 32),
+                          itemCount:
+                              state.calls.length + (state.callsHasMore ? 1 : 0),
+                          itemBuilder: (context, i) => i == state.calls.length
+                              ? const LoadMoreIndicator()
+                              : HiddenCallTile(
+                                  call: state.calls[i],
+                                  name: state.names[state.calls[i].phone],
+                                ),
                         ),
                       ),
             },

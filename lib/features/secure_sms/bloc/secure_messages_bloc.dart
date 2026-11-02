@@ -51,6 +51,13 @@ class _Status extends SecureMessagesEvent {
   final String status;
 }
 
+/// The open conversation (or, with [group], the open group) scrolled up to
+/// its oldest loaded message: widen the window by a page.
+class SecureLoadOlder extends SecureMessagesEvent {
+  const SecureLoadOlder({this.group = false});
+  final bool group;
+}
+
 class SecureOpenThread extends SecureMessagesEvent {
   const SecureOpenThread(this.phone);
   final String phone;
@@ -245,6 +252,7 @@ class SecureMessagesState extends Equatable {
     this.conversations = const [],
     this.openPhone,
     this.openMessages = const [],
+    this.openHasMore = false,
     this.handshakePending = false,
     this.channel = const SecureChannelInfo(),
     this.hasCert = false,
@@ -259,6 +267,7 @@ class SecureMessagesState extends Equatable {
     this.names = const {},
     this.openGroupId,
     this.openGroupMessages = const [],
+    this.openGroupHasMore = false,
     this.candidates = const [],
     this.startedGroupId,
     this.startedGroupSeq = 0,
@@ -270,6 +279,10 @@ class SecureMessagesState extends Equatable {
   /// The conversation on screen, and its messages.
   final String? openPhone;
   final List<SecureMessage> openMessages;
+
+  /// Older messages exist before [openMessages]: only the newest window is
+  /// read, and scrolling up widens it ([SecureLoadOlder]).
+  final bool openHasMore;
 
   /// The open conversation has no session yet: its first message waits for
   /// the handshake.
@@ -307,6 +320,7 @@ class SecureMessagesState extends Equatable {
   /// The group on screen, and its messages.
   final String? openGroupId;
   final List<SecureGroupMessage> openGroupMessages;
+  final bool openGroupHasMore;
 
   /// [SecureLoadGroupCandidates]' answer.
   final List<SecurePeer> candidates;
@@ -330,6 +344,7 @@ class SecureMessagesState extends Equatable {
     String? openPhone,
     bool clearOpen = false,
     List<SecureMessage>? openMessages,
+    bool? openHasMore,
     bool? handshakePending,
     SecureChannelInfo? channel,
     bool? hasCert,
@@ -345,6 +360,7 @@ class SecureMessagesState extends Equatable {
     String? openGroupId,
     bool clearOpenGroup = false,
     List<SecureGroupMessage>? openGroupMessages,
+    bool? openGroupHasMore,
     List<SecurePeer>? candidates,
     String? startedGroupId,
   }) => SecureMessagesState(
@@ -352,6 +368,7 @@ class SecureMessagesState extends Equatable {
     conversations: conversations ?? this.conversations,
     openPhone: clearOpen ? null : (openPhone ?? this.openPhone),
     openMessages: clearOpen ? const [] : (openMessages ?? this.openMessages),
+    openHasMore: clearOpen ? false : (openHasMore ?? this.openHasMore),
     handshakePending: clearOpen
         ? false
         : (handshakePending ?? this.handshakePending),
@@ -370,6 +387,9 @@ class SecureMessagesState extends Equatable {
     openGroupMessages: clearOpenGroup
         ? const []
         : (openGroupMessages ?? this.openGroupMessages),
+    openGroupHasMore: clearOpenGroup
+        ? false
+        : (openGroupHasMore ?? this.openGroupHasMore),
     candidates: candidates ?? this.candidates,
     startedGroupId: startedGroupId ?? this.startedGroupId,
     startedGroupSeq: startedGroupId == null
@@ -383,6 +403,7 @@ class SecureMessagesState extends Equatable {
     conversations,
     openPhone,
     openMessages,
+    openHasMore,
     handshakePending,
     channel,
     hasCert,
@@ -395,6 +416,7 @@ class SecureMessagesState extends Equatable {
     names,
     openGroupId,
     openGroupMessages,
+    openGroupHasMore,
     candidates,
     startedGroupSeq,
   ];
@@ -444,6 +466,7 @@ class SecureMessagesBloc
     );
     on<SecureStartEncrypted>(_onStartEncrypted);
     on<SecureOpenThread>(_onOpen);
+    on<SecureLoadOlder>(_onLoadOlder);
     on<SecureCloseThread>(_onClose);
     on<SecureSendText>((e, emit) async {
       final phone = state.openPhone;
@@ -591,6 +614,14 @@ class SecureMessagesBloc
   String? _screenPhone;
   String? _screenGroup;
 
+  /// How many of the newest messages the open conversation and the open
+  /// group read. Every change reloads the open list, so a conversation of
+  /// thousands must not be read whole each time.
+  static const int _windowPage = 50;
+  int _openWindow = _windowPage;
+  int _groupWindow = _windowPage;
+  bool _loadingOlder = false;
+
   bool get _open => state.status != SecureMessagesStatus.locked;
 
   /// Runs an engine call; a section that locked under it just ends the call.
@@ -666,16 +697,33 @@ class SecureMessagesBloc
       final conversations = await _store.conversations();
       final phone = state.openPhone;
       final group = state.openGroupId;
+      // One row past the window says whether older ones exist.
+      final groupRows = group == null
+          ? null
+          : await _groups.messages(group, limit: _groupWindow + 1);
+      final rows = phone == null
+          ? null
+          : await _store.messages(phone, limit: _openWindow + 1);
       emit(
         state.copyWith(
           status: SecureMessagesStatus.ready,
           conversations: conversations,
           groups: await _groups.groups(),
           names: await _store.names(),
-          openGroupMessages: group == null
+          openGroupMessages: groupRows == null
               ? null
-              : await _groups.messages(group),
-          openMessages: phone == null ? null : await _store.messages(phone),
+              : groupRows.length > _groupWindow
+              ? groupRows.sublist(1)
+              : groupRows,
+          openGroupHasMore: groupRows == null
+              ? null
+              : groupRows.length > _groupWindow,
+          openMessages: rows == null
+              ? null
+              : rows.length > _openWindow
+              ? rows.sublist(1)
+              : rows,
+          openHasMore: rows == null ? null : rows.length > _openWindow,
           handshakePending: phone == null ? null : await _pending(phone),
           channel: phone == null ? null : await _store.channelInfo(phone),
         ),
@@ -723,11 +771,32 @@ class SecureMessagesBloc
   ) async {
     _screenPhone = e.phone;
     if (!_open) return;
+    if (state.openPhone != e.phone) _openWindow = _windowPage;
     emit(state.copyWith(openPhone: e.phone));
     await _reload(emit);
     await _guard(() => _messenger.markSeen(e.phone));
     // A message still queued from an earlier visit goes out now if it can.
     await _guard(() => _messenger.flush(e.phone));
+  }
+
+  Future<void> _onLoadOlder(
+    SecureLoadOlder e,
+    Emitter<SecureMessagesState> emit,
+  ) async {
+    if (!_open || _loadingOlder) return;
+    if (e.group) {
+      if (!state.openGroupHasMore) return;
+      _groupWindow += _windowPage;
+    } else {
+      if (!state.openHasMore) return;
+      _openWindow += _windowPage;
+    }
+    _loadingOlder = true;
+    try {
+      await _reload(emit);
+    } finally {
+      _loadingOlder = false;
+    }
   }
 
   Future<void> _onClose(
@@ -790,6 +859,7 @@ class SecureMessagesBloc
   ) async {
     _screenGroup = e.id;
     if (!_open) return;
+    if (state.openGroupId != e.id) _groupWindow = _windowPage;
     emit(state.copyWith(openGroupId: e.id));
     await _reload(emit);
     await _guard(() => _messenger.markGroupSeen(e.id));

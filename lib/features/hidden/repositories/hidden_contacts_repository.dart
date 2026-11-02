@@ -245,8 +245,9 @@ class HiddenContactsRepository {
     return added;
   }
 
-  /// Newest first; only [phones]' when given.
-  Future<List<HiddenCall>> calls({List<String>? phones}) async {
+  /// Newest first; only [phones]' when given, only the newest [limit] when
+  /// given.
+  Future<List<HiddenCall>> calls({List<String>? phones, int? limit}) async {
     final rows = await _db.query(
       'hc_calls',
       where: phones == null
@@ -254,6 +255,7 @@ class HiddenContactsRepository {
           : 'phone IN (${List.filled(phones.length, '?').join(',')})',
       whereArgs: phones,
       orderBy: 'timestamp DESC',
+      limit: limit,
     );
     return [
       for (final r in rows)

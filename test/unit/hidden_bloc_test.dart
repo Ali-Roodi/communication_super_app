@@ -219,6 +219,36 @@ void main() {
   );
 
   test(
+    'the call list is a window of the newest, widened a page at a time',
+    () async {
+      await HiddenContactsRepository(database: () => db).addCalls([
+        for (var i = 0; i < 120; i++)
+          HiddenCallRecord(
+            phone: '09125555555',
+            callType: 1,
+            timestamp: 1000 + i,
+            duration: 0,
+          ),
+      ]);
+      final bloc = build();
+      var s = await ready(bloc);
+      expect(s.calls, hasLength(50));
+      expect(s.calls.first.timestamp, 1119);
+      expect(s.callsHasMore, isTrue);
+
+      bloc.add(const HiddenLoadMoreCalls());
+      s = await bloc.stream.firstWhere((s) => s.calls.length == 100);
+      expect(s.callsHasMore, isTrue);
+
+      bloc.add(const HiddenLoadMoreCalls());
+      s = await bloc.stream.firstWhere((s) => s.calls.length == 120);
+      expect(s.callsHasMore, isFalse);
+      expect(s.calls.last.timestamp, 1000);
+      await bloc.close();
+    },
+  );
+
+  test(
     'saving refuses a bad number and a number another contact has',
     () async {
       final bloc = build();

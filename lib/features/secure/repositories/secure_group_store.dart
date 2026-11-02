@@ -498,13 +498,22 @@ class SecureGroupStore {
 
   // ── Messages ─────────────────────────────────────────────────────────────
 
-  Future<List<SecureGroupMessage>> messages(String groupId) async {
-    final rows = await db.query(
+  /// A group's messages, oldest first. With [limit], only the newest [limit]
+  /// of them — the window the group screen pages back through.
+  Future<List<SecureGroupMessage>> messages(
+    String groupId, {
+    int? limit,
+  }) async {
+    final queried = await db.query(
       'sg_messages',
       where: 'group_id = ?',
       whereArgs: [groupId],
-      orderBy: 'timestamp, rowid',
+      orderBy: limit == null
+          ? 'timestamp, rowid'
+          : 'timestamp DESC, rowid DESC',
+      limit: limit,
     );
+    final rows = limit == null ? queried : queried.reversed.toList();
     final deliveries = await _deliveries(
       rows.where((r) => r['sender'] == null).map((r) => r['id'] as String),
     );

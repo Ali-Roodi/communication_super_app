@@ -18,3 +18,8 @@ class SearchQueryChanged extends SearchEvent {
 class ClearSearch extends SearchEvent {
   const ClearSearch();
 }
+
+/// The next page of «پیام‌ها» hits for the query on screen.
+class LoadMoreSearchMessages extends SearchEvent {
+  const LoadMoreSearchMessages();
+}

@@ -374,26 +374,35 @@ class _SpamAndBlockedScreenState extends State<SpamAndBlockedScreen> {
 
     final spam = state.spam;
     final blocked = state.blockedOnly;
-    return ListView(
-      padding: const EdgeInsets.only(top: 4, bottom: 32),
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 4),
-          child: Text(
-            'تماس‌ها و پیامک‌های این شماره‌ها در همهٔ گوشی رد می‌شوند و '
-            'گفتگویشان از صندوق پیام‌ها بیرون است. برای انتخاب چند شماره، '
-            'یکی را نگه دارید.',
-            style: Theme.of(context).textTheme.bodySmall,
+    // Lazy cards: a spam list only ever grows.
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 16, 24, 4),
+            child: Text(
+              'تماس‌ها و پیامک‌های این شماره‌ها در همهٔ گوشی رد می‌شوند و '
+              'گفتگویشان از صندوق پیام‌ها بیرون است. برای انتخاب چند شماره، '
+              'یکی را نگه دارید.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
           ),
         ),
         if (spam.isNotEmpty) ...[
-          const SectionLabel('هرزنامه'),
-          GroupedList(children: [for (final n in spam) _row(n)]),
+          const SliverToBoxAdapter(child: SectionLabel('هرزنامه')),
+          SliverGroupedList(
+            itemCount: spam.length,
+            itemBuilder: (_, i) => _row(spam[i]),
+          ),
         ],
         if (blocked.isNotEmpty) ...[
-          const SectionLabel('مسدودشده'),
-          GroupedList(children: [for (final n in blocked) _row(n)]),
+          const SliverToBoxAdapter(child: SectionLabel('مسدودشده')),
+          SliverGroupedList(
+            itemCount: blocked.length,
+            itemBuilder: (_, i) => _row(blocked[i]),
+          ),
         ],
+        const SliverToBoxAdapter(child: SizedBox(height: 32)),
       ],
     );
   }

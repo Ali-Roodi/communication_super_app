@@ -9,6 +9,7 @@ import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/utils/search_text.dart';
 import 'package:communication_super_app/core/widgets/contact_numbers_line.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
+import 'package:communication_super_app/core/widgets/infinite_scroll.dart';
 import 'package:communication_super_app/core/widgets/lazy_contact_avatar.dart';
 import 'package:communication_super_app/core/widgets/phone_contact_avatar.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
@@ -103,41 +104,51 @@ class _SearchScreenState extends State<SearchScreen> {
             final phoneQuery = PhoneQuery(state.query);
             // Virtualized: a two-letter query can match thousands of contacts,
             // and every eagerly-built row costs an avatar lookup.
-            return CustomScrollView(
-              slivers: [
-                if (state.contacts.isNotEmpty) ...[
-                  const SliverToBoxAdapter(child: SectionLabel('مخاطبین')),
-                  SliverGroupedList(
-                    itemCount: state.contacts.length,
-                    itemBuilder: (_, i) => _ContactResult(
-                      contact: state.contacts[i],
-                      query: state.query,
-                      phoneQuery: phoneQuery,
+            return InfiniteScroll(
+              hasMore: state.messagesHasMore,
+              onLoadMore: () => context.read<SearchBloc>().add(
+                const LoadMoreSearchMessages(),
+              ),
+              child: CustomScrollView(
+                slivers: [
+                  if (state.contacts.isNotEmpty) ...[
+                    const SliverToBoxAdapter(child: SectionLabel('مخاطبین')),
+                    SliverGroupedList(
+                      itemCount: state.contacts.length,
+                      itemBuilder: (_, i) => _ContactResult(
+                        contact: state.contacts[i],
+                        query: state.query,
+                        phoneQuery: phoneQuery,
+                      ),
                     ),
-                  ),
-                ],
-                if (state.messages.isNotEmpty) ...[
-                  const SliverToBoxAdapter(child: SectionLabel('پیام‌ها')),
-                  SliverGroupedList(
-                    itemCount: state.messages.length,
-                    itemBuilder: (_, i) => _MessageResult(
-                      hit: state.messages[i],
-                      query: state.query,
+                  ],
+                  if (state.callLogs.isNotEmpty) ...[
+                    const SliverToBoxAdapter(
+                      child: SectionLabel('تماس‌های اخیر'),
                     ),
-                  ),
+                    SliverGroupedList(
+                      itemCount: state.callLogs.length,
+                      itemBuilder: (_, i) =>
+                          _CallLogResult(log: state.callLogs[i]),
+                    ),
+                  ],
+                  // Last, because it pages without end: a section below it
+                  // would drift out of reach as more hits load.
+                  if (state.messages.isNotEmpty) ...[
+                    const SliverToBoxAdapter(child: SectionLabel('پیام‌ها')),
+                    SliverGroupedList(
+                      itemCount: state.messages.length,
+                      itemBuilder: (_, i) => _MessageResult(
+                        hit: state.messages[i],
+                        query: state.query,
+                      ),
+                    ),
+                  ],
+                  if (state.messagesHasMore)
+                    const SliverToBoxAdapter(child: LoadMoreIndicator()),
+                  const SliverToBoxAdapter(child: SizedBox(height: 24)),
                 ],
-                if (state.callLogs.isNotEmpty) ...[
-                  const SliverToBoxAdapter(
-                    child: SectionLabel('تماس‌های اخیر'),
-                  ),
-                  SliverGroupedList(
-                    itemCount: state.callLogs.length,
-                    itemBuilder: (_, i) =>
-                        _CallLogResult(log: state.callLogs[i]),
-                  ),
-                ],
-                const SliverToBoxAdapter(child: SizedBox(height: 24)),
-              ],
+              ),
             );
           },
         ),

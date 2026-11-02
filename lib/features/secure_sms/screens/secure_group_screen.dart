@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:communication_super_app/core/widgets/infinite_scroll.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -226,20 +227,31 @@ class _SecureGroupScreenState extends State<SecureGroupScreen> {
                             ),
                           ),
                         )
-                      : ListView.builder(
-                          reverse: true,
-                          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-                          itemCount: messages.length,
-                          itemBuilder: (context, i) {
-                            final m = messages[messages.length - 1 - i];
-                            return _GroupBubble(
-                              m,
-                              senderName: m.sender == null
-                                  ? null
-                                  : state.nameOf(m.sender!),
-                              names: state.names,
-                            );
-                          },
+                      : InfiniteScroll(
+                          hasMore: state.openGroupHasMore,
+                          onLoadMore: () => context
+                              .read<SecureMessagesBloc>()
+                              .add(const SecureLoadOlder(group: true)),
+                          child: ListView.builder(
+                            reverse: true,
+                            padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                            itemCount:
+                                messages.length +
+                                (state.openGroupHasMore ? 1 : 0),
+                            itemBuilder: (context, i) {
+                              if (i == messages.length) {
+                                return const LoadMoreIndicator();
+                              }
+                              final m = messages[messages.length - 1 - i];
+                              return _GroupBubble(
+                                m,
+                                senderName: m.sender == null
+                                    ? null
+                                    : state.nameOf(m.sender!),
+                                names: state.names,
+                              );
+                            },
+                          ),
                         ),
                 ),
                 if (canSend)

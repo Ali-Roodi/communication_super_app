@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
+import 'package:communication_super_app/core/widgets/infinite_scroll.dart';
 import 'package:communication_super_app/core/widgets/undo_snack_bar.dart';
 import '../bloc/message_bloc.dart';
 import '../bloc/message_event.dart';
@@ -38,7 +39,19 @@ class _ArchivedThreadsScreenState extends State<ArchivedThreadsScreen> {
       textDirection: TextDirection.rtl,
       child: Scaffold(
         appBar: AppBar(title: const Text('بایگانی')),
-        body: BlocBuilder<MessageBloc, MessageState>(
+        // The bloc is shared: anything that reloads the active inbox while
+        // this page is up takes its state, and the page would spin for good.
+        // Ask for the archive back whenever that happens.
+        body: BlocConsumer<MessageBloc, MessageState>(
+          // Only while this page is the top route: on the way out the inbox
+          // reloads the active list on purpose, and must keep it.
+          listenWhen: (_, s) =>
+              s is ThreadsLoaded &&
+              !s.archived &&
+              ModalRoute.of(context)?.isCurrent == true,
+          listener: (context, _) => context.read<MessageBloc>().add(
+            const LoadThreads(archived: true),
+          ),
           builder: (context, state) {
             if (state is! ThreadsLoaded || !state.archived) {
               if (state is MessageError) {
@@ -64,11 +77,19 @@ class _ArchivedThreadsScreenState extends State<ArchivedThreadsScreen> {
                 ),
               ),
               clipBehavior: Clip.antiAlias,
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                itemCount: state.threads.length,
-                itemBuilder: (context, i) =>
-                    _buildRow(context, state.threads[i]),
+              // The bloc pages the archive 50 at a time like the inbox; without
+              // this the list ended at the first page.
+              child: InfiniteScroll(
+                hasMore: state.hasMore,
+                onLoadMore: () =>
+                    context.read<MessageBloc>().add(const LoadMoreThreads()),
+                child: ListView.builder(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  itemCount: state.threads.length + (state.hasMore ? 1 : 0),
+                  itemBuilder: (context, i) => i == state.threads.length
+                      ? const LoadMoreIndicator()
+                      : _buildRow(context, state.threads[i]),
+                ),
               ),
             );
           },

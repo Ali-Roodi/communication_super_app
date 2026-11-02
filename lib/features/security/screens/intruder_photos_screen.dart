@@ -101,12 +101,16 @@ class _IntruderPhotosScreenState extends State<IntruderPhotosScreen> {
                   for (final p in items) {
                     events.putIfAbsent(p.takenAt, () => []).add(p);
                   }
-                  return ListView(
+                  // Built as they scroll in: every card decodes its photos.
+                  final entries = events.entries.toList();
+                  return ListView.builder(
                     padding: const EdgeInsets.all(12),
-                    children: [
-                      for (final e in events.entries)
-                        _EventCard(at: e.key, photos: e.value, repo: _repo),
-                    ],
+                    itemCount: entries.length,
+                    itemBuilder: (context, i) => _EventCard(
+                      at: entries[i].key,
+                      photos: entries[i].value,
+                      repo: _repo,
+                    ),
                   );
                 },
               ),

@@ -4,6 +4,7 @@ import 'package:communication_super_app/core/utils/search_text.dart';
 import '../../contacts/repositories/contact_repository.dart';
 import '../../call_history/models/call_log_model.dart';
 import '../../call_history/repositories/call_log_repository.dart';
+import '../../messages/models/message_model.dart';
 import '../../messages/repositories/message_repository.dart';
 import 'search_event.dart';
 import 'search_state.dart';
@@ -14,11 +15,14 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
   final CallLogRepository _callLogRepository;
   final MessageRepository _messageRepository;
 
-  /// How many message hits the «پیام‌ها» section shows. The repository search is
-  /// bounded (see `MessageRepository.searchMessages`); this bounds the list too,
-  /// because a two-letter query can match half a mailbox and nobody scrolls a
-  /// search result past the first screenful.
-  static const int _kMessageLimit = 40;
+  /// One page of «پیام‌ها» hits. A two-letter query can match half a mailbox,
+  /// so the hits are read a page at a time as the list scrolls.
+  static const int _kMessagePage = 40;
+
+  /// The address book's names by thread id, for the query on screen — the
+  /// next page of message hits is named from the same map.
+  Map<String, String> _nameByPhone = const {};
+  bool _loadingMoreMessages = false;
 
   /// [MessageRepository] defaults instead of being injected only so this
   /// constructor stays source-compatible with `AppBlocProviders`; it is a
@@ -31,6 +35,7 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
   ]) : _messageRepository = messageRepository ?? MessageRepository(),
        super(const SearchIdle()) {
     on<SearchQueryChanged>(_onQueryChanged);
+    on<LoadMoreSearchMessages>(_onLoadMoreMessages);
     on<ClearSearch>((_, emit) => emit(const SearchIdle()));
   }
 
@@ -58,8 +63,11 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
         nameByPhone[PhoneNormalizer.toThreadId(p)] = c.name;
       }
     }
+    _nameByPhone = nameByPhone;
 
-    final allLogs = await _callLogRepository.getAllCallLogs(limit: 500);
+    // One row per number over the whole history, newest call first — not the
+    // last few hundred calls, which hid anyone not called lately.
+    final allLogs = await _callLogRepository.getLatestCallPerNumber();
     final seen = <String>{};
     final matchedLogs = <CallLogModel>[];
     for (final log in allLogs) {
@@ -99,17 +107,50 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
 
     final messages = await _messageRepository.searchMessages(
       q,
-      limit: _kMessageLimit,
+      limit: _kMessagePage,
     );
     if (emit.isDone) return;
     emit(
-      partial.withMessages([
-        for (final m in messages)
-          MessageSearchHit(
-            message: m,
-            contactName: nameByPhone[PhoneNormalizer.toThreadId(m.phoneNumber)],
-          ),
-      ]),
+      partial.withMessages(
+        _hits(messages),
+        hasMore: messages.length == _kMessagePage,
+      ),
     );
+  }
+
+  List<MessageSearchHit> _hits(List<MessageModel> messages) => [
+    for (final m in messages)
+      MessageSearchHit(
+        message: m,
+        contactName: _nameByPhone[PhoneNormalizer.toThreadId(m.phoneNumber)],
+      ),
+  ];
+
+  Future<void> _onLoadMoreMessages(
+    LoadMoreSearchMessages event,
+    Emitter<SearchState> emit,
+  ) async {
+    final current = state;
+    if (current is! SearchResults || !current.messagesHasMore) return;
+    if (_loadingMoreMessages) return;
+    _loadingMoreMessages = true;
+    try {
+      final more = await _messageRepository.searchMessages(
+        current.query,
+        limit: _kMessagePage,
+        offset: current.messages.length,
+      );
+      // The query may have changed while the page was read.
+      final now = state;
+      if (now is! SearchResults || now.query != current.query) return;
+      emit(
+        now.withMessages([
+          ...now.messages,
+          ..._hits(more),
+        ], hasMore: more.length == _kMessagePage),
+      );
+    } finally {
+      _loadingMoreMessages = false;
+    }
   }
 }

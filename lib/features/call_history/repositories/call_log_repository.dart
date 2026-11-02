@@ -46,6 +46,46 @@ class CallLogRepository {
     return maps.map((map) => CallLogModel.fromMap(map)).toList();
   }
 
+  /// The newest call of every number in the mirror, newest first — what the
+  /// unified search matches against. SQLite fills the bare columns of a
+  /// `MAX()` aggregate from the row holding the maximum.
+  Future<List<CallLogModel>> getLatestCallPerNumber() async {
+    final db = await _dbHelper.database;
+    final maps = await db.rawQuery(
+      'SELECT *, MAX(timestamp) AS newest FROM ${AppConstants.callLogsTable} '
+      'GROUP BY phone_number ORDER BY newest DESC',
+    );
+    return maps.map((map) => CallLogModel.fromMap(map)).toList();
+  }
+
+  /// One number's calls, newest first, a page at a time. The column holds the
+  /// number as the device logged it (`+98…`, `0098…`, `09…`), so the match is
+  /// on its last ten digits; a shorter number — a service code — must match
+  /// whole, or `1500` would find every number ending in it.
+  Future<List<CallLogModel>> getCallLogsForNumber(
+    String phone, {
+    required int limit,
+    int offset = 0,
+  }) async {
+    final digits = phone.replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty) return const [];
+    const stripped =
+        "REPLACE(REPLACE(REPLACE(REPLACE(phone_number, ' ', ''), '-', ''), '+', ''), '(', '')";
+    final long = digits.length >= 10;
+    final db = await _dbHelper.database;
+    final maps = await db.query(
+      AppConstants.callLogsTable,
+      where: long
+          ? "$stripped LIKE ? AND LENGTH($stripped) BETWEEN 10 AND 14"
+          : '$stripped = ?',
+      whereArgs: [long ? '%${digits.substring(digits.length - 10)}' : digits],
+      orderBy: 'timestamp DESC',
+      limit: limit,
+      offset: offset,
+    );
+    return maps.map((map) => CallLogModel.fromMap(map)).toList();
+  }
+
   /// Whether the mirror holds any row at all — the cheap "do we need a first
   /// sync?" check (`SELECT id … LIMIT 1`), so nothing reads the whole table
   /// just to find out it is non-empty.

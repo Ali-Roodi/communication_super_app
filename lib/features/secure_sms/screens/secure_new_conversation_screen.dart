@@ -95,37 +95,45 @@ class _SecureNewConversationScreenState
             (contact: c, phone: n.phone),
     ];
     if (rows.isEmpty) return const [];
+    // Slivers: the header, then the rows built only as they scroll in.
     return [
-      Padding(
-        padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
-        child: Text(
-          'دفترچه مخفی',
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
-            color: scheme.primary,
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+          child: Text(
+            'دفترچه مخفی',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: scheme.primary,
+            ),
           ),
         ),
       ),
-      for (final r in rows)
-        ListTile(
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 4,
-          ),
-          leading: CircleAvatar(
-            backgroundColor: scheme.primaryContainer,
-            child: Text(
-              PersianUtils.getInitials(r.contact.name),
-              style: TextStyle(color: scheme.onPrimaryContainer),
+      SliverList.builder(
+        itemCount: rows.length,
+        itemBuilder: (context, i) {
+          final r = rows[i];
+          return ListTile(
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 4,
             ),
-          ),
-          title: Text(r.contact.name),
-          subtitle: Text(PersianUtils.displayPhone(r.phone)),
-          // «گفتگوی رمز»: encrypted, under the name the user gave them.
-          onTap: () =>
-              _bloc.add(SecureLookupNumber(r.phone, name: r.contact.name)),
-        ),
+            leading: CircleAvatar(
+              backgroundColor: scheme.primaryContainer,
+              child: Text(
+                PersianUtils.getInitials(r.contact.name),
+                style: TextStyle(color: scheme.onPrimaryContainer),
+              ),
+            ),
+            title: Text(r.contact.name),
+            subtitle: Text(PersianUtils.displayPhone(r.phone)),
+            // «گفتگوی رمز»: encrypted, under the name the user gave them.
+            onTap: () =>
+                _bloc.add(SecureLookupNumber(r.phone, name: r.contact.name)),
+          );
+        },
+      ),
     ];
   }
 
@@ -164,96 +172,102 @@ class _SecureNewConversationScreenState
           appBar: RtlAppBar(title: 'گفتگوی رمز'),
           body: BlocBuilder<SecureMessagesBloc, SecureMessagesState>(
             builder: (context, state) {
-              return ListView(
-                padding: const EdgeInsets.only(bottom: 24),
-                children: [
-                  ListTile(
-                    contentPadding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                    leading: CircleAvatar(
-                      backgroundColor: scheme.tertiaryContainer,
-                      child: Icon(
-                        Icons.group_add_outlined,
-                        color: scheme.onTertiaryContainer,
-                      ),
-                    ),
-                    title: const Text('گروه رمز جدید'),
-                    onTap: () => Navigator.of(context).pushReplacement(
-                      MaterialPageRoute(
-                        builder: (_) => const SecureGroupEditScreen(),
-                      ),
-                    ),
-                  ),
-                  ListTile(
-                    contentPadding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-                    leading: CircleAvatar(
-                      backgroundColor: scheme.primaryContainer,
-                      child: Icon(
-                        Icons.contacts_outlined,
-                        color: scheme.onPrimaryContainer,
-                      ),
-                    ),
-                    title: const Text('انتخاب از مخاطبین'),
-                    enabled: state.hasCert,
-                    onTap: _pickContact,
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                    child: TextField(
-                      controller: _number,
-                      enabled: state.hasCert,
-                      // A number, or a hidden contact's name to filter by: a
-                      // text keyboard, and no forced direction.
-                      keyboardType: TextInputType.text,
-                      decoration: InputDecoration(
-                        hintText: 'شمارهٔ همراه',
-                        prefixIcon: const Icon(Icons.search),
-                        suffixIcon: IconButton(
-                          tooltip: 'شروع با این شماره',
-                          icon: const Icon(Icons.arrow_forward),
-                          onPressed: _lookup,
+              return CustomScrollView(
+                slivers: [
+                  SliverList.list(
+                    children: [
+                      ListTile(
+                        contentPadding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                        leading: CircleAvatar(
+                          backgroundColor: scheme.tertiaryContainer,
+                          child: Icon(
+                            Icons.group_add_outlined,
+                            color: scheme.onTertiaryContainer,
+                          ),
+                        ),
+                        title: const Text('گروه رمز جدید'),
+                        onTap: () => Navigator.of(context).pushReplacement(
+                          MaterialPageRoute(
+                            builder: (_) => const SecureGroupEditScreen(),
+                          ),
                         ),
                       ),
-                      onChanged: (v) => setState(() => _filter = v.trim()),
-                      onSubmitted: (_) => _lookup(),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
-                    child: Text(
-                      // Nobody is listed anywhere: whoever has هم‌رسان and a
-                      // key of a trusted authority answers the first SMS.
-                      'اگر این شماره هم‌رسانِ دارای کلید سازمانی داشته باشد، '
-                      'با اولین پیام کانال امن برقرار می‌شود.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: scheme.onSurfaceVariant,
+                      ListTile(
+                        contentPadding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                        leading: CircleAvatar(
+                          backgroundColor: scheme.primaryContainer,
+                          child: Icon(
+                            Icons.contacts_outlined,
+                            color: scheme.onPrimaryContainer,
+                          ),
+                        ),
+                        title: const Text('انتخاب از مخاطبین'),
+                        enabled: state.hasCert,
+                        onTap: _pickContact,
                       ),
-                    ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                        child: TextField(
+                          controller: _number,
+                          enabled: state.hasCert,
+                          // A number, or a hidden contact's name to filter by: a
+                          // text keyboard, and no forced direction.
+                          keyboardType: TextInputType.text,
+                          decoration: InputDecoration(
+                            hintText: 'شمارهٔ همراه',
+                            prefixIcon: const Icon(Icons.search),
+                            suffixIcon: IconButton(
+                              tooltip: 'شروع با این شماره',
+                              icon: const Icon(Icons.arrow_forward),
+                              onPressed: _lookup,
+                            ),
+                          ),
+                          onChanged: (v) => setState(() => _filter = v.trim()),
+                          onSubmitted: (_) => _lookup(),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
+                        child: Text(
+                          // Nobody is listed anywhere: whoever has هم‌رسان and a
+                          // key of a trusted authority answers the first SMS.
+                          'اگر این شماره هم‌رسانِ دارای کلید سازمانی داشته باشد، '
+                          'با اولین پیام کانال امن برقرار می‌شود.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   ..._hiddenSection(context, scheme),
                   if (!state.hasCert)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
-                      child: Column(
-                        children: [
-                          Text(
-                            'هنوز فایل کلید شما وارد نشده است.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: scheme.onSurfaceVariant),
-                          ),
-                          const SizedBox(height: 12),
-                          OutlinedButton.icon(
-                            onPressed: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => const KeyBankScreen(),
-                              ),
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+                        child: Column(
+                          children: [
+                            Text(
+                              'هنوز فایل کلید شما وارد نشده است.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: scheme.onSurfaceVariant),
                             ),
-                            icon: const Icon(Icons.key_outlined),
-                            label: const Text('بانک کلید'),
-                          ),
-                        ],
+                            const SizedBox(height: 12),
+                            OutlinedButton.icon(
+                              onPressed: () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const KeyBankScreen(),
+                                ),
+                              ),
+                              icon: const Icon(Icons.key_outlined),
+                              label: const Text('بانک کلید'),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
+                  const SliverToBoxAdapter(child: SizedBox(height: 24)),
                 ],
               );
             },

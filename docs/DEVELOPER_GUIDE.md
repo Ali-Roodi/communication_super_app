@@ -149,6 +149,10 @@ Every contact filter — the contacts tab, the dialer suggestions, `searchContac
 
 **Every contact row shows its numbers under the name** (`ContactNumbersLine`, `core/widgets/`) — contacts tab, unified search, favourites picker. A name-only row cannot tell two «علی» apart. The line shows the number a digit query *matched* (emphasised via `HighlightedPhone`) when there is one, otherwise the contact's numbers separated by «·» with a «+N» tail. The contacts tab's `_kRowHeight` is sized for those two lines — it feeds the fast-scroll index's jump offsets, so changing the row's height means changing that constant.
 
+### Long lists
+
+A list fed by the phone's data — calls, SMS, search hits, the archive, encrypted conversations, hidden calls — is read **a page at a time** and built lazily (`ListView.builder` / slivers). The page trigger is `InfiniteScroll` (`core/widgets/infinite_scroll.dart`): it also fires when a first page is too short to scroll, which a scroll listener never sees. The bloc behind it keeps an in-flight flag, since the trigger fires more than once per page. Lists the user builds by hand (drafts, templates, scheduled, favourites, blocked numbers) and the address book are read whole — select-all, the fast-scroll index and the filters need the whole set — but their rows are still built lazily.
+
 ### Transient confirmations
 
 `showUndoSnack` (`core/widgets/undo_snack_bar.dart`) is the app's only snack bar carrying an action. **A `SnackBar` with an action is not guaranteed to time out**: `ScaffoldMessengerState` skips starting its dismissal timer while `MediaQuery.accessibleNavigation` is true, so with any accessibility service active «گفتگو بایگانی شد» sat on the inbox until something else replaced it. This helper owns its own `Timer` and hides the bar itself, so the 3-second window is authoritative whatever the platform reports — and it *shows* the countdown as a shrinking ring around «واگرد», because an undo the user cannot see expiring is a guessing game. `showCountdown: false` for an action that is a shortcut rather than an undo («تنظیمات»), where a ticking clock would imply a deadline that is not one.

@@ -64,6 +64,11 @@ class HiddenClearCalls extends HiddenEvent {
   const HiddenClearCalls();
 }
 
+/// «تماس‌های مخفی» scrolled to its end: read the next page.
+class HiddenLoadMoreCalls extends HiddenEvent {
+  const HiddenLoadMoreCalls();
+}
+
 // ── State ────────────────────────────────────────────────────────────────────
 
 enum HiddenStatus { locked, loading, ready }
@@ -76,6 +81,7 @@ class HiddenState extends Equatable {
     this.status = HiddenStatus.locked,
     this.contacts = const [],
     this.calls = const [],
+    this.callsHasMore = false,
     this.savedSeq = 0,
     this.savedId,
     this.error,
@@ -85,7 +91,11 @@ class HiddenState extends Equatable {
 
   final HiddenStatus status;
   final List<HiddenContact> contacts;
+
+  /// The newest calls only — a page more each time the list reaches its end
+  /// ([HiddenLoadMoreCalls]); [callsHasMore] says older ones exist.
   final List<HiddenCall> calls;
+  final bool callsHasMore;
 
   /// Bumped when a save went through ([savedId] is the contact).
   final int savedSeq;
@@ -110,6 +120,7 @@ class HiddenState extends Equatable {
     HiddenStatus? status,
     List<HiddenContact>? contacts,
     List<HiddenCall>? calls,
+    bool? callsHasMore,
     String? savedId,
     HiddenSaveError? error,
     String? errorDetail,
@@ -117,6 +128,7 @@ class HiddenState extends Equatable {
     status: status ?? this.status,
     contacts: contacts ?? this.contacts,
     calls: calls ?? this.calls,
+    callsHasMore: callsHasMore ?? this.callsHasMore,
     savedSeq: savedId == null ? savedSeq : savedSeq + 1,
     savedId: savedId ?? this.savedId,
     error: error ?? this.error,
@@ -129,6 +141,7 @@ class HiddenState extends Equatable {
     status,
     contacts,
     calls,
+    callsHasMore,
     savedSeq,
     savedId,
     error,
@@ -193,6 +206,16 @@ class HiddenBloc extends Bloc<HiddenEvent, HiddenState> {
       await _guard(() => _repo.deleteCalls(e.ids));
       await _reload(emit);
     });
+    on<HiddenLoadMoreCalls>((e, emit) async {
+      if (!_open || !state.callsHasMore || _loadingMoreCalls) return;
+      _loadingMoreCalls = true;
+      _callWindow += _callPage;
+      try {
+        await _reload(emit);
+      } finally {
+        _loadingMoreCalls = false;
+      }
+    });
     on<HiddenClearCalls>((e, emit) async {
       await _guard(_repo.clearCalls);
       await _reload(emit);
@@ -235,6 +258,7 @@ class HiddenBloc extends Bloc<HiddenEvent, HiddenState> {
   }
 
   Future<void> _onSection(_SectionChanged e, Emitter<HiddenState> emit) async {
+    _callWindow = _callPage;
     if (!e.unlocked) {
       await _bridge.clearNames();
       emit(const HiddenState());
@@ -298,13 +322,23 @@ class HiddenBloc extends Bloc<HiddenEvent, HiddenState> {
     }
   }
 
+  /// How many of the newest hidden calls are read; every change reloads
+  /// them, so a long history is not read whole each time.
+  static const int _callPage = 50;
+  int _callWindow = _callPage;
+  bool _loadingMoreCalls = false;
+
   Future<void> _reload(Emitter<HiddenState> emit) async {
     try {
+      // One row past the window says whether older ones exist.
+      final calls = await _repo.calls(limit: _callWindow + 1);
+      final more = calls.length > _callWindow;
       emit(
         state.copyWith(
           status: HiddenStatus.ready,
           contacts: await _repo.contacts(),
-          calls: await _repo.calls(),
+          calls: more ? calls.sublist(0, _callWindow) : calls,
+          callsHasMore: more,
         ),
       );
     } on KeyBankLockedException {
