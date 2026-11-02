@@ -402,6 +402,38 @@ void main() {
       expect(remaining.map((m) => m.id), ['m2']);
     });
 
+    test('reconcile links a live row to its provider twin, exact or within '
+        'the fuzzy window, and each local row only once', () async {
+      final repo = MessageRepository();
+      // Live-received rows, no provider id yet.
+      await repo.createMessage(_message('live-a', minute: 0, body: 'الف'));
+      await repo.createMessage(_message('live-b', minute: 10, body: 'ب'));
+      // Another conversation with the same body must not be adopted.
+      await repo.createMessage(
+        _message('other', threadId: '09121111111', minute: 0, body: 'الف'),
+      );
+
+      await repo.reconcileDeviceRows([
+        // Exact twin of live-a.
+        _message('d1', minute: 0, body: 'الف', deviceSmsId: 1),
+        // live-b, one minute off: the PDU time vs the provider's.
+        _message('d2', minute: 11, body: 'ب', deviceSmsId: 2),
+        // A second «ب» in the window: live-b is taken, so this one is new.
+        _message('d3', minute: 9, body: 'ب', deviceSmsId: 3),
+        // Nothing local at all.
+        _message('d4', minute: 30, body: 'ج', deviceSmsId: 4),
+      ]);
+
+      final rows = {
+        for (final m in await repo.getMessagesByThread('09120000000'))
+          m.id: m.deviceSmsId,
+      };
+      expect(rows, {'live-a': 1, 'live-b': 2, 'd3': 3, 'd4': 4});
+      final other = await repo.getMessagesByThread('09121111111');
+      expect(other.single.deviceSmsId, isNull);
+      expect(await repo.knownDeviceSmsIds([1, 2, 3, 4]), {1, 2, 3, 4});
+    });
+
     test('softDeleteThread hides the thread but keeps the device tombstones so '
         'the mirror-sync cannot re-import it', () async {
       final repo = MessageRepository();

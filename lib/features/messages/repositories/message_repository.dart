@@ -612,70 +612,102 @@ class MessageRepository {
     ];
     if (pending.isEmpty) return;
 
-    await db.transaction((txn) async {
-      for (final row in pending) {
-        final deviceId = row.deviceSmsId!;
-
-        // 2. Exact content match (same key as the dedup unique index).
-        final exact = await txn.query(
+    // Steps 2 and 3 in bulk as well. Every statement is a platform-channel
+    // round trip, and asking two queries and an insert per row is what made
+    // a first import of 20 000 SMS take minutes — with the database held the
+    // whole time, so every other screen waited behind it. The rows a provider
+    // row could adopt are the unlinked ones of the same conversations within
+    // the batch's time span, read once; the matching runs here, and the writes
+    // go as one batch.
+    var minTs = pending.first.timestamp.millisecondsSinceEpoch;
+    var maxTs = minTs;
+    for (final row in pending) {
+      final ts = row.timestamp.millisecondsSinceEpoch;
+      if (ts < minTs) minTs = ts;
+      if (ts > maxTs) maxTs = ts;
+    }
+    final threadIds = {for (final r in pending) r.threadId}.toList();
+    final phones = {for (final r in pending) r.phoneNumber}.toList();
+    final candidates = <Map<String, Object?>>[];
+    // Chunked so neither list crosses SQLite's bound-variable limit.
+    const chunk = 400;
+    for (var i = 0; i < threadIds.length || i < phones.length; i += chunk) {
+      final t = threadIds.skip(i).take(chunk).toList();
+      final p = phones.skip(i).take(chunk).toList();
+      candidates.addAll(
+        await db.query(
           AppConstants.messagesTable,
-          columns: ['id'],
-          where:
-              'phone_number = ? AND body = ? AND timestamp = ? AND type = ? '
-              'AND device_sms_id IS NULL',
-          whereArgs: [
-            row.phoneNumber,
-            row.body,
-            row.timestamp.millisecondsSinceEpoch,
-            row.type.name,
+          columns: [
+            'id',
+            'thread_id',
+            'phone_number',
+            'body',
+            'timestamp',
+            'type',
           ],
-          limit: 1,
-        );
-        if (exact.isNotEmpty) {
-          await txn.update(
-            AppConstants.messagesTable,
-            _linkValues(deviceId, row.subscriptionId),
-            where: 'id = ?',
-            whereArgs: [exact.first['id']],
-          );
-          continue;
-        }
-
-        // 3. Fuzzy match: PDU timestamp vs provider receive time skew.
-        final ts = row.timestamp.millisecondsSinceEpoch;
-        final fuzzy = await txn.query(
-          AppConstants.messagesTable,
-          columns: ['id'],
           where:
-              'thread_id = ? AND body = ? AND type = ? '
-              'AND device_sms_id IS NULL AND timestamp BETWEEN ? AND ?',
+              'device_sms_id IS NULL AND timestamp BETWEEN ? AND ? AND ('
+              'thread_id IN (${List.filled(t.isEmpty ? 1 : t.length, '?').join(',')}) '
+              'OR phone_number IN (${List.filled(p.isEmpty ? 1 : p.length, '?').join(',')}))',
           whereArgs: [
-            row.threadId,
-            row.body,
-            row.type.name,
-            ts - windowMs,
-            ts + windowMs,
+            minTs - windowMs,
+            maxTs + windowMs,
+            if (t.isEmpty) '' else ...t,
+            if (p.isEmpty) '' else ...p,
           ],
-          limit: 1,
-        );
-        if (fuzzy.isNotEmpty) {
-          await txn.update(
-            AppConstants.messagesTable,
-            _linkValues(deviceId, row.subscriptionId),
-            where: 'id = ?',
-            whereArgs: [fuzzy.first['id']],
-          );
-          continue;
-        }
+          orderBy: 'rowid',
+        ),
+      );
+    }
+    final adopted = <Object?>{};
 
-        // 4. New message from the device.
-        await txn.insert(
-          AppConstants.messagesTable,
-          row.toMap(),
-          conflictAlgorithm: ConflictAlgorithm.ignore,
-        );
+    final batch = db.batch();
+    for (final row in pending) {
+      final deviceId = row.deviceSmsId!;
+      final ts = row.timestamp.millisecondsSinceEpoch;
+      final type = row.type.name;
+      Map<String, Object?>? pick(bool Function(Map<String, Object?> c) test) {
+        for (final c in candidates) {
+          if (!adopted.contains(c['id']) &&
+              c['body'] == row.body &&
+              c['type'] == type &&
+              test(c)) {
+            return c;
+          }
+        }
+        return null;
       }
-    });
+
+      // 2. Exact content match (same key as the dedup unique index), then
+      // 3. fuzzy: the PDU timestamp vs the provider's receive time skew.
+      final match =
+          pick(
+            (c) => c['phone_number'] == row.phoneNumber && c['timestamp'] == ts,
+          ) ??
+          pick(
+            (c) =>
+                c['thread_id'] == row.threadId &&
+                ((c['timestamp'] as num) - ts).abs() <= windowMs,
+          );
+      if (match != null) {
+        adopted.add(match['id']);
+        batch.update(
+          AppConstants.messagesTable,
+          _linkValues(deviceId, row.subscriptionId),
+          where: 'id = ?',
+          whereArgs: [match['id']],
+        );
+        continue;
+      }
+
+      // 4. New message from the device.
+      batch.insert(
+        AppConstants.messagesTable,
+        row.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    }
+    await batch.commit(noResult: true);
   }
 
   /// Which of [deviceIds] the local store already carries.

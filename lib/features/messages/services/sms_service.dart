@@ -105,6 +105,14 @@ class SmsService {
   /// When the last full device sync completed. Null until the first sync.
   static DateTime? _lastSyncAt;
 
+  /// Provider rows read once that left no local row to link to: an encrypted
+  /// SMS (never imported, by rule) or a byte-for-byte duplicate of a row
+  /// already linked (the unique index drops it). Nothing marks them known, so
+  /// every sync used to read them again — every resume of a phone with many
+  /// of them. Kept for the session; forgotten when a sync deletes local rows,
+  /// since a duplicate whose twin was deleted is importable again.
+  static final Set<int> _unlinkable = {};
+
   Future<bool> requestPermissions() async {
     // Fast-path: return immediately if already granted so that calling this
     // from an already-open conversation or list screen never shows a dialog.
@@ -792,10 +800,10 @@ class SmsService {
     // answers both halves of the sync — what to import and what to delete.
     final inboxIds = await _nativeSmsService.querySmsIds(box: 'inbox');
     final sentIds = await _nativeSmsService.querySmsIds(box: 'sent');
-    final known = await _messageRepository.knownDeviceSmsIds([
-      ...inboxIds,
-      ...sentIds,
-    ]);
+    final known = {
+      ...await _messageRepository.knownDeviceSmsIds([...inboxIds, ...sentIds]),
+      ..._unlinkable,
+    };
 
     // ── 2. Read and reconcile only those, newest first ─────────────────────
     // Queued so this doesn't hold a page of SMS rows in memory at the same
@@ -827,6 +835,13 @@ class SmsService {
             if (!SmsCryptoService.looksEncrypted(row.body))
               _createMessageModel(row, type, contactMap),
         ]);
+        final linked = await _messageRepository.knownDeviceSmsIds([
+          for (final row in rows) row.id,
+        ]);
+        _unlinkable.addAll([
+          for (final row in rows)
+            if (!linked.contains(row.id)) row.id,
+        ]);
         // Let the UI isolate breathe between pages — a first import walks the
         // whole mailbox and must never hold the frame.
         await Future.delayed(Duration.zero);
@@ -845,10 +860,12 @@ class SmsService {
     // genuinely empty, in which case there is nothing to lose by waiting for
     // the next pass) — do NOT wipe the local mirror on a transient read error.
     if (deviceIds.isEmpty) return;
+    _unlinkable.retainAll(deviceIds);
     final removed = await _messageRepository.removeRowsMissingFromDevice(
       deviceIds,
     );
     if (removed > 0) {
+      _unlinkable.clear();
       debugPrint('Device mirror-sync removed $removed locally-stale messages');
     }
 
