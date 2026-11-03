@@ -929,12 +929,22 @@ class MessageRepository {
   }
 
   // ── Archive ────────────────────────────────────────────────────────────
+  /// Archiving also unpins: a pin only means something in the active inbox,
+  /// and one kept through the archive would come back with the thread past
+  /// [AppConstants.maxPinned].
   Future<void> archiveThread(String threadId) async {
     final db = await _dbHelper.database;
-    await db.insert(AppConstants.archivedThreadsTable, {
-      'thread_id': threadId,
-      'archived_at': DateTime.now().millisecondsSinceEpoch,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.transaction((txn) async {
+      await txn.insert(AppConstants.archivedThreadsTable, {
+        'thread_id': threadId,
+        'archived_at': DateTime.now().millisecondsSinceEpoch,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await txn.delete(
+        AppConstants.pinnedThreadsTable,
+        where: 'thread_id = ?',
+        whereArgs: [threadId],
+      );
+    });
   }
 
   Future<void> unarchiveThread(String threadId) async {
@@ -947,6 +957,23 @@ class MessageRepository {
   }
 
   // ── Pin ────────────────────────────────────────────────────────────────
+
+  /// Pins the inbox shows: a pin left on a thread that is now blocked, or
+  /// has no message left, takes no place in [AppConstants.maxPinned].
+  Future<int> pinnedThreadCount() async {
+    final db = await _dbHelper.database;
+    final rows = await db.rawQuery('''
+      SELECT COUNT(*) AS n FROM ${AppConstants.pinnedThreadsTable} p
+      WHERE p.thread_id NOT IN
+              (SELECT thread_id FROM ${AppConstants.archivedThreadsTable})
+        AND p.thread_id NOT IN
+              (SELECT normalized FROM ${AppConstants.blockedNumbersTable})
+        AND EXISTS (SELECT 1 FROM ${AppConstants.messagesTable} m
+                    WHERE m.thread_id = p.thread_id AND m.is_deleted = 0)
+    ''');
+    return (rows.first['n'] as int?) ?? 0;
+  }
+
   Future<void> pinThread(String threadId) async {
     final db = await _dbHelper.database;
     await db.insert(AppConstants.pinnedThreadsTable, {

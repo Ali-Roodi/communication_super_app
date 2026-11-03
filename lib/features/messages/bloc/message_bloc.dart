@@ -10,6 +10,7 @@ import 'package:communication_super_app/features/contacts/repositories/contact_n
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/core/services/deep_link_service.dart';
 import 'package:communication_super_app/core/utils/phone_normalizer.dart';
+import 'package:communication_super_app/core/constants/app_constants.dart';
 import '../models/message_group.dart';
 import '../models/message_model.dart';
 
@@ -1128,7 +1129,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   Future<void> _onPinThread(PinThread event, Emitter<MessageState> emit) async {
     try {
       if (event.pin) {
-        await _repository.pinThread(event.threadId);
+        // The screen says so before asking; this only keeps a sixth from
+        // slipping in past it.
+        if (await _repository.pinnedThreadCount() < AppConstants.maxPinned) {
+          await _repository.pinThread(event.threadId);
+        }
       } else {
         await _repository.unpinThread(event.threadId);
       }

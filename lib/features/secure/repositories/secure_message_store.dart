@@ -1047,4 +1047,14 @@ class SecureMessageStore {
     'key': key,
     'value': value,
   }, conflictAlgorithm: cipher.ConflictAlgorithm.replace);
+
+  /// What «پیام‌های رمز» pins to its top (matrix row 23), in pin order:
+  /// `c:<conversation phone>` and `g:<group id>`. Kept here and nowhere
+  /// else — the list names conversations.
+  Future<List<String>> pins() async {
+    final raw = await meta('pins');
+    return raw == null || raw.isEmpty ? const [] : raw.split('\n');
+  }
+
+  Future<void> setPins(List<String> pins) => setMeta('pins', pins.join('\n'));
 }

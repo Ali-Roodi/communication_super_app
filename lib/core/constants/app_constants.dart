@@ -14,6 +14,10 @@ class AppConstants {
   static const String archivedThreadsTable = 'archived_threads';
   static const String pinnedThreadsTable = 'pinned_threads';
 
+  /// How many rows one list may pin to its top (matrix row 23): the inbox,
+  /// the contacts tab and «پیام‌های رمز» each hold at most this many.
+  static const int maxPinned = 5;
+
   /// Threads the user marked unread **by hand** (v24).
   ///
   /// A mark, not a count: it is what tells «علامت‌گذاری نخوانده» apart from a

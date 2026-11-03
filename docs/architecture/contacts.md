@@ -37,6 +37,13 @@ Part of the architecture notes for this repo. Index and the rules that apply eve
 
 **The hidden phonebook «دفترچه مخفی» is not part of the address book** — it lives only in the secure section's `secure.db` (`lib/features/hidden/`), and «از دفترچه تلفن گوشی» there offers to delete the contact it was filled from. See `editions.md`.
 
+### Pinned contacts («سنجاق‌شده», matrix row 23)
+
+The selection bar's pin puts up to `AppConstants.maxPinned` (5) contacts in a «سنجاق‌شده» block above the first letter; pressed with every selected contact already pinned, it unpins them. A selection that would make a sixth pins nothing and says so. The pinned rows *repeat* contacts that are still under their letter, as Google Contacts does with its starred ones, so `_visible` («انتخاب همه», the selected list) is built from the letter sections alone and never counts one twice. The block's height (`_pinnedExtent`) is the fast-scroll's `leadingOffset` — without it every letter jump lands that far short.
+
+- **A preference, not a table** (`PinnedContacts`, key `pinned_contacts`, device contact ids in pin order): nothing secret, nothing Kotlin reads, and no schema change.
+- A contact deleted here is unpinned in the same delete; one deleted elsewhere is dropped by `retainOnly` when the next non-empty address-book read lands. An **empty** read says nothing about the pins — it is what a missing permission returns.
+
 ### Contact photo («عکس مخاطب»)
 
 Tapping the avatar in the editor opens Google Contacts' three-row sheet — «گرفتن عکس» / «انتخاب از گالری» / «حذف عکس» (the last only when there is one) — and a pick goes through `PhotoCropScreen`: drag to move, pinch to zoom, «چرخش» a quarter turn at a time, inside a circular window. The whole avatar is the button with one badge on it; it used to be two floating buttons stuck to the circle, one of them a delete, which put "throw the photo away" a mis-tap from "change the photo".

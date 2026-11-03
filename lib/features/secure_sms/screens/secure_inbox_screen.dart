@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:communication_super_app/core/constants/app_constants.dart';
 import 'package:communication_super_app/core/edition/app_edition.dart';
 import 'package:communication_super_app/core/sim/sim_service.dart';
 
@@ -135,13 +137,29 @@ Widget _list(BuildContext context, SecureMessagesState state, bool plain) {
     for (final c in state.conversations)
       if (SecureMessenger.isPlainThread(c.phone)) c,
   ];
-  final rows = <({int at, Widget row})>[
-    for (final c in state.conversations)
-      if (SecureMessenger.isPlainThread(c.phone) == plain)
-        (at: c.lastAt, row: _ConversationRow(c)),
-    if (!plain)
-      for (final g in state.groups) (at: g.lastAt, row: _GroupRow(g, state)),
-  ]..sort((a, b) => b.at.compareTo(a.at));
+  // Pinned rows (matrix row 23) lead, newest first like the rest.
+  final rows =
+      <({bool pinned, int at, Widget row})>[
+        for (final c in state.conversations)
+          if (SecureMessenger.isPlainThread(c.phone) == plain)
+            (
+              pinned: state.isPinned(
+                SecureMessagesState.conversationPin(c.phone),
+              ),
+              at: c.lastAt,
+              row: _ConversationRow(c, state, plain: plain),
+            ),
+        if (!plain)
+          for (final g in state.groups)
+            (
+              pinned: state.isPinned(SecureMessagesState.groupPin(g.id)),
+              at: g.lastAt,
+              row: _GroupRow(g, state),
+            ),
+      ]..sort(
+        (a, b) =>
+            a.pinned != b.pinned ? (a.pinned ? -1 : 1) : b.at.compareTo(a.at),
+      );
   final link = !plain && plainThreads.isNotEmpty
       ? _PlainSectionRow(unread: plainThreads.where((c) => c.unread > 0).length)
       : null;
@@ -157,6 +175,76 @@ Widget _list(BuildContext context, SecureMessagesState state, bool plain) {
         : i == 0
         ? link
         : rows[i - 1].row,
+  );
+}
+
+/// Long-press on a row: pin or unpin it, and — for a conversation — delete.
+Future<void> _rowOptions(
+  BuildContext context, {
+  required String pinKey,
+  required bool plain,
+  VoidCallback? onDelete,
+}) async {
+  final bloc = context.read<SecureMessagesBloc>();
+  final messenger = ScaffoldMessenger.of(context);
+  final pinned = bloc.state.isPinned(pinKey);
+  HapticFeedback.mediumImpact();
+  final choice = await showModalBottomSheet<String>(
+    context: context,
+    builder: (sheetCtx) => Directionality(
+      textDirection: TextDirection.rtl,
+      child: SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(pinned ? Icons.push_pin : Icons.push_pin_outlined),
+              title: Text(pinned ? 'برداشتن سنجاق' : 'سنجاق کردن'),
+              onTap: () => Navigator.of(sheetCtx).pop('pin'),
+            ),
+            if (onDelete != null)
+              ListTile(
+                leading: const Icon(Icons.delete_outline),
+                title: const Text('حذف گفتگو'),
+                onTap: () => Navigator.of(sheetCtx).pop('delete'),
+              ),
+          ],
+        ),
+      ),
+    ),
+  );
+  if (choice == 'delete') {
+    onDelete?.call();
+  } else if (choice == 'pin') {
+    if (!pinned &&
+        SecureMessagesState.pinsIn(bloc.state.pins, plain: plain) >=
+            AppConstants.maxPinned) {
+      final max = PersianUtils.toPersianNumber('${AppConstants.maxPinned}');
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            'حداکثر $max گفتگو سنجاق می‌شود؛ اول یکی را از سنجاق بردارید',
+          ),
+        ),
+      );
+      return;
+    }
+    bloc.add(SecureSetPinned(pinKey, pin: !pinned));
+  }
+}
+
+/// The small pin before a pinned row's name, as the inbox draws it.
+class _PinMark extends StatelessWidget {
+  const _PinMark();
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsetsDirectional.only(end: 4),
+    child: Icon(
+      Icons.push_pin,
+      size: 14,
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
+    ),
   );
 }
 
@@ -212,12 +300,14 @@ class _GroupRow extends StatelessWidget {
         : g.lastSender == null
         ? g.lastBody!
         : '${state.nameOf(g.lastSender!)}: ${g.lastBody}';
+    final pinKey = SecureMessagesState.groupPin(g.id);
     return InkWell(
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => SecureGroupScreen(id: g.id, name: name),
         ),
       ),
+      onLongPress: () => _rowOptions(context, pinKey: pinKey, plain: false),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Row(
@@ -237,14 +327,23 @@ class _GroupRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: unread ? FontWeight.w700 : FontWeight.w500,
-                    ),
+                  Row(
+                    children: [
+                      if (state.isPinned(pinKey)) const _PinMark(),
+                      Flexible(
+                        child: Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: unread
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -344,8 +443,10 @@ class _Empty extends StatelessWidget {
 }
 
 class _ConversationRow extends StatelessWidget {
-  const _ConversationRow(this.c);
+  const _ConversationRow(this.c, this.state, {required this.plain});
   final SecureConversation c;
+  final SecureMessagesState state;
+  final bool plain;
 
   @override
   Widget build(BuildContext context) {
@@ -361,7 +462,12 @@ class _ConversationRow extends StatelessWidget {
               SecureConversationScreen(phone: c.phone, name: c.name),
         ),
       ),
-      onLongPress: () => _confirmDelete(context),
+      onLongPress: () => _rowOptions(
+        context,
+        pinKey: SecureMessagesState.conversationPin(c.phone),
+        plain: plain,
+        onDelete: () => _confirmDelete(context),
+      ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Row(
@@ -376,14 +482,26 @@ class _ConversationRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    c.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: unread ? FontWeight.w700 : FontWeight.w500,
-                    ),
+                  Row(
+                    children: [
+                      if (state.isPinned(
+                        SecureMessagesState.conversationPin(c.phone),
+                      ))
+                        const _PinMark(),
+                      Flexible(
+                        child: Text(
+                          c.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: unread
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 4),
                   Text(

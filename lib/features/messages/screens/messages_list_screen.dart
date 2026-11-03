@@ -15,6 +15,7 @@ import '../models/message_group.dart';
 import '../models/message_model.dart';
 import '../repositories/group_repository.dart';
 import '../repositories/message_repository.dart';
+import 'package:communication_super_app/core/constants/app_constants.dart';
 import 'package:communication_super_app/core/navigation/app_route_observer.dart';
 import 'package:communication_super_app/core/services/composer_draft_store.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
@@ -839,11 +840,33 @@ class _MessagesListScreenState extends State<MessagesListScreen>
       return;
     }
     final pin = chosen.any((t) => !t.isPinned);
+    // Pinned rows lead the inbox, so all of them are in its first page.
+    final pinned = (_lastInbox?.threads ?? const <MessageThread>[])
+        .where((t) => t.isPinned)
+        .length;
+    final adding = chosen.where((t) => !t.isPinned).length;
+    if (pin && pinned + adding > AppConstants.maxPinned) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_pinLimitMessage(pinned))));
+      return;
+    }
     final bloc = context.read<MessageBloc>();
     for (final t in chosen) {
       if (t.isPinned != pin) bloc.add(PinThread(t.threadId, pin: pin));
     }
     _clearSelection();
+  }
+
+  static String _pinLimitMessage(int pinned) {
+    final max = PersianUtils.toPersianNumber('${AppConstants.maxPinned}');
+    final room = AppConstants.maxPinned - pinned;
+    if (room <= 0) {
+      return 'حداکثر $max گفتگو سنجاق می‌شود؛ اول یکی را از سنجاق بردارید';
+    }
+    if (pinned == 0) return 'حداکثر $max گفتگو سنجاق می‌شود';
+    return 'حداکثر $max گفتگو سنجاق می‌شود؛ فقط '
+        '${PersianUtils.toPersianNumber('$room')} جای خالی مانده';
   }
 
   void _archiveSelected() {

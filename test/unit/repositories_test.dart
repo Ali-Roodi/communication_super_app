@@ -509,6 +509,33 @@ void main() {
       },
     );
 
+    test(
+      'a pin counts only while the inbox shows it, and archiving drops it',
+      () async {
+        final repo = MessageRepository();
+        for (var t = 1; t <= 4; t++) {
+          await repo.createMessage(_message('p$t', threadId: '0912000000$t'));
+          await repo.pinThread('0912000000$t');
+        }
+        // A pin on a thread with no message at all takes no place.
+        await repo.pinThread('09129999999');
+        expect(await repo.pinnedThreadCount(), 4);
+
+        await BlockedNumbersRepository().block('09120000002');
+        await repo.softDeleteThread('09120000003');
+        expect(await repo.pinnedThreadCount(), 2);
+
+        await repo.archiveThread('09120000004');
+        expect(await repo.pinnedThreadCount(), 1);
+        await repo.unarchiveThread('09120000004');
+        final threads = await repo.getAllThreads();
+        expect(
+          threads.firstWhere((t) => t.threadId == '09120000004').isPinned,
+          isFalse,
+        );
+      },
+    );
+
     test('getAllThreads paging applies to threads, not to messages', () async {
       final repo = MessageRepository();
       // Three threads, several messages each: a page of 2 must still return

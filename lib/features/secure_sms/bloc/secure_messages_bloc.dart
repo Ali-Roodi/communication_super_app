@@ -4,6 +4,7 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:communication_super_app/core/constants/app_constants.dart';
 import 'package:communication_super_app/core/services/deep_link_service.dart';
 import 'package:communication_super_app/features/messages/services/native_sms_service.dart';
 import 'package:communication_super_app/features/secure/bloc/secure_session_bloc.dart';
@@ -242,6 +243,14 @@ class SecureSetReceipts extends SecureMessagesEvent {
   final bool on;
 }
 
+/// Pins a row of «پیام‌های رمز» to its top, or unpins it. [key] is
+/// [SecureMessagesState.conversationPin] / [SecureMessagesState.groupPin].
+class SecureSetPinned extends SecureMessagesEvent {
+  const SecureSetPinned(this.key, {required this.pin});
+  final String key;
+  final bool pin;
+}
+
 // ── State ────────────────────────────────────────────────────────────────────
 
 enum SecureMessagesStatus { locked, loading, ready }
@@ -271,6 +280,7 @@ class SecureMessagesState extends Equatable {
     this.candidates = const [],
     this.startedGroupId,
     this.startedGroupSeq = 0,
+    this.pins = const [],
   });
 
   final SecureMessagesStatus status;
@@ -329,6 +339,24 @@ class SecureMessagesState extends Equatable {
   final String? startedGroupId;
   final int startedGroupSeq;
 
+  /// The pinned rows, in pin order (see [SecureMessageStore.pins]).
+  final List<String> pins;
+
+  static String conversationPin(String phone) => 'c:$phone';
+  static String groupPin(String id) => 'g:$id';
+
+  bool isPinned(String key) => pins.contains(key);
+
+  /// How many of [pins] belong to the encrypted list, or with [plain] to the
+  /// hidden contacts' plain one — each holds [AppConstants.maxPinned].
+  static int pinsIn(List<String> pins, {required bool plain}) => pins
+      .where(
+        (k) => k.startsWith('g:')
+            ? !plain
+            : SecureMessenger.isPlainThread(k.substring(2)) == plain,
+      )
+      .length;
+
   int get totalUnread =>
       conversations.fold(0, (sum, c) => sum + c.unread) +
       groups.fold(0, (sum, g) => sum + g.unread);
@@ -363,6 +391,7 @@ class SecureMessagesState extends Equatable {
     bool? openGroupHasMore,
     List<SecurePeer>? candidates,
     String? startedGroupId,
+    List<String>? pins,
   }) => SecureMessagesState(
     status: status ?? this.status,
     conversations: conversations ?? this.conversations,
@@ -395,6 +424,7 @@ class SecureMessagesState extends Equatable {
     startedGroupSeq: startedGroupId == null
         ? startedGroupSeq
         : startedGroupSeq + 1,
+    pins: pins ?? this.pins,
   );
 
   @override
@@ -419,6 +449,7 @@ class SecureMessagesState extends Equatable {
     openGroupHasMore,
     candidates,
     startedGroupSeq,
+    pins,
   ];
 }
 
@@ -578,6 +609,24 @@ class SecureMessagesBloc
       await _guard(() => _messenger.setSendsSeenReceipts(e.on));
       emit(state.copyWith(sendsReceipts: e.on));
     });
+    on<SecureSetPinned>(
+      (e, emit) => _guard(() async {
+        final pins = [...state.pins]..remove(e.key);
+        if (e.pin) {
+          final plain =
+              !e.key.startsWith('g:') &&
+              SecureMessenger.isPlainThread(e.key.substring(2));
+          // The screen says so before asking; this keeps a sixth out.
+          if (SecureMessagesState.pinsIn(pins, plain: plain) >=
+              AppConstants.maxPinned) {
+            return;
+          }
+          pins.add(e.key);
+        }
+        await _store.setPins(pins);
+        emit(state.copyWith(pins: pins));
+      }),
+    );
 
     _subs = [
       session.stream
@@ -695,6 +744,20 @@ class SecureMessagesBloc
   Future<void> _reload(Emitter<SecureMessagesState> emit) async {
     try {
       final conversations = await _store.conversations();
+      final groups = await _groups.groups();
+      // A pin outlives nothing it pinned: a deleted conversation or group
+      // gives its place back.
+      final present = {
+        for (final c in conversations)
+          SecureMessagesState.conversationPin(c.phone),
+        for (final g in groups) SecureMessagesState.groupPin(g.id),
+      };
+      final stored = await _store.pins();
+      final pins = [
+        for (final k in stored)
+          if (present.contains(k)) k,
+      ];
+      if (pins.length != stored.length) await _store.setPins(pins);
       final phone = state.openPhone;
       final group = state.openGroupId;
       // One row past the window says whether older ones exist.
@@ -708,8 +771,9 @@ class SecureMessagesBloc
         state.copyWith(
           status: SecureMessagesStatus.ready,
           conversations: conversations,
-          groups: await _groups.groups(),
+          groups: groups,
           names: await _store.names(),
+          pins: pins,
           openGroupMessages: groupRows == null
               ? null
               : groupRows.length > _groupWindow

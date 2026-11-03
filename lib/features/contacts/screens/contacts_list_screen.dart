@@ -10,6 +10,7 @@ import 'package:flutter_contacts/flutter_contacts.dart' as device_contacts;
 import '../bloc/contact_bloc.dart';
 import '../bloc/contact_event.dart';
 import '../bloc/contact_state.dart';
+import 'package:communication_super_app/core/constants/app_constants.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/theme/surface_roles.dart';
 import 'package:communication_super_app/core/utils/persian_alphabet.dart';
@@ -25,6 +26,7 @@ import 'package:communication_super_app/features/contacts/screens/contact_labels
 import 'package:communication_super_app/features/contacts/screens/duplicate_contacts_screen.dart';
 import 'package:communication_super_app/features/contacts/services/contact_extras_service.dart';
 import 'package:communication_super_app/features/contacts/services/contact_filters.dart';
+import 'package:communication_super_app/features/contacts/services/pinned_contacts.dart';
 import 'package:communication_super_app/features/contacts/widgets/contact_filter_bar.dart';
 import 'package:communication_super_app/features/secure/bloc/secure_session_bloc.dart';
 import 'package:communication_super_app/features/secure_sms/bloc/secure_messages_bloc.dart';
@@ -127,6 +129,8 @@ class _ContactsListScreenState extends State<ContactsListScreen>
     });
     ContactFilters.instance.revision.addListener(_onFiltersChanged);
     unawaited(ContactFilters.instance.load());
+    PinnedContacts.instance.ids.addListener(_onFiltersChanged);
+    unawaited(PinnedContacts.instance.load());
   }
 
   void _onFiltersChanged() {
@@ -190,6 +194,7 @@ class _ContactsListScreenState extends State<ContactsListScreen>
   @override
   void dispose() {
     ContactFilters.instance.revision.removeListener(_onFiltersChanged);
+    PinnedContacts.instance.ids.removeListener(_onFiltersChanged);
     _searchDebounce?.cancel();
     _searchController.dispose();
     _scrollController.dispose();
@@ -253,9 +258,19 @@ class _ContactsListScreenState extends State<ContactsListScreen>
                   // The address book changed: the labels and messengers, and
                   // who is in the one selected, may have too.
                   listenWhen: (_, current) => current is ContactsLoaded,
-                  listener: (_, _) => ContactFilters.instance.load().then(
-                    (_) => _loadFilterIds(),
-                  ),
+                  listener: (_, state) {
+                    ContactFilters.instance.load().then(
+                      (_) => _loadFilterIds(),
+                    );
+                    // A pinned contact deleted outside the app. An empty
+                    // read (no permission yet) says nothing about the pins.
+                    final contacts = (state as ContactsLoaded).contacts;
+                    if (contacts.isNotEmpty) {
+                      PinnedContacts.instance.retainOnly({
+                        for (final c in contacts) c.id,
+                      });
+                    }
+                  },
                   builder: (context, state) {
                     if (state is ContactLoading) {
                       return const Center(child: CircularProgressIndicator());
@@ -281,6 +296,7 @@ class _ContactsListScreenState extends State<ContactsListScreen>
                       return _query.trim().isEmpty
                           ? _buildSectionedList(
                               _getOrBuildSections(contacts),
+                              contacts,
                               theme,
                             )
                           : _buildSearchResults(contacts, theme);
@@ -331,6 +347,7 @@ class _ContactsListScreenState extends State<ContactsListScreen>
   Widget _buildSelectionBar(ThemeData theme) {
     final scheme = theme.colorScheme;
     final single = _selected.length == 1;
+    final allPinned = _selected.every(PinnedContacts.instance.isPinned);
     return SafeArea(
       bottom: false,
       child: Padding(
@@ -353,6 +370,13 @@ class _ContactsListScreenState extends State<ContactsListScreen>
                   style: TextStyle(fontSize: 16, color: scheme.onSurface),
                 ),
                 const Spacer(),
+                IconButton(
+                  icon: Icon(
+                    allPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                  ),
+                  tooltip: allPinned ? 'برداشتن سنجاق' : 'سنجاق کردن',
+                  onPressed: _pinSelected,
+                ),
                 IconButton(
                   icon: const Icon(Icons.star_border),
                   tooltip: 'افزودن به موردعلاقه‌ها',
@@ -398,6 +422,31 @@ class _ContactsListScreenState extends State<ContactsListScreen>
         ),
       ),
     );
+  }
+
+  /// Pins the selection to the top of the list, or — when every selected
+  /// contact is pinned already — unpins it.
+  Future<void> _pinSelected() async {
+    final ids = _selected.toList();
+    final pins = PinnedContacts.instance;
+    if (ids.every(pins.isPinned)) {
+      _clearSelection();
+      await pins.unpin(ids);
+      return;
+    }
+    final messenger = ScaffoldMessenger.of(context);
+    if (!await pins.pin(ids)) {
+      final max = PersianUtils.toPersianNumber('${AppConstants.maxPinned}');
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            'حداکثر $max مخاطب سنجاق می‌شود؛ اول یکی را از سنجاق بردارید',
+          ),
+        ),
+      );
+      return;
+    }
+    if (mounted) _clearSelection();
   }
 
   /// Stars the selected contacts' first number — the same number the detail
@@ -532,6 +581,7 @@ class _ContactsListScreenState extends State<ContactsListScreen>
         }
         deleted += targets.length;
       }
+      await PinnedContacts.instance.unpin([for (final c in selection) c.id]);
       // A deleted person leaves «موردعلاقه‌ها» too. The row there is keyed by
       // number and keeps the name it was starred under, so it went on showing
       // a contact that no longer existed (SM A336E, 1405/07/29).
@@ -737,9 +787,51 @@ class _ContactsListScreenState extends State<ContactsListScreen>
 
   // ── Sectioned list with inline headers + fast-scroll bar ──────────────────
 
-  Widget _buildSectionedList(List<ContactSection> sections, ThemeData theme) {
+  /// The pinned contacts among [contacts], in the order they were pinned.
+  List<ContactModel> _pinnedOf(List<ContactModel> contacts) {
+    final ids = PinnedContacts.instance.ids.value;
+    if (ids.isEmpty) return const [];
+    final byId = <String, ContactModel>{
+      for (final c in contacts)
+        if (ids.contains(c.id)) c.id: c,
+    };
+    return [
+      for (final id in ids)
+        if (byId[id] != null) byId[id]!,
+    ];
+  }
+
+  /// Height of the «سنجاق‌شده» block above the first letter, which every
+  /// fast-scroll jump has to step over.
+  double _pinnedExtent = 0;
+
+  Widget _buildSectionedList(
+    List<ContactSection> sections,
+    List<ContactModel> contacts,
+    ThemeData theme,
+  ) {
+    // The pinned rows repeat contacts that are also under their letter, as
+    // Google Contacts does with its starred ones; [_visible] lists each once.
     _visible = [for (final s in sections) ...s.contacts];
-    final slivers = <Widget>[];
+    final pinned = _pinnedOf(contacts);
+    _pinnedExtent = pinned.isEmpty
+        ? 0
+        : kContactHeaderHeight + pinned.length * kContactRowHeight;
+    final slivers = <Widget>[
+      if (pinned.isNotEmpty) ...[
+        SliverPersistentHeader(
+          pinned: false,
+          delegate: ContactSectionHeaderDelegate('سنجاق‌شده'),
+        ),
+        SliverFixedExtentList(
+          itemExtent: kContactRowHeight,
+          delegate: SliverChildBuilderDelegate(
+            (_, i) => _contactRow(pinned[i]),
+            childCount: pinned.length,
+          ),
+        ),
+      ],
+    ];
     for (final s in sections) {
       slivers.add(
         SliverPersistentHeader(
@@ -806,7 +898,12 @@ class _ContactsListScreenState extends State<ContactsListScreen>
   }
 
   void _jumpToLetter(String letter) {
-    final offset = sectionJumpOffset(_sections, letter, _indexLetters);
+    final offset = sectionJumpOffset(
+      _sections,
+      letter,
+      _indexLetters,
+      leadingOffset: _pinnedExtent,
+    );
     if (offset == null) return; // nothing at/after the tapped letter
     if (!_scrollController.hasClients) return;
     final max = _scrollController.position.maxScrollExtent;

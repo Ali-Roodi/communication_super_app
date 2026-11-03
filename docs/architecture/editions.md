@@ -1264,6 +1264,7 @@ below.
 
 | Date | Change |
 |---|---|
+| 1405/08/12 | **Row 23 «سنجاق»** (every edition; the inbox in `inbox-search-and-groups.md`, the contacts tab in `contacts.md`, «پیام‌های رمز» below): at most `AppConstants.maxPinned` (5) pinned rows per list. |
 | 1405/08/11 | **Row 36 «گروه‌ها و فیلترها»** (every edition, so documented in `contacts.md`): a chip row on the contacts tab (labels, messengers recognised by their custom Data rows, and «رمز» — contacts with an encrypted conversation, only while the section is open) and on the inbox (labels); each chip can be hidden. |
 | 1405/08/11 | **Row 5 «نام سیم‌کارت روی دکمه»** (every edition, so documented in `dual-sim.md`): a name per card in the app (Settings → «سیم‌کارت‌ها», stored natively, used by the notifications too), written with the operator as fallback under «تماس» on the keypad pill and under the send buttons, the secure composer included. Dual-SIM only. |
 | 1405/08/11 | **Row 10 «فهرست سیاه و سفید»** (every edition, so documented in `inbox-search-and-groups.md`): black and white lists of numbers and `*`/`?` patterns; per channel (SMS in/out, calls in/out) «همه، به‌جز فهرست سیاه» / «فقط فهرست سفید» / «هیچ‌کس»; enforced natively in every receive, send and call path (`NumberListRules`, `NumberLists`); hidden-phonebook, short and emergency numbers never refused. JVM 136. |
@@ -1289,3 +1290,7 @@ below.
 ## Long lists in the secure section page (1405/08/11)
 
 Every change reloads the open encrypted conversation, the open group and «تماس‌های مخفی» whole, so each is now a **window of the newest rows**: 50 to start, a page more each time the list reaches its end (`SecureLoadOlder`, `HiddenLoadMoreCalls`). One row past the window is read to know whether older ones exist. `SecureMessageStore.messages` / `SecureGroupStore.messages` take `limit` and still return oldest first; the window resets when another conversation or group opens, and on lock. A hidden contact's own calls are read by its numbers, a page at a time (`_ContactCalls`), not filtered out of the bloc's window, which need not reach that contact's older calls at all. The hidden phonebook, «گفتگوی رمز جدید» and the intruder photos build their rows lazily.
+
+## Pinning in «پیام‌های رمز» (matrix row 23, 1405/08/12)
+
+Long-press on an encrypted conversation or group opens «سنجاق کردن / برداشتن سنجاق» (and «حذف گفتگو» for a conversation, which the long-press used to be by itself). Pinned rows lead the list, newest first among themselves, with the inbox's small pin before the name. The pins are `secure_meta` key `pins` (`SecureMessageStore.pins`: `c:<phone>` / `g:<group id>`, newline-separated, in pin order) — inside `secure.db`, because the list names conversations, and in a key-value row rather than a column so the schema did not change. The encrypted list and the hidden contacts' plain list (`c:p:…`) hold 5 each (`SecureMessagesState.pinsIn`); `_reload` drops the pin of a conversation or group that is gone, so a delete gives its place back.
