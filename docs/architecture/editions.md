@@ -1257,7 +1257,7 @@ below.
 
 | Date | versionCode | versionName | Handed to |
 |---|---|---|---|
-| — | — | — | none yet (2000000165 built 1405/07/25, `e0e7994`; 2000000176 built 1405/08/05 with the activation gate; neither handed out) |
+| — | — | — | none yet (2000000165 built 1405/07/25, `e0e7994`; 2000000176 built 1405/08/05 with the activation gate; 2000000194 built 1405/08/13, `065d201`, for the delivery folder; none handed out yet) |
 
 ## Log
 
