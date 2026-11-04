@@ -75,6 +75,8 @@ The chip row under the inbox header filters conversations by a contact label (ma
 
 ### «فهرست سیاه و سفید» — who may text or call, both ways
 
+**A refused dial says so in a dialog** (`sim_call.dart`, `_sayNotAllowed`): most dials start inside a sheet (the keypad, a call-log row) and a snack bar lands on the scaffold underneath, unseen (two-phone test, 1405/08/13).
+
 Matrix row 10 (priority 1, every edition). `NumberListsPage` (Settings → عمومی, and a row under «مسدود کردن تماس» in «هرزنامه و مسدودشده»). Four channels — پیامک دریافتی / ارسالی, تماس ورودی / خروجی — each with its own mode, which is the matrix's «همه / موردی / به‌جز»:
 
 | Mode | Who passes |

@@ -722,6 +722,8 @@ class _DialerCallPillState extends State<DialerCallPill> {
     final number = bloc.state.dialedNumber;
     if (number.isEmpty) return;
 
+    // Stay on the keypad: leaving it below would hide the refusal.
+    if (!await callAllowed(context, number) || !context.mounted) return;
     int? subscriptionId;
     final picked = _liveCall ? null : _picked;
     if (forcePick && SimService.isMultiSim) {

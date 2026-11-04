@@ -39,10 +39,7 @@ Future<bool> placeCall(
   if (number.trim().isEmpty) return false;
   // «فهرست سیاه و سفید» — asked before the SIM question, which would be
   // pointless for a call that is not going to be placed.
-  if (!await const NumberListsBridge().allows(number, ListChannel.callOut)) {
-    if (context.mounted) _sayNotAllowed(context);
-    return false;
-  }
+  if (!await callAllowed(context, number)) return false;
   if (!context.mounted) return false;
   final choice = sim != null
       ? (go: true, subscriptionId: sim.subscriptionId)
@@ -62,10 +59,35 @@ Future<bool> placeCall(
   return true;
 }
 
+/// Whether «فهرست سیاه و سفید» lets [number] be dialled; says so when it does
+/// not. The keypad's call pill, which has its own route to the dial, asks this
+/// too.
+Future<bool> callAllowed(BuildContext context, String number) async {
+  if (await const NumberListsBridge().allows(number, ListChannel.callOut)) {
+    return true;
+  }
+  if (context.mounted) _sayNotAllowed(context);
+  return false;
+}
+
+/// A dialog, not a snack bar: most dials start inside a sheet (the keypad, a
+/// call-log row), and a snack bar lands on the scaffold underneath, unseen.
 void _sayNotAllowed(BuildContext context) {
-  ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-    const SnackBar(
-      content: Text('تماس با این شماره در «فهرست سیاه و سفید» مجاز نیست'),
+  showDialog<void>(
+    context: context,
+    builder: (dialogContext) => Directionality(
+      textDirection: TextDirection.rtl,
+      child: AlertDialog(
+        content: const Text(
+          'تماس با این شماره در «فهرست سیاه و سفید» مجاز نیست',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('باشه'),
+          ),
+        ],
+      ),
     ),
   );
 }

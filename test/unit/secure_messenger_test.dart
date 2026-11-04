@@ -9,6 +9,8 @@ import 'package:communication_super_app/features/secure/services/sms_crypto_serv
 import 'package:communication_super_app/features/hidden/services/sealed_inbox.dart';
 import 'package:communication_super_app/features/secure_sms/repositories/secure_queue_repository.dart';
 import 'package:communication_super_app/features/secure_sms/services/hidden_sms_source.dart';
+import 'package:communication_super_app/core/sim/sim_card.dart';
+import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:communication_super_app/features/secure_sms/services/secure_identities.dart';
 import 'package:communication_super_app/features/secure_sms/services/secure_messenger.dart';
 import 'package:communication_super_app/features/secure_sms/services/secure_sms_sender.dart';
@@ -486,6 +488,9 @@ class Air {
 
   /// Every tracking id handed to the radio, in order.
   final List<String> tracking = [];
+
+  /// The card named for each send, in order.
+  final List<int?> cards = [];
   final Map<String, FakeQueue> queues = {};
   var failNext = false;
   var clock = 1000;
@@ -522,6 +527,7 @@ class _Sender implements SecureSmsSender {
       throw Exception('no service');
     }
     air.tracking.add(trackingId);
+    air.cards.add(subscriptionId);
     air.inFlight.add((from: from, to: phone, wire: wire));
   }
 }
@@ -613,6 +619,52 @@ void main() {
       await reza.messenger.drain();
     }
   }
+
+  group('the card a secure send leaves on', () {
+    const first = SimCard(
+      subscriptionId: 10,
+      slotIndex: 0,
+      displayName: 'a',
+      carrierName: 'a',
+      number: '',
+    );
+    const second = SimCard(
+      subscriptionId: 13,
+      slotIndex: 1,
+      displayName: 'b',
+      carrierName: 'b',
+      number: '',
+    );
+
+    setUp(() {
+      SimService.debugSetRoster(const [
+        first,
+        second,
+      ], defaults: const SimDefaults(sms: 13, voice: -1, data: -1));
+    });
+    tearDown(() {
+      SimService.debugSetRoster(
+        const [],
+        defaults: const SimDefaults.unknown(),
+      );
+    });
+
+    test(
+      'without a pick: the app-wide default, not "let Android choose"',
+      () async {
+        await ali.messenger.startConversation(ali.identities.peer('sara'));
+        await ali.messenger.sendText(book['sara']!, 'سلام');
+        expect(air.cards.first, 13);
+      },
+    );
+
+    test('the menu pick wins', () async {
+      await ali.messenger.setSmsSim(10);
+      await ali.messenger.startConversation(ali.identities.peer('sara'));
+      await ali.messenger.sendText(book['sara']!, 'سلام');
+      expect(air.cards.first, 10);
+    });
+  });
 
   test('the first message waits for the handshake, then arrives', () async {
     await ali.messenger.startConversation(ali.identities.peer('sara'));

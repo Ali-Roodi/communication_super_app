@@ -7,14 +7,11 @@ listed here — their story is in the git history and the area notes under
 ## Open
 
 ### Found in the two-phone test of 1405/08/13 (Samsung A33 ↔ Huawei ART-L29)
-- **The secure section ignores the app's default SIM.** With «ارسال با سیم‌کارت پیش‌فرض» in the
-  «پیام‌های رمز» menu, `SecureMessenger._send` passes no subscription, so handshake answers leave
-  on the *phone's* default SIM even when Settings → «سیم‌کارت‌ها» names another. On a phone whose
-  default SIM has no credit the answer never goes and the peer sees «پاسخی از گوشی مقابل نرسیده».
-  Choosing the SIM in that menu works. Stated in the user manual (section 14); not changed.
-- **The keypad's refusal message is not visible.** A number barred by «فهرست سیاه و سفید» dialled
-  from the keypad sheet is correctly not called, but `sim_call.dart`'s snack bar did not appear on
-  screen; it probably shows on the scaffold under the sheet. Not changed.
+- **Back during inbox selection leaves the app.** With threads selected in `messages_list_screen.dart`
+  the back key goes to the launcher instead of clearing the selection; the screen has no `PopScope`.
+- **A group message with one refused recipient reads as failed.** The other recipient gets it, yet the
+  bubble says «ارسال نشد · برای تلاش مجدد ضربه بزنید». What a retry does to those who already got it was
+  not tested.
 
 ### K1 — Not yet verified between two real phones
 - **Cover text and the organization APK** passed the two-phone test of 1405/08/13 (a test build of

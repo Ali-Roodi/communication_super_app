@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:communication_super_app/core/edition/app_edition.dart';
+import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:communication_super_app/features/keybank/services/trust_anchors.dart';
 import 'package:communication_super_app/features/secure/repositories/key_bank_repository.dart';
 import 'package:communication_super_app/features/secure/repositories/secure_group_store.dart';
@@ -1347,12 +1348,17 @@ class SecureMessenger {
     String wire, {
     required String trackingId,
   }) async {
+    // The card picked in the «پیام‌های رمز» menu, else the same default the
+    // ordinary composer uses and the send button names (never the phone's
+    // alone: its default SIM may have no credit).
     final sim = int.tryParse(await _store.meta(simKey) ?? '');
     await _sender.send(
       phone,
       wire,
       trackingId: trackingId,
-      subscriptionId: sim != null && sim >= 0 ? sim : null,
+      subscriptionId: sim != null && sim >= 0
+          ? sim
+          : SimService.defaultFor(SimUse.sms)?.subscriptionId,
     );
   }
 
