@@ -23,7 +23,7 @@ listed here — their story is in the git history and the area notes under
   that database while the app is dead with no key, everything secret is already in
   SQLCipher, and ordinary SMS also live in the OS provider.
 - Rows shared by all editions and not built yet: 4 (one-tap shortcut), 38 (spoken
-  caller name), 39 (call/SMS reminder), 41 (work modes); partly built: 5, 10, 23,
+  caller name), 41 (work modes); partly built: 5, 10, 23,
   34, 36, 37, 42. Details in `architecture/editions.md`.
 
 ### K3 — Long multi-part SMS can be lost by some OEMs

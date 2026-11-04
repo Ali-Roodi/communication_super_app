@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+
+import 'package:communication_super_app/core/widgets/app_lock_wrapper.dart';
 
 /// What an incoming intent asked the app to open.
 ///
@@ -105,7 +109,7 @@ class DeepLinkService {
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'openAction') {
         final action = LaunchAction.fromMap(call.arguments);
-        if (action != null) onAction?.call(action);
+        if (action != null) unawaited(_deliver(action));
       } else if (call.method == 'threadChanged') {
         final threadId = call.arguments;
         if (threadId is String && threadId.isNotEmpty) {
@@ -113,6 +117,15 @@ class DeepLinkService {
         }
       }
     });
+  }
+
+  /// Never over the app lock. The lock is a route on the same navigator, so a
+  /// card tapped while it is up would otherwise open the conversation or the
+  /// keypad on top of it, past the PIN. A lock pushed after this has run covers
+  /// the new screen by itself.
+  Future<void> _deliver(LaunchAction action) async {
+    await AppLock.whenDown();
+    onAction?.call(action);
   }
 
   /// The action the app was launched with (a notification tap or a `tel:` /

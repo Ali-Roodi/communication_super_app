@@ -29,6 +29,7 @@ import 'package:communication_super_app/features/messages/screens/conversation_s
 import 'package:communication_super_app/features/settings/bloc/blocked_numbers_bloc.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
 import 'package:communication_super_app/core/services/deep_link_service.dart';
+import 'package:communication_super_app/features/call_history/services/call_reminders.dart';
 import 'package:communication_super_app/core/widgets/app_lock_wrapper.dart';
 import 'package:communication_super_app/features/secure/bloc/secure_session_bloc.dart';
 import 'package:communication_super_app/features/secure/widgets/secure_lock_button.dart';
@@ -86,6 +87,7 @@ class _MainNavigationState extends State<MainNavigation>
       ..onAction = _handleLaunchAction
       ..onThreadChanged = _onThreadChangedExternally
       ..registerHandler();
+    CallReminders.instance.start();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final action = await DeepLinkService.instance.consumeInitialAction();
       if (action != null) {
@@ -251,6 +253,8 @@ class _MainNavigationState extends State<MainNavigation>
       context.read<ScheduledMessageBloc>()
         ..add(const DeliverDueScheduled())
         ..add(const LoadScheduled());
+      // Same for the reminder alarm; the read re-arms it.
+      CallReminders.instance.refresh();
       if (_currentIndex == _recentsTab) {
         DeepLinkService.instance.clearMissedCallNotifications();
       }

@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.util.Log
 import com.example.communication_super_app.SmsNotifier
 import com.example.communication_super_app.call.CallInCallService
+import com.example.communication_super_app.reminders.CallReminders
 
 /**
  * «پنهان کردن محتوای اعلان‌ها» — while the app is **locked** behind its PIN,
@@ -52,6 +53,7 @@ object NotificationPrivacy {
 
     const val KIND_SMS = "sms"
     const val KIND_MISSED_CALL = "missed_call"
+    const val KIND_REMINDER = "reminder"
 
     /** Whether a card posted now must hide its content. */
     fun hideContent(context: Context): Boolean =
@@ -114,6 +116,9 @@ object NotificationPrivacy {
                     )
                     KIND_MISSED_CALL -> CallInCallService.privateMissedCard(
                         context, count, card.`when`, card.contentIntent, silent = true,
+                    )
+                    KIND_REMINDER -> CallReminders.privateCard(
+                        context, card.`when`, card.contentIntent, silent = true,
                     )
                     else -> continue
                 }

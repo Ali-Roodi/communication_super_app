@@ -19,6 +19,8 @@ import com.example.communication_super_app.contacts.SimContactsHandler
 import com.example.communication_super_app.edition.DeviceIdentityHandler
 import com.example.communication_super_app.hidden.HiddenCallLog
 import com.example.communication_super_app.hidden.HiddenHandler
+import com.example.communication_super_app.reminders.CallReminderHandler
+import com.example.communication_super_app.reminders.CallReminders
 import com.example.communication_super_app.secure.SecureVaultHandler
 import com.example.communication_super_app.smscrypto.KeyFilePicker
 import com.example.communication_super_app.smscrypto.SecureSmsInbox
@@ -58,6 +60,7 @@ class MainActivity : FlutterActivity() {
 
     /// Picks a key-bank file through the system document picker.
     private var keyFilePicker: KeyFilePicker? = null
+    private var callReminderHandler: CallReminderHandler? = null
 
     /// The app lock's platform half: the biometric prompt and the
     /// notification-privacy mirror (every edition).
@@ -255,6 +258,10 @@ class MainActivity : FlutterActivity() {
                 )
             )
         }
+        // ── «یادآور تماس / پیامک» از «اخیر» ───────────────────────────────
+        callReminderHandler = CallReminderHandler(applicationContext).also {
+            it.setup(MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CallReminderHandler.CHANNEL))
+        }
         // ── Hidden phonebook (دفترچه مخفی) ─────────────────────────────────
         HiddenHandler(applicationContext).setup(
             MethodChannel(flutterEngine.dartExecutor.binaryMessenger, HiddenHandler.CHANNEL)
@@ -403,6 +410,7 @@ class MainActivity : FlutterActivity() {
      */
     private fun consumeLaunchAction(intent: Intent?): Map<String, Any?>? {
         if (intent == null) return null
+        CallReminders.consumeCardId(applicationContext, intent)
 
         // «تماس در جریان» tapped: the activity is coming forward, but the call
         // route may have been minimized — bringing the window up alone would
@@ -700,6 +708,8 @@ class MainActivity : FlutterActivity() {
         smsCryptoHandler?.dispose()
         smsCryptoHandler = null
         keyFilePicker = null
+        callReminderHandler?.dispose()
+        callReminderHandler = null
         appLockHandler?.dispose()
         appLockHandler = null
         // The Dart session dies with the engine; the next one starts locked.

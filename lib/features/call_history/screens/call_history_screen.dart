@@ -12,6 +12,7 @@ import '../bloc/call_log_state.dart';
 import '../models/call_log_model.dart';
 import 'package:communication_super_app/features/dialer/services/voicemail.dart';
 import 'widgets/call_log_tile.dart';
+import 'widgets/call_reminder_sheet.dart';
 
 /// The recents tab — Google Phone's home screen.
 ///
@@ -175,6 +176,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
               }
             },
           ),
+          const CallRemindersEntry(),
           // «تماس‌های مخفی» — only while the secure section is open.
           const HiddenCallsEntry(),
           Expanded(

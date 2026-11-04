@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.example.communication_super_app.reminders.CallReminders
 import com.example.communication_super_app.security.SecurityHandler
 import io.flutter.plugin.common.MethodChannel
 import kotlin.concurrent.thread
@@ -64,7 +65,10 @@ class HiddenHandler(private val context: Context) {
                         val numbers = call.argument<List<String>>("numbers") ?: emptyList()
                         background(result) {
                             val changed = HiddenNumbers.setNumbers(context, numbers)
-                            if (changed) HiddenCallLog.sweep(context, full = true)
+                            if (changed) {
+                                HiddenCallLog.sweep(context, full = true)
+                                CallReminders.dropHidden(context)
+                            }
                             changed
                         }
                     }

@@ -8,6 +8,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:communication_super_app/core/navigation/call_ui_coordinator.dart';
+import 'package:communication_super_app/core/services/deep_link_service.dart';
 import 'package:communication_super_app/core/widgets/app_lock_wrapper.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_bloc.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_event.dart';
@@ -270,6 +271,48 @@ void main() {
       await settle(tester);
       expect(onTop(RelockScreen), findsNothing);
       expect(done, isTrue);
+    });
+  });
+
+  // A notification tapped with the lock already up: the conversation or the
+  // keypad opened on top of it, past the PIN.
+  group('a deep link', () {
+    Future<void> sendOpenAction(WidgetTester tester) async {
+      const codec = StandardMethodCodec();
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        'com.example.communication_super_app/intents',
+        codec.encodeMethodCall(
+          const MethodCall('openAction', {
+            'type': 'thread',
+            'threadId': '09121234567',
+          }),
+        ),
+        (_) {},
+      );
+    }
+
+    testWidgets('waits for the lock to go', (tester) async {
+      await pumpApp(tester, unlocked: true);
+      final opened = <String>[];
+      DeepLinkService.instance
+        ..onAction = ((action) => opened.add(action.threadId))
+        ..registerHandler();
+
+      await sendOpenAction(tester);
+      await settle(tester);
+      expect(opened, ['09121234567']);
+
+      await leaveAndReturn(tester);
+      expect(onTop(RelockScreen), findsOneWidget);
+      opened.clear();
+
+      await sendOpenAction(tester);
+      await settle(tester);
+      expect(opened, isEmpty);
+
+      appNavigatorKey.currentState!.pop();
+      await settle(tester);
+      expect(opened, ['09121234567']);
     });
   });
 }

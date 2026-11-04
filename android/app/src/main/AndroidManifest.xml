@@ -317,6 +317,10 @@
         <receiver
             android:name=".scheduled.ScheduledSmsAlarmReceiver"
             android:exported="false"/>
+        <!-- «یادآور تماس / پیامک» from «اخیر» -->
+        <receiver
+            android:name=".reminders.CallReminderReceiver"
+            android:exported="false"/>
         <receiver
             android:name=".scheduled.BootReceiver"
             android:exported="true">

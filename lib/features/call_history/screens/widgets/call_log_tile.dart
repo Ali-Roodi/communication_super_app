@@ -17,6 +17,7 @@ import 'package:communication_super_app/features/call_history/bloc/call_log_bloc
 import 'package:communication_super_app/features/call_history/bloc/call_log_event.dart';
 import 'package:communication_super_app/features/call_history/models/call_log_model.dart';
 import 'package:communication_super_app/features/call_history/screens/widgets/call_detail_sheet.dart';
+import 'package:communication_super_app/features/call_history/screens/widgets/call_reminder_sheet.dart';
 import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/contacts/screens/add_edit_contact_screen.dart';
 import 'package:communication_super_app/features/contacts/screens/device_contact_detail_screen.dart';
@@ -274,6 +275,19 @@ class _ExpandedBody extends StatelessWidget {
             ),
           ),
           const SizedBox(height: GroupRadius.gap),
+          // An unknown caller has no number to come back to.
+          if (log.phoneNumber.trim().isNotEmpty) ...[
+            TonalActionRow(
+              icon: Icons.alarm_add_outlined,
+              label: 'یادآور تماس یا پیامک',
+              onTap: () => setCallReminder(
+                context,
+                phone: log.phoneNumber,
+                name: log.contactName,
+              ),
+            ),
+            const SizedBox(height: GroupRadius.gap),
+          ],
           TonalActionRow(
             icon: Icons.history,
             label: 'سابقه',

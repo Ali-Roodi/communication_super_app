@@ -1264,6 +1264,7 @@ below.
 
 | Date | Change |
 |---|---|
+| 1405/08/13 | **Row 39 «یادآور تماس یا پیامک»** (every edition, so documented in `dialer-and-calls.md`): set from a row of «اخیر»; on time a card opens the keypad or the composer. A number moved into the hidden phonebook loses its reminders. Deep links now wait for the app lock to go (`DEVELOPER_GUIDE.md`). |
 | 1405/08/12 | **Row 23 «سنجاق»** (every edition; the inbox in `inbox-search-and-groups.md`, the contacts tab in `contacts.md`, «پیام‌های رمز» below): at most `AppConstants.maxPinned` (5) pinned rows per list. |
 | 1405/08/11 | **Row 36 «گروه‌ها و فیلترها»** (every edition, so documented in `contacts.md`): a chip row on the contacts tab (labels, messengers recognised by their custom Data rows, and «رمز» — contacts with an encrypted conversation, only while the section is open) and on the inbox (labels); each chip can be hidden. |
 | 1405/08/11 | **Row 5 «نام سیم‌کارت روی دکمه»** (every edition, so documented in `dual-sim.md`): a name per card in the app (Settings → «سیم‌کارت‌ها», stored natively, used by the notifications too), written with the operator as fallback under «تماس» on the keypad pill and under the send buttons, the secure composer included. Dual-SIM only. |

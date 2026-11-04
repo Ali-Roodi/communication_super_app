@@ -26,6 +26,17 @@ A recents row that **did** resolve to somebody gets «مشاهده مخاطب» 
 - The readout lays the digits out itself (`_DialerNumberDisplayState._digits`, one `TextPainter`) so the caret is drawn — and a touch is read — against the very glyphs on screen; the box sits in a `FittedBox(scaleDown)`, whose scale `globalToLocal` undoes. That box is also why a long number now shrinks instead of ending in «…»: a caret has to be able to reach every digit.
 - The backspace deletes the digit **before** the caret and does nothing at the very start; a held backspace still clears the whole field.
 
+### «یادآور تماس یا پیامک» (matrix row 39, every edition)
+
+A row of «اخیر» sets a reminder to call or text that number: `setCallReminder` asks call or SMS and when (`call_reminder_sheet.dart`), and «یادآورها» above the list shows what is pending, with a delete on each row. On time, a heads-up card opens the keypad with the number in it or the conversation; it also has «شماره‌گیری», «پیامک» and «۱۰ دقیقه بعد». It deep-links, it does not dial: the row asks to be sent to the keypad, and the user may no longer want the call.
+
+- **Kotlin owns the list and the alarm** (`reminders/CallReminders.kt`), because the alarm has to fire and be re-armed with no engine. A preferences file rather than a table: a few rows, read whole, joined to nothing. `call_reminders.dart` mirrors it over a channel into a `ValueNotifier`; native changes (one fired, one snoozed) arrive as `changed`.
+- **One alarm, for the soonest** (`rearm`), re-armed by `BootReceiver` and on every return to the app (`list` does it). Within a day it is a `setAlarmClock`, the only alarm App Standby does not defer. Further out, an exact alarm wakes the app a day before to arm the alarm clock, because the app may not be opened in between (`ReminderTiming`). Same reasoning as `scheduled-messages.md`.
+- **The card's time is the moment it rang, not `at`.** The system silently drops a card whose `when` is too old («Ignored enqueue for old … notification»), which is what a reminder overdue after a long time switched off would be.
+- **While the app is locked the card says only «یادآور»**, with no actions, and an open card folds to that when it locks (`NotificationPrivacy.KIND_REMINDER`). Tapping it still goes to the same place, behind the PIN.
+- **A number that goes into the hidden phonebook takes its reminders with it** (`HiddenHandler.setNumbers` → `dropHidden`), and `fireDue` checks again, so no card names it.
+- The buttons do not auto-cancel the card the way a tap on it does, so each deep link carries `reminderCardId` and `MainActivity.consumeLaunchAction` takes the card down.
+
 ### Keypad touch
 
 `DialKey` fires **on touch-down, through a raw `Listener`** — not on an `InkWell` tap. The keypad lives inside a draggable modal bottom sheet, so a tap recognizer has to win a gesture arena against the sheet's vertical drag: dialing fast means each press carries a few pixels of movement, the drag claims the pointer, and the tap is never delivered — digits went missing exactly when typing quickly. A `Listener` is not an arena member, so its callbacks always arrive (and two thumbs can type at once).

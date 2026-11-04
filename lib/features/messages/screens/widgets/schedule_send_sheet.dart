@@ -102,7 +102,7 @@ Future<ScheduleChoice?> showScheduleSendSheet(
         final theme = Theme.of(sheetCtx);
 
         Future<void> pickDateTime() async {
-          final picked = await _pickDateTime(sheetCtx, choice.at);
+          final picked = await pickScheduleDateTime(sheetCtx, choice.at);
           if (!sheetCtx.mounted || picked == null) return;
           // The pickers open on "now", so a couple of taps can land in the
           // past; sending then happens instantly, which is never what
@@ -266,7 +266,10 @@ List<_QuickOption> _quickOptions(DateTime now) {
 }
 
 /// Date then time, the order Google asks for them. Null if either is dismissed.
-Future<DateTime?> _pickDateTime(BuildContext context, DateTime initial) async {
+Future<DateTime?> pickScheduleDateTime(
+  BuildContext context,
+  DateTime initial,
+) async {
   final now = DateTime.now();
   final date = await showAppDatePicker(
     context: context,
