@@ -1231,7 +1231,7 @@ below are the project's own and say so in the mentor report.
   and the crossed-INIT rule.
 - **Not done:** row 25 (location / wipe by a special SMS) — written, then
   taken out of the build until an SMS-triggered remote action and wipe is
-  decided on; the source is kept outside the repository. Row 12 (encrypting the whole main DB) — declined:
+  decided on; the source is kept outside the repository. Row 12 (encrypting the whole main DB) — cancelled:
   Kotlin opens that DB while the app is dead with no key, everything secret is
   already in SQLCipher, and ordinary SMS also live in the OS provider.
 
@@ -1264,6 +1264,8 @@ below.
 
 | Date | Change |
 |---|---|
+| 1405/08/13 | **Row 12 cancelled** (encrypting the whole main database), and out of the development list. It had been declined for now; the reasons stand: Kotlin opens that database while the app is dead with no key, everything secret is already in SQLCipher, and ordinary SMS also live in the OS provider. |
+| 1405/08/13 | **Row 38 cancelled** (speaking the number or name twice before the alert). Measured on the SM-A336E: the Google engine offers 81 voice locales and no Persian (`isLanguageAvailable` answers `LANG_NOT_SUPPORTED` for `fa` and `fa-IR`), the Samsung engine was not offered to the app, and Persian names and digit words read by the Urdu and Arabic voices were judged not understandable by ear. Speaking *before* a call's ring would also have moved the ring and the vibration into the app (`IN_CALL_SERVICE_RINGING`), since telecom's ring cannot be delayed. Nothing was built. |
 | 1405/08/13 | **Row 42 «تصویر کوچک»** (every edition, so documented in `conversation-and-composer.md`): a tiny black-and-white picture written as SMS text, from the «+» sheet; «موقعیت» was already there, so the row is complete. |
 | 1405/08/13 | **Row 4 cancelled.** The row asked for one-tap sending, and what was wanted was a physical key such as power + volume-down. An ordinary app cannot take that: the chord is the system's screenshot, and any other key with the app closed needs an accessibility service, which reaches the volume keys only and is the kind of app «کنترل امنیت سامانه» itself reports. A keypad, tile and widget version was written and removed; none of it shipped. |
 | 1405/08/13 | **Row 39 «یادآور تماس یا پیامک»** (every edition, so documented in `dialer-and-calls.md`): set from a row of «اخیر»; on time a card opens the keypad or the composer. A number moved into the hidden phonebook loses its reminders. Deep links now wait for the app lock to go (`DEVELOPER_GUIDE.md`). |
