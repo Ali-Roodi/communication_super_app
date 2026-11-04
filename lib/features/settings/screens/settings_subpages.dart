@@ -4,6 +4,9 @@ import 'package:communication_super_app/core/theme/theme_bloc.dart';
 import 'package:communication_super_app/core/utils/message_text_scale.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
+import 'package:communication_super_app/features/contacts/models/contact_save_target.dart';
+import 'package:communication_super_app/features/contacts/services/contact_file_service.dart';
+import 'package:communication_super_app/features/contacts/widgets/save_target_sheet.dart';
 import 'package:communication_super_app/features/dialer/services/auto_redial_policy.dart';
 import 'package:communication_super_app/features/dialer/services/native_call_service.dart';
 import 'package:communication_super_app/features/settings/bloc/settings_event.dart';
@@ -111,6 +114,7 @@ class DisplayOptionsPage extends StatelessWidget {
           onSelected: (v) =>
               bloc.add(SetBoolSetting(BoolSetting.nameFormatLastFirst, v)),
         ),
+        const _ContactSaveTargetChoice(),
         const Divider(height: 24),
         const _Heading('شماره‌گیر'),
         SettingsSwitch(
@@ -123,6 +127,51 @@ class DisplayOptionsPage extends StatelessWidget {
               bloc.add(SetBoolSetting(BoolSetting.showDialpadOnStart, v)),
         ),
       ],
+    );
+  }
+}
+
+/// «محل ذخیره پیش‌فرض». Absent on a phone with nowhere but the phone to choose.
+class _ContactSaveTargetChoice extends StatefulWidget {
+  const _ContactSaveTargetChoice();
+
+  @override
+  State<_ContactSaveTargetChoice> createState() =>
+      _ContactSaveTargetChoiceState();
+}
+
+class _ContactSaveTargetChoiceState extends State<_ContactSaveTargetChoice> {
+  static const _service = ContactFileService();
+  List<ContactSaveTarget> _targets = const [];
+  ContactSaveTarget _current = const ContactSaveTarget.phone();
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final targets = await _service.targets();
+    final current = await _service.defaultTarget(targets);
+    if (!mounted) return;
+    setState(() {
+      _targets = targets;
+      _current = current;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_targets.length < 2) return const SizedBox.shrink();
+    return SettingsChoice<ContactSaveTarget>(
+      title: 'محل ذخیره پیش‌فرض',
+      current: _current,
+      options: {for (final t in _targets) t: saveTargetLabel(t)},
+      onSelected: (target) {
+        setState(() => _current = target);
+        _service.setDefaultTarget(target);
+      },
     );
   }
 }

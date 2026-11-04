@@ -60,6 +60,7 @@ class MainActivity : FlutterActivity() {
 
     /// Picks a key-bank file through the system document picker.
     private var keyFilePicker: KeyFilePicker? = null
+    private var contactFileHandler: com.example.communication_super_app.contacts.ContactFileHandler? = null
     private var callReminderHandler: CallReminderHandler? = null
 
     /// The app lock's platform half: the biometric prompt and the
@@ -268,6 +269,14 @@ class MainActivity : FlutterActivity() {
         )
         keyFilePicker = KeyFilePicker(this).also {
             it.setup(MethodChannel(flutterEngine.dartExecutor.binaryMessenger, KeyFilePicker.CHANNEL))
+        }
+        contactFileHandler = com.example.communication_super_app.contacts.ContactFileHandler(this).also {
+            it.setup(
+                MethodChannel(
+                    flutterEngine.dartExecutor.binaryMessenger,
+                    com.example.communication_super_app.contacts.ContactFileHandler.CHANNEL,
+                ),
+            )
         }
 
         // ── App lock (اثر انگشت / چهره، محتوای اعلان‌ها) ───────────────────
@@ -497,6 +506,7 @@ class MainActivity : FlutterActivity() {
         if (callHandler?.handleRoleActivityResult(requestCode) == true) return
         if (contactExtrasHandler?.handleActivityResult(requestCode, data) == true) return
         if (keyFilePicker?.handleActivityResult(requestCode, resultCode, data) == true) return
+        if (contactFileHandler?.handleActivityResult(requestCode, resultCode, data) == true) return
         photoHandler?.handleActivityResult(requestCode, resultCode, data)
     }
 
@@ -708,6 +718,7 @@ class MainActivity : FlutterActivity() {
         smsCryptoHandler?.dispose()
         smsCryptoHandler = null
         keyFilePicker = null
+        contactFileHandler = null
         callReminderHandler?.dispose()
         callReminderHandler = null
         appLockHandler?.dispose()

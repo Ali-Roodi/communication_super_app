@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'package:communication_super_app/core/sim/sim_card.dart';
+import 'package:communication_super_app/core/utils/search_text.dart';
 import '../models/contact_model.dart';
 
 /// Reads (and writes) the SIM address book, `content://icc/adn`.
@@ -70,12 +71,13 @@ class SimContactsService {
     required String name,
     required String number,
   }) async {
-    if (number.trim().isEmpty) return false;
+    final dialable = simNumber(number);
+    if (dialable.isEmpty) return false;
     try {
       return await _channel.invokeMethod<bool>('insertSimContact', {
             'subscriptionId': subscriptionId,
             'name': name.trim(),
-            'number': number.trim(),
+            'number': dialable,
           }) ??
           false;
     } catch (e) {
@@ -83,6 +85,12 @@ class SimContactsService {
       return false;
     }
   }
+
+  /// A card refuses a record whose number holds a space or a dash, which is how
+  /// the address book usually stores one.
+  @visibleForTesting
+  static String simNumber(String number) =>
+      SearchText.fold(number).replaceAll(RegExp(r'[^0-9+*#]'), '');
 
   /// Deletes by content — the ICC provider accepts no other selection, because
   /// an ADN record has no id that survives a rewrite.

@@ -16,10 +16,13 @@ import 'package:communication_super_app/core/utils/phone_normalizer.dart';
 import '../bloc/contact_bloc.dart';
 import '../bloc/contact_event.dart';
 import '../models/contact_form_entries.dart';
+import '../models/contact_save_target.dart';
 import '../repositories/contact_repository.dart';
+import '../services/contact_file_service.dart';
 import '../services/contact_groups_service.dart';
 import '../services/sim_contacts_service.dart';
 import '../widgets/group_picker_sheet.dart';
+import '../widgets/save_target_sheet.dart';
 import 'widgets/contact_form_fields.dart';
 
 /// Full-screen Add / Edit contact form. Writes to the **device** contacts
@@ -79,23 +82,32 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
   bool _saving = false;
   bool _showMore = false;
 
-  /// Where a *new* contact is written. Null = the phone's address book, which
-  /// is the default and the only option on a phone with no SIM contacts.
+  /// Where a *new* contact is written: the default chosen in Settings until
+  /// changed here.
   ///
   /// Google Contacts asks the same question («ذخیره در») and for the same
   /// reason: a contact on the card travels with the card. Edit mode has no
   /// picker — moving a contact between address books is a copy, not a field.
-  SimCard? _saveToSim;
+  ContactSaveTarget _target = const ContactSaveTarget.phone();
+  List<ContactSaveTarget> _targets = const [ContactSaveTarget.phone()];
 
   bool get _isEdit => widget.contactId != null;
 
-  /// The SIM destinations offered. Empty on a phone with no readable SIM,
-  /// which is what keeps this whole row off a single-SIM-less device.
-  List<SimCard> get _simTargets => _isEdit ? const [] : SimService.cached;
+  Future<void> _loadTargets() async {
+    const service = ContactFileService();
+    final targets = await service.targets();
+    final target = await service.defaultTarget(targets);
+    if (!mounted) return;
+    setState(() {
+      _targets = targets;
+      _target = target;
+    });
+  }
 
   @override
   void initState() {
     super.initState();
+    if (!_isEdit) _loadTargets();
     if (_isEdit) {
       _loadContact();
     } else {
@@ -212,10 +224,14 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
         return;
       }
 
-      final simTarget = _saveToSim;
-      if (simTarget != null) {
-        await _saveToSimCard(simTarget);
-        return;
+      if (_target.isSim) {
+        final sim = SimService.cached
+            .where((c) => c.subscriptionId == _target.subscriptionId)
+            .firstOrNull;
+        if (sim != null) {
+          await _saveToSimCard(sim);
+          return;
+        }
       }
 
       final contact = _editing ?? Contact();
@@ -278,6 +294,11 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
       // belong to an account this contact is not in, which is why a label
       // applied here used to be silently lost.
       final labelNames = ContactGroupsService.visibleNames(_groups);
+      if (!_isEdit && _target.isAccount) {
+        contact.accounts = [
+          Account('', _target.accountType!, _target.accountName!, const []),
+        ];
+      }
       final savedId = _isEdit
           ? (await contact.update().then((c) => c.id))
           : (await contact.insert().then((c) => c.id));
@@ -454,66 +475,35 @@ class _AddEditContactScreenState extends State<AddEditContactScreen> {
   }
 
   /// «ذخیره در: تلفن» — the destination row Google Contacts puts above the
-  /// name. Absent entirely when there is no SIM to offer, so a phone without
-  /// one looks exactly as it did.
+  /// name. Absent entirely when there is nowhere else to offer, so a phone with
+  /// no SIM and no cloud account looks exactly as it did.
   Widget _buildSaveTargetRow(ThemeData theme) {
-    final targets = _simTargets;
-    if (targets.isEmpty) return const SizedBox.shrink();
-    final selected = _saveToSim;
+    if (_isEdit || _targets.length < 2) return const SizedBox.shrink();
     return ListTile(
       dense: true,
       leading: Icon(
-        selected == null ? Icons.smartphone_outlined : Icons.sim_card_outlined,
+        saveTargetIcon(_target),
         color: theme.colorScheme.onSurfaceVariant,
         size: AppDimensions.iconLg,
       ),
       title: Text('ذخیره در', style: theme.textTheme.bodySmall),
       subtitle: Text(
-        selected == null ? 'تلفن' : '${selected.slotLabel} · ${selected.name}',
+        saveTargetLabel(_target),
         style: theme.textTheme.bodyMedium,
       ),
       trailing: const Icon(Icons.arrow_drop_down),
-      onTap: () => _pickSaveTarget(targets),
+      onTap: _pickSaveTarget,
     );
   }
 
-  Future<void> _pickSaveTarget(List<SimCard> targets) async {
-    final chosen = await showModalBottomSheet<Object>(
-      context: context,
-      builder: (sheetContext) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: AppDimensions.paddingSm),
-              ListTile(
-                leading: const Icon(Icons.smartphone_outlined),
-                title: const Text('تلفن'),
-                subtitle: const Text('همهٔ فیلدها، عکس و چند شماره'),
-                trailing: _saveToSim == null
-                    ? const Icon(Icons.check_circle)
-                    : null,
-                onTap: () => Navigator.of(sheetContext).pop('phone'),
-              ),
-              for (final sim in targets)
-                ListTile(
-                  leading: const Icon(Icons.sim_card_outlined),
-                  title: Text('${sim.slotLabel} · ${sim.name}'),
-                  subtitle: const Text('فقط نام و یک شماره'),
-                  trailing: _saveToSim?.subscriptionId == sim.subscriptionId
-                      ? const Icon(Icons.check_circle)
-                      : null,
-                  onTap: () => Navigator.of(sheetContext).pop(sim),
-                ),
-              const SizedBox(height: AppDimensions.paddingSm),
-            ],
-          ),
-        ),
-      ),
+  Future<void> _pickSaveTarget() async {
+    final chosen = await showSaveTargetSheet(
+      context,
+      targets: _targets,
+      selected: _target,
     );
     if (chosen == null || !mounted) return;
-    setState(() => _saveToSim = chosen is SimCard ? chosen : null);
+    setState(() => _target = chosen);
   }
 
   Widget _buildAvatarSection(ThemeData theme) {

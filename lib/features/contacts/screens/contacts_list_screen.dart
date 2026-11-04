@@ -37,7 +37,10 @@ import 'package:communication_super_app/features/favorites/bloc/favorites_bloc.d
 import 'package:communication_super_app/features/favorites/bloc/favorites_event.dart';
 import 'package:communication_super_app/features/settings/screens/settings_screen.dart';
 import 'add_edit_contact_screen.dart';
+import 'contact_import_screen.dart';
 import '../models/contact_model.dart';
+import '../services/contact_file_service.dart';
+import '../widgets/save_target_sheet.dart';
 
 // The row / header extents and the fast-scroll bar live in
 // `core/widgets/contact_index_list.dart` — shared with the «پیام جدید» recipient
@@ -408,11 +411,22 @@ class _ContactsListScreenState extends State<ContactsListScreen>
                 PopupMenuButton<String>(
                   icon: const Icon(Icons.more_vert),
                   position: PopupMenuPosition.under,
-                  onSelected: (_) => setState(
-                    () => _selected.addAll(_visible.map((c) => c.id)),
-                  ),
+                  onSelected: (action) {
+                    switch (action) {
+                      case 'file':
+                        _exportContacts(_selectedContacts);
+                      case 'copy':
+                        _copySelected();
+                      default:
+                        setState(
+                          () => _selected.addAll(_visible.map((c) => c.id)),
+                        );
+                    }
+                  },
                   itemBuilder: (_) => const [
                     PopupMenuItem(value: 'all', child: Text('انتخاب همه')),
+                    PopupMenuItem(value: 'file', child: Text('ذخیره در فایل')),
+                    PopupMenuItem(value: 'copy', child: Text('کپی به…')),
                   ],
                 ),
                 const SizedBox(width: 4),
@@ -420,6 +434,142 @@ class _ContactsListScreenState extends State<ContactsListScreen>
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  void _snack(String text) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  /// A modal "working" dialog around [work], which cannot be dismissed: the
+  /// write has to finish before the list behind it means anything.
+  Future<T> _whileWorking<T>(String text, Future<T> Function() work) async {
+    final navigator = Navigator.of(context, rootNavigator: true);
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      useRootNavigator: true,
+      builder: (_) => PopScope(
+        canPop: false,
+        child: Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(text),
+                const SizedBox(height: 16),
+                const LinearProgressIndicator(),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    try {
+      return await work();
+    } finally {
+      navigator.pop();
+    }
+  }
+
+  String _withFailed(String done, int failed) => failed == 0
+      ? done
+      : '$done، ${PersianUtils.toPersianNumber('$failed')} مورد ناموفق';
+
+  /// Writes [contacts] to a `.vcf` file wherever the user chooses, a cloud
+  /// drive included.
+  Future<void> _exportContacts(List<ContactModel> contacts) async {
+    if (contacts.isEmpty) return;
+    const service = ContactFileService();
+    try {
+      final uri = await service.chooseExportFile();
+      if (uri == null || !mounted) return;
+      final report = await _whileWorking(
+        'در حال ساخت فایل…',
+        () => service.writeExportFile(uri, contacts),
+      );
+      if (!mounted) return;
+      _clearSelection();
+      _snack(
+        _withFailed(
+          '${PersianUtils.toPersianNumber('${report.done}')} مخاطب در فایل '
+          'ذخیره شد',
+          report.failed,
+        ),
+      );
+    } on ContactFileException {
+      if (mounted) _snack('ذخیره فایل ممکن نشد');
+    }
+  }
+
+  Future<void> _exportAll() async {
+    final contacts = await ContactRepository().getAllContacts();
+    if (!mounted) return;
+    if (contacts.isEmpty) {
+      _snack('مخاطبی برای ذخیره نیست');
+      return;
+    }
+    await _exportContacts(contacts);
+  }
+
+  Future<void> _importFromFile() async {
+    const service = ContactFileService();
+    try {
+      final bytes = await service.pickImportFile();
+      if (bytes == null || !mounted) return;
+      final parsed = await _whileWorking(
+        'در حال خواندن فایل…',
+        () => service.parse(bytes),
+      );
+      if (!mounted) return;
+      if (parsed.contacts.isEmpty) {
+        _snack('در این فایل مخاطبی پیدا نشد');
+        return;
+      }
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ContactImportScreen(
+            contacts: parsed.contacts,
+            unreadable: parsed.unreadable,
+          ),
+        ),
+      );
+    } on ContactFileException catch (e) {
+      if (!mounted) return;
+      _snack(
+        e.failure == ContactFileFailure.tooLarge
+            ? 'این فایل بیش از حد بزرگ است'
+            : 'خواندن فایل ممکن نشد',
+      );
+    }
+  }
+
+  /// Copies the selection to another account or a SIM. The originals stay.
+  Future<void> _copySelected() async {
+    const service = ContactFileService();
+    final contacts = _selectedContacts;
+    final bloc = context.read<ContactBloc>();
+    final targets = await service.targets();
+    if (!mounted) return;
+    final target = await showSaveTargetSheet(context, targets: targets);
+    if (target == null || !mounted) return;
+    final report = await _whileWorking(
+      'در حال کپی مخاطبین…',
+      () => service.copy(contacts, target),
+    );
+    ContactRepository().invalidateCache();
+    LazyContactAvatar.invalidateCache();
+    if (!mounted) return;
+    _clearSelection();
+    bloc.add(const RefreshContacts());
+    _snack(
+      _withFailed(
+        '${PersianUtils.toPersianNumber('${report.done}')} مخاطب به '
+        '${saveTargetLabel(target)} کپی شد',
+        report.failed,
       ),
     );
   }
@@ -682,6 +832,14 @@ class _ContactsListScreenState extends State<ContactsListScreen>
                         ),
                       ),
                       child: const Text('مخاطب‌های تکراری'),
+                    ),
+                    PopupMenuItem<VoidCallback>(
+                      value: _exportAll,
+                      child: const Text('ذخیره مخاطبین در فایل'),
+                    ),
+                    PopupMenuItem<VoidCallback>(
+                      value: _importFromFile,
+                      child: const Text('افزودن مخاطبین از فایل'),
                     ),
                     PopupMenuItem<VoidCallback>(
                       value: () => Navigator.of(context).push(
