@@ -6,12 +6,20 @@ listed here — their story is in the git history and the area notes under
 
 ## Open
 
+### Found in the two-phone test of 1405/08/13 (Samsung A33 ↔ Huawei ART-L29)
+- **The secure section ignores the app's default SIM.** With «ارسال با سیم‌کارت پیش‌فرض» in the
+  «پیام‌های رمز» menu, `SecureMessenger._send` passes no subscription, so handshake answers leave
+  on the *phone's* default SIM even when Settings → «سیم‌کارت‌ها» names another. On a phone whose
+  default SIM has no credit the answer never goes and the peer sees «پاسخی از گوشی مقابل نرسیده».
+  Choosing the SIM in that menu works. Stated in the user manual (section 14); not changed.
+- **The keypad's refusal message is not visible.** A number barred by «فهرست سیاه و سفید» dialled
+  from the keypad sheet is correctly not called, but `sim_call.dart`'s snack bar did not appear on
+  screen; it probably shows on the scaffold under the sheet. Not changed.
+
 ### K1 — Not yet verified between two real phones
-- **Cover text** («متن پوششی», format v2): verified on the emulator with injected
-  SMS (organization release 2000000177), not yet sent over a carrier.
-- **The organization APK** as a whole: verified on the emulator (activation gate,
-  secure section); every two-phone test so far ran on the commercial APK with the
-  inter-organizational edition activated.
+- **Cover text and the organization APK** passed the two-phone test of 1405/08/13 (a test build of
+  commit `7c41463`, Samsung A33 ↔ Huawei ART-L29, real carrier): activation gate, Persian and English
+  cover, a long message, no provider row. Not repeated: a reboot after activation, groups with cover text.
 - **The mentor's own Windows activation-code generator**: one end-to-end check
   (device `b60966` → `9c4a48e93a`) is outstanding. Codes from our panel are
   verified on phones.
