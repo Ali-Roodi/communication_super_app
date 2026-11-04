@@ -33,8 +33,7 @@ listed here — their story is in the git history and the area notes under
 - **Row 37** (a profile for contacts and contact groups): dropped. The contact form
   keeps the fields it has; the missing parts, such as the allowed call hours, will
   not be built.
-- Rows shared by all editions and not built yet: 41 (work modes). Details in
-  `architecture/editions.md`.
+- **Row 41** (work modes): dropped, and nothing of it was built.
 
 ### K3 — Long multi-part SMS can be lost by some OEMs
 MIUI once dropped a long multi-part session request (`checkSmsCmd … smsBlocked`)

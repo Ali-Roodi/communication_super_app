@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import 'package:communication_super_app/core/services/image_picker_service.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
@@ -79,6 +80,21 @@ Future<ContactPhotoResult?> pickContactPhoto(
 
   final messenger = ScaffoldMessenger.of(context);
   final navigator = Navigator.of(context);
+  // The manifest declares CAMERA for «عکس از ورود ناموفق», and an app that
+  // declares it may not fire ACTION_IMAGE_CAPTURE without the grant: the
+  // platform throws a SecurityException instead of opening the camera.
+  if (action == ContactPhotoAction.camera &&
+      !(await Permission.camera.request()).isGranted) {
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text(
+          'برای گرفتن عکس، اجازهٔ دوربین لازم است. '
+          'می‌توانید آن را از تنظیمات گوشی روشن کنید.',
+        ),
+      ),
+    );
+    return null;
+  }
   PickedImage? picked;
   try {
     picked = await ImagePickerService.instance.pick(

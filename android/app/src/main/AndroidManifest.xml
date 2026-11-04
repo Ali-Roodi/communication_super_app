@@ -105,9 +105,8 @@
         <!-- «گرفتن عکس» for a contact: ACTION_IMAGE_CAPTURE writes into a file
              this app owns, and a file:// Uri cannot legally cross to the camera
              app. The grant is scoped to cache/contact_photos (see file_paths).
-             NOTE: android.permission.CAMERA is deliberately NOT declared —
-             declaring it would make the platform *require* a runtime grant this
-             app never needs, and every grant here goes through PermissionGate. -->
+             Because CAMERA is declared above, the platform refuses this intent
+             until that permission is granted; pickContactPhoto asks for it. -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

@@ -1231,7 +1231,7 @@ below are the project's own and say so in the mentor report.
   and the crossed-INIT rule.
 - **Not done:** row 25 (location / wipe by a special SMS) — written, then
   taken out of the build until an SMS-triggered remote action and wipe is
-  decided on; the source is kept outside the repository. Row 12 (encrypting the whole main DB) — cancelled:
+  decided on; no copy of the source is kept. Row 12 (encrypting the whole main DB) — cancelled:
   Kotlin opens that DB while the app is dead with no key, everything secret is
   already in SQLCipher, and ordinary SMS also live in the OS provider.
 
@@ -1264,6 +1264,7 @@ below.
 
 | Date | Change |
 |---|---|
+| 1405/08/13 | **Row 41 dropped** (work modes), and out of the development list. Nothing of it was built. |
 | 1405/08/13 | **Row 34 «انتقال مخاطبین»** (every edition, so documented in `contacts.md`): a `.vcf` file in and out, for all contacts or part of them, in any place the system picker offers, a cloud drive included; a copy to a cloud account or a SIM; and a default save place. Add, edit, delete and merging duplicates already existed. Moving is a copy followed by a delete. Export, import, the SIM copy and the default place were run on the emulator (organization debug, 3000 contacts). Writing into a cloud account was not: the emulator has none, and the check is in `FINAL_DEVICE_TESTS.md` §11. |
 | 1405/08/13 | **Row 37 closed as it stands**, and out of the development list. The contact form keeps the fields it has; the missing parts of the profile, such as the allowed call hours, will not be built. |
 | 1405/08/13 | **Rows 2 and 24 closed as they stand**, and out of the development list. Row 2 keeps the PIN and the fingerprint; no pattern screen will be built, and the pattern logic that never had a screen (`SetPattern`, `ValidatePattern`, `AuthType.pattern`) is removed. Row 24 keeps the stars on contacts and ordinary SMS; encrypted messages get no star. |

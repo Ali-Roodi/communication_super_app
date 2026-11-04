@@ -1,5 +1,7 @@
 import 'package:flutter/services.dart';
 
+import 'app_handoff.dart';
+
 /// Where a contact photo came from.
 enum PhotoSource { gallery, camera }
 
@@ -31,8 +33,9 @@ class PickedImage {
 /// pulls a whole third-party crop Activity, and — the rule that actually
 /// matters here — **a plugin that requests its own runtime permission is banned
 /// in this app** (see the `call_log` / `another_telephony` crashes). The
-/// platform's own `ACTION_GET_CONTENT` and `ACTION_IMAGE_CAPTURE` need no
-/// permission at all when the app does not declare `CAMERA`.
+/// platform's own `ACTION_GET_CONTENT` needs no permission. `ACTION_IMAGE_CAPTURE`
+/// needs the `CAMERA` grant, because the manifest declares that permission for
+/// «عکس از ورود ناموفق»; `pickContactPhoto` asks for it first.
 class ImagePickerService {
   ImagePickerService._();
   static final ImagePickerService instance = ImagePickerService._();
@@ -44,9 +47,12 @@ class ImagePickerService {
   /// Opens the gallery chooser or the camera and returns the captured frame.
   /// Null when the user backed out.
   Future<PickedImage?> pick(PhotoSource source) async {
-    final result = await _channel.invokeMapMethod<String, Object?>(
-      'pickImage',
-      {'source': source == PhotoSource.camera ? 'camera' : 'gallery'},
+    // A handoff: the camera and the gallery are another app's screen, and
+    // neither the secure section nor the app lock may close behind them.
+    final result = await AppHandoff.run(
+      () => _channel.invokeMapMethod<String, Object?>('pickImage', {
+        'source': source == PhotoSource.camera ? 'camera' : 'gallery',
+      }),
     );
     if (result == null) return null;
     final bytes = result['bytes'];

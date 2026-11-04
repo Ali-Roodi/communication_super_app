@@ -33,11 +33,10 @@ import java.io.File
  * across the two calls would mean owning a lifetime that survives the activity
  * being recreated behind the camera app — which is exactly when it would leak.
  *
- * **No CAMERA permission is declared, and that is deliberate.** `ACTION_IMAGE_CAPTURE`
- * hands the work to the camera app, which holds its own permission; declaring
- * `android.permission.CAMERA` here would make the platform *require* a grant
- * this app never needs, and every runtime grant in this app goes through
- * `PermissionGate` (see the "no permission-requesting plugins" rule).
+ * **`ACTION_IMAGE_CAPTURE` needs the CAMERA grant here.** The manifest declares
+ * `android.permission.CAMERA` for «عکس از ورود ناموفق», and the platform refuses
+ * this intent to an app that declares the permission without holding it. Dart
+ * asks for the grant first (`pickContactPhoto`).
  */
 class PhotoHandler(private val activity: Activity) {
 
