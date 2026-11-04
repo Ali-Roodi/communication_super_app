@@ -7,8 +7,6 @@ listed here — their story is in the git history and the area notes under
 ## Open
 
 ### Found in the two-phone test of 1405/08/13 (Samsung A33 ↔ Huawei ART-L29)
-- **Back during inbox selection leaves the app.** With threads selected in `messages_list_screen.dart`
-  the back key goes to the launcher instead of clearing the selection; the screen has no `PopScope`.
 - **A group message with one refused recipient reads as failed.** The other recipient gets it, yet the
   bubble says «ارسال نشد · برای تلاش مجدد ضربه بزنید». What a retry does to those who already got it was
   not tested.

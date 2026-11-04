@@ -491,7 +491,17 @@ class _MessagesListScreenState extends State<MessagesListScreen>
   // ── Build ────────────────────────────────────────────────────────────────
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => PopScope(
+    // Back leaves the selection first, as the bar's ✕ does; without this it
+    // left the app with the selection still up.
+    canPop: !_selectionMode,
+    onPopInvokedWithResult: (didPop, _) {
+      if (!didPop) _clearSelection();
+    },
+    child: _buildInbox(context),
+  );
+
+  Widget _buildInbox(BuildContext context) {
     if (_showDefaultSmsBanner) _recheckDefaultSilently();
     return Directionality(
       textDirection: TextDirection.rtl,
