@@ -27,8 +27,11 @@ listed here — their story is in the git history and the area notes under
 - **Row 38** (speaking the caller's or sender's name before the alert): cancelled.
   The phones have no Persian voice, and the Urdu and Arabic ones were not
   understandable; see the log in `architecture/editions.md`.
-- Rows shared by all editions and not built yet: 41 (work modes); partly built: 5,
-  10, 23, 34, 36, 37. Details in `architecture/editions.md`.
+- **Row 2** (signing in with a pattern) and **row 24** (a star on encrypted
+  messages): dropped. The PIN and fingerprint stay, and so do the stars on contacts
+  and ordinary SMS; only those two missing parts will not be built.
+- Rows shared by all editions and not built yet: 41 (work modes); partly built: 34,
+  37. Details in `architecture/editions.md`.
 
 ### K3 — Long multi-part SMS can be lost by some OEMs
 MIUI once dropped a long multi-part session request (`checkSmsCmd … smsBlocked`)

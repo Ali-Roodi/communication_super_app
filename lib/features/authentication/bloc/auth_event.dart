@@ -29,24 +29,6 @@ class ValidatePin extends AuthEvent {
   List<Object?> get props => [pin];
 }
 
-class SetPattern extends AuthEvent {
-  final List<int> pattern;
-
-  const SetPattern(this.pattern);
-
-  @override
-  List<Object?> get props => [pattern];
-}
-
-class ValidatePattern extends AuthEvent {
-  final List<int> pattern;
-
-  const ValidatePattern(this.pattern);
-
-  @override
-  List<Object?> get props => [pattern];
-}
-
 class Authenticate extends AuthEvent {
   const Authenticate();
 }

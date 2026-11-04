@@ -94,7 +94,6 @@ class AppConstants {
 
   // Storage Keys
   static const String pinKey = 'app_pin';
-  static const String patternKey = 'app_pattern';
   static const String authTypeKey = 'auth_type';
 
   /// Set when the user chose «ادامه بدون رمز» on first entry (or removed the
@@ -129,10 +128,6 @@ class AppConstants {
   /// [interOrgActivationKey]: an organization APK installed over an activated
   /// commercial one inherits that storage, and its code must not open it.
   static const String orgActivationKey = 'org_activation_code';
-
-  // Auth Types
-  static const String authTypePin = 'pin';
-  static const String authTypePattern = 'pattern';
 
   // Persian Numbers
   static const Map<String, String> persianNumbers = {

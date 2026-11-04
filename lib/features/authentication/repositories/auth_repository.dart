@@ -53,14 +53,6 @@ class AuthRepository {
     return int.tryParse(value ?? '') ?? PinPolicy.appLength;
   }
 
-  Future<void> setPattern(List<int> pattern) async {
-    await _storage.write(
-      key: AppConstants.patternKey,
-      value: _hash(pattern.join(',')),
-    );
-    await setAuthType(AuthType.pattern);
-  }
-
   /// Checks [pin] against the stored PIN, through the shared attempt budget
   /// ([PinAttemptLimiter]).
   ///
@@ -92,16 +84,11 @@ class AuthRepository {
       await getAuthType() == AuthType.pin &&
       await _verify(AppConstants.pinKey, pin);
 
-  Future<bool> validatePattern(List<int> pattern) =>
-      _verify(AppConstants.patternKey, pattern.join(','));
-
   /// Whether a credential exists at all — used by the recovery flow, which
   /// must not offer to "reset" a PIN that was never set.
   Future<bool> hasCredential() async {
     final pin = await _storage.read(key: AppConstants.pinKey);
-    if (pin != null && pin.isNotEmpty) return true;
-    final pattern = await _storage.read(key: AppConstants.patternKey);
-    return pattern != null && pattern.isNotEmpty;
+    return pin != null && pin.isNotEmpty;
   }
 
   /// Whether the PIN has been entered **in this process**.
@@ -187,7 +174,6 @@ class AuthRepository {
 
   Future<void> clearAuth() async {
     await _storage.delete(key: AppConstants.pinKey);
-    await _storage.delete(key: AppConstants.patternKey);
     await _storage.delete(key: AppConstants.authTypeKey);
     await _storage.delete(key: AppConstants.recoveryCodeKey);
     await _storage.delete(key: AppConstants.pinLengthKey);
@@ -200,7 +186,7 @@ class AuthRepository {
   }
 
   /// «ادامه بدون رمز»: when true, the app never re-prompts auth setup on
-  /// launch. Cleared automatically the moment a PIN/pattern is set.
+  /// launch. Cleared automatically the moment a PIN is set.
   Future<void> setAuthSkipped(bool value) async {
     await _storage.write(
       key: AppConstants.authSkippedKey,

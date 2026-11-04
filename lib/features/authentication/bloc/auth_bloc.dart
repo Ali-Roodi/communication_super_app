@@ -20,8 +20,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<CheckAuthStatus>(_onCheckAuthStatus);
     on<SetPin>(_onSetPin);
     on<ValidatePin>(_onValidatePin);
-    on<SetPattern>(_onSetPattern);
-    on<ValidatePattern>(_onValidatePattern);
     on<Authenticate>(_onAuthenticate);
     on<Logout>(_onLogout);
     on<ClearAuth>(_onClearAuth);
@@ -182,33 +180,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       );
       // Back to the state the PIN screen is drawn for, as [RecoverWithCode]
       // does — a failure is an event to react to, not a place to stay.
-      emit(await _lockedState());
-    }
-  }
-
-  Future<void> _onSetPattern(SetPattern event, Emitter<AuthState> emit) async {
-    emit(const AuthLoading());
-    try {
-      await _repository.setPattern(event.pattern);
-      // After setting pattern, automatically authenticate the user
-      await _repository.setAuthenticated(true);
-      emit(const AuthAuthenticated());
-    } catch (e) {
-      emit(AuthValidationFailure(e.toString()));
-    }
-  }
-
-  Future<void> _onValidatePattern(
-    ValidatePattern event,
-    Emitter<AuthState> emit,
-  ) async {
-    emit(const AuthLoading());
-    final isValid = await _repository.validatePattern(event.pattern);
-    if (isValid) {
-      await _repository.setAuthenticated(true);
-      emit(const AuthAuthenticated());
-    } else {
-      emit(const AuthValidationFailure('الگو اشتباه است'));
       emit(await _lockedState());
     }
   }
