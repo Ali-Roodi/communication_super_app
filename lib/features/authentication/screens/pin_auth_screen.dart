@@ -18,7 +18,7 @@ class PinAuthScreen extends StatefulWidget {
 class _PinAuthScreenState extends State<PinAuthScreen> {
   String _pin = '';
 
-  /// Digits in the stored PIN (4, or 6 in the secure editions). This screen
+  /// Digits in the stored PIN. This screen
   /// is only shown for [AuthSet], which carries it.
   int get _length {
     final state = context.read<AuthBloc>().state;

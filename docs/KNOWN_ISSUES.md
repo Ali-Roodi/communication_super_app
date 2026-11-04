@@ -81,7 +81,7 @@ The other 907 Dart tests pass.
 
 - **Cover text reads as words, not sentences.** Real grammar would multiply the
   SMS cost; see `architecture/editions.md` (row 31).
-- **Handshakes are never covered** (≈1150 bytes would be hundreds of words).
+- **Handshakes are never covered** (138 and 154 bytes would be about a hundred words each).
 - **The dormant `ConnectionService` path** (`call/CallConnectionService.kt`) is
   VoIP scaffolding; cellular calls go through `CallInCallService` as the default
   dialer.

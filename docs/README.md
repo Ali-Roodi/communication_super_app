@@ -42,7 +42,7 @@ are not obvious from the code.
 | Folder | Contents |
 |---|---|
 | `publishing/` | The store launch (بازار / مایکت): status, permission review, listing |
-| `mentor/` | The secure-editions report, the issuance-panel guide and the user manual (HTML + PDF). The user manual is updated after the two-phone tests. |
+| `mentor/` | The secure-editions report, the issuance-panel guide, the user manual and the Persian developer guide (`Hamresan_Developer_Guide_FA`), each HTML + PDF. The user manual is updated after the two-phone tests. |
 | `privacy/` | The privacy policy page |
 | `archive/` | Finished planning documents, kept for history |
 | `پیوست فنی.docx` | The mentor's feature matrix per edition (priorities are the cell colours) |

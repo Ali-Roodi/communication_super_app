@@ -503,7 +503,7 @@ arguments is at the top of `SmsCryptoHandler.kt`.
 ### Dependency and tests
 
 `org.bouncycastle:bcprov-jdk18on:1.86` (Maven Central, SHA-1 checked against
-Central). JVM tests (122 in all, `src/test/.../smscrypto/` and the rest):
+Central). JVM tests (142 in all, `src/test/.../smscrypto/` and the rest):
 NIST ACVP ML-KEM-768 vectors (keygen ×25, encaps ×8, decaps ×10 incl.
 implicit rejection, key check ×10 — `src/test/resources/mlkem768_acvp.txt`),
 RFC 7748 X25519, RFC 5869 HKDF (`KnownAnswerTest`), `CertHandshakeTest` (15:
@@ -621,7 +621,7 @@ or deletes **that member's file only** (`issueOne` / `removeOne`, atomic
 No «فایل قدیمی» status, no update file. The «حذف از سازمان» text says the
 removed member's certificate is not revoked. `prepareNewKey` refuses a
 generation past 255. The self-test (`--self-test`) runs a certificate
-handshake between two issued files on the installed build. MSI **1.4.0**.
+handshake between two issued files on the installed build. MSI **1.5.0**.
 The «عضو جدید» form and its confirmation live on `KeysState` (`newMember`,
 `confirmAdd`) so `PreviewRender` can draw them filled in, refused and
 confirming — the guide's pictures come from it.
@@ -842,12 +842,10 @@ its SMS is sent.**
   (`upsertConversation` drops the old sessions) and the next send handshakes
   with it; a message on a retired key's session is dropped and re-binds. No
   key at all any more: queued messages fail.
-- **The header only claims «رمزشده پساکوانتومی» once it is true**:
-  `SecureConversation.quantumSafe` = an `EXISTS` over `sm_sessions.kind =
-  'pq'` in both conversation queries; until then it reads «رمزشده · در حال
-  ارتقای پساکوانتومی». The upgrade's last step (`_completeUpgrade`, and the
-  accepter's standby → `pq`) calls `_changed` so the header turns without a
-  new message.
+- **The header never mentions the upgrade**: it reads «رمزشده» before and
+  after it. `SecureConversation.quantumSafe` (`sm_sessions.kind = 'pq'`) is
+  only for the code; the upgrade's last step (`_completeUpgrade`, and the
+  accepter's standby → `pq`) still calls `_changed`.
 - **Payload additions**: packet type 4 CONTROL (a receipt never looks like a
   message, so the native side can stay silent on it without keys); flag
   `0x80` = delete-after-seen on a text; kinds `0x10` SEEN(sid, counter-up-to)
@@ -880,7 +878,7 @@ upgrade after the first message, members issued apart, a request
 the authority did not sign, a lost phone's older certificate, a lost upgrade
 answer; and 1405/07/29: «a channel that does not come is never silent» (7,
 incl. the late old offer), plain threads «never mixed» / «rename both»),
-repository, service mapping. Full suite 779, JVM 121, tools 23, panel 12.
+repository, service mapping. Full suite 908, JVM 142, tools 25, panel 13.
 
 **Two phones, real radio (Samsung A33 ↔ Huawei, 1405/07/25, fresh installs, a
 directory listing only the sender — history, before the directory was removed):** request and answer 2 + 2 parts and the

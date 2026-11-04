@@ -5,11 +5,11 @@ Part of the architecture notes for this repo. Index and the rules that apply eve
 ### SMS pipeline
 
 **Receiving:**
-1. `SmsHandler.kt` (Android) registers a `BroadcastReceiver` for `SMS_RECEIVED`.
-2. Events are pushed to Flutter via `EventChannel` (`com.example.communication_super_app/sms_events`).
-3. `NativeSmsService` (Dart) wraps the `EventChannel` stream. Call `initialize()` exactly once — a second call is a no-op (guarded by `_initialized`).
-4. `SmsService.listenToIncomingSms()` subscribes to `NativeSmsService.onSmsReceived`, persists the message, shows a notification, and calls `onMessageReceived` callback → `MessageBloc.add(ReceiveMessage(...))`.
-5. The listener is registered at most once per session (`_listening` guard). `MessageBloc` starts it on the first `LoadThreads` event.
+1. The manifest declares `SmsDeliverReceiver` (`SMS_DELIVER`, sent only to the default SMS app, writes to `content://sms`) and `IncomingSmsReceiver` (`SMS_RECEIVED`, works with the app dead). While the app is alive `SmsHandler.kt` also registers a dynamic `SMS_RECEIVED` receiver.
+2. Cover text is removed (`CoverText.uncover`), then hidden numbers, `#E:` packets, blocked numbers and «فهرست سیاه و سفید» are sorted out.
+3. An ordinary message reaches Flutter via `EventChannel` (`com.example.communication_super_app/sms_events`). `NativeSmsService` (Dart) wraps the stream. Call `initialize()` exactly once — a second call is a no-op (guarded by `_initialized`). With the app dead, Kotlin writes the row itself.
+4. `SmsService.listenToIncomingSms()` subscribes to `NativeSmsService.onSmsReceived`, persists the message and calls `onMessageReceived` → `MessageBloc.add(ReceiveMessage(...))`. The notification is posted natively by `SmsNotifier`, not from here.
+5. The listener is registered at most once per session (`_listening` guard). `MessageBloc` starts it on the first `LoadThreads` event, before the mirror-sync.
 
 **Encrypted SMS (`#E:`) take a different road** in every step above: not written to `content://sms` (`SmsDeliverReceiver` skips it, sends pass `private: true`), not persisted into `messages`, not notified by `SmsNotifier`, skipped by the mirror-sync. The receivers park the ciphertext in `secure_queue` and post a bare «پیام رمز جدید». Details in `editions.md` (phase F).
 

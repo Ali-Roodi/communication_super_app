@@ -106,14 +106,6 @@ Putting the keyboard away (back, or the keyboard's own hide key) also drops the 
 
 ### Composer growth
 
-**A forwarded body is APPENDED to the conversation's draft, never dropped and
-never overwritten** (`ConversationScreen._restoreComposerDraft`). The saved
-draft used to win outright, so forwarding a message into a conversation the user
-had half-written a reply in did nothing at all — the composer kept the draft and
-the forwarded text vanished with nothing on screen to say so. Overwriting is the
-other way to lose text, so the forwarded body goes on its own line with the
-caret after it and the draft stays above it.
-
 The composer's field grows with the message and then scrolls inside itself,
 measured against Google Messages on a real device: it stops at ~10 lines
 (~320 dp), keeps the «+» / emoji buttons pinned to the bottom line, and never

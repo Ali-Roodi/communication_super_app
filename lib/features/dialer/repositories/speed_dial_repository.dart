@@ -5,7 +5,7 @@ import 'package:communication_super_app/core/database/database_helper.dart';
 
 import '../models/speed_dial_entry.dart';
 
-/// SQLite access for the speed-dial table (v21).
+/// SQLite access for the speed-dial table.
 class SpeedDialRepository {
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
 
