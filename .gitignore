@@ -122,6 +122,8 @@ app.*.symbols
 docs/mentor/img/
 docs/mentor/manual-img/
 docs/mentor/panel-img/
+# The delivery copy for the mentor stays outside the repository.
+docs/mentor/Hamresan/
 
 # Exceptions to above rules.
 !**/ios/**/default.mode1v3
