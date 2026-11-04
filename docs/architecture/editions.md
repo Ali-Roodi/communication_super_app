@@ -1255,12 +1255,13 @@ below.
 
 | Date | versionCode | versionName | Handed to |
 |---|---|---|---|
-| — | — | — | none yet (2000000165 built 1405/07/25, `e0e7994`; 2000000176 built 1405/08/05 with the activation gate; 2000000194 built 1405/08/13, `065d201`, for the delivery folder; none handed out yet) |
+| — | — | — | none yet (2000000165 built 1405/07/25, `e0e7994`; 2000000176 built 1405/08/05 with the activation gate; 2000000194 built 1405/08/13, `065d201`; 2000000200 built 1405/08/13, `07a42c2`, for the delivery folder; none handed out yet) |
 
 ## Log
 
 | Date | Change |
 |---|---|
+| 1405/08/13 | **Build 200 for the delivery folder** (`07a42c2`). Installed on both test phones: the organization APK over a test build keeps its activation and data; the commercial APK over it is refused with `INSTALL_FAILED_VERSION_DOWNGRADE` and installs after an uninstall, then walks the permission and default-app gates to «اخیر» with no crash. The panel is unchanged: MSI 1.5.0 is still current. |
 | 1405/08/13 | **Documents brought up to date.** The panel code was already current (MSI 1.5.0: nothing it compiles changed after the MSI was built; 25 tool tests and 13 panel tests pass). `tools/keybank/README.md` rewritten, panel guide 1.5 with new screens, secure-editions report 5.0, technical document 2.0 in plain Persian. The user manual is left until after the two-phone tests. The delivery APKs were rebuilt from the same commit (versionCode 194 and 2000000194). |
 | 1405/08/13 | **Row 25 cancelled** (location and wipe on a special SMS), and out of the development list. It had been written and then taken out of the build; nothing of it is in the app. |
 | 1405/08/13 | **Row 41 dropped** (work modes), and out of the development list. Nothing of it was built. |
