@@ -39,6 +39,7 @@ import '../bloc/scheduled_state.dart';
 import '../models/message_group.dart';
 import '../models/scheduled_message_model.dart';
 import '../models/template_wire.dart';
+import '../models/tiny_image.dart';
 import '../repositories/group_repository.dart';
 import 'drafts_list_screen.dart';
 import 'conversation_details_screen.dart';
@@ -48,6 +49,7 @@ import 'widgets/message_bubble.dart';
 import 'contact_selector_screen.dart';
 import 'widgets/conversation_app_bars.dart';
 import 'widgets/conversation_sheets.dart';
+import 'widgets/tiny_image_sheet.dart';
 import 'widgets/message_action_overlay.dart';
 import 'widgets/message_composer.dart';
 import 'widgets/pinch_text_scale.dart';
@@ -618,6 +620,10 @@ class _ConversationScreenState extends State<ConversationScreen>
     _messageController.clear();
     _draftStore.remove(widget.threadId);
     _clearPendingWire();
+    _dispatch(body);
+  }
+
+  void _dispatch(String body) {
     final group = _group;
     if (_isGroup) {
       // The group is named, not its members: membership is read at send time, so
@@ -1504,9 +1510,12 @@ class _ConversationScreenState extends State<ConversationScreen>
     );
     if (picked == null || picked.isEmpty || !mounted) return;
     // Forwarding carries the readable message, never the payload: the new
-    // recipient's copy is composed from scratch.
-    final body = TemplateWire.displayText(msg.body);
-    if (picked.length == 1) {
+    // recipient's copy is composed from scratch. A picture has no readable
+    // form, and its text is not for the composer, so it goes out as it is
+    // through the same confirmation as several recipients.
+    final isImage = TinyImage.isWire(msg.body);
+    final body = isImage ? msg.body : TemplateWire.displayText(msg.body);
+    if (picked.length == 1 && !isImage) {
       final one = picked.first;
       await Navigator.of(context).push(
         MaterialPageRoute(
@@ -1563,7 +1572,7 @@ class _ConversationScreenState extends State<ConversationScreen>
               ),
               const SizedBox(height: 12),
               Text(
-                body,
+                TemplateWire.displayText(body),
                 maxLines: 4,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(dialogContext).textTheme.bodySmall,
@@ -1999,7 +2008,16 @@ class _ConversationScreenState extends State<ConversationScreen>
       onInsertTemplate: _insertTemplate,
       onSchedule: _isGroup ? null : _armSchedule,
       onInsertLocation: _insertLocation,
+      onSendTinyImage: _sendTinyImage,
     );
+  }
+
+  /// «تصویر کوچک»: goes straight out, because its text is not something to
+  /// edit in the composer.
+  Future<void> _sendTinyImage() async {
+    final wire = await pickTinyImage(context);
+    if (wire == null || !mounted) return;
+    _dispatch(wire);
   }
 
   /// «موقعیت» — reads one fix and appends «lat, long» to the message being

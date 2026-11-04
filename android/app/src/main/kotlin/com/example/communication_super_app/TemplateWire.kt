@@ -32,6 +32,15 @@ object TemplateWire {
 
     private val header = Regex("""^\[#T(\d{1,2}):([a-z0-9]{2,6}):(\d{1,3})\]""")
 
+    /**
+     * A small picture sent as text, drawn only by the chat. Everywhere else it
+     * reads as this word. Mirrors `TinyImage` (`tiny_image.dart`): the sigil,
+     * the shape of the wire and the label have to match.
+     */
+    private const val TINY_IMAGE_SIGIL = "[#I"
+    private const val TINY_IMAGE_LABEL = "تصویر"
+    private val tinyImageWire = Regex("""^\[#I1:\d{1,3}x\d{1,3}:[br]\][A-Za-z0-9_-]+$""")
+
     /** Bit 0: the first payload segment is the «<نام> عزیز» greeting. */
     private const val FLAG_GREETING = 1
 
@@ -106,6 +115,7 @@ object TemplateWire {
      * text, a newer format version, or a template this build does not know).
      */
     fun displayText(body: String): String {
+        if (body.startsWith(TINY_IMAGE_SIGIL) && tinyImageWire.matches(body)) return TINY_IMAGE_LABEL
         if (!body.startsWith(SIGIL)) return body
         val match = header.find(body) ?: return body
         if (match.groupValues[1].toIntOrNull() != VERSION) return body

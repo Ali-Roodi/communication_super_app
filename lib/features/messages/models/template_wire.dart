@@ -1,5 +1,6 @@
 import 'built_in_templates.dart';
 import 'message_template_model.dart';
+import 'tiny_image.dart';
 
 /// The over-the-air format for a **built-in** template.
 ///
@@ -125,7 +126,10 @@ abstract class TemplateWire {
   /// database keeps the body exactly as it went over the air (it has to — that
   /// is what the device SMS provider holds and what the mirror-sync diffs
   /// against), so reconstruction happens at render time, never on the row.
-  static String displayText(String body) => decode(body)?.text ?? body;
+  static String displayText(String body) {
+    if (TinyImage.isWire(body)) return TinyImage.label;
+    return decode(body)?.text ?? body;
+  }
 
   // ── Escaping ──────────────────────────────────────────────────────────────
   //

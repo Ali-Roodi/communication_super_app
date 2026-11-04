@@ -12,8 +12,10 @@ import 'package:communication_super_app/core/utils/script_direction.dart';
 import '../../models/message_model.dart';
 import '../../models/one_time_code.dart';
 import '../../models/template_wire.dart';
+import '../../models/tiny_image.dart';
 import 'link_preview_card.dart';
 import 'linkified_text.dart';
+import 'tiny_image_view.dart';
 
 /// The width a bubble may occupy, as a fraction of the screen. Shared with the
 /// long-press overlay so the zoomed copy wraps its text identically.
@@ -89,6 +91,9 @@ class MessageBubbleBody extends StatelessWidget {
     // time, and every use of the body below goes through the rebuilt text.
     final body = TemplateWire.displayText(message.body);
 
+    // Drawn, not written. A damaged one falls through to its word.
+    final image = TinyImage.decode(message.body);
+
     final previewUrl = showLinkPreview ? LinkifiedText.firstUrl(body) : null;
 
     // Only on an incoming message: a code in something the user sent is a code
@@ -109,18 +114,26 @@ class MessageBubbleBody extends StatelessWidget {
         textDirection: ScriptDirection.of(body) ?? TextDirection.rtl,
         mainAxisSize: MainAxisSize.min,
         children: [
-          SelectableBubbleText(
-            enabled: selectable,
-            onCopied: onCopied,
-            child: LinkifiedText(
-              text: body,
-              style: TextStyle(color: textColor),
-              // Both bubbles are tonal, so the brand colour has enough
-              // contrast on either.
-              linkColor: cs.primary,
-              enableTaps: enableLinkTaps,
+          if (image != null)
+            TinyImageView(
+              image: image,
+              maxEdge:
+                  MediaQuery.of(context).size.width * kBubbleMaxWidthFactor -
+                  32,
+            )
+          else
+            SelectableBubbleText(
+              enabled: selectable,
+              onCopied: onCopied,
+              child: LinkifiedText(
+                text: body,
+                style: TextStyle(color: textColor),
+                // Both bubbles are tonal, so the brand colour has enough
+                // contrast on either.
+                linkColor: cs.primary,
+                enableTaps: enableLinkTaps,
+              ),
             ),
-          ),
           if (code != null)
             OneTimeCodeChip(code: code, enabled: enableLinkTaps),
           if (previewUrl != null)

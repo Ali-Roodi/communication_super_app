@@ -73,6 +73,32 @@ ever do, and three dead entries are worse than a shorter menu.
   permission refused, refused permanently, location services off, no fix — because
   «نشد» leaves the user with nothing to do. Nothing is stored or tracked; the
   coordinates leave the device only inside the SMS the user chooses to send.
+- **«تصویر کوچک» writes a picture in characters** (matrix row 42, `TinyImage`):
+  `[#I1:56x42:r]<base64url>`, 1 bit a pixel, raw or PackBits, whichever is shorter.
+  Every character is in GSM-7, so a part carries 153 characters instead of the 67
+  of a Persian message; the three sizes (40 / 56 / 72 px on the long edge) cost at
+  most 2 / 4 / 6 SMS. The contrast is stretched and the picture dithered, because
+  a plain threshold turns a face into a blot.
+  - **Gallery only.** The manifest declares `CAMERA` for the intruder photo, and
+    with `CAMERA` declared and not granted `ACTION_IMAGE_CAPTURE` is refused.
+  - **It goes straight out from the preview sheet**, never through the composer:
+    the text is not something to edit, and one changed character is a different
+    picture. The sheet shows the real SMS count and says the recipient needs this
+    app to see it.
+  - **`TemplateWire.displayText` answers «تصویر»** in Dart and in Kotlin, so the
+    inbox, search, the notification and copy read a word. Only `MessageBubbleBody`
+    draws it (`TinyImageView`), and the lifted long-press copy is the same widget.
+    A body with the right shape and a damaged payload reads as the word too.
+  - **Black on white in both themes.** In the text colour a dark bubble would show
+    a photo as its negative.
+  - **A newer version does not match** (`[#I2:`), so it stays raw text instead of a
+    wrong picture. `tiny_image_test.dart` pins the text; a change there is a new
+    version, never a new expected value.
+  - **Forwarding keeps the payload** (every other forward carries the readable
+    text): a picture has no readable form, so even to one person it goes through
+    the confirmation `_forwardToMany` shows, which prints the word.
+  - A multi-part message can be lost on some phones (K3 in `KNOWN_ISSUES.md`), and
+    a picture is always multi-part. The encrypted composer does not offer this.
 
 ### The keyboard does not come back by itself
 

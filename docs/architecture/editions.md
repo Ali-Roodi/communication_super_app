@@ -1264,6 +1264,8 @@ below.
 
 | Date | Change |
 |---|---|
+| 1405/08/13 | **Row 42 «تصویر کوچک»** (every edition, so documented in `conversation-and-composer.md`): a tiny black-and-white picture written as SMS text, from the «+» sheet; «موقعیت» was already there, so the row is complete. |
+| 1405/08/13 | **Row 4 cancelled.** The row asked for one-tap sending, and what was wanted was a physical key such as power + volume-down. An ordinary app cannot take that: the chord is the system's screenshot, and any other key with the app closed needs an accessibility service, which reaches the volume keys only and is the kind of app «کنترل امنیت سامانه» itself reports. A keypad, tile and widget version was written and removed; none of it shipped. |
 | 1405/08/13 | **Row 39 «یادآور تماس یا پیامک»** (every edition, so documented in `dialer-and-calls.md`): set from a row of «اخیر»; on time a card opens the keypad or the composer. A number moved into the hidden phonebook loses its reminders. Deep links now wait for the app lock to go (`DEVELOPER_GUIDE.md`). |
 | 1405/08/12 | **Row 23 «سنجاق»** (every edition; the inbox in `inbox-search-and-groups.md`, the contacts tab in `contacts.md`, «پیام‌های رمز» below): at most `AppConstants.maxPinned` (5) pinned rows per list. |
 | 1405/08/11 | **Row 36 «گروه‌ها و فیلترها»** (every edition, so documented in `contacts.md`): a chip row on the contacts tab (labels, messengers recognised by their custom Data rows, and «رمز» — contacts with an encrypted conversation, only while the section is open) and on the inbox (labels); each chip can be hidden. |

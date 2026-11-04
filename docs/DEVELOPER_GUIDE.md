@@ -67,7 +67,7 @@ missed:
   `flutter_contacts` it takes the process with it. See `contacts.md`.
 
 **Kotlin/Dart mirrors that must change together:** `ScheduledSmsWorker.kt` ↔
-`scheduled_message_model.dart`, `TemplateWire.kt` ↔ `message_template_model.dart`,
+`scheduled_message_model.dart`, `TemplateWire.kt` ↔ `message_template_model.dart` and `TinyImage` (`sigil`, the shape of `isWire`, `label`),
 `BlockedNumbers.kt` ↔ `PhoneNormalizer`, `SecureSmsInbox.kt` ↔ `DatabaseHelper._createSecureQueueTable` / `AppConstants.secureQueueTable`, `hidden/SealedInbox.kt` ↔ `DatabaseHelper._createSealedQueueTable` / `AppConstants.sealedQueueTable`, `SmsNotificationActionReceiver.chosenThreadSim` ↔ `ThreadSimRepository` (`thread_sim`), `SimRegistry.setAppDefaults` / `APP_ASK` ↔ `SimService.setAppDefault` / `appAsk` — and `SimRegistry.routeFor` is the one SIM rule for calls, which `SimService.callRoute` only asks; `SystemBlockList.kt` ↔ `system_block_list.dart` (the channel, and `remove` answering -1 for "may not write", which keeps an unblock pending — see `inbox-search-and-groups.md`). A mismatch does not fail loudly — it silently
 does something different. Same rule for the build: the flavor names and the organization
 versionCode base in `android/app/build.gradle.kts` ↔ `AppEdition` and

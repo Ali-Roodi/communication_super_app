@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../models/template_wire.dart';
+import '../../models/tiny_image.dart';
 import 'package:communication_super_app/core/theme/app_colors.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import '../../models/scheduled_message_model.dart';
@@ -124,8 +125,9 @@ class _ScheduledSheetHeader extends StatelessWidget {
 /// Every row here does something. The «دوربین» / «گالری» / «صدا» rows were
 /// removed rather than left as "coming soon": MMS is deliberately not
 /// supported, so there is nothing for them to ever do, and a menu of three
-/// dead entries is worse than a shorter menu. «موقعیت» stayed because it has a
-/// plain-SMS answer — the coordinates as text.
+/// dead entries is worse than a shorter menu. «موقعیت» and «تصویر کوچک» are
+/// here because they have a plain-SMS answer: the coordinates as text, and a
+/// tiny black-and-white picture written in characters ([TinyImage]).
 Future<void> showAttachmentSheet(
   BuildContext context, {
   required VoidCallback onInsertDraft,
@@ -136,6 +138,7 @@ Future<void> showAttachmentSheet(
   // disabled — a greyed row invites a tap that can never be answered.
   VoidCallback? onSchedule,
   required VoidCallback onInsertLocation,
+  required VoidCallback onSendTinyImage,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -178,6 +181,15 @@ Future<void> showAttachmentSheet(
               onTap: () {
                 Navigator.pop(sheetCtx);
                 onInsertLocation();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.image_outlined),
+              title: const Text('تصویر کوچک'),
+              subtitle: const Text('سیاه‌وسفید، با چند پیامک'),
+              onTap: () {
+                Navigator.pop(sheetCtx);
+                onSendTinyImage();
               },
             ),
           ],
