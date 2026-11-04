@@ -611,7 +611,7 @@ to `backups/`, restores it if issuing throws) and `Activation` — **a third
 mirror of `ActivationCode`** (BLAKE3 from Bouncy Castle's `Blake3Digest`),
 pinned by `ActivationTest` to the same reference triples plus four
 phone-verified pairs. JVM tests: `ActivationTest`, `AuthorityFolderTest`
-(`gradlew -p tools\keybank :test`, 23).
+(`gradlew -p tools\keybank :test`, 25).
 
 ### The issuance panel `tools/keybank/panel/` («پنل صدور هم‌رسان»)
 
