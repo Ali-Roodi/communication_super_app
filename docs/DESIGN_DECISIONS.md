@@ -182,3 +182,32 @@ requests crash the process (`Reply already submitted`), and a plugin's own
 dialog double-asks.
 **Trade-off:** `call_log`, `another_telephony`, `image_picker` and
 `image_cropper` were replaced by native code of our own.
+
+---
+
+### D15 — Contacts move through the system file picker
+**Decision:** `.vcf` files are written and opened with the system file picker. The
+app asks for no storage permission.
+**Why:** the picker reaches the phone, a memory card and cloud drives, and one more
+dangerous permission would be one more thing for a store reviewer to question.
+**Trade-off:** the user picks the place every time. See `architecture/contacts.md`.
+
+---
+
+### D16 — A tiny picture travels as ordinary SMS text
+**Decision:** «تصویر کوچک» turns a small black-and-white picture into characters
+and sends them as an SMS. There is no MMS.
+**Why:** the app has no MMS stack, and text reaches every phone on every carrier. A
+phone without this app still sees the picture's characters.
+**Trade-off:** the picture is small and costs several SMS parts. See
+`architecture/conversation-and-composer.md`.
+
+---
+
+### D17 — Kotlin owns the reminders
+**Decision:** the reminders set from «اخیر» live in a native preferences file, not
+in a database table, and Dart only mirrors them.
+**Why:** the alarm has to fire and be set again with the app closed. They are a few
+rows, read whole and joined to nothing.
+**Trade-off:** they are not in the main database, so nothing can query them with
+SQL. See `architecture/dialer-and-calls.md`.

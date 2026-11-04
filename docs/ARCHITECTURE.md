@@ -102,14 +102,19 @@ the hidden phonebook, the device check, intruder photos, cover text — is in
   ratchet with AES-256-GCM, the `#E:` wire format, cover text. Stateless over the
   `sms_crypto` channel; state lives in `secure.db`. Pinned by golden vectors.
 - **SIMs** — `SimRegistry` holds the one SIM rule for calls; Dart only asks it.
+- **Contacts** — `flutter_contacts` for the ordinary work; `contacts/` in Kotlin
+  for what it cannot do: SIM cards, labels, linking, and `.vcf` files through the
+  system file picker (`ContactFileHandler`).
+- **Reminders** — `reminders/` in Kotlin owns the list and the alarm, because the
+  alarm has to fire with the app closed.
 
 ## 6. Permissions
 
 Declared in `android/app/src/main/AndroidManifest.xml`; the runtime ones are
 requested only by `PermissionGate` (SMS, phone and call log, contacts,
 notifications) or, for the two optional ones, by the app itself at the moment
-they are turned on (camera for intruder photos, location for «ارسال موقعیت») —
-never by a plugin. Both flavors carry the
+they are needed (camera for a contact photo and intruder photos, location for
+«ارسال موقعیت») — never by a plugin. Both flavors carry the
 same manifest; an edition-only permission would go into a flavor manifest.
 
 ## 7. Where to add things

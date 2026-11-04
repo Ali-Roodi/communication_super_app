@@ -100,7 +100,7 @@ These are **load-bearing** behaviours — do not "simplify" them away:
 ## 5. Side effects
 
 - **Navigation and snackbars** belong in `BlocListener`, never in `builder`.
-- **`CallUiCoordinator`** (above the auth flow, see `ARCHITECTURE.md` §5.2)
+- **`CallUiCoordinator`** (above the auth flow, see `ARCHITECTURE.md` §2)
   hosts the `BlocListener<DialerBloc>` that pushes the incoming/in-call screens
   and keeps the ended-call screen up while a redial counts down.
 

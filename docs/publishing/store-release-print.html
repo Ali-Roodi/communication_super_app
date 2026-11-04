@@ -3,8 +3,12 @@
 <head>
 <meta charset="utf-8">
 <title>انتشار هم‌رسان در بازار و مایکت</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700;900&family=JetBrains+Mono:wght@400;700&display=swap">
 <style>
+@font-face{font-family:Vazirmatn;src:url('../../assets/fonts/Vazirmatn-Regular.ttf');font-weight:400}
+@font-face{font-family:Vazirmatn;src:url('../../assets/fonts/Vazirmatn-Medium.ttf');font-weight:500}
+@font-face{font-family:Vazirmatn;src:url('../../assets/fonts/Vazirmatn-SemiBold.ttf');font-weight:600}
+@font-face{font-family:Vazirmatn;src:url('../../assets/fonts/Vazirmatn-Bold.ttf');font-weight:700}
+@media screen{body{padding:16px 24px;max-width:900px;margin:0 auto}}
 @page { size: A4; margin: 18mm 16mm 16mm; }
 *{ box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
 html,body{margin:0;padding:0}
@@ -57,198 +61,79 @@ tr{break-inside:avoid}
 </style>
 </head>
 <body>
-
 <p class="eyebrow">هم‌رسان · ir.hamrasan.app · سند زنده‌ی انتشار</p>
 <h1>انتشار در فروشگاه‌ها — بازار و مایکت</h1>
-
-<div class="note">
-  <strong>این سند زنده است.</strong> نسخه‌ی مرجع آن <code>docs/publishing/store-release.md</code> داخل repo است و
-  هر تغییری در وضعیت انتشار باید در همان commit آنجا ثبت شود. این PDF فقط یک snapshot است.<br>
-  <strong>آخرین بروزرسانی:</strong> ۱۴۰۵/۰۶/۲۴ — privacy policy تمام شد (اقدام ۲) و پشتیبان رمزگذاری‌شده‌ی keystore ساخته، تأیید و به گوشی و GitHub secrets منتقل شد (اقدام ۳). repo عمومی شد. هنوز هیچ‌چیز submit نشده.
-</div>
-
+<div class="note"><b>این فایل زنده است.</b> هر تغییری در وضعیت انتشار (حساب ساخته شد، مجوزی حذف شد، نسخه‌ای منتشر شد، بازبینی رد شد) باید در همان commit اینجا هم ثبت شود. هدف این است که با باز کردن همین فایل بشود فهمید «الان کجای کار هستیم» بدون بازخوانی تاریخچه.</div>
+<p><b>آخرین بروزرسانی:</b> ۱۴۰۵/۰۸/۱۳. آخرین نسخهٔ فروشگاهی versionCode ۱۹۴ است که برای پوشهٔ تحویل ساخته شده و به فروشگاه نرفته است. هنوز هیچ حسابی ساخته نشده است.</p>
 <h2>وضعیت فعلی</h2>
-<table>
-  <thead><tr><th style="width:60%">مرحله</th><th>وضعیت</th></tr></thead>
-  <tbody>
-    <tr><td>بررسی فنی build</td><td>✅ انجام شد</td></tr>
-    <tr><td>اقدامات پیش از submission</td><td>🟡 در جریان — ۴ از ۶ انجام شد</td></tr>
-    <tr><td>حساب پیشخان بازار</td><td>⬜ ساخته نشده</td></tr>
-    <tr><td>حساب مایکت</td><td>⬜ ساخته نشده</td></tr>
-    <tr><td>اولین submission بازار</td><td>⬜ —</td></tr>
-    <tr><td>اولین submission مایکت</td><td>⬜ —</td></tr>
-    <tr><td>CI/CD انتشار</td><td>⬜ نوشته نشده (طرحش آماده است)</td></tr>
-  </tbody>
-</table>
-<p><strong>نسخه‌ی منتشرشده:</strong> هنوز هیچ. <strong>آخرین versionCode ساخته‌شده:</strong> هیچ‌کدام — اولین build از
-<code>scripts/release_build.sh</code> عددی برابر تعداد commitهای آن لحظه می‌گیرد (در زمان نوشتن: ۱۲۲).</p>
-
-<h2>آنچه در build فعلی درست است</h2>
-<p class="sub">بررسی شد و نیازی به تغییر ندارد — چند موردش دقیقاً همان چیزهایی‌اند که معمولاً باعث reject می‌شوند.</p>
-<ul>
-  <li><strong><code>applicationId = ir.hamrasan.app</code></strong> — پیشوند <code>com.example</code> سیگنال منفی است. <code>namespace</code> که هنوز <code>com.example.…</code> مانده اهمیتی ندارد؛ فروشگاه فقط <code>applicationId</code> را می‌بیند.</li>
-  <li><strong>امضای release</strong> — <code>enableV1Signing=false</code>، V2 و V3 روشن. V3 یعنی امکان <span class="en">key rotation</span> در آینده.</li>
-  <li><strong><code>isMinifyEnabled</code> + <code>isShrinkResources</code></strong> با keep-ruleهای اختصاصی.</li>
-  <li><strong><code>allowBackup=false</code></strong> + <code>dataExtractionRules</code> — برای اپی که کل mailbox را در SQLite نگه می‌دارد، یک برگ برنده در بخش privacy.</li>
-  <li><strong>Crash reporting</strong> پیش‌فرض خاموش؛ بدون DSN چیزی ارسال نمی‌شود و هر رشته‌ی ≥۴ رقم redact می‌شود.</li>
-  <li><strong>keystore داخل repo نیست</strong> — <code>key.properties</code> و <code>*.jks</code> هر دو gitignore شده‌اند.</li>
-</ul>
-
+<table><tr><th>مرحله</th><th>وضعیت</th></tr><tr><td>بررسی فنی build</td><td>✅ انجام شد</td></tr><tr><td>اقدامات پیش از submission</td><td>🟡 در جریان — ۴ از ۶ انجام شد</td></tr><tr><td>حساب پیشخان بازار</td><td>⬜ ساخته نشده</td></tr><tr><td>حساب مایکت</td><td>⬜ ساخته نشده</td></tr><tr><td>اولین submission بازار</td><td>⬜ —</td></tr><tr><td>اولین submission مایکت</td><td>⬜ —</td></tr><tr><td>CI/CD انتشار</td><td>⬜ نوشته نشده (طرحش پایین آماده است)</td></tr></table>
+<p><b>نسخه‌ی منتشرشده:</b> هنوز هیچ.</p>
+<p><b>آخرین versionCode ساخته‌شده:</b> ۱۹۴ (<code>app-commercial-release.apk</code>، ۱۴۰۵/۰۸/۱۳، کامیت به‌روزرسانی سندها). ساخته شده ولی به فروشگاه نرفته است. اولین upload باید عددی برابر یا بزرگ‌تر از همین داشته باشد. هر build ای که به فروشگاه می‌رود باید در جدول تاریخچهٔ پایین ثبت شود.</p>
+<h2>آنچه در build فعلی بررسی شد و درست است</h2>
+<p>نیازی به تغییر ندارند — چند موردشان دقیقاً همان چیزهایی‌اند که معمولاً باعث reject می‌شوند:</p>
+<ul><li><b><code>applicationId = ir.hamrasan.app</code></b> — پیشوند <code>com.example</code> سیگنال منفی است. <code>namespace</code> که هنوز <code>com.example.communication_super_app</code> مانده اهمیتی ندارد؛ فروشگاه فقط <code>applicationId</code> را می‌بیند. (دلیل جدا ماندنشان در <code>android/app/build.gradle.kts</code> توضیح داده شده.)</li><li><b>امضای release</b> — <code>enableV1Signing=false</code>، V2 و V3 روشن. V3 یعنی امکان <b>key rotation</b> در آینده.</li><li><b><code>isMinifyEnabled</code> + <code>isShrinkResources</code></b> با keep-ruleهای اختصاصی.</li><li><b><code>allowBackup=false</code></b> + <code>dataExtractionRules</code> — برای اپی که کل mailbox را در SQLite نگه می‌دارد این یک برگ برنده در بخش privacy است.</li><li><b>Crash reporting</b> پیش‌فرض خاموش، بدون DSN چیزی ارسال نمی‌شود، و هر رشته‌ی ≥۴ رقم redact می‌شود.</li><li><b>keystore داخل repo نیست</b> — <code>key.properties</code> و <code>*.jks</code> هر دو gitignore شده‌اند.</li></ul>
 <h2>اقدامات</h2>
-
-<div class="item done">
-  <h3>۱. حذف <code>RECORD_AUDIO</code> <span class="badge done">انجام شد ۱۴۰۵/۰۶/۱۸</span></h3>
-  <p>اعلام شده بود ولی grep روی <code>lib/</code> و <code>android/app/src/main</code> هیچ ارجاعی به <span class="en">MediaRecorder</span> / <span class="en">AudioRecord</span> پیدا نکرد، و هیچ‌کدام از پلاگین‌های <code>pubspec</code> هم صوتی نیستند.</p>
-  <p>خط از manifest حذف شد و <strong>جای آن یک کامنت نشست</strong> که توضیح می‌دهد چرا عمداً غایب است — تا کسی دوباره برای فیچری که هنوز وجود ندارد اضافه‌اش نکند.</p>
-</div>
-
-<div class="item done">
-  <h3>۲. صفحه‌ی privacy policy با URL عمومی <span class="badge done">انجام شد ۱۴۰۵/۰۶/۲۴</span></h3>
-  <p>فیلد اجباری فرم انتشار هر دو فروشگاه؛ بدون آن اصلاً نمی‌شود submit کرد.</p>
-  <p><strong>متن لازم (چهار جمله):</strong> داده‌ها فقط روی دستگاه در SQLite ذخیره می‌شوند · هیچ پیام یا مخاطبی به سروری ارسال نمی‌شود · backup سیستمی غیرفعال است · گزارش خطا پیش‌فرض خاموش و بدون محتوای پیام است.</p>
-  <p><strong>نیمه‌ی اول — انجام شد:</strong> متن به‌صورت صفحه‌ی داخل برنامه نوشته شد — <code>PrivacyPolicyPage</code>، از تنظیمات ← «درباره برنامه» ← «حریم خصوصی و دسترسی‌ها». ساختارش از روی manifest است، نه از روی یک متن حقوقی عمومی: <strong>یک کارت به‌ازای هر گروه مجوز</strong> (مخاطبین، تماس‌ها، پیامک‌ها، اعلان‌ها، موقعیت مکانی، اینترنت) که می‌گوید با آن مجوز چه می‌کند و — مهم‌تر — چه نمی‌کند؛ بعد چهار جمله‌ی بالا زیر «داده‌های شما»؛ بعد فهرست «آنچه هم‌رسان انجام نمی‌دهد». کارت هر مجوز runtime وضعیت فعلی grant را هم نشان می‌دهد (فقط خوانده می‌شود، هرگز درخواست نمی‌شود — قانون <code>PermissionGate</code>). <strong>متن مرجع privacy policy همین صفحه است</strong>؛ نسخه‌ی وب (<code>docs/privacy/index.html</code>) از روی آن نوشته شده، نه برعکس.</p>
-  <p><strong>قانون نگهداری:</strong> مجوزی که به manifest اضافه می‌شود در همان commit یک کارت این‌جا می‌گیرد. policy ای که یک مجوز اعلام‌شده را جا بیندازد اولین چیزی است که بازبین می‌بیند.</p>
-  <p><strong>نیمه‌ی دوم — وضعیت URL:</strong> <a href="https://ali-roodi.github.io/communication_super_app/privacy/">https://ali-roodi.github.io/communication_super_app/privacy/</a> — GitHub Pages از شاخه‌ی <code>main</code>، پوشه‌ی <code>/docs</code>. فایل مرجع: <code>docs/privacy/index.html</code>.</p>
-</div>
-
-<div class="item done">
-  <h3>۳. پشتیبان آفلاین از <code>upload-keystore.jks</code> <span class="badge done">انجام شد ۱۴۰۵/۰۶/۲۴</span></h3>
-  <p>در بازار و مایکت معادلی برای <span class="en">Play App Signing</span> وجود ندارد. این فایل به‌علاوه‌ی سه رمز داخل <code>key.properties</code> تا همیشه هویت اپ است.</p>
-  <div class="warn"><strong>پیامد از دست دادنش:</strong> هرگز نمی‌شود برای <code>ir.hamrasan.app</code> بروزرسانی داد؛ تنها راه انتشار مجدد با package name جدید است — یعنی از دست دادن تمام نصب‌ها و دیتای کاربران.</div>
-  <p><strong>چه شد:</strong> <code>scripts/backup_keystore.ps1</code> و <code>scripts/backup_keystore.sh</code> اضافه شدند. خروجی یک آرشیو <code>hamrasan-keystore-backup-&lt;تاریخ&gt;.tar.enc</code> است (AES-256-CBC، PBKDF2 با ۶۰۰ هزار دور) که <code>.jks</code>، <code>key.properties</code>، نسخه‌ی base64 کلید، یک <code>RESTORE.md</code> با اثر انگشت گواهی و دستور بازیابی، و <code>SHA256SUMS</code> را در خود دارد. هیچ‌چیز بیرون آرشیو به شکل خام نوشته نمی‌شود.</p>
-  <p>دو چیز این را از «کپی» به «پشتیبان» تبدیل می‌کند: <strong>قبل از بسته‌بندی</strong> keystore با رمزهای داخل <code>key.properties</code> باز می‌شود (<code>keytool -list</code>) — پشتیبانی که رمزش غلط ثبت شده باشد بی‌ارزش است؛ و <strong>بعد از بسته‌بندی</strong> آرشیو دوباره باز می‌شود، <code>.jks</code> بایت‌به‌بایت مقایسه می‌شود و <code>keytool</code> روی نسخه‌ی بازیابی‌شده اجرا می‌شود.</p>
-  <p><strong>اثر انگشت SHA-256 گواهی:</strong> <span class="en">58:BC:0E:5F:2F:C3:B5:BE:6F:5E:5B:AF:F0:C5:B0:2F:E7:BD:9A:8E:CA:D0:6F:86:B4:E0:E1:74:B3:C3:97:0A</span> — همان چیزی که <code>apksigner verify --print-certs</code> روی هر APK فروشگاهی باید نشان بدهد.</p>
-  <table>
-    <thead><tr><th style="width:26%">کجا</th><th>چه</th><th style="width:30%">تأیید</th></tr></thead>
-    <tbody>
-      <tr><td>لپ‌تاپ توسعه</td><td><code>keystore-backup/hamrasan-keystore-backup-20260915.tar.enc</code> + <code>.sha256</code> (پوشه gitignore است)</td><td>بازگشایی و مقایسه در همان اجرا</td></tr>
-      <tr><td>گوشی تست</td><td><code>Download/hamrasan-keystore-backup/</code> همان دو فایل</td><td><code>sha256sum -c</code> روی خود گوشی: OK</td></tr>
-      <tr><td>GitHub Actions secrets</td><td><code>KEYSTORE_BASE64</code> <code>KEYSTORE_PASSWORD</code> <code>KEY_PASSWORD</code> <code>KEY_ALIAS</code></td><td><code>gh secret list</code> — همان نام‌های طرح CI</td></tr>
-    </tbody>
-  </table>
-  <p><strong>رمز آرشیو</strong> در repo، آرشیو و گوشی نیست و قابل بازیابی هم نیست؛ در password manager، جدا از آرشیو. تست بازیابی با <code>backup_keystore.sh --restore</code> انجام شد (آرشیوی که PowerShell ساخته بود با bash باز شد، <code>.jks</code> یکسان؛ رمز غلط رد می‌شود).</p>
-  <p><strong>هنوز باقی است:</strong> یک کپی روی USB یا دستگاهی که همیشه کنار لپ‌تاپ نباشد — گوشی تست و لپ‌تاپ معمولاً با هم‌اند. هر وقت USB وصل بود: <code>.\scripts\backup_keystore.ps1 -OutDir E:\</code>.</p>
-</div>
-
-<div class="item decision">
-  <h3>۴. تصمیم درباره‌ی <code>armeabi-v7a</code> <span class="badge decision">تصمیم محصولی</span></h3>
-  <p>بلوک <code>packaging { jniLibs { excludes … } }</code> عمداً بقیه‌ی ABIها را حذف می‌کند و دلیلش درست است: دایرکتوری خالی v7a باعث می‌شد دستگاه ۳۲بیتی نصب کند و در اولین اجرا با <span class="en">UnsatisfiedLinkError</span> کرش کند.</p>
-  <p>نتیجه‌ی فروشگاهی‌اش این است که آن دستگاه‌ها در بازار پیام «ناسازگار» می‌بینند.</p>
-  <p><strong>دو گزینه:</strong> پذیرفتن این محدودیت، یا ساختن یک APK دوم برای <code>armeabi-v7a</code> در همان pipeline (بازار چند APK برای یک نسخه را پشتیبانی می‌کند؛ برای مایکت باید تأیید شود). گزینه‌ی دوم فقط تغییر در pipeline است، نه در کد اپ. <strong>تصمیم گرفته‌شده: هنوز نه.</strong></p>
-</div>
-
-<div class="item done">
-  <h3>۵. جدا کردن <code>versionCode</code> از <code>pubspec.yaml</code> <span class="badge done">انجام شد ۱۴۰۵/۰۶/۱۸</span></h3>
-  <p><code>scripts/release_build.ps1</code> و <code>scripts/release_build.sh</code> اضافه شدند. build فروشگاهی از این مسیر ساخته می‌شود:</p>
-  <table>
-    <thead><tr><th style="width:26%">مقدار</th><th>منبع</th></tr></thead>
-    <tbody>
-      <tr><td><code>versionName</code></td><td>تگ روی HEAD (<code>v1.2.3</code> ← <code>1.2.3</code>)؛ اگر تگ نبود، از <code>pubspec</code> با اخطار</td></tr>
-      <tr><td><code>versionCode</code></td><td><code>git rev-list --count HEAD</code></td></tr>
-    </tbody>
-  </table>
-  <p><strong>چرا commit count و نه شماره‌ی اجرای CI:</strong> همان عدد است چه build روی لپ‌تاپ اجرا شود چه روی runner، هیچ state ای جایی نگه داشته نمی‌شود، و فقط زیاد می‌شود — برخلاف شمارنده‌ی هر workflow که برای یک branch جدید از ۱ شروع می‌کند.</p>
-  <p>اسکریپت دو گارد دارد: اگر working tree کثیف باشد اخطار می‌دهد، و اگر <code>apksigner verify --print-certs</code> بگوید <span class="en">Android Debug</span> <strong>build را رد می‌کند</strong> — دقیقاً همان چیزی که fallback به debug key در <code>build.gradle.kts</code> می‌تواند بی‌سروصدا تولید کند.</p>
-</div>
-
-<div class="item blocker">
-  <h3>۶. تصمیم درباره‌ی <code>PROCESS_OUTGOING_CALLS</code> <span class="badge blocker">تازه پیدا شد</span></h3>
-  <p>هنگام حذف <code>RECORD_AUDIO</code> معلوم شد این permission هم <strong>هیچ استفاده‌ای ندارد</strong>: نه <span class="en">NEW_OUTGOING_CALL</span> receiver ای در manifest هست و نه ارجاعی در Kotlin یا Dart. از Android 10 هم عملاً کنار گذاشته شده (مسیر شماره‌گیر پیش‌فرض <span class="en">CallRedirectionService</span> است).</p>
-  <p><strong>اقدام پیشنهادی:</strong> حذف شود. چون برخلاف <code>RECORD_AUDIO</code> احتمال دارد به مسیر نقش شماره‌گیر گره خورده باشد، اول روی دستگاه واقعی تأیید شود و بعد در همان commit حذف گردد.</p>
-</div>
-
+<h3>✅ ۱. حذف <code>RECORD_AUDIO</code> — انجام شد (۱۴۰۵/۰۶/۱۸)</h3>
+<p>اعلام شده بود ولی grep روی <code>lib/</code> و <code>android/app/src/main</code> هیچ ارجاعی به <code>MediaRecorder</code> / <code>AudioRecord</code> پیدا نکرد، و هیچ‌کدام از پلاگین‌های <code>pubspec</code> هم صوتی نیستند.</p>
+<p>خط از manifest حذف شد و <b>جای آن یک کامنت نشست</b> که توضیح می‌دهد چرا عمداً غایب است — تا کسی دوباره برای فیچری که هنوز وجود ندارد اضافه‌اش نکند.</p>
+<h3>✅ ۲. صفحه‌ی privacy policy با URL عمومی — انجام شد (۱۴۰۵/۰۶/۲۴)</h3>
+<p>فیلد اجباری فرم انتشار هر دو فروشگاه. بدون آن اصلاً نمی‌شود submit کرد.</p>
+<p><b>متن لازم (چهار جمله):</b> داده‌ها فقط روی دستگاه در SQLite ذخیره می‌شوند · هیچ پیام یا مخاطبی به سروری ارسال نمی‌شود · backup سیستمی غیرفعال است · گزارش خطا پیش‌فرض خاموش و بدون محتوای پیام است.</p>
+<p><b>نیمه‌ی اول — انجام شد (۱۴۰۵/۰۶/۲۴):</b> متن به‌صورت صفحه‌ی داخل برنامه نوشته شد — <code>PrivacyPolicyPage</code> (<code>lib/features/settings/screens/privacy_policy_page.dart</code>)، از تنظیمات → «درباره برنامه» → «حریم خصوصی و دسترسی‌ها». <b>متن مرجع privacy policy همین صفحه است</b>؛ نسخه‌ی وب باید از روی آن نوشته شود، نه برعکس، تا چیزی که بازبین فروشگاه می‌خواند و چیزی که کاربر می‌خواند یکی باشد.</p>
+<p>ساختار صفحه از روی manifest است، نه از روی یک متن حقوقی عمومی: <b>یک کارت به‌ازای هر گروه مجوز</b> (مخاطبین، تماس‌ها، پیامک‌ها، اعلان‌ها، موقعیت مکانی، اینترنت) که می‌گوید با آن مجوز چه می‌کند و — مهم‌تر — چه نمی‌کند (ضبط تماس نه، میکروفون نه، سرور نه)؛ بعد چهار جمله‌ی بالا زیر «داده‌های شما»؛ بعد فهرست «آنچه هم‌رسان انجام نمی‌دهد». کارت هر مجوز runtime وضعیت فعلی grant را هم نشان می‌دهد (فقط <b>خوانده</b> می‌شود، هرگز درخواست نمی‌شود — قانون <code>PermissionGate</code>) و کارتِ ردشده به صفحه‌ی app-info سیستم می‌رود.</p>
+<p><b>قانون نگهداری:</b> مجوزی که به manifest اضافه می‌شود در همان commit یک کارت این‌جا می‌گیرد. policy ای که یک مجوز اعلام‌شده را جا بیندازد اولین چیزی است که بازبین می‌بیند.</p>
+<p><b>نیمه‌ی دوم — انجام شد (۱۴۰۵/۰۶/۲۴):</b> همین متن به‌صورت <code>docs/privacy/index.html</code> (یک فایل HTML استاتیک، فونت از Google Fonts با fallback، لوگو inline) نوشته شد و از GitHub Pages سرو می‌شود — repo عمومی شد، Pages از شاخه‌ی <code>main</code> و پوشه‌ی <code>/docs</code>.</p>
+<p><b>وضعیت URL:</b> &lt;https://ali-roodi.github.io/communication_super_app/privacy/&gt; — همین را در فرم بازار و مایکت بگذارید.</p>
+<h3>✅ ۳. پشتیبان آفلاین از <code>upload-keystore.jks</code> — انجام شد (۱۴۰۵/۰۶/۲۴)</h3>
+<p>در بازار و مایکت معادلی برای <b>Play App Signing</b> وجود ندارد. این فایل به‌علاوه‌ی سه رمز داخل <code>key.properties</code> تا همیشه هویت اپ است. از دست رفتنش یعنی هرگز نمی‌شود برای <code>ir.hamrasan.app</code> بروزرسانی داد؛ تنها راه، انتشار مجدد با package name جدید است — یعنی از دست دادن تمام نصب‌ها و دیتای کاربران.</p>
+<p><b>چه شد:</b> <code>scripts/backup_keystore.ps1</code> و <code>scripts/backup_keystore.sh</code> اضافه شدند. خروجی یک آرشیو <code>hamrasan-keystore-backup-&lt;تاریخ&gt;.tar.enc</code> است (AES-256-CBC، PBKDF2 با ۶۰۰ هزار دور) که <code>.jks</code>، <code>key.properties</code>، نسخه‌ی base64 کلید (همان چیزی که secret CI می‌خواهد)، یک <code>RESTORE.md</code> با اثر انگشت گواهی و دستور بازیابی، و <code>SHA256SUMS</code> را در خود دارد. هیچ‌چیز بیرون آرشیو به شکل خام نوشته نمی‌شود؛ خود پوشه‌ی <code>keystore-backup/</code> هم gitignore است.</p>
+<p>دو چیز این را از یک «کپی» به «پشتیبان» تبدیل می‌کند و هر دو در همان اجرا انجام شد:</p>
+<ul><li><b>قبل از بسته‌بندی، keystore با رمزهای داخل <code>key.properties</code> باز می‌شود</b> (<code>keytool -list</code>). پشتیبانی که رمز ثبت‌شده‌اش غلط باشد هیچ ارزشی ندارد و این تنها لحظه‌ای است که فهمیدنش ارزان است.</li><li><b>بعد از بسته‌بندی، آرشیو دوباره باز می‌شود</b>، <code>.jks</code> بایت‌به‌بایت با اصل مقایسه می‌شود و <code>keytool</code> روی *همان نسخه‌ی بازیابی‌شده* اجرا می‌شود. اثر انگشتی که گزارش می‌شود از نسخه‌ی بازیابی‌شده است، نه اصل.</li></ul>
+<p>اثر انگشت SHA-256 گواهی: <code>58:BC:0E:5F:2F:C3:B5:BE:6F:5E:5B:AF:F0:C5:B0:2F:E7:BD:9A:8E:CA:D0:6F:86:B4:E0:E1:74:B3:C3:97:0A</code> — همین چیزی است که <code>apksigner verify --print-certs</code> روی هر APK فروشگاهی باید نشان بدهد.</p>
+<p><b>کپی‌ها (۱۴۰۵/۰۶/۲۴):</b></p>
+<table><tr><th>کجا</th><th>چه</th><th>تأیید</th></tr><tr><td>لپ‌تاپ توسعه</td><td><code>keystore-backup/hamrasan-keystore-backup-20260915.tar.enc</code> + <code>.sha256</code></td><td>بازگشایی و مقایسه در همان اجرا</td></tr><tr><td>گوشی تست (Galaxy)</td><td><code>Download/hamrasan-keystore-backup/</code> همان دو فایل</td><td><code>sha256sum -c</code> روی خود گوشی: OK</td></tr><tr><td>GitHub Actions secrets</td><td><code>KEYSTORE_BASE64</code> <code>KEYSTORE_PASSWORD</code> <code>KEY_PASSWORD</code> <code>KEY_ALIAS</code></td><td><code>gh secret list</code> — همان نام‌هایی که طرح CI پایین می‌خواهد</td></tr></table>
+<p><b>رمز آرشیو</b> در repo، آرشیو و گوشی *نیست* و قابل بازیابی هم نیست؛ در password manager نگه داشته می‌شود، جدا از خود آرشیو. تست بازیابی با <code>scripts/backup_keystore.sh --restore</code> انجام شد (آرشیوی که PowerShell ساخته بود، با bash باز شد و <code>.jks</code> بایت‌به‌بایت یکسان بود؛ رمز غلط رد می‌شود).</p>
+<p><b>هنوز باقی است:</b> یک کپی روی USB یا یک دستگاه دوم که همیشه همراه لپ‌تاپ نباشد. گوشی تست و لپ‌تاپ معمولاً کنار هم‌اند، پس یک سرقت یا یک آتش‌سوزی هر دو را می‌برد. هر وقت USB وصل بود: <code>.\scripts\backup_keystore.ps1 -OutDir E:\</code> — کافی است.</p>
+<h3>⬜ ۴. تصمیم درباره‌ی <code>armeabi-v7a</code> — تصمیم محصولی، نه باگ</h3>
+<p>بلوک <code>packaging { jniLibs { excludes … } }</code> عمداً بقیه‌ی ABIها را حذف می‌کند و دلیلش درست است (دایرکتوری خالی v7a باعث نصب موفق روی دستگاه ۳۲بیتی و <code>UnsatisfiedLinkError</code> در اولین اجرا می‌شد). نتیجه‌ی فروشگاهی‌اش: آن دستگاه‌ها در بازار پیام «ناسازگار» می‌بینند.</p>
+<p><b>دو گزینه:</b> پذیرفتن این محدودیت، یا ساختن یک APK دوم برای <code>armeabi-v7a</code> در همان pipeline (بازار چند APK برای یک نسخه را پشتیبانی می‌کند؛ برای مایکت باید تأیید شود). گزینه‌ی دوم فقط تغییر در pipeline است، نه در کد اپ.</p>
+<p><b>تصمیم گرفته‌شده:</b> _هنوز نه._</p>
+<h3>✅ ۵. جدا کردن <code>versionCode</code> از <code>pubspec.yaml</code> — انجام شد (۱۴۰۵/۰۶/۱۸)</h3>
+<p><code>scripts/release_build.ps1</code> و <code>scripts/release_build.sh</code> اضافه شدند. build فروشگاهی از این مسیر ساخته می‌شود:</p>
+<table><tr><th>مقدار</th><th>منبع</th></tr><tr><td><code>versionName</code></td><td>تگ روی HEAD (<code>v1.2.3</code> ← <code>1.2.3</code>)؛ اگر تگ نبود، از <code>pubspec</code> با اخطار</td></tr><tr><td><code>versionCode</code></td><td><code>git rev-list --count HEAD</code></td></tr></table>
+<p><b>چرا commit count و نه شماره‌ی اجرای CI:</b> همان عدد است چه build روی لپ‌تاپ اجرا شود چه روی runner، هیچ state ای جایی نگه داشته نمی‌شود، و فقط زیاد می‌شود — برخلاف شمارنده‌ی هر workflow که برای یک branch جدید از ۱ شروع می‌کند.</p>
+<p>اسکریپت دو گارد هم دارد: اگر working tree کثیف باشد اخطار می‌دهد (APK با هیچ commit ای مطابقت ندارد)، و اگر <code>apksigner verify --print-certs</code> بگوید <code>Android Debug</code> <b>build را رد می‌کند</b> — دقیقاً همان چیزی که fallback به debug key در <code>build.gradle.kts</code> می‌تواند بی‌سروصدا تولید کند.</p>
+<p><code>version: 1.0.0+1</code> در <code>pubspec</code> دست‌نخورده ماند و حالا کامنت بالایش می‌گوید که آن <code>+1</code> فقط برای development محلی است. <code>versionCode</code>/<code>versionName</code> در <code>build.gradle.kts</code> هم کامنت گرفتند.</p>
+<p><b>تأیید عملی (۱۴۰۵/۰۶/۱۸):</b> اسکریپت تا انتها اجرا شد. <code>aapt2 dump badging</code> روی APK ساخته‌شده: <code>versionCode='122' versionName='1.0.0'</code>، و گارد امضا گواهی <code>CN=Hamrasan, OU=Hamrasan App, O=Hamrasan, L=Tehran, ST=Tehran, C=IR</code> را خواند و تأیید کرد.</p>
+<p>دو ایراد که همان اجرا نشان داد و اصلاح شدند — هر دو از جنس «بی‌صدا رد شدن»:</p>
+<ul><li><code>apksigner</code> یک ابزار JVM است و روی ماشینی بدون <code>java</code> در PATH فقط <code>JAVA_HOME is not set</code> چاپ می‌کرد. اسکریپت در آن متن دنبال <code>Android Debug</code> می‌گشت، پیدا نمی‌کرد، و امضا را <b>تأیید</b> می‌کرد — یعنی دقیقاً برعکس کاری که این گارد برایش هست. حالا JBR همراه Android Studio به‌عنوان fallback ست می‌شود و نبودِ <code>certificate DN:</code> در خروجی یک <b>خطا</b> است، نه یک تأیید.</li><li><code>android/local.properties</code> در gitignore است، پس روی runner وجود ندارد و خواندنش زیر <code>set -e</code> اسکریپت را <b>بعد از یک build موفق</b> می‌کشت. حالا اول <code>ANDROID_HOME</code> / <code>ANDROID_SDK_ROOT</code> خوانده می‌شود. ضمناً ویندوز فقط <code>apksigner.bat</code> دارد و لینوکس فقط نسخه‌ی بدون پسوند؛ هر دو glob می‌شوند.</li></ul>
+<h3>⬜ ۶. تصمیم درباره‌ی <code>PROCESS_OUTGOING_CALLS</code> — تازه پیدا شد</h3>
+<p>هنگام حذف <code>RECORD_AUDIO</code> معلوم شد این permission هم <b>هیچ استفاده‌ای ندارد</b>: نه <code>NEW_OUTGOING_CALL</code> receiver ای در manifest هست و نه ارجاعی در Kotlin یا Dart. از Android 10 هم عملاً کنار گذاشته شده (مسیر شماره‌گیر پیش‌فرض <code>CallRedirectionService</code> است، نه این).</p>
+<p>دقیقاً از همان جنس ریسکی است که <code>RECORD_AUDIO</code> بود: یک dangerous permission که reviewer دلیلی برایش پیدا نمی‌کند.</p>
+<p><b>اقدام پیشنهادی:</b> حذف شود. چون برخلاف <code>RECORD_AUDIO</code> احتمال دارد به مسیر نقش شماره‌گیر گره خورده باشد، اول روی دستگاه واقعی تأیید شود و بعد در همان commit حذف گردد.</p>
 <h2>ریسک اصلی: بازبینی مجوزها</h2>
-<div class="warn">
-  <strong>نکته‌ی محوری:</strong> باید در توضیحات فروشگاه <strong>صریح</strong> نوشته شود که این اپ جایگزین اپ پیامک و
-  شماره‌گیر پیش‌فرض است. آن‌وقت همه‌ی این مجوزها «کارکرد اصلی» محسوب می‌شوند نه دسترسی جانبی. بدون آن جمله،
-  همین لیست شبیه <span class="en">spyware</span> خوانده می‌شود.
-</div>
-<table>
-  <thead><tr><th style="width:34%">Permission</th><th>چرا لازم است</th><th style="width:14%">ریسک</th></tr></thead>
-  <tbody>
-    <tr><td><code>READ_SMS</code> <code>SEND_SMS</code> <code>RECEIVE_SMS</code> <code>RECEIVE_MMS</code> <code>RECEIVE_WAP_PUSH</code></td><td>شرط واجدشرایط بودن برای <span class="en">ROLE_SMS</span></td><td>بالا</td></tr>
-    <tr><td><code>READ_CALL_LOG</code> <code>WRITE_CALL_LOG</code></td><td>تب «اخیر» و mirror-sync دفترچه تماس</td><td>بالا</td></tr>
-    <tr><td><code>CALL_PHONE</code> <code>MANAGE_OWN_CALLS</code> <code>READ_PHONE_STATE</code></td><td><span class="en">ROLE_DIALER</span> و <span class="en">InCallService</span></td><td>متوسط</td></tr>
-    <tr><td><s><code>RECORD_AUDIO</code></s></td><td>حذف شد ۱۴۰۵/۰۶/۱۸ — استفاده‌ای نداشت</td><td>✅ برطرف</td></tr>
-    <tr><td><code>PROCESS_OUTGOING_CALLS</code></td><td><strong>هیچ استفاده‌ای در کد ندارد</strong> و از Android 10 کنار گذاشته شده</td><td>حذف شود</td></tr>
-    <tr><td><code>ACCESS_FINE_LOCATION</code> <code>ACCESS_COARSE_LOCATION</code></td><td>فقط «موقعیت» در شیت پیوست؛ یک‌بار خوانده و به‌صورت متن در پیام درج می‌شود</td><td>متوسط</td></tr>
-    <tr><td><code>USE_FULL_SCREEN_INTENT</code></td><td>باز کردن صفحه‌ی تماس ورودی از نوتیفیکیشن</td><td>کم</td></tr>
-    <tr><td><code>SCHEDULE_EXACT_ALARM</code> <code>USE_EXACT_ALARM</code></td><td>ارسال زمان‌بندی‌شده در پس‌زمینه</td><td>کم</td></tr>
-    <tr><td><code>INTERNET</code></td><td>فقط link preview (متادیتای <code>og:</code>)</td><td>کم</td></tr>
-  </tbody>
-</table>
-
+<p>اگر اولین submission رد شود، به احتمال زیاد به‌خاطر این جدول است نه به‌خاطر باگ.</p>
+<p><b>نکته‌ی محوری:</b> باید در توضیحات فروشگاه <b>صریح</b> نوشته شود که این اپ جایگزین اپ پیامک و شماره‌گیر پیش‌فرض است. آن‌وقت همه‌ی این مجوزها «کارکرد اصلی» محسوب می‌شوند نه دسترسی جانبی. بدون آن جمله، همین لیست شبیه spyware خوانده می‌شود.</p>
+<table><tr><th>Permission</th><th>چرا لازم است</th><th>ریسک</th></tr><tr><td><code>READ_SMS</code> <code>SEND_SMS</code> <code>RECEIVE_SMS</code> <code>RECEIVE_MMS</code> <code>RECEIVE_WAP_PUSH</code></td><td>شرط واجدشرایط بودن برای <code>ROLE_SMS</code></td><td>بالا</td></tr><tr><td><code>READ_CALL_LOG</code> <code>WRITE_CALL_LOG</code></td><td>تب «اخیر» و mirror-sync دفترچه تماس</td><td>بالا</td></tr><tr><td><code>READ_CONTACTS</code> <code>WRITE_CONTACTS</code></td><td>دفترچهٔ تلفن، برچسب‌ها و انتقال مخاطبین</td><td>متوسط</td></tr><tr><td><code>READ_PHONE_NUMBERS</code></td><td>نام و شمارهٔ هر سیم‌کارت</td><td>کم</td></tr><tr><td><code>CAMERA</code></td><td>عکس مخاطب، و عکس از ورود ناموفق در نسخه‌های امن. فقط وقتی لازم شود پرسیده می‌شود و کاربر می‌تواند رد کند.</td><td>متوسط</td></tr><tr><td><code>POST_NOTIFICATIONS</code> <code>VIBRATE</code> <code>WAKE_LOCK</code> <code>RECEIVE_BOOT_COMPLETED</code></td><td>اعلان پیامک و تماس، حسگر نزدیکی و چیدن دوبارهٔ زمان‌بندی‌ها بعد از روشن شدن گوشی</td><td>کم</td></tr><tr><td><code>CALL_PHONE</code> <code>MANAGE_OWN_CALLS</code> <code>READ_PHONE_STATE</code></td><td><code>ROLE_DIALER</code> و <code>InCallService</code></td><td>متوسط</td></tr><tr><td>~~<code>RECORD_AUDIO</code>~~</td><td>حذف شد ۱۴۰۵/۰۶/۱۸ — استفاده‌ای نداشت</td><td>✅ برطرف</td></tr><tr><td><code>PROCESS_OUTGOING_CALLS</code></td><td><b>هیچ استفاده‌ای در کد ندارد</b> و از Android 10 کنار گذاشته شده</td><td>حذف شود (اقدام ۶)</td></tr><tr><td><code>ACCESS_FINE_LOCATION</code> <code>ACCESS_COARSE_LOCATION</code></td><td>فقط «موقعیت» در شیت پیوست؛ یک‌بار خوانده و به‌صورت متن در پیام درج می‌شود</td><td>متوسط</td></tr><tr><td><code>USE_FULL_SCREEN_INTENT</code></td><td>باز کردن صفحه‌ی تماس ورودی از نوتیفیکیشن</td><td>کم</td></tr><tr><td><code>SCHEDULE_EXACT_ALARM</code> <code>USE_EXACT_ALARM</code></td><td>ارسال زمان‌بندی‌شده و یادآور تماس یا پیامک در پس‌زمینه</td><td>کم</td></tr><tr><td><code>INTERNET</code></td><td>پیش‌نمایش لینک و گزارش خطای اختیاری؛ برنامه سرور ندارد</td><td>کم</td></tr><tr><td><code>USE_BIOMETRIC</code></td><td>«باز کردن با اثر انگشت یا چهره» روی قفل برنامه (اختیاری، پیش‌فرض خاموش)؛ normal permission، بدون دیالوگ. نتیجه فقط درست/نادرست است — هیچ داده‌ی بیومتریکی به برنامه نمی‌رسد</td><td>کم</td></tr></table>
 <h2>مسیر اولین انتشار (دستی)</h2>
-<p class="sub">بار اول دستی است — API انتشار برای نسخه‌های بعدی طراحی شده.</p>
-<p><strong>کافه‌بازار — <span class="en">pishkhan.cafebazaar.ir</span>:</strong> ثبت‌نام و احراز هویت (حقیقی/حقوقی) ← پرداخت هزینه‌ی یک‌بار ثبت‌نام توسعه‌دهنده ← ساخت اپ با package name برابر <code>ir.hamrasan.app</code> ← آپلود APK امضاشده ← اطلاعات فروشگاهی + لینک privacy policy ← ارسال برای بازبینی.</p>
-<p><strong>مایکت — <span class="en">developer.myket.ir</span>:</strong> ثبت‌نام و احراز هویت ← رزرو package name ← آپلود APK با <strong>همان</strong> keystore بازار ← اطلاعات فروشگاهی ← ارسال برای بازبینی.</p>
-<p><strong>دارایی‌های فروشگاهی:</strong> آیکون ۵۱۲×۵۱۲ (از <code>Hamresan-Logo.svg</code>)، حداقل ۴ اسکرین‌شات، توضیح کوتاه و بلند فارسی، دسته‌بندی، رده‌ی سنی، لینک privacy policy.</p>
-
-<h2>طرح CI/CD (نوشته نشده)</h2>
-<p class="sub">Trigger: تگ <code>v*.*.*</code> روی <code>main</code> + <code>workflow_dispatch</code> با ورودی درصد rollout.</p>
-<ol>
-  <li><strong>Gate</strong> — <code>flutter analyze</code> و <code>flutter test</code>؛ رد شد، هیچ آپلودی انجام نمی‌شود.</li>
-  <li><strong>بازسازی keystore</strong> — دیکد <code>KEYSTORE_BASE64</code> و ساخت <code>android/key.properties</code> در runner.</li>
-  <li><strong>Build + تأیید امضا</strong> — <code>scripts/release_build.sh</code>. همان اسکریپتی است که محلی هم اجرا می‌شود، پس CI و لپ‌تاپ نمی‌توانند از هم فاصله بگیرند.</li>
-  <li><strong>آپلود بازار</strong> — اکشن <code>matinzd/cafebazaar-release</code> با <code>cafebazaar-pishkhaan-api-secret</code>، <code>staged_rollout_percentage</code>، <code>changelog_fa</code>.</li>
-  <li><strong>آپلود مایکت</strong> — اسکریپت اختصاصی (اکشن رسمی وجود ندارد).</li>
-  <li><strong>Artifact</strong> — نگهداری APK و <code>mapping.txt</code> مربوط به R8؛ بدون آن stack traceهای release خوانده نمی‌شوند.</li>
-  <li><strong>ثبت</strong> — نوشتن <code>versionCode</code> منتشرشده در جدول تاریخچه‌ی سند.</li>
-</ol>
-
+<p>بار اول دستی است — API انتشار برای نسخه‌های بعدی طراحی شده.</p>
+<p><b>کافه‌بازار — <code>pishkhan.cafebazaar.ir</code>:</b> ثبت‌نام و احراز هویت (حقیقی/حقوقی) → پرداخت هزینه‌ی یک‌بار ثبت‌نام توسعه‌دهنده → ساخت اپ با package name برابر <code>ir.hamrasan.app</code> → آپلود APK امضاشده → اطلاعات فروشگاهی + لینک privacy policy → ارسال برای بازبینی.</p>
+<p><b>مایکت — <code>developer.myket.ir</code>:</b> ثبت‌نام و احراز هویت → رزرو package name → آپلود APK با <b>همان</b> keystore بازار → اطلاعات فروشگاهی → ارسال برای بازبینی.</p>
+<p><b>دارایی‌های فروشگاهی:</b> آیکون ۵۱۲×۵۱۲ (از <code>Hamresan-Logo.svg</code>)، حداقل ۴ اسکرین‌شات، توضیح کوتاه و بلند فارسی، دسته‌بندی، رده‌ی سنی، لینک privacy policy.</p>
+<h2>طرح CI/CD (نوشته نشده — هر وقت لازم شد)</h2>
+<p>Trigger: تگ <code>v*.*.*</code> روی <code>main</code> + <code>workflow_dispatch</code> با ورودی درصد rollout.</p>
+<ol><li><b>Gate</b> — <code>flutter analyze</code> و <code>flutter test</code>؛ رد شد، هیچ آپلودی انجام نمی‌شود.</li><li><b>بازسازی keystore</b> — دیکد <code>KEYSTORE_BASE64</code> و ساخت <code>android/key.properties</code> در runner.</li><li><b>Build + تأیید manifest و امضا</b> — <code>scripts/release_build.sh</code> (پیش‌فرض: flavor <code>commercial</code>؛ خروجی <code>build/app/outputs/flutter-apk/app-commercial-release.apk</code>). CI هرگز با <code>--flavor organization</code> آپلود نمی‌کند. همان اسکریپتی است که محلی هم اجرا می‌شود، پس CI و لپ‌تاپ نمی‌توانند از هم فاصله بگیرند: نسخه‌گذاری و بررسی debug key در هر دو یکسان است.</li><li><b>آپلود بازار</b> — اکشن <a href="https://github.com/matinzd/cafebazaar-release"><code>matinzd/cafebazaar-release</code></a> با ورودی‌های <code>cafebazaar-pishkhaan-api-secret</code>، <code>app_file</code>، <code>staged_rollout_percentage</code>، <code>auto_publish</code>، <code>changelog_fa</code>، <code>changelog_en</code>.</li><li><b>آپلود مایکت</b> — اسکریپت اختصاصی (اکشن رسمی وجود ندارد).</li><li><b>Artifact</b> — نگهداری APK و <code>mapping.txt</code> مربوط به R8؛ بدون آن stack traceهای release خوانده نمی‌شوند.</li><li><b>ثبت</b> — نوشتن <code>versionCode</code> منتشرشده در جدول تاریخچه‌ی همین فایل.</li></ol>
 <h3>Secretها</h3>
-<table>
-  <thead><tr><th style="width:38%">Secret</th><th>منبع</th></tr></thead>
-  <tbody>
-    <tr><td><code>KEYSTORE_BASE64</code></td><td><code>base64 -w0 android/upload-keystore.jks</code></td></tr>
-    <tr><td><code>KEYSTORE_PASSWORD</code> <code>KEY_ALIAS</code> <code>KEY_PASSWORD</code></td><td>از <code>android/key.properties</code> فعلی</td></tr>
-    <tr><td><code>BAZAAR_API_SECRET</code></td><td>پیشخان بازار ← بخش API توسعه‌دهندگان</td></tr>
-    <tr><td><code>MYKET_IDENTIFIER</code> <code>MYKET_SECRET</code></td><td>حساب پنل مایکت (رمز به‌صورت SHA1 ارسال می‌شود)</td></tr>
-  </tbody>
-</table>
-
+<table><tr><th>Secret</th><th>منبع</th></tr><tr><td><code>KEYSTORE_BASE64</code></td><td><code>base64 -w0 android/upload-keystore.jks</code> — <b>ثبت شد ۱۴۰۵/۰۶/۲۴</b> (<code>gh secret set</code>)</td></tr><tr><td><code>KEYSTORE_PASSWORD</code> <code>KEY_ALIAS</code> <code>KEY_PASSWORD</code></td><td>از <code>android/key.properties</code> فعلی — <b>ثبت شد ۱۴۰۵/۰۶/۲۴</b></td></tr><tr><td><code>BAZAAR_API_SECRET</code></td><td>پیشخان بازار → بخش API توسعه‌دهندگان</td></tr><tr><td><code>MYKET_IDENTIFIER</code> <code>MYKET_SECRET</code></td><td>حساب پنل مایکت (رمز به‌صورت SHA1 ارسال می‌شود)</td></tr></table>
 <h3>Endpointها</h3>
-<p class="sub" style="font-size:8.6pt">مسیرهای بازار از طریق اکشن آماده استفاده می‌شوند؛ جدول برای وقتی است که مستقیم با <code>curl</code> کار کنیم.
-<strong>مسیرهای مایکت رسمی مستند نشده‌اند</strong> (از پنل استخراج شده‌اند) — ممکن است بدون اطلاع تغییر کنند، و pipeline باید خطایشان را واضح گزارش کند.</p>
-<table>
-  <thead><tr><th style="width:24%">مرحله</th><th style="width:14%">Method</th><th>مسیر</th></tr></thead>
-  <tbody>
-    <tr><td colspan="3" style="background:#EDF1F7;font-weight:700">کافه‌بازار — <span class="en">https://pishkhan.cafebazaar.ir/api</span></td></tr>
-    <tr><td>گرفتن نشست</td><td><code>POST</code></td><td><code>/sessions/</code></td></tr>
-    <tr><td>شروع آپلود</td><td><code>GET</code></td><td><code>/upload/file/?file_hash&amp;size&amp;file_name</code></td></tr>
-    <tr><td>ارسال chunk</td><td><code>PATCH</code></td><td><code>/upload/file/{file_id}?offset&amp;chunk_size</code></td></tr>
-    <tr><td>ساخت release</td><td><code>POST</code></td><td><code>/apps/{package}/releases/</code></td></tr>
-    <tr><td>افزودن بسته</td><td><code>POST</code></td><td><code>/apps/{package}/releases/{id}/packages/</code></td></tr>
-    <tr><td>تنظیم rollout</td><td><code>PATCH</code></td><td><code>/apps/{package}/releases/{id}</code></td></tr>
-    <tr><td>ثبت نهایی</td><td><code>POST</code></td><td><code>/apps/{package}/releases/{id}/v2/commit/</code></td></tr>
-    <tr><td colspan="3" style="background:#EDF1F7;font-weight:700">مایکت — <span class="en">https://developer.myket.ir/api</span></td></tr>
-    <tr><td>ورود</td><td><code>POST</code></td><td><code>/dev-auth/signin/</code></td></tr>
-    <tr><td>آپلود فایل</td><td><code>POST</code></td><td><code>resource.myket.ir/Backload/Filehandler?objectContext={uuid}</code></td></tr>
-    <tr><td>ثبت نسخه</td><td><code>POST</code></td><td><code>/developers/{accountId}/applications/{pkg}/versions</code></td></tr>
-    <tr><td>انتشار</td><td><code>PUT</code></td><td><code>/developers/{accountId}/applications/{pkg}/confirm</code></td></tr>
-  </tbody>
-</table>
-
+<p>مسیرهای بازار از طریق اکشن آماده استفاده می‌شوند؛ جدول برای وقتی است که مستقیم با <code>curl</code> کار کنیم. <b>مسیرهای مایکت رسمی مستند نشده‌اند</b> (از پنل استخراج شده‌اند) — ممکن است بدون اطلاع تغییر کنند، و pipeline باید خطایشان را واضح گزارش کند.</p>
+<p><b>کافه‌بازار — <code>https://pishkhan.cafebazaar.ir/api</code></b></p>
+<table><tr><th>مرحله</th><th>Method</th><th>مسیر</th></tr><tr><td>گرفتن نشست</td><td><code>POST</code></td><td><code>/sessions/</code></td></tr><tr><td>شروع آپلود</td><td><code>GET</code></td><td><code>/upload/file/?file_hash&amp;size&amp;file_name</code></td></tr><tr><td>ارسال chunk</td><td><code>PATCH</code></td><td><code>/upload/file/{file_id}?offset&amp;chunk_size</code></td></tr><tr><td>ساخت release</td><td><code>POST</code></td><td><code>/apps/{package}/releases/</code></td></tr><tr><td>افزودن بسته</td><td><code>POST</code></td><td><code>/apps/{package}/releases/{id}/packages/</code></td></tr><tr><td>تنظیم rollout</td><td><code>PATCH</code></td><td><code>/apps/{package}/releases/{id}</code></td></tr><tr><td>ثبت نهایی</td><td><code>POST</code></td><td><code>/apps/{package}/releases/{id}/v2/commit/</code></td></tr></table>
+<p><b>مایکت — <code>https://developer.myket.ir/api</code></b></p>
+<table><tr><th>مرحله</th><th>Method</th><th>مسیر</th></tr><tr><td>ورود</td><td><code>POST</code></td><td><code>/dev-auth/signin/</code></td></tr><tr><td>آپلود فایل</td><td><code>POST</code></td><td><code>https://resource.myket.ir/Backload/Filehandler?objectContext={uuid}</code></td></tr><tr><td>ثبت نسخه</td><td><code>POST</code></td><td><code>/developers/{accountId}/applications/{pkg}/versions</code></td></tr><tr><td>انتشار</td><td><code>PUT</code></td><td><code>/developers/{accountId}/applications/{pkg}/confirm</code></td></tr></table>
 <h2>تاریخچه</h2>
-<table>
-  <thead><tr><th style="width:22%">تاریخ</th><th>رویداد</th></tr></thead>
-  <tbody>
-    <tr><td>۱۴۰۵/۰۶/۱۸</td><td>بررسی اولیه‌ی build برای انتشار. ۵ اقدام باز شناسایی شد. هنوز هیچ حسابی ساخته نشده.</td></tr>
-    <tr><td>۱۴۰۵/۰۶/۱۸</td><td><code>RECORD_AUDIO</code> از manifest حذف شد (اقدام ۱). نسخه‌گذاری از git راه افتاد با <code>scripts/release_build.{ps1,sh}</code> (اقدام ۵). <code>PROCESS_OUTGOING_CALLS</code> به‌عنوان اقدام ۶ باز شد.</td></tr>
-    <tr><td>۱۴۰۵/۰۶/۲۴</td><td>صفحه‌ی داخل‌برنامه‌ای «حریم خصوصی و دسترسی‌ها» (<code>PrivacyPolicyPage</code>) نوشته و روی دستگاه تست شد؛ نسخه‌ی وب آن در <code>docs/privacy/index.html</code> ساخته شد (اقدام ۲). URL عمومی: <a href="https://ali-roodi.github.io/communication_super_app/privacy/">https://ali-roodi.github.io/communication_super_app/privacy/</a></td></tr>
-    <tr><td>۱۴۰۵/۰۶/۲۴</td><td>پشتیبان keystore (اقدام ۳): <code>scripts/backup_keystore.{ps1,sh}</code> نوشته شد؛ آرشیو AES-256 ساخته و با بازگشایی تأیید شد؛ کپی روی گوشی تست با <code>sha256sum</code> تأیید شد؛ چهار secret امضا با <code>gh secret set</code> روی repo نشست. کپی USB هنوز نه.</td></tr>
-  </tbody>
-</table>
-
-<div class="foot">
-  منابع:
-  <a href="https://developers.cafebazaar.ir/fa/guidelines/developers-panel/overview">راهنمای پیشخان بازار</a> ·
-  <a href="https://newsblog.cafebazaar.ir/developer-api-v2-c1hjqtlmulr4">API توسعه‌دهندگان بازار</a> ·
-  <a href="https://github.com/matinzd/cafebazaar-release">matinzd/cafebazaar-release</a> ·
-  <a href="https://myket.ir/kb/en/topics/publishing-guide/">راهنمای انتشار مایکت</a> ·
-  <a href="https://github.com/myketstore/myket-developer-api">myketstore/myket-developer-api</a>
-  <br>منبع مرجع و همیشه‌بروز: <code>docs/publishing/store-release.md</code>
-</div>
-
+<table><tr><th>تاریخ</th><th>رویداد</th></tr><tr><td>۱۴۰۵/۰۶/۱۸</td><td>بررسی اولیه‌ی build برای انتشار. ۵ اقدام باز شناسایی شد. هنوز هیچ حسابی ساخته نشده.</td></tr><tr><td>۱۴۰۵/۰۶/۱۸</td><td><code>RECORD_AUDIO</code> از manifest حذف شد (اقدام ۱). نسخه‌گذاری از git راه افتاد با <code>scripts/release_build.{ps1,sh}</code> (اقدام ۵). <code>PROCESS_OUTGOING_CALLS</code> به‌عنوان اقدام ۶ باز شد.</td></tr><tr><td>۱۴۰۵/۰۶/۲۴</td><td>صفحه‌ی داخل‌برنامه‌ای «حریم خصوصی و دسترسی‌ها» (<code>PrivacyPolicyPage</code>) نوشته و روی دستگاه تست شد؛ نسخه‌ی وب آن (<code>docs/privacy/index.html</code>) با GitHub Pages منتشر شد: &lt;https://ali-roodi.github.io/communication_super_app/privacy/&gt; (اقدام ۲ کامل). repo عمومی شد.</td></tr><tr><td>۱۴۰۵/۰۶/۲۴</td><td>پشتیبان keystore (اقدام ۳): <code>scripts/backup_keystore.{ps1,sh}</code> نوشته شد؛ آرشیو AES-256 ساخته و با بازگشایی تأیید شد؛ کپی روی گوشی تست با <code>sha256sum</code> تأیید شد؛ چهار secret امضا با <code>gh secret set</code> روی repo نشست. کپی USB هنوز نه.</td></tr><tr><td>۱۴۰۵/۰۷/۰۵</td><td>build حالا دو flavor دارد؛ فروشگاه فقط <code>commercial</code> را می‌گیرد (خروجی: <code>app-commercial-release.apk</code>). جزئیات نسخه‌ها در <code>docs/architecture/editions.md</code>. <code>release_build.{sh,ps1}</code> حالا package و versionCode و versionName را با <code>aapt2</code> از خود APK تأیید می‌کنند. باگ قدیمی <code>release_build.ps1</code> رفع شد: در Windows PowerShell 5.1 روی هر HEAD بدون تگ در خط اول می‌مرد (<code>git describe</code> روی stderr + <code>ErrorActionPreference=Stop</code>).</td></tr><tr><td>۱۴۰۵/۰۷/۲۵</td><td>build نهایی بعد از گواهی عضو و آزمون دو گوشی: <code>commercial</code> versionCode <b>۱۶۵</b> و <code>organization</code> <b>۲۰۰۰۰۰۰۱۶۵</b> (commit <code>e0e7994</code>). بررسی‌های اسکریپت: manifest، نبودن مرجع آزمایشی، امضای واقعی (SHA-256 <code>58bc0e5f…3970a</code>). تنها تغییر کاری درخت <code>.idea/caches/deviceStreaming.xml</code> بود. submit نشده.</td></tr><tr><td>۱۴۰۵/۰۸/۱۳</td><td>build فروشگاهی versionCode <b>۱۹۴</b> (کامیت به‌روزرسانی سندها) برای پوشهٔ تحویل ساخته شد و به فروشگاه نرفت.</td></tr><tr><td>۱۴۰۵/۰۸/۱۳</td><td>build فروشگاهی versionCode <b>۱۹۳</b> (commit <code>bdd58f2</code>) روی گوشی آزمون نصب شد و به فروشگاه نرفت. جدول مجوزها کامل شد (<code>CAMERA</code>، مخاطبین و بقیه).</td></tr></table>
+<h2>منابع</h2>
+<ul><li><a href="https://developers.cafebazaar.ir/fa/guidelines/developers-panel/overview">راهنمای پیشخان بازار</a></li><li><a href="https://newsblog.cafebazaar.ir/developer-api-v2-c1hjqtlmulr4">API توسعه‌دهندگان بازار</a></li><li><a href="https://github.com/matinzd/cafebazaar-release">matinzd/cafebazaar-release</a></li><li><a href="https://myket.ir/kb/en/topics/publishing-guide/">راهنمای انتشار مایکت</a></li><li><a href="https://github.com/myketstore/myket-developer-api">myketstore/myket-developer-api</a></li></ul>
 </body>
 </html>

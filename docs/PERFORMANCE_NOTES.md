@@ -9,7 +9,7 @@ SMS / call-log / contact rows) on the main isolate.
 | Area | Technique | Where |
 |------|-----------|-------|
 | Call-log mapping | Maps thousands of raw entries on a **background `Isolate`** (`Isolate.run`), enriches with contacts on main | `CallLogService.getCallLogs` |
-| SMS import | **Capped at 500 inbox + 500 sent**; written in **batches of 100** with `Future.delayed(Duration.zero)` yields between batches | `SmsService.importDeviceMessages` |
+| SMS import | Reads the whole provider **a page at a time** (200 rows, `_importPageSize`) until nothing is missing. There is no cap: a cap of 500 once cut off the older received messages. A page is reconciled in three statements. | `SmsService.syncDeviceMessages`, `MessageRepository.reconcileDeviceRows` |
 | SMS import dedup | Batch inserts use `ConflictAlgorithm.ignore` against a unique content index — no read-before-write | `MessageRepository` / `DatabaseHelper` |
 | Call-log persistence | Single **batch transaction** instead of N inserts (previously caused multi-second freezes) | `CallLogService` → `CallLogRepository.saveCallLogsBatch` |
 | Contact-name resolution | phone→name map built **once per session** and reused for every `LoadThreads` | `MessageBloc._cachedPhoneToName` |
@@ -18,7 +18,7 @@ SMS / call-log / contact rows) on the main isolate.
 | Unread badge | `BlocBuilder.buildWhen` rebuilds only when the unread **total** changes | `MainNavigation` |
 | Dialer filtering | Keypad input **debounced 300 ms** before filtering contacts | `DialerBloc._onNumberPressed` |
 | DB indexes | `messages(thread_id)`, `messages(timestamp DESC)`, `messages(is_read)`, `call_logs(timestamp DESC)`, unique content index | `DatabaseHelper._createDB` |
-| Thread / message lists | Paginated (`limit`/`offset`, 50/page) with infinite scroll | `MessageBloc` `LoadMore*` |
+| Long lists | Every list fed by the phone's data is read a page at a time and built lazily; `InfiniteScroll` also fires when a first page is too short to scroll | `MessageBloc` `LoadMore*`, `core/widgets/infinite_scroll.dart` |
 | Recents load | **Never reads the whole `call_logs` table.** `ensureSynced()` only checks `hasAnyCallLogs()` (`LIMIT 1`) and syncs if empty; rows come from the paginated `getAllCallLogs(limit:50)` | `CallLogService` / `CallLogBloc` |
 | Call-log name resolution | Normalized phone→contact index **memoized** against the contact-cache identity instead of rebuilt per page | `CallLogService._contactIndex` |
 | Contact avatars | Lazy per-id fetch, bounded LRU (200) + negative cache + in-flight dedup; the bulk contact cache holds **no** photo bytes | `LazyContactAvatar` / `ContactRepository` |

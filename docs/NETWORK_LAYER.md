@@ -37,12 +37,13 @@ So this document describes the app's **data boundaries** and the contract at eac
 | Channel | Purpose |
 |---|---|
 | `sms`, `sms_events` | Send, query the provider, delete; incoming SMS pushed to Dart |
-| `call`, `call_events` | The call lifecycle as the default dialer |
+| `call`, `call_events` | The call lifecycle as the default dialer; also the black and white lists |
 | `call_log`, `call_log_events` | Call-log reads and change notifications |
+| `call_reminders` | The reminders set from «اخیر» |
 | `sim`, `sim_events` | SIM roster, defaults, the SIM rule for calls |
-| `sim_contacts`, `contact_extras`, `contact_groups`, `contact_link` | The address book beyond what `flutter_contacts` offers |
+| `sim_contacts`, `contact_extras`, `contact_groups`, `contact_link`, `contact_file` | The address book beyond what `flutter_contacts` offers |
 | `scheduled_sms` | The native scheduled-SMS deliverer and its alarm |
-| `blocked` | The phone-wide block list |
+| `blocked` | The phone's own block list |
 | `intents`, `media`, `location` | Deep links, contact photos, the location for «ارسال موقعیت» |
 | `app_lock` | Biometric prompt, notification privacy, lock session |
 | `device_identity` | The device code for activation |
@@ -71,7 +72,7 @@ boundary are listed in `DEVELOPER_GUIDE.md` («Kotlin/Dart mirrors»).
 
 ### D — Key/value
 
-- `SharedPreferences`: theme, settings, small UI state.
+- `SharedPreferences`: theme, settings, small UI state, the default place to save a contact.
 - `flutter_secure_storage`: the salted, stretched PIN, the recovery-code hash,
   activation codes.
 

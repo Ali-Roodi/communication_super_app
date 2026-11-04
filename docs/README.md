@@ -26,11 +26,11 @@ are not obvious from the code.
 
 | Note | Area |
 |---|---|
-| [dialer-and-calls.md](architecture/dialer-and-calls.md) | Keypad, «اخیر», the default-dialer path, call screens, USSD, speed dial, auto redial |
+| [dialer-and-calls.md](architecture/dialer-and-calls.md) | Keypad, «اخیر» and its reminders, the default-dialer path, call screens, USSD, speed dial, auto redial |
 | [sms-role-and-sync.md](architecture/sms-role-and-sync.md) | SMS send/receive, the default-SMS role, the device mirror-sync, notifications |
-| [contacts.md](architecture/contacts.md) | Contact extras, merging, labels, photos, name format |
-| [inbox-search-and-groups.md](architecture/inbox-search-and-groups.md) | Search, blocking and spam, new conversation, group conversations |
-| [conversation-and-composer.md](architecture/conversation-and-composer.md) | The bubble, the composer, text size, links, delivery ticks, text direction |
+| [contacts.md](architecture/contacts.md) | Contact extras, merging, labels, filter chips, photos, name format, moving contacts in and out |
+| [inbox-search-and-groups.md](architecture/inbox-search-and-groups.md) | Search, blocking and spam, black and white lists, new conversation, group conversations, pins |
+| [conversation-and-composer.md](architecture/conversation-and-composer.md) | The bubble, the composer, text size, links, tiny pictures, delivery ticks, text direction |
 | [scheduled-messages.md](architecture/scheduled-messages.md) | Scheduled SMS |
 | [dual-sim.md](architecture/dual-sim.md) | Everything that names a SIM |
 | [drafts-and-templates.md](architecture/drafts-and-templates.md) | Drafts, categories, «قالب آماده» |
@@ -42,11 +42,12 @@ are not obvious from the code.
 | Folder | Contents |
 |---|---|
 | `publishing/` | The store launch (بازار / مایکت): status, permission review, listing |
-| `mentor/` | The user manual, the secure-editions report and the issuance-panel guide (HTML + PDF) |
+| `mentor/` | The secure-editions report, the issuance-panel guide and the user manual (HTML + PDF). The user manual is updated after the two-phone tests. |
 | `privacy/` | The privacy policy page |
 | `archive/` | Finished planning documents, kept for history |
 | `پیوست فنی.docx` | The mentor's feature matrix per edition (priorities are the cell colours) |
-| `SMS_Android_App_Technical_Document.*`, `Hamrasan_Technical_Document_FA.*` | Feasibility and technical documents |
+| `Hamrasan_Technical_Document_FA.*` | The project explained in plain Persian: what it does, how it is built, what is left |
+| `SMS_Android_App_Technical_Document.*` | The first feasibility document, kept for history |
 
 The Windows key-bank tool and its panel have their own guide:
 [`tools/keybank/README.md`](../tools/keybank/README.md).

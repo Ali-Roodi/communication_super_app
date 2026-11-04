@@ -50,14 +50,14 @@ or `screens/widgets/` for extracted widgets.
 
 | Feature | What it is |
 |---|---|
-| `authentication` | App PIN / pattern, recovery code, app lock, biometric unlock |
-| `call_history` | «اخیر» — the call log, mirrored from the device |
-| `contacts` | The device address book: list, detail, edit, labels, merge, SIM contacts |
+| `authentication` | App PIN, recovery code, app lock, biometric unlock |
+| `call_history` | «اخیر» — the call log, mirrored from the device, and its reminders |
+| `contacts` | The device address book: list, detail, edit, labels, filter chips, merge, SIM contacts, `.vcf` files and copies |
 | `dialer` | Keypad, the call screens, speed dial, auto redial |
 | `favorites` | «موردعلاقه‌ها» |
-| `messages` | SMS inbox, conversation, composer, drafts, templates, scheduled and group SMS |
+| `messages` | SMS inbox, conversation, composer, tiny pictures, drafts, templates, scheduled and group SMS |
 | `search` | Unified search across contacts, calls and messages |
-| `settings` | Settings pages, blocked numbers |
+| `settings` | Settings pages, blocked numbers, black and white lists |
 | `edition` | Edition state and activation (`EditionBloc`, `OrganizationActivationGate`) |
 | `secure` | The secure section: its PIN, vault, SQLCipher `secure.db` |
 | `keybank` | «بانک کلید» — key files, trust anchors |
@@ -74,10 +74,14 @@ SmsDeliverReceiver.kt     SMS_DELIVER (default SMS app): writes the provider
 IncomingSmsReceiver.kt    SMS_RECEIVED: persists while the app is dead, notifies
 SmsNotifier.kt …          Incoming-SMS notifications and their actions
 BlockedNumbers.kt         Native mirror of the block list
+SystemBlockList.kt        The phone's own block list
+NumberLists.kt …          Black and white lists, checked on SMS and calls
+LocationHandler.kt        The location for «ارسال موقعیت»
 TemplateWire.kt           Template SMS wire format (mirror of the Dart model)
 call/                     InCallService (default dialer), call rules, missed calls
 calllog/                  Call-log sync
-contacts/                 Contact extras, groups, links, SIM contacts
+contacts/                 Contact extras, groups, links, SIM contacts, .vcf files
+reminders/                Call and SMS reminders: the list, the alarm, the card
 scheduled/                Scheduled SMS: alarm, worker, boot re-arm
 sim/                      SIM registry and the one SIM rule for calls
 edition/                  Device identity (activation)

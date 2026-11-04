@@ -15,10 +15,13 @@ listed here — their story is in the git history and the area notes under
 - **The mentor's own Windows activation-code generator**: one end-to-end check
   (device `b60966` → `9c4a48e93a`) is outstanding. Codes from our panel are
   verified on phones.
+- **Rows built on 1405/08/11–13** (5, 10, 23, 34, 36, 39, 42) and the contact photo
+  from the camera: their two-phone checks are open in `FINAL_DEVICE_TESTS.md`.
+  Saving to a Google account and to Google Drive (row 34) has not been tried yet.
 
 ### K2 — Matrix rows not done
-- **Row 25** (location and wipe on a special SMS): written, then taken out of the
-  build until an SMS-triggered remote action and wipe is decided on.
+- **Row 25** (location and wipe on a special SMS): cancelled. It was written, then
+  taken out of the build, and it will not come back.
 - **Row 12** (encrypting the whole main database): cancelled — Kotlin opens
   that database while the app is dead with no key, everything secret is already in
   SQLCipher, and ordinary SMS also live in the OS provider.
@@ -34,6 +37,9 @@ listed here — their story is in the git history and the area notes under
   keeps the fields it has; the missing parts, such as the allowed call hours, will
   not be built.
 - **Row 41** (work modes): dropped, and nothing of it was built.
+- **Rows 7, 8, 9 and 43** (backup, moving a backup to another phone, forwarding SMS
+  automatically, a permanent contact history): not built in any edition, and not
+  decided either. The mentor's matrix gives them a low priority.
 
 ### K3 — Long multi-part SMS can be lost by some OEMs
 MIUI once dropped a long multi-part session request (`checkSmsCmd … smsBlocked`)
@@ -68,7 +74,8 @@ everything contact-related and needs its own branch and device QA.
 
 ### K9 — One timing-sensitive widget test
 `test/widget/pin_error_text_test.dart` («a lockout counts down and disappears»)
-has failed once under a loaded full run and passes on its own.
+fails in a full `flutter test` run and passes on its own (seen again 1405/08/13).
+The other 907 Dart tests pass.
 
 ## Accepted by design
 

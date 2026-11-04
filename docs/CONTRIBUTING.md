@@ -38,7 +38,7 @@ adb logcat -s flutter | grep -E '\[caret\]|\[redial\]'      # `[redial]` prints 
   `FavoritesBloc`) are tested with mocks; `SettingsBloc` uses
   `SharedPreferences.setMockInitialValues({})`.
 - `test/widget/` — widget tests for extracted presentation widgets.
-- **Repository tests** run the real schema/migrations on an in-memory database:
+- **Repository tests** run the real schema on an in-memory database:
   call `sqfliteFfiInit(); databaseFactory = databaseFactoryFfi;` then set
   `DatabaseHelper.databasePathOverride = inMemoryDatabasePath` and
   `DatabaseHelper.resetForTesting()` between tests for isolation
@@ -52,6 +52,9 @@ adb logcat -s flutter | grep -E '\[caret\]|\[redial\]'      # `[redial]` prints 
       are available).
 - [ ] No new business-logic change without a note in `DESIGN_DECISIONS.md` or
       the PR description.
+- [ ] The matching area note is updated in the same commit.
+- [ ] Anything that only two real phones can show is added to
+      `FINAL_DEVICE_TESTS.md` in the same commit.
 
 ## Code conventions
 
@@ -100,7 +103,7 @@ as "redundant".**
   (`feat:`, `fix:`, `refactor:`).
 - A PR that refactors should state: what moved, that behaviour is unchanged, and
   the `flutter analyze` result.
-- High-risk changes (SMS pipeline, DB migrations, dependency upgrades) get their
+- High-risk changes (SMS pipeline, database schema, dependency upgrades) get their
   own PR and a manual test note.
 
 ## Native (Android) changes

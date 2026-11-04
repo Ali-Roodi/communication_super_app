@@ -19,3 +19,7 @@ Every switch on a settings page is read by something. That was not true, and the
 - The version row reads `package_info_plus`; a hardcoded string is wrong the first release after it is written and the one place it matters is a bug report.
 
 - **«حریم خصوصی و دسترسی‌ها» (`PrivacyPolicyPage`, under «درباره برنامه») is the store-facing privacy policy, kept inside the app.** It is laid out permission by permission — one card per manifest group saying what the app does with it and what it does not — because that is the question a store reviewer actually asks; the four data-policy sentences from `docs/publishing/store-release.md` follow under «داده‌های شما». Each runtime card shows its live grant state, **read** through `permission_handler` and never requested (the request path is `PermissionGate`'s alone), re-read on every resume because the only place a refused grant can change is the system app-info page the card opens. A permission added to the manifest gets a card there in the same commit; the public-URL copy of the policy is derived from this page, not the other way round.
+
+- **«فهرست سیاه و سفید»** (a row on the main settings page): see `inbox-search-and-groups.md`.
+- **«محل ذخیره پیش‌فرض»** (under «گزینه‌های نمایش»): the place a new contact is saved. It is hidden on a phone with only one place. See `contacts.md`.
+- **The name of a SIM** is set on «سیم‌کارت‌ها». See `dual-sim.md`.

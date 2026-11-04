@@ -1229,9 +1229,8 @@ below are the project's own and say so in the mentor report.
   seen again 1405/07/14 (Samsung → Xiaomi, parts that never arrived, the
   system never assembled it). A lost request is recovered by the 15-min retry
   and the crossed-INIT rule.
-- **Not done:** row 25 (location / wipe by a special SMS) — written, then
-  taken out of the build until an SMS-triggered remote action and wipe is
-  decided on; no copy of the source is kept. Row 12 (encrypting the whole main DB) — cancelled:
+- **Not done:** row 25 (location / wipe by a special SMS) — cancelled: written,
+  then taken out of the build, and it will not come back. Row 12 (encrypting the whole main DB) — cancelled:
   Kotlin opens that DB while the app is dead with no key, everything secret is
   already in SQLCipher, and ordinary SMS also live in the OS provider.
 
@@ -1264,6 +1263,8 @@ below.
 
 | Date | Change |
 |---|---|
+| 1405/08/13 | **Documents brought up to date.** The panel code was already current (MSI 1.5.0: nothing it compiles changed after the MSI was built; 25 tool tests and 13 panel tests pass). `tools/keybank/README.md` rewritten, panel guide 1.5 with new screens, secure-editions report 5.0, technical document 2.0 in plain Persian. The user manual is left until after the two-phone tests. The delivery APKs were rebuilt from the same commit (versionCode 194 and 2000000194). |
+| 1405/08/13 | **Row 25 cancelled** (location and wipe on a special SMS), and out of the development list. It had been written and then taken out of the build; nothing of it is in the app. |
 | 1405/08/13 | **Row 41 dropped** (work modes), and out of the development list. Nothing of it was built. |
 | 1405/08/13 | **Row 34 «انتقال مخاطبین»** (every edition, so documented in `contacts.md`): a `.vcf` file in and out, for all contacts or part of them, in any place the system picker offers, a cloud drive included; a copy to a cloud account or a SIM; and a default save place. Add, edit, delete and merging duplicates already existed. Moving is a copy followed by a delete. Export, import, the SIM copy and the default place were run on the emulator (organization debug, 3000 contacts). Writing into a cloud account was not: the emulator has none, and the check is in `FINAL_DEVICE_TESTS.md` §11. |
 | 1405/08/13 | **Row 37 closed as it stands**, and out of the development list. The contact form keeps the fields it has; the missing parts of the profile, such as the allowed call hours, will not be built. |
