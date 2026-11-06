@@ -30,10 +30,12 @@ import 'package:communication_super_app/features/settings/bloc/blocked_numbers_b
 import 'package:communication_super_app/features/settings/bloc/settings_bloc.dart';
 import 'package:communication_super_app/core/services/deep_link_service.dart';
 import 'package:communication_super_app/features/call_history/services/call_reminders.dart';
+import 'package:communication_super_app/features/call_history/services/unseen_missed_calls.dart';
 import 'package:communication_super_app/core/widgets/app_lock_wrapper.dart';
 import 'package:communication_super_app/features/secure/bloc/secure_session_bloc.dart';
 import 'package:communication_super_app/features/secure/widgets/secure_lock_button.dart';
 import 'widgets/message_nav_icon.dart';
+import 'widgets/nav_count_icon.dart';
 
 class MainNavigation extends StatefulWidget {
   final int initialIndex;
@@ -70,6 +72,9 @@ class _MainNavigationState extends State<MainNavigation>
     _currentIndex = widget.initialIndex;
     WidgetsBinding.instance.addObserver(this);
     _startAutoTabSelection();
+    _missedBadgeSub = context.read<CallLogBloc>().stream.listen((state) {
+      if (state is CallLogsLoaded) _refreshMissedBadge();
+    });
     // Live-refresh when the device address book changes (a contact added/edited
     // in the phone's Contacts app) so names update without an app restart.
     FlutterContacts.addListener(_refreshDeviceContacts);
@@ -162,6 +167,7 @@ class _MainNavigationState extends State<MainNavigation>
         ).push(MaterialPageRoute(builder: (_) => const HiddenCallsScreen()));
         _openSecureAfterAppLock();
     }
+    _refreshMissedBadge();
   }
 
   /// The section's own unlock screen, straight after the app lock — its
@@ -196,6 +202,44 @@ class _MainNavigationState extends State<MainNavigation>
     setState(() => _currentIndex = index);
     if (index == _recentsTab) {
       DeepLinkService.instance.clearMissedCallNotifications();
+      _refreshMissedBadge();
+    }
+  }
+
+  // ── The count on «اخیر» ─────────────────────────────────────────────────────
+
+  final UnseenMissedCalls _unseenMissed = UnseenMissedCalls();
+  StreamSubscription<CallLogState>? _missedBadgeSub;
+  int _missedBadge = 0;
+
+  /// The newest refresh; an older read that lands after it is dropped, or a
+  /// count taken before «اخیر» opened could put the number back.
+  int _missedBadgeRead = 0;
+
+  /// Counts the unseen missed calls, or, with «اخیر» on screen, marks them seen.
+  ///
+  /// Not before the landing tab is decided: every launch starts on «اخیر» for a
+  /// moment, and marking them seen then would empty the count of a user the
+  /// decision is about to take to «پیام‌ها».
+  Future<void> _refreshMissedBadge() async {
+    final read = ++_missedBadgeRead;
+    final viewing =
+        _currentIndex == _recentsTab &&
+        _autoTabResolved &&
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    var count = 0;
+    try {
+      if (viewing) {
+        await _unseenMissed.markSeen();
+      } else {
+        count = await _unseenMissed.count();
+      }
+    } catch (_) {
+      // Only a hint on a tab: the list itself is unaffected.
+      return;
+    }
+    if (mounted && read == _missedBadgeRead && count != _missedBadge) {
+      setState(() => _missedBadge = count);
     }
   }
 
@@ -219,6 +263,7 @@ class _MainNavigationState extends State<MainNavigation>
     _autoTabGrace?.cancel();
     _threadSub?.cancel();
     _callSub?.cancel();
+    _missedBadgeSub?.cancel();
     super.dispose();
   }
 
@@ -377,23 +422,28 @@ class _MainNavigationState extends State<MainNavigation>
     _threadSub = null;
     _callSub = null;
 
+    final target = _landingTab();
+    if (mounted && target != null && _currentIndex != target) {
+      _selectTab(target);
+    }
+    _refreshMissedBadge();
+  }
+
+  /// The tab holding what arrived since the app was last on screen, if anything.
+  int? _landingTab() {
     final seen = _lastSeenAt;
-    if (seen == null) return;
+    if (seen == null) return null;
 
     final unread = _newestUnreadAt;
     final missed = _newestMissedAt;
     final freshUnread = unread != null && unread.isAfter(seen) ? unread : null;
     final freshMissed = missed != null && missed.isAfter(seen) ? missed : null;
-    if (freshUnread == null && freshMissed == null) return;
+    if (freshUnread == null && freshMissed == null) return null;
 
-    final target =
-        freshMissed == null ||
+    return freshMissed == null ||
             (freshUnread != null && freshUnread.isAfter(freshMissed))
         ? _messagesTab
         : _recentsTab;
-    if (mounted && _currentIndex != target) {
-      _selectTab(target);
-    }
   }
 
   /// Stamps "the user was looking at the app until now".
@@ -505,9 +555,15 @@ class _MainNavigationState extends State<MainNavigation>
               selectedIndex: _currentIndex,
               onDestinationSelected: _selectTab,
               destinations: [
-                const NavigationDestination(
-                  icon: Icon(Icons.access_time),
-                  selectedIcon: Icon(Icons.access_time_filled),
+                NavigationDestination(
+                  icon: NavCountIcon(
+                    count: _missedBadge,
+                    icon: Icons.access_time,
+                  ),
+                  selectedIcon: NavCountIcon(
+                    count: _missedBadge,
+                    icon: Icons.access_time_filled,
+                  ),
                   label: 'اخیر',
                 ),
                 const NavigationDestination(

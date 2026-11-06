@@ -112,6 +112,17 @@ class CallLogRepository {
     return rows.isEmpty ? null : rows.first['timestamp'] as int?;
   }
 
+  /// Missed calls newer than [sinceMs].
+  Future<int> countMissedSince(int sinceMs) async {
+    final db = await _dbHelper.database;
+    final rows = await db.rawQuery(
+      'SELECT COUNT(*) AS n FROM ${AppConstants.callLogsTable} '
+      'WHERE call_type = ? AND timestamp > ?',
+      [CallType.missed.name, sinceMs],
+    );
+    return rows.first['n'] as int;
+  }
+
   /// Ids of stored call logs at or after [sinceMs]. Scopes the mirror-sync
   /// deletion diff to the same time window the device fetch covers, so calls
   /// older than the window aren't wrongly purged.

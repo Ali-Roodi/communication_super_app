@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
-/// Messages bottom-nav icon with an unread-count [Badge].
+import 'nav_count_icon.dart';
+
+/// Messages bottom-nav icon with an unread-count badge.
 ///
-/// The badge is hidden when [unread] is 0 and caps its label at "99+".
 /// [filled] selects the active (filled) vs. inactive (outline) chat icon.
 class MessageNavIcon extends StatelessWidget {
   final int unread;
@@ -12,10 +13,9 @@ class MessageNavIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Badge(
-      isLabelVisible: unread > 0,
-      label: Text(unread > 99 ? '99+' : '$unread'),
-      child: Icon(filled ? Icons.chat_bubble : Icons.chat_bubble_outline),
+    return NavCountIcon(
+      count: unread,
+      icon: filled ? Icons.chat_bubble : Icons.chat_bubble_outline,
     );
   }
 }

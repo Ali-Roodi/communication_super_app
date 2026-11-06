@@ -156,6 +156,22 @@ the «اخیر» mirror, named only from memory while the secure section is open
 photo), and missed as a bare «تماس بی‌پاسخ» with no number and no actions. See
 `editions.md`.
 
+## The count on «اخیر»
+
+`UnseenMissedCalls` is the number on the tab: missed rows of `call_logs` newer than
+`missed_calls_seen_at` (a preference). `MainNavigation` re-reads it on every
+`CallLogsLoaded`, and once «اخیر» is on screen with the app resumed it moves the moment to
+now instead. Two things keep the number honest:
+
+- **It waits for the landing tab** (`_autoTabResolved`). Every launch starts on «اخیر» for a
+  moment; marking the calls seen then would empty the count of a user the decision is about to
+  take to «پیام‌ها».
+- **The first read starts from now**, so a fresh install's imported history does not count as new.
+
+A hidden contact's missed call never reaches `call_logs`, so it is never counted here. The
+moment compares with a call's *start* time, so a call that began ringing before the tab came on
+screen and was missed after the user left it is not counted; the notification still says so.
+
 ## Only one missed-call notification
 
 `MissedCallNotificationReceiver` exists so that **telecom does not post its own**
@@ -184,6 +200,10 @@ the missed calls read in the call log, which is what makes an OEM dialer
 (Samsung's, on the SM A336E) drop its duplicate — but it is a race by
 construction, cancelling a card telecom may not have posted yet, and it cannot
 stop telecom posting one at all.
+
+## The call screen's buttons
+
+From the right, top row «بی‌صدا» · «نگه‌داشتن» · «بلندگو», bottom row «افزودن تماس» · «پایان» · «صفحه‌کلید» (the mentor's request, 1405/08/15). «پایان» is in the bottom middle, and the keypad keeps it there with «بستن» on the same left cell as «صفحه‌کلید», so a thumb finds both in one place with the pad open or closed.
 
 ## The in-call keypad is part of the screen
 
