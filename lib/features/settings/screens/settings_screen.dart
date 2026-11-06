@@ -3,12 +3,7 @@ import 'package:communication_super_app/core/sim/sim_service.dart';
 import 'package:communication_super_app/features/settings/screens/secure_section_settings_page.dart';
 import 'package:communication_super_app/features/settings/screens/sim_settings_page.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:package_info_plus/package_info_plus.dart';
-import 'package:communication_super_app/core/edition/app_edition.dart';
-import 'package:communication_super_app/features/edition/bloc/edition_bloc.dart';
-import 'package:communication_super_app/features/edition/screens/inter_org_activation_screen.dart';
 import 'package:communication_super_app/core/theme/theme_bloc.dart';
-import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
 import 'package:communication_super_app/features/authentication/bloc/auth_bloc.dart';
@@ -37,7 +32,7 @@ import 'package:communication_super_app/features/settings/bloc/settings_state.da
 import 'package:communication_super_app/features/messages/screens/spam_and_blocked_screen.dart';
 import 'package:communication_super_app/features/settings/screens/call_block_rules_page.dart';
 import 'package:communication_super_app/features/settings/screens/number_lists_page.dart';
-import 'package:communication_super_app/features/settings/screens/privacy_policy_page.dart';
+import 'package:communication_super_app/features/settings/widgets/about_group.dart';
 import 'package:communication_super_app/features/settings/screens/settings_subpages.dart';
 
 /// The settings hub, laid out the way Google Phone's is: tinted section labels
@@ -145,7 +140,7 @@ class SettingsScreen extends StatelessWidget {
 
             // ── About ──────────────────────────────────────
             const SectionLabel('درباره برنامه'),
-            const _AboutGroup(),
+            const AboutGroup(),
           ],
         ),
       ),
@@ -264,83 +259,6 @@ class _DefaultAppsGroupState extends State<_DefaultAppsGroup> {
             await NativeCallService.instance.openFullScreenIntentSettings();
             await _refresh();
           },
-        ),
-      ],
-    );
-  }
-}
-
-// ── About ────────────────────────────────────────────────────────────────────
-
-/// Name + version, the version read off the installed package.
-///
-/// A hardcoded version string is wrong the moment a release goes out and the
-/// one place it matters is a bug report, so it comes from `package_info_plus`
-/// (the manifest's own versionName/versionCode) instead.
-class _AboutGroup extends StatefulWidget {
-  const _AboutGroup();
-
-  @override
-  State<_AboutGroup> createState() => _AboutGroupState();
-}
-
-class _AboutGroupState extends State<_AboutGroup> {
-  String? _version;
-
-  @override
-  void initState() {
-    super.initState();
-    PackageInfo.fromPlatform().then((info) {
-      if (!mounted) return;
-      // An LTR isolate (LRI … PDI): a version is left-to-right content, and in
-      // this RTL row the bidi algorithm reordered its pieces — the
-      // organization build's «1.0.0-org (2000000127)» came out as
-      // «org (2000000127)-1.0.0».
-      setState(
-        () => _version =
-            '\u2066${PersianUtils.toPersianNumber('${info.version} (${info.buildNumber})')}\u2069',
-      );
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final edition = context.select<EditionBloc, AppEdition>(
-      (bloc) => bloc.state.edition,
-    );
-    return GroupedList(
-      children: [
-        const SettingsRow(
-          icon: Icons.info_outline,
-          title: 'نام برنامه',
-          summary: 'هم‌رسان',
-        ),
-        SettingsRow(icon: Icons.tag, title: 'نسخه', summary: _version ?? '…'),
-        // Every edition installs as the same package and looks the same, so a
-        // support call has no other way to learn which one is on the phone.
-        SettingsRow(
-          icon: Icons.verified_outlined,
-          title: 'نوع نسخه',
-          summary: edition.label,
-        ),
-        // Activation exists only in the commercial build; the organization
-        // build is its edition by construction (and compiles this row out).
-        if (AppEdition.current == AppEdition.commercial)
-          SettingsRow(
-            icon: Icons.key_outlined,
-            title: 'نسخه بین‌سازمانی',
-            summary: edition == AppEdition.interOrganization
-                ? 'فعال است'
-                : 'فعال‌سازی با کد',
-            onTap: () =>
-                SettingsScreen._push(context, const InterOrgActivationScreen()),
-          ),
-        SettingsRow(
-          icon: Icons.privacy_tip_outlined,
-          // The store-facing policy, kept inside the app so the text a
-          // reviewer reads and the text a user reads are the same one.
-          title: 'حریم خصوصی و دسترسی‌ها',
-          onTap: () => SettingsScreen._push(context, const PrivacyPolicyPage()),
         ),
       ],
     );
