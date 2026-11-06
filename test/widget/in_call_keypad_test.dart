@@ -81,6 +81,29 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('«پایان» bottom middle, keypad bottom left, hold top middle', (
+    tester,
+  ) async {
+    final bloc = await pumpCall(tester, const Size(1080, 2400));
+    addTearDown(bloc.close);
+    Offset at(String label) => tester.getCenter(find.text(label));
+
+    final middle = at('نگه‌داشتن').dx;
+    expect(at('پایان').dx, moreOrLessEquals(middle, epsilon: 1));
+    expect(at('پایان').dy, greaterThan(at('نگه‌داشتن').dy));
+
+    // Physically left in the RTL row, under «بلندگو».
+    expect(at('صفحه‌کلید').dx, lessThan(middle));
+    expect(at('صفحه‌کلید').dx, moreOrLessEquals(at('بلندگو').dx, epsilon: 1));
+    expect(at('صفحه‌کلید').dy, moreOrLessEquals(at('پایان').dy, epsilon: 1));
+
+    // Opening the pad moves neither column.
+    final keypadX = at('صفحه‌کلید').dx;
+    await openKeypad(tester);
+    expect(at('پایان').dx, moreOrLessEquals(middle, epsilon: 1));
+    expect(at('بستن').dx, moreOrLessEquals(keypadX, epsilon: 1));
+  });
+
   for (final size in const <Size>[
     Size(1080, 2400), // the test device
     Size(720, 1280), // a small, short screen — the tightest case

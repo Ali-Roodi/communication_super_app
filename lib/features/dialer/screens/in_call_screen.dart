@@ -370,10 +370,10 @@ class _InCallScreenState extends State<InCallScreen> {
                 onTap: () => bloc.add(const ToggleMute()),
               ),
               _ControlButton(
-                icon: Icons.dialpad,
-                label: 'صفحه‌کلید',
-                active: false,
-                onTap: _openKeypad,
+                icon: Icons.pause,
+                label: 'نگه‌داشتن',
+                active: onHold,
+                onTap: () => bloc.add(HoldCall(hold: !onHold)),
               ),
               // The button says where the audio IS, not just whether the
               // speaker is on: with a headset connected «بلندگو» off was the
@@ -451,13 +451,13 @@ class _InCallScreenState extends State<InCallScreen> {
                 enabled: state.callCount < 2,
                 onTap: () => showDialerBottomSheet(context),
               ),
-              _ControlButton(
-                icon: Icons.pause,
-                label: 'نگه‌داشتن',
-                active: onHold,
-                onTap: () => bloc.add(HoldCall(hold: !onHold)),
-              ),
               _EndCallButton(onTap: () => bloc.add(const EndCall())),
+              _ControlButton(
+                icon: Icons.dialpad,
+                label: 'صفحه‌کلید',
+                active: false,
+                onTap: _openKeypad,
+              ),
             ],
           ),
         ],
@@ -612,22 +612,25 @@ class _InCallScreenState extends State<InCallScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              // «پایان» centred exactly where it is on the call screen, and
-              // the button that puts the pad away beside it — Google Phone's
-              // highlighted dialpad toggle. An empty cell of the same width
-              // on the other side keeps «پایان» centred.
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  const SizedBox(width: 84),
-                  _EndCallButton(onTap: () => bloc.add(const EndCall())),
-                  _ControlButton(
-                    icon: Icons.dialpad,
-                    label: 'بستن',
-                    active: true,
-                    onTap: _closeKeypad,
-                  ),
-                ],
+              // «پایان» and the button that puts the pad away, each in the
+              // same column as on the call screen: 16 here + the panel's 16 is
+              // the grid's 32. An empty cell on the other side keeps «پایان»
+              // centred.
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const SizedBox(width: 84),
+                    _EndCallButton(onTap: () => bloc.add(const EndCall())),
+                    _ControlButton(
+                      icon: Icons.dialpad,
+                      label: 'بستن',
+                      active: true,
+                      onTap: _closeKeypad,
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
