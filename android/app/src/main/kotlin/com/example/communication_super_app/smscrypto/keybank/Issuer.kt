@@ -13,7 +13,10 @@ import java.text.Normalizer
  */
 object Issuer {
     /** One roster line: a member, their numbers, and their key generation. */
-    class Entry(val name: String, val phones: List<String>, val generation: Int)
+    class Entry(val name: String, val phones: List<String>, val generation: Int) {
+        /** The first mobile: what the certificate names and the key is derived from. */
+        val keyNumber: String get() = phones.first(MemberCert::canName)
+    }
 
     /** A roster file: the organization's name and its members. */
     class Roster(val organization: String, val entries: List<Entry>)
@@ -80,26 +83,25 @@ object Issuer {
 
     /**
      * The key and certificate of [entry]. The key is derived from the
-     * member's first phone number and generation, so issuing again gives the
+     * member's first mobile number and generation, so issuing again gives the
      * same member the same key. Nothing about any other member goes into it.
      */
     fun issue(authority: AuthorityKey, entry: Entry): Issued {
-        val identity = authority.memberIdentity(entry.phones.first(), entry.generation)
-        val cert = MemberCert.issue(authority, entry.phones.first(MemberCert::canName), entry.generation, identity)
-        return Issued(identity, cert)
+        val identity = authority.memberIdentity(entry.keyNumber, entry.generation)
+        return Issued(identity, MemberCert.issue(authority, entry.keyNumber, entry.generation, identity))
     }
+
+    /** The password of [entry]'s key file, and of their [MemberCode]. */
+    fun password(authority: AuthorityKey, entry: Entry): String =
+        authority.memberPassword(entry.keyNumber, entry.generation)
+
+    /** The [MemberCode] of [entry]: stands in for their key file, with the same password. */
+    fun code(authority: AuthorityKey, entry: Entry): String =
+        authority.memberCode(entry.keyNumber, entry.generation)
 
     /** The roster's own limits — what one panel form or CSV line may hold. */
     const val MAX_PHONES = 8
     const val MAX_MEMBERS = 5000
-
-    private const val ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
-
-    /** 20 characters of an unambiguous 32-letter alphabet (100 bits), in groups of four. */
-    fun password(random: SecureRandom): String =
-        (0 until 20).joinToString("") { i ->
-            (if (i > 0 && i % 4 == 0) "-" else "") + ALPHABET[random.nextInt(ALPHABET.length)]
-        }
 }
 
 /**

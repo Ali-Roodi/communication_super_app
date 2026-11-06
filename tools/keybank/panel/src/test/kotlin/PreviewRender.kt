@@ -264,7 +264,7 @@ class PreviewRender {
         val oldPassword = keys.snapshot!!.let { it.passwordOf(it.entries[2]) }
         runBlocking { keys.editMember(2, form) }
         kotlin.test.assertEquals(KeysState.Event.EDITED, keys.delivery!!.event)
-        kotlin.test.assertEquals(oldPassword, keys.delivery!!.password)
+        kotlin.test.assertNotEquals(oldPassword, keys.delivery!!.password)
         kotlin.test.assertEquals(listOf("09121112233", "02188776655"), keys.snapshot!!.entries[2].phones)
         render("18-edited") { Panel(keys, start = Section.Keys) }
         keys.delivery = null

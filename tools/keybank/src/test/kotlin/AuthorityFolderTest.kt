@@ -3,6 +3,7 @@ package ir.hamrasan.keybank
 import com.example.communication_super_app.smscrypto.keybank.AuthorityFile
 import com.example.communication_super_app.smscrypto.keybank.AuthorityKey
 import com.example.communication_super_app.smscrypto.keybank.KeyFile
+import com.example.communication_super_app.smscrypto.keybank.MemberCode
 import com.example.communication_super_app.smscrypto.keybank.PasswordKdf
 import java.io.File
 import java.nio.file.Files
@@ -192,7 +193,7 @@ class AuthorityFolderTest {
     }
 
     @Test
-    fun editingKeepsTheKeyUnlessTheFirstNumberChanges() {
+    fun editingKeepsTheKeyAndPasswordUnlessTheFirstMobileChanges() {
         val before = threeMembers()
         val oldKeys = before.map { open(it).cert.keyId }
         val renamed = folder.editMember(authority, 0, "علی رودی", listOf("09120000001", "02166554433"), random, cheap)
@@ -201,7 +202,7 @@ class AuthorityFolderTest {
         assertContentEquals(oldKeys[0], open(renamed).cert.keyId)
 
         val moved = folder.editMember(authority, 0, "علی رودی", listOf("09129999999"), random, cheap)
-        assertEquals(before[0].password, moved.password, "the password follows the member")
+        assertNotEquals(before[0].password, moved.password, "the password carries the number")
         assertTrue(!oldKeys[0].contentEquals(open(moved).cert.keyId))
         assertEquals("09129999999.hkb", moved.file.name)
         assertTrue(!File(folder.issuedDir, "09120000001.hkb").exists())
@@ -291,6 +292,25 @@ class AuthorityFolderTest {
             assertEquals(s.passwordOf(s.entries[i]), f.password)
             assertEquals(s.entries[i].phones.first(), open(f).cert.phone)
         }
+    }
+
+    @Test
+    fun theCodeBuildsWhatTheFileHolds() {
+        val members = threeMembers()
+        val anchors = listOf(MemberCode.Signer(authority.key.public, authority.key.sealedSigner()))
+        for (f in members) {
+            val fromFile = open(f)
+            val fromCode = MemberCode.open(Issuance.code(authority, f.entry), f.password, anchors)
+            assertContentEquals(fromFile.identity.serialize(), fromCode.identity.serialize())
+            assertContentEquals(fromFile.cert.encoded, fromCode.cert.encoded)
+        }
+    }
+
+    @Test
+    fun theCodeIsNeverWrittenToTheFolder() {
+        val members = threeMembers()
+        val code = Issuance.code(authority, members[0].entry)
+        for (bytes in issuedFiles().values) assertTrue(code !in String(bytes, Charsets.ISO_8859_1))
     }
 
     @Test

@@ -4,8 +4,10 @@ import com.example.communication_super_app.smscrypto.SmsCryptoException
 import com.example.communication_super_app.smscrypto.keybank.AuthorityFile
 import com.example.communication_super_app.smscrypto.keybank.AuthorityKey
 import com.example.communication_super_app.smscrypto.keybank.AuthorityPublic
+import com.example.communication_super_app.smscrypto.keybank.Canon
 import com.example.communication_super_app.smscrypto.keybank.Issuer
 import com.example.communication_super_app.smscrypto.keybank.KeyFile
+import com.example.communication_super_app.smscrypto.keybank.MemberCode
 import java.io.File
 import java.security.SecureRandom
 import kotlin.system.exitProcess
@@ -17,6 +19,8 @@ import kotlin.system.exitProcess
  *   public  <authority.hka>
  *   issue   <authority.hka> <roster.csv> <output folder>
  *   inspect <key file .hkb> <authority public key .txt>
+ *   code    <authority.hka> <roster.csv> <number>
+ *   signer  <authority.hka>
  *   activation <device code> [--organization]
  *
  * Passwords are asked on the console; HAMRESAN_KEYBANK_PASSWORD (authority
@@ -32,6 +36,8 @@ fun main(args: Array<String>) {
             "public" -> public(args)
             "issue" -> issue(args)
             "inspect" -> inspect(args)
+            "code" -> code(args)
+            "signer" -> signer(args)
             "activation" -> activation(args)
             else -> usage()
         }
@@ -66,11 +72,17 @@ private fun usage(): Nothing {
                   Roster lines: organization,<name>, then
                   name,phone1;phone2[,generation]. A key file holds its
                   member's own key and certificate only — nobody else's.
-                  Re-issuing keeps every member's key; raise a member's
-                  generation to replace theirs. Existing passwords in
-                  passwords.csv are reused.
+                  Re-issuing keeps every member's key and password; raise a
+                  member's generation to replace both.
           inspect <file.hkb> <authority-public.txt>
                   Opens and verifies a key file.
+          code    <authority.hka> <roster.csv> <number>
+                  The member's 16-character code: stands in for their key
+                  file, read out over the phone, with the same password.
+                  Never written to a file.
+          signer  <authority.hka>
+                  Prints the authority's signer, sealed. It goes into the app
+                  once, beside the public key (trust_anchors.dart).
           activation <device code> [--organization]
                   The activation code for the 6-character device code a phone
                   shows: the inter-organizational edition by default, the
@@ -139,6 +151,23 @@ private fun issue(args: Array<String>) {
     }
     println("Issued ${roster.entries.size} key files for ${roster.organization} to ${out.path}; passwords in ${Issuance.PASSWORDS_FILE}.")
     println("Hand each member their file and, separately, its password. Nobody else needs anything.")
+}
+
+private fun code(args: Array<String>) {
+    if (args.size != 4) usage()
+    val authority = openAuthority(args[1])
+    val roster = Issuer.parseRoster(File(args[2]).readText(Charsets.UTF_8))
+    val number = Canon.phone(args[3]) ?: fail("not a phone number: ${args[3]}")
+    val entry = roster.entries.firstOrNull { number in it.phones } ?: fail("$number is not on the roster")
+    println(Issuer.code(authority.key, entry))
+}
+
+private fun signer(args: Array<String>) {
+    if (args.size != 2) usage()
+    val authority = openAuthority(args[1])
+    println("Authority id: ${hex(authority.key.public.authorityId)}")
+    println("Sealed signer (${MemberCode.SEALED_SIGNER_BYTES} bytes, hex):")
+    println(hex(authority.key.sealedSigner()))
 }
 
 private fun activation(args: Array<String>) {

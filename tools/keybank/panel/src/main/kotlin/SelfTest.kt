@@ -10,6 +10,7 @@ import com.example.communication_super_app.smscrypto.Wire
 import com.example.communication_super_app.smscrypto.keybank.AuthorityFile
 import com.example.communication_super_app.smscrypto.keybank.AuthorityKey
 import com.example.communication_super_app.smscrypto.keybank.KeyFile
+import com.example.communication_super_app.smscrypto.keybank.MemberCode
 import ir.hamrasan.keybank.Activation
 import ir.hamrasan.keybank.AuthorityFolder
 import kotlinx.coroutines.runBlocking
@@ -65,6 +66,16 @@ object SelfTest {
                 check(firstFile.readBytes().contentEquals(firstBytes)) { "another member's file was rewritten" }
                 check(d.activationCode == "9c4a48e93a" && d.target == Activation.Target.INTER_ORGANIZATION) { "delivery activation code" }
                 log.appendLine("issue + open: ok")
+
+                // The second route gives the very same key and certificate.
+                val fromCode = MemberCode.open(
+                    d.code ?: error("no code"),
+                    d.password!!,
+                    listOf(MemberCode.Signer(contents.key.public, contents.key.sealedSigner())),
+                )
+                check(fromCode.identity.serialize().contentEquals(opened.identity.serialize())) { "code route: another key" }
+                check(fromCode.cert.encoded.contentEquals(opened.cert.encoded)) { "code route: another certificate" }
+                log.appendLine("code route = file route: ok")
 
                 // The two members talk over their certificates alone, as two
                 // phones would — two SMS parts each way.

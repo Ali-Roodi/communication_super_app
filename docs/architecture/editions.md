@@ -66,7 +66,7 @@ is exactly the install a store could "update" into the commercial app. Do not
 move the addition into the release scripts.
 
 `versionNameSuffix = "-org"` makes the edition visible in the system's App info
-page; the app itself names it in Settings → «درباره برنامه» → «نوع نسخه».
+page; a secure edition names itself in Settings → «درباره برنامه» → «نوع نسخه».
 
 **Consequence for anyone testing:** once an organization APK is on a phone, a
 commercial build cannot be installed on it again without uninstalling (release
@@ -98,10 +98,10 @@ test device holding real data.
 - **Crash reporting is compiled out of the organization edition**
   (`CrashReporting.isAvailable` is false whatever DSN was passed). That build is
   handed over on the promise that nothing on it talks to a third-party server.
-- «نوع نسخه» in «درباره برنامه».
+- «نوع نسخه» in «درباره برنامه» (`AboutGroup`): the secure editions only.
 - **The organization APK opens nothing until activated** (matrix row 1, see
-  «Organization activation» below); the commercial build has the
-  «نسخه بین‌سازمانی» row instead.
+  «Organization activation» below); the commercial build opens its activation
+  screen from five taps on «نسخه» instead.
 - «متن پوششی» (row 31) is offered only in the organization build.
 
 Everything else — the manifest included — is identical: `aapt2 dump xmltree` of
@@ -149,11 +149,15 @@ that source ever *called* it, so the generator is the source of truth.
   on. A wrong code and a right-but-unsaveable code are different failures
   (`ActivationFailure`), because telling a user a correct code is wrong sends
   them back to the mentor for a code that will not change.
-- **UI:** Settings → «درباره برنامه» → «نسخه بین‌سازمانی» (commercial build
-  only; compiled out of the organization build) → `InterOrgActivationScreen`:
-  device code (Latin, LTR, monospace, copy), the code field (Latin keyboard,
-  forgiving input), «غیرفعال کردن» with confirmation. «نوع نسخه» shows the
-  effective edition.
+- **UI:** Settings → «درباره برنامه» → **five taps on «نسخه»**, at most 2 s
+  apart and with no hint on the way (commercial build only; compiled out of the
+  organization build; design decision, the mentor's request 1405/08/15: a visible
+  «تبدیل به بین‌سازمانی» in a store app draws attention) →
+  `InterOrgActivationScreen`: device code (Latin, LTR, monospace, copy), the code
+  field (Latin keyboard, forgiving input), «غیرفعال کردن» with confirmation.
+  «نوع نسخه» shows the effective edition and exists only in the secure editions:
+  the store build names no other edition. Once activated, tapping it opens the
+  same screen.
 
 **Known limit, accepted:** the derivation is in the APK and the constant is
 public, so anyone who reverse-engineers the store APK can mint codes. There is
@@ -205,7 +209,7 @@ a menu of its own.
 - **The form is shared** (`widgets/activation_code_form.dart`:
   `ActivationCodeForm`, `DeviceCodeCard`) between `InterOrgActivationScreen` and
   `OrganizationActivationScreen`.
-- **Panel** (MSI 1.5.0): the rail has «فعال‌سازی بین‌سازمانی» and
+- **Panel** (MSI 1.6.0): the rail has «فعال‌سازی بین‌سازمانی» and
   «فعال‌سازی سازمانی», one `ActivationState` each. «فایل کلید اعضا» asks which
   app the member runs («برنامهٔ عضو», kept across a batch) so the code on the
   delivery and its sheet — label and steps — are that edition's.
@@ -522,13 +526,20 @@ message → PQ_OFFER → PQ_ACCEPT → message (`#E:EYVVACsm…` and
 
 Decisions (1405/07/05): the **authority tool generates** members' keys
 (escrow accepted; the tool keeps no private keys — it re-derives them); the tool
-is a **Java tool built from this code**; the app hardcodes **only the
-authority's public key**. Key files are the **only** way a phone gets a key.
+is a **Java tool built from this code**.
+
+Decision (1405/08/15, the mentor's request): a phone gets its key **two ways**,
+with one result: the key file, or a **16-character code** that can be read out
+over the phone when no file can be sent, each with the same password. The app
+therefore also holds the authority's Ed25519 signing seed, **sealed**. See
+«The 16-character code» below for what that costs.
 
 | What | Code | |
 |---|---|---|
 | Trust anchors | `lib/features/keybank/services/trust_anchors.dart` | The authority's **public** key (ML-DSA-65 + Ed25519, 1985 B hex): the real authority `7fda025a5a997b93` (`_production`, made afresh 1405/07/29 — the previous `b45a8048bd2d0314` is no longer trusted), plus the development one behind `HAMRESAN_DEV_ANCHOR`. |
 | Key file `.hkb` | `smscrypto/keybank/KeyFile.kt` | This member's identity + their certificate, nothing else (261 B); Argon2id + AES-GCM under a 20-character password. |
+| 16-character code | `smscrypto/keybank/MemberCode.kt` | With the same password, builds in the app exactly what the key file holds. Never written to a file. |
+| Sealed signers | `trust_anchors.dart` (`signers`) | The authority's Ed25519 seed under the organization's unlock secret, 48 B, one per anchor, printed by `hamresan-keybank signer`. |
 
 ### Formats (pinned by tests)
 
@@ -551,8 +562,58 @@ authority's public key**. Key files are the **only** way a phone gets a key.
   spellings, Persian digits), the spelling keys are derived from; key-file
   password → A–Z0–9 uppercased.
 - Golden values in `KeyBankTest`: authority id `e09334807b8501e0`, member key
-  id `72cadfdd2e2336fe`, key file SHA-256 `96532c6f…ef03`. A change re-keys
-  every member.
+  id `b23e9167b96fe5cc`, key file SHA-256 `4b2eb0e2…`, and the password, code
+  and sealed signer of that member. A change re-keys every member.
+
+### The 16-character code (`MemberCode`)
+
+A certificate carries the authority's 64-byte signature, which no short code can
+hold, so the signature has to be made on the phone, and the signing key has to be
+there. The phone must never hold the member seed, or anyone who opened it could
+derive every member's private key. So a member's key is no longer derived from
+the member seed directly:
+
+```
+U (10 B)        = HKDF(member seed, "unlock")                 one per organization
+password (100b) = tag(62) ‖ (number(30) ‖ generation(8)) xor hash(tag)
+                  tag = HKDF(member seed, number ‖ generation)
+Argon2id(password) = mask(10 B) ‖ K(32 B)
+code (80b)      = U xor mask
+identity seed   = HKDF(K ‖ U, number ‖ generation)
+sealed signer   = AES-GCM(Argon2id(U), Ed25519 seed), AAD = authority id
+```
+
+- **Only two things are typed**: the password carries the number and generation.
+  Nothing is checksummed; a typo in either, or another member's code or password,
+  fails the seal's GCM tag (`WRONG_PASSWORD`, «کد یا رمز درست نیست؛ کلیدی ساخته
+  نشد») and **nothing is built**. The opened seed is wiped before `open` returns,
+  and is never stored.
+- **The same result, by construction**: the tool and the app run the one private
+  `identity` function; Ed25519 is deterministic, so the certificate is the same
+  bytes; both routes return `KeyFile.Opened`, and `SmsCryptoHandler.ownKey` and
+  `KeyBankBloc._import` are one path from there. `KeyBankTest` compares them byte
+  for byte, the panel's self-test repeats it on the installed build, and on a
+  phone importing one after the other answers «این کلید قبلاً روی این گوشی هست».
+- **Passwords are derived, not random.** Issuing again gives the same one; a new
+  generation or a new first mobile gives a new one. `passwords.csv` is a record,
+  no longer an input. The key now hangs on the **first mobile** (`Entry.keyNumber`,
+  the number the certificate names), since the password has room for only that.
+- **What it costs (accepted, 1405/08/15):** whoever holds **one** valid code and
+  its password can open the seal and sign a certificate for **any** number, and a
+  peer cannot tell. There is no revocation; the only cure is a new authority and
+  new keys for everyone. What they still cannot do is read anybody's messages:
+  another member's private key needs that member's password, which takes the
+  member seed to make, and the member seed is not in the APK.
+- **Without a code and its password** the seal is guarded by `U` (80 bits) behind
+  Argon2id, 64 MiB per guess. A key file's password now has 62 secret bits to an
+  attacker who knows the number, also behind Argon2id.
+- **The code is never on disk and never on the printed sheet.** It stands in for
+  the file, so the old rule holds: it must not travel with the password. The panel
+  and `hamresan-keybank code` work it out when asked (`Issuance.code`), which is
+  why they need the authority open.
+- `.hka` did not change: `U` is derived from the member seed already in it, and a
+  new anchor adds one hex string to `_production` and one to `_productionSigners`,
+  in the same order.
 
 ### Storage and app
 
@@ -563,11 +624,15 @@ authority's public key**. Key files are the **only** way a phone gets a key.
   `older` (refused). Only `KeyBankRepository` touches it.
 - `KeyBankBloc` (lazy, after `SecureSessionBloc`) loads when the section opens
   and **empties itself when it locks**. State holds public data only.
-  Notices: imported, replaced, alreadyImported, older, wrongPassword,
-  notAKeyFile, untrusted, badBundle («محتوای فایل کلید معتبر نیست»), failed.
+  Notices: imported, built, replaced, alreadyImported, older, wrongPassword,
+  wrongCode, notAKeyFile, untrusted, badBundle («محتوای فایل کلید معتبر نیست»),
+  failed. `KeyBankImportFile` and `KeyBankImportCode` differ only in how the key
+  is obtained.
 - Settings → امنیت → «بانک کلید» (secure editions): «کلید شما» (the
   certificate's number, «نسل کلید n · واردشده …», «حذف» with a confirmation),
-  «وارد کردن فایل کلید». The password field is obscured with an eye toggle.
+  «وارد کردن فایل کلید», «ساختن کلید با کد» (one dialog: the code in clear, since
+  it is typed from someone's voice and is nothing alone, and the password). The
+  password field is obscured with an eye toggle.
   On a locked section the screen asks to open it.
 - File picking: `KeyFilePicker.kt` (`ACTION_OPEN_DOCUMENT`, no permission,
   8 MB cap, request code 9301).
@@ -582,7 +647,7 @@ authority's public key**. Key files are the **only** way a phone gets a key.
 ### Development authority and the release guard
 
 `tools/keybank/dev/` (gitignored) holds a development authority (id
-`0ff8c538a8c5ca4b`, password in `dev/authority-password.txt`) and test key
+`7f729dabc1b29656`, password in `dev/authority-password.txt`) and test key
 files. The app trusts it **only** with `--dart-define=HAMRESAN_DEV_ANCHOR=true`
 (the key bank screen then shows a red «نسخه آزمایشی» banner).
 `scripts/release_build.{sh,ps1}` **refuse any APK whose `libapp.so` contains
@@ -595,12 +660,14 @@ JVM build compiling `smscrypto/` from the app source (minus the three Android
 files: `SmsCryptoHandler`, `KeyFilePicker`, `SecureSmsInbox`): `android\gradlew -p tools\keybank jar` → `hamresan-keybank.jar`
 (Java 11+), `hamresan-keybank.cmd` launcher (chcp 65001).
 Commands `init`, `public`, `issue <hka> <roster.csv> <out>` (one
-`<number>.hkb` per member + `passwords.csv`), `inspect`, `activation`.
+`<number>.hkb` per member + `passwords.csv`), `inspect`, `code <hka> <roster.csv>
+<number>` (prints a member's 16-character code), `signer <hka>` (prints the sealed
+signer for `trust_anchors.dart`), `activation`.
 Roster: `organization,<name>` line then `name,phones,generation` — **every
 member needs a mobile (`09…`)**, which their certificate names (the org name is
 in the file because Java on Windows reads argv in the ANSI code page — a
-Persian argument arrived as «???»). `passwords.csv` (UTF-8 BOM) is reused on
-re-issue. Persian README for the mentor in the folder. `activation <device
+Persian argument arrived as «???»). `passwords.csv` is UTF-8 with a BOM. Persian
+README for the mentor in the folder. `activation <device
 code>` prints an activation code (no authority needed).
 
 Shared between the command line and the panel (in `tools/keybank/src/main/kotlin/`):
@@ -621,7 +688,9 @@ or deletes **that member's file only** (`issueOne` / `removeOne`, atomic
 No «فایل قدیمی» status, no update file. The «حذف از سازمان» text says the
 removed member's certificate is not revoked. `prepareNewKey` refuses a
 generation past 255. The self-test (`--self-test`) runs a certificate
-handshake between two issued files on the installed build. MSI **1.5.0**.
+handshake between two issued files on the installed build, and compares the code
+route with the file route. The member dialog shows «کد ۱۶ نویسه‌ای (به‌جای فایل)»
+beside the password; the printed sheet does not. MSI **1.6.0**.
 The «عضو جدید» form and its confirmation live on `KeysState` (`newMember`,
 `confirmAdd`) so `PreviewRender` can draw them filled in, refused and
 confirming — the guide's pictures come from it.
@@ -640,15 +709,15 @@ format stays as it is. Phase 1 = activation tab + «عضو جدید» with a pri
    one), `CURRENT`. The
    panel cannot see a phone: delivery is what the operator records («تحویل داده
    شد», or «همه … گرفتند…»).
-2. **«گوشی گم شد»** = `AuthorityFolder.newKey`: generation + 1 **and a new
-   password** (the paper may have gone with the phone). A number that ever had a
+2. **«گوشی گم شد»** = `AuthorityFolder.newKey`: generation + 1, **and so a new
+   password and code** (the paper may have gone with the phone). A number that ever had a
    key starts above every generation the log has seen for it (`nextGeneration`),
    so a retired key — possibly on a lost phone — is never issued again, also not
    when a removed member is re-added.
 3. **Edit / remove** (`editMember`, `removeMember`): the member's line is
    replaced in place (`replaceMemberLine` keeps comments, header, BOM, line
-   endings of a hand-written roster). Changing the FIRST number changes the key;
-   the password follows the member. The last member cannot be removed.
+   endings of a hand-written roster). Changing the first MOBILE changes the key,
+   the password and the code. The last member cannot be removed.
 4. ~~`update.hku`~~ — removed 1405/07/29 with the directory.
 
 Every change is `prepare*` (validates, writes nothing; the panel runs it before

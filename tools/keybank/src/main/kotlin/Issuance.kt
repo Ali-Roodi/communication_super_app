@@ -33,9 +33,8 @@ object Issuance {
 
     /**
      * Writes a key file for every member of [roster] into [out], with
-     * `passwords.csv`. A member in [known] (by default what
-     * `passwords.csv` already says) keeps their password; their key never
-     * changes (it is derived from their first number and generation).
+     * `passwords.csv`. Issuing again gives every member the same key and
+     * password (both are derived from their first mobile and generation).
      *
      * All or nothing: everything is written into a scratch folder first and
      * moved into place only once every file exists.
@@ -46,17 +45,12 @@ object Issuance {
         out: File,
         random: SecureRandom,
         kdf: PasswordKdf = PasswordKdf.KEY_FILE,
-        known: Map<String, String>? = null,
         progress: (done: Int, total: Int) -> Unit = { _, _ -> },
     ): List<IssuedFile> {
-        val kept = known ?: readPasswords(File(out, PASSWORDS_FILE))
-        val passwords = roster.entries.associate { e ->
-            val phone = e.phones.first()
-            phone to (kept[phone] ?: Issuer.password(random))
-        }
+        val passwords = roster.entries.associate { e -> e.phones.first() to Issuer.password(authority.key, e) }
         return write(out, roster, passwords) { scratch ->
             roster.entries.mapIndexed { i, entry ->
-                writeKeyFile(authority, entry, passwords.getValue(entry.phones.first()), scratch, out, random, kdf)
+                writeKeyFile(authority, entry, scratch, out, random, kdf)
                     .also { progress(i + 1, roster.entries.size) }
             }
         }
@@ -64,23 +58,30 @@ object Issuance {
 
     /**
      * Writes the key file of [entry] alone (the other members' files are
-     * not touched), with `passwords.csv` for the whole [roster]: [password]
-     * for [entry], [known] for everyone else. [retired] is a file name to
-     * delete in the same step (the member's previous first number).
+     * not touched), with `passwords.csv` for the whole [roster]: [entry]'s
+     * own, [known] for everyone else. [retired] is a file name to delete in
+     * the same step (the member's previous first number).
      */
     fun issueOne(
         authority: AuthorityFile.Contents,
         roster: Issuer.Roster,
         entry: Issuer.Entry,
-        password: String,
         out: File,
         random: SecureRandom,
         kdf: PasswordKdf = PasswordKdf.KEY_FILE,
         known: Map<String, String>,
         retired: String? = null,
-    ): IssuedFile = write(out, roster, known + (entry.phones.first() to password), retired) { scratch ->
-        listOf(writeKeyFile(authority, entry, password, scratch, out, random, kdf))
+    ): IssuedFile = write(out, roster, known + (entry.phones.first() to Issuer.password(authority.key, entry)), retired) { scratch ->
+        listOf(writeKeyFile(authority, entry, scratch, out, random, kdf))
     }.single()
+
+    /**
+     * The 16-character code of [entry]. Worked out when it is shown, never
+     * written down here: with a member's password it opens the organization's
+     * signer in the app, so it must not lie next to `passwords.csv`.
+     */
+    fun code(authority: AuthorityFile.Contents, entry: Issuer.Entry): String =
+        Issuer.code(authority.key, entry)
 
     /** Removes a member's file and their line in `passwords.csv`. */
     fun removeOne(out: File, roster: Issuer.Roster, phone: String, known: Map<String, String>) {
@@ -90,13 +91,13 @@ object Issuance {
     private fun writeKeyFile(
         authority: AuthorityFile.Contents,
         entry: Issuer.Entry,
-        password: String,
         scratch: File,
         out: File,
         random: SecureRandom,
         kdf: PasswordKdf,
     ): IssuedFile {
         val issued = Issuer.issue(authority.key, entry)
+        val password = Issuer.password(authority.key, entry)
         val name = fileName(entry.phones.first())
         File(scratch, name).writeBytes(KeyFile.create(issued.identity, issued.cert, password, random, kdf))
         return IssuedFile(entry, File(out, name), password)
@@ -273,7 +274,7 @@ class AuthorityFolder(val dir: File) {
         val entry = p.roster.entries[p.index]
         val known = Issuance.readPasswords(passwordsFile)
         return commit(p, IssuanceLog.Action.ADD, entry) {
-            Issuance.issueOne(authority, p.roster, entry, Issuer.password(random), issuedDir, random, kdf, known)
+            Issuance.issueOne(authority, p.roster, entry, issuedDir, random, kdf, known)
         }!!
     }
 
@@ -307,15 +308,15 @@ class AuthorityFolder(val dir: File) {
 
     /**
      * Checks an edit of member [index] without writing anything. Changing the
-     * FIRST number changes the member's key (it is derived from it); any
-     * other change keeps it.
+     * first MOBILE changes the member's key and password (both are derived
+     * from it); any other change keeps them.
      */
     fun prepareEdit(index: Int, name: String, phones: List<String>): Prepared {
         val (oldText, roster) = current()
         val old = roster.entries.getOrNull(index) ?: throw MemberError("این عضو دیگر در فهرست نیست.")
         val cleanName = checkName(name)
         val numbers = checkNumbers(phones)
-        val keyChanged = numbers.first() != old.phones.first()
+        val keyChanged = numbers.firstOrNull(MemberCert::canName) != old.keyNumber
         val generation = if (keyChanged) nextGeneration(numbers.first()) else old.generation
         if (cleanName == old.name && numbers == old.phones) throw MemberError("چیزی تغییر نکرده است.")
         val text = replaceMemberLine(oldText, index, memberLine(cleanName, numbers, generation))
@@ -324,8 +325,8 @@ class AuthorityFolder(val dir: File) {
 
     /**
      * Applies [prepareEdit] and writes the member's file again (the
-     * certificate names their first mobile). A member whose first number
-     * changed keeps their password; their old file is deleted.
+     * certificate names their first mobile). When their first number changed,
+     * their old file is deleted.
      */
     fun editMember(
         authority: AuthorityFile.Contents,
@@ -339,11 +340,10 @@ class AuthorityFolder(val dir: File) {
         val p = prepareEdit(index, name, phones)
         val entry = p.roster.entries[index]
         val known = Issuance.readPasswords(passwordsFile)
-        val password = known[old.phones.first()] ?: Issuer.password(random)
-        val note = if (p.keyChanged) "شمارهٔ اول ${old.phones.first()} بود؛ کلید تازه" else ""
+        val note = if (p.keyChanged) "شمارهٔ همراه ${old.keyNumber} بود؛ کلید تازه" else ""
         return commit(p, IssuanceLog.Action.EDIT, entry, note) {
             Issuance.issueOne(
-                authority, p.roster, entry, password, issuedDir, random, kdf,
+                authority, p.roster, entry, issuedDir, random, kdf,
                 known - old.phones.first(),
                 retired = Issuance.fileName(old.phones.first()),
             )
@@ -380,7 +380,7 @@ class AuthorityFolder(val dir: File) {
         val entry = p.roster.entries[index]
         val known = Issuance.readPasswords(passwordsFile)
         return commit(p, IssuanceLog.Action.NEW_KEY, entry) {
-            Issuance.issueOne(authority, p.roster, entry, Issuer.password(random), issuedDir, random, kdf, known)
+            Issuance.issueOne(authority, p.roster, entry, issuedDir, random, kdf, known)
         }!!
     }
 
@@ -490,8 +490,8 @@ class AuthorityFolder(val dir: File) {
             Canon.phone(raw) ?: throw MemberError("این شماره درست نیست: $raw")
         }
         if (numbers.isEmpty()) throw MemberError("دست‌کم یک شماره لازم است.")
-        // The first number is where encrypted SMS goes and what the key is
-        // derived from: it has to be a mobile (or a foreign number).
+        // The first number is where encrypted SMS goes: it has to be a mobile
+        // (or a foreign number, with a mobile after it for the certificate).
         val first = numbers.first()
         if (!(first.startsWith("09") && first.length == 11) && !first.startsWith("00")) {
             throw MemberError("شمارهٔ همراه باید با ۰۹ شروع شود و ۱۱ رقم باشد. شمارهٔ ثابت را در «شماره‌های دیگر» بنویسید.")

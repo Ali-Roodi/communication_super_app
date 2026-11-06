@@ -66,9 +66,76 @@ void main() {
 
   testWidgets('an empty bank says what is missing', (tester) async {
     await pump(tester, const KeyBankState(status: KeyBankStatus.ready));
+    expect(find.textContaining('هنوز کلیدی وارد نشده است'), findsOneWidget);
+  });
+
+  group('«ساختن کلید با کد»', () {
+    Future<void> open(WidgetTester tester) async {
+      await pump(tester, ready);
+      await tester.tap(find.text('ساختن کلید با کد'));
+      await tester.pumpAndSettle();
+    }
+
+    TextButton build(WidgetTester tester) => tester.widget<TextButton>(
+      find.widgetWithText(TextButton, 'ساختن کلید'),
+    );
+
+    testWidgets('needs all 16 characters and a password', (tester) async {
+      await open(tester);
+      expect(build(tester).onPressed, isNull);
+
+      await tester.enterText(find.byType(TextField).first, 'ABCD-EFGH-2345');
+      await tester.enterText(find.byType(TextField).last, 'PW');
+      await tester.pump();
+      expect(build(tester).onPressed, isNull);
+
+      await tester.enterText(
+        find.byType(TextField).first,
+        'ABCD-EFGH-2345-6789',
+      );
+      await tester.pump();
+      expect(build(tester).onPressed, isNotNull);
+
+      await tester.enterText(find.byType(TextField).last, '');
+      await tester.pump();
+      expect(build(tester).onPressed, isNull);
+    });
+
+    testWidgets('hands both to the bloc, and hides only the password', (
+      tester,
+    ) async {
+      await open(tester);
+      final fields = tester.widgetList<TextField>(find.byType(TextField));
+      expect(fields.first.obscureText, isFalse);
+      expect(fields.last.obscureText, isTrue);
+
+      await tester.enterText(
+        find.byType(TextField).first,
+        'abcd efgh 2345 6789',
+      );
+      await tester.enterText(find.byType(TextField).last, 'PW');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(TextButton, 'ساختن کلید'));
+      await tester.pumpAndSettle();
+
+      final added = verify(() => bloc.add(captureAny())).captured.single;
+      expect(added, isA<KeyBankImportCode>());
+      expect((added as KeyBankImportCode).code, 'abcd efgh 2345 6789');
+      expect(added.password, 'PW');
+    });
+
+    testWidgets('cancelling builds nothing', (tester) async {
+      await open(tester);
+      await tester.tap(find.text('انصراف'));
+      await tester.pumpAndSettle();
+      verifyNever(() => bloc.add(any()));
+    });
+  });
+
+  test('a wrong code says nothing was built', () {
     expect(
-      find.textContaining('هنوز فایل کلیدی وارد نشده است'),
-      findsOneWidget,
+      KeyBankScreen.noticeText(KeyBankNotice.wrongCode),
+      contains('ساخته نشد'),
     );
   });
 

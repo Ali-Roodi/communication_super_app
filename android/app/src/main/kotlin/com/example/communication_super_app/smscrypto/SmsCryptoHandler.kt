@@ -4,6 +4,7 @@ import android.os.SystemClock
 import com.example.communication_super_app.smscrypto.keybank.AuthorityPublic
 import com.example.communication_super_app.smscrypto.keybank.Canon
 import com.example.communication_super_app.smscrypto.keybank.KeyFile
+import com.example.communication_super_app.smscrypto.keybank.MemberCode
 import com.example.communication_super_app.smscrypto.keybank.MemberCert
 import android.util.Log
 import io.flutter.plugin.common.MethodCall
@@ -62,6 +63,9 @@ import kotlinx.coroutines.withContext
  * - `openKeyFile {file, password, anchors}` → `{authorityId, secret, keyId,
  *   cert}` — the member's own key and its certificate (`cert` as
  *   `certInfo` returns it); a key file holds nothing else
+ * - `keyFromCode {code, password, anchors, signers}` → the same map: what the
+ *   member's key file holds, built here (`MemberCode`). `signers` are the
+ *   sealed signers, in the order of `anchors`
  *
  * `anchors` are the trusted authority public keys, passed in by Dart.
  *
@@ -128,6 +132,7 @@ class SmsCryptoHandler {
                 "openSealed" -> run(call, result) { openSealed(call) }
                 "canonicalPhone" -> run(call, result) { Canon.phone(call.string("phone")) }
                 "openKeyFile" -> run(call, result) { openKeyFile(call) }
+                "keyFromCode" -> run(call, result) { keyFromCode(call) }
                 else -> result.notImplemented()
             }
         }
@@ -360,16 +365,25 @@ class SmsCryptoHandler {
         }
     }
 
-    private fun openKeyFile(call: MethodCall): Map<String, Any?> {
-        val opened = KeyFile.open(call.bytes("file"), call.string("password"), anchors(call))
-        // Named by its certificate's key id, as the packets name it.
-        return mapOf(
-            "authorityId" to opened.authority.authorityId,
-            "secret" to opened.identity.serialize(),
-            "keyId" to opened.cert.keyId,
-            "cert" to cert(opened.cert),
-        )
+    private fun openKeyFile(call: MethodCall) =
+        ownKey(KeyFile.open(call.bytes("file"), call.string("password"), anchors(call)))
+
+    private fun keyFromCode(call: MethodCall): Map<String, Any?> {
+        val anchors = anchors(call)
+        val sealed = call.argument<List<ByteArray>>("signers") ?: emptyList()
+        require(sealed.size == anchors.size) { "one sealed signer per anchor" }
+        val signers = anchors.zip(sealed) { anchor, blob -> MemberCode.Signer(anchor, blob) }
+        return ownKey(MemberCode.open(call.string("code"), call.string("password"), signers))
     }
+
+    /** Both routes end here: the same map from the same type. */
+    private fun ownKey(opened: KeyFile.Opened): Map<String, Any?> = mapOf(
+        "authorityId" to opened.authority.authorityId,
+        "secret" to opened.identity.serialize(),
+        // Named by its certificate's key id, as the packets name it.
+        "keyId" to opened.cert.keyId,
+        "cert" to cert(opened.cert),
+    )
 
     private fun anchors(call: MethodCall): List<AuthorityPublic> =
         (call.argument<List<ByteArray>>("anchors") ?: emptyList()).map { AuthorityPublic.parse(it) }

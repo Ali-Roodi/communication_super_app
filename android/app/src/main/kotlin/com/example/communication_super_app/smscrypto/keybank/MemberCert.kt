@@ -4,6 +4,8 @@ import com.example.communication_super_app.smscrypto.IdentityKeyPair
 import com.example.communication_super_app.smscrypto.Kdf
 import com.example.communication_super_app.smscrypto.SmsCryptoException
 import com.example.communication_super_app.smscrypto.cryptoError
+import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
+import org.bouncycastle.crypto.signers.Ed25519Signer
 
 /**
  * «گواهی عضو»: the authority's statement that [x25519] is the key of the
@@ -60,12 +62,38 @@ class MemberCert private constructor(
             phone: String,
             generation: Int,
             identity: IdentityKeyPair,
+        ): MemberCert = issue(authority.public.authorityId, phone, generation, identity, authority::signCertificate)
+
+        /**
+         * The same certificate from the authority's Ed25519 half alone, which
+         * is all the app ever opens ([MemberCode]). Ed25519 is deterministic,
+         * so these are the same bytes the authority's tool signs.
+         */
+        internal fun issue(
+            signer: Ed25519PrivateKeyParameters,
+            authorityId: ByteArray,
+            phone: String,
+            generation: Int,
+            identity: IdentityKeyPair,
+        ): MemberCert = issue(authorityId, phone, generation, identity) { body ->
+            Ed25519Signer().run {
+                init(true, signer)
+                update(body, 0, body.size)
+                generateSignature()
+            }
+        }
+
+        private fun issue(
+            authorityId: ByteArray,
+            phone: String,
+            generation: Int,
+            identity: IdentityKeyPair,
+            sign: (ByteArray) -> ByteArray,
         ): MemberCert {
             require(canName(phone)) { "a certificate names a mobile number (09…)" }
             require(generation in 0..MAX_GENERATION) { "generation 0..$MAX_GENERATION" }
             val x25519 = identity.public.x25519.encoded
-            val body = signedBody(authority.public.authorityId, phone, generation, x25519)
-            return MemberCert(phone, generation, x25519, authority.signCertificate(body))
+            return MemberCert(phone, generation, x25519, sign(signedBody(authorityId, phone, generation, x25519)))
         }
 
         /**

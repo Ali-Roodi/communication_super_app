@@ -33,6 +33,14 @@ class KeyBankImportFile extends KeyBankEvent {
   final String password;
 }
 
+/// The 16-character code read out to the user, and the password of their key
+/// file: builds the key in the app, the same one the file holds.
+class KeyBankImportCode extends KeyBankEvent {
+  const KeyBankImportCode(this.code, this.password);
+  final String code;
+  final String password;
+}
+
 /// Removes one of this phone's own keys (by its key id).
 class KeyBankRemoveKey extends KeyBankEvent {
   const KeyBankRemoveKey(this.keyId);
@@ -52,11 +60,17 @@ enum KeyBankStatus {
 enum KeyBankNotice {
   imported,
 
+  /// The key was built from a code.
+  built,
+
   /// It replaced the key held from the same authority.
   replaced,
   alreadyImported,
   older,
   wrongPassword,
+
+  /// The code or its password is wrong: nothing was built.
+  wrongCode,
   notAKeyFile,
 
   /// The certificate is not signed by an authority this build trusts.
@@ -79,7 +93,7 @@ class KeyBankState extends Equatable {
   /// Public data only — see [KeyBankSnapshot].
   final KeyBankSnapshot snapshot;
 
-  /// An import is running (Argon2id: about a second).
+  /// An import is running (Argon2id: a second or two).
   final bool busy;
   final KeyBankNotice? notice;
 
@@ -110,21 +124,24 @@ class KeyBankState extends Equatable {
 /// when it closes, so a locked phone holds no key-bank data in memory.
 ///
 /// Its sources (see `editions.md`): the authority's public key, hardcoded
-/// ([TrustAnchors]), and this phone's own key file, which the authority's
-/// panel issues and is imported here. Nothing about anybody else.
+/// ([TrustAnchors]), and this phone's own key, from the file the authority's
+/// panel issues or built from the code it shows. Nothing about anybody else.
 class KeyBankBloc extends Bloc<KeyBankEvent, KeyBankState> {
   KeyBankBloc({
     required SecureSessionBloc session,
     KeyBankRepository? repository,
     SmsCryptoService crypto = const SmsCryptoService(),
     List<Uint8List> Function()? anchors,
+    List<Uint8List> Function()? signers,
   }) : _repository = repository ?? KeyBankRepository(),
        _crypto = crypto,
        _anchors = anchors ?? (() => TrustAnchors.all),
+       _signers = signers ?? (() => TrustAnchors.signers),
        super(const KeyBankState()) {
     on<_SectionChanged>(_onSectionChanged);
     on<KeyBankRefresh>(_onRefresh);
-    on<KeyBankImportFile>(_onImport);
+    on<KeyBankImportFile>(_onImportFile);
+    on<KeyBankImportCode>(_onImportCode);
     on<KeyBankRemoveKey>(
       (e, emit) => _mutate(emit, () => _repository.removeKey(e.keyId)),
     );
@@ -139,6 +156,7 @@ class KeyBankBloc extends Bloc<KeyBankEvent, KeyBankState> {
   final KeyBankRepository _repository;
   final SmsCryptoService _crypto;
   final List<Uint8List> Function() _anchors;
+  final List<Uint8List> Function() _signers;
   late final StreamSubscription<bool> _sessionSub;
 
   bool get _open => state.status != KeyBankStatus.locked;
@@ -178,23 +196,47 @@ class KeyBankBloc extends Bloc<KeyBankEvent, KeyBankState> {
     }
   }
 
-  Future<void> _onImport(
-    KeyBankImportFile e,
+  Future<void> _onImportFile(KeyBankImportFile e, Emitter<KeyBankState> emit) =>
+      _import(
+        emit,
+        () => _crypto.openKeyFile(
+          file: e.file,
+          password: e.password,
+          anchors: _anchors(),
+        ),
+        added: KeyBankNotice.imported,
+        wrong: KeyBankNotice.wrongPassword,
+      );
+
+  Future<void> _onImportCode(KeyBankImportCode e, Emitter<KeyBankState> emit) =>
+      _import(
+        emit,
+        () => _crypto.keyFromCode(
+          code: e.code,
+          password: e.password,
+          anchors: _anchors(),
+          signers: _signers(),
+        ),
+        added: KeyBankNotice.built,
+        wrong: KeyBankNotice.wrongCode,
+      );
+
+  /// Both routes from here on are one: what [open] returns is stored the same
+  /// way, so a key cannot differ by how it got here.
+  Future<void> _import(
     Emitter<KeyBankState> emit,
-  ) async {
+    Future<OpenedKeyFile> Function() open, {
+    required KeyBankNotice added,
+    required KeyBankNotice wrong,
+  }) async {
     if (!_open || state.busy) return;
     emit(state.copyWith(busy: true));
     try {
-      final opened = await _crypto.openKeyFile(
-        file: e.file,
-        password: e.password,
-        anchors: _anchors(),
-      );
-      final outcome = await _repository.importKeyFile(opened);
+      final outcome = await _repository.importKeyFile(await open());
       await _reload(
         emit,
         notice: switch (outcome) {
-          KeyImportOutcome.added => KeyBankNotice.imported,
+          KeyImportOutcome.added => added,
           KeyImportOutcome.replaced => KeyBankNotice.replaced,
           KeyImportOutcome.alreadyImported => KeyBankNotice.alreadyImported,
           KeyImportOutcome.older => KeyBankNotice.older,
@@ -205,7 +247,7 @@ class KeyBankBloc extends Bloc<KeyBankEvent, KeyBankState> {
         state.copyWith(
           busy: false,
           notice: switch (x.failure) {
-            SmsCryptoFailure.wrongPassword => KeyBankNotice.wrongPassword,
+            SmsCryptoFailure.wrongPassword => wrong,
             SmsCryptoFailure.notAKeyFile => KeyBankNotice.notAKeyFile,
             SmsCryptoFailure.untrusted => KeyBankNotice.untrusted,
             SmsCryptoFailure.badBundle => KeyBankNotice.badBundle,
@@ -216,7 +258,7 @@ class KeyBankBloc extends Bloc<KeyBankEvent, KeyBankState> {
     } on KeyBankLockedException {
       emit(const KeyBankState());
     } catch (x) {
-      debugPrint('Key file import failed: ${x.runtimeType}');
+      debugPrint('Key import failed: ${x.runtimeType}');
       emit(state.copyWith(busy: false, notice: KeyBankNotice.failed));
     }
   }

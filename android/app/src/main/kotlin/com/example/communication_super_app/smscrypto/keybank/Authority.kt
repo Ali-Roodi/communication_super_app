@@ -20,8 +20,9 @@ import org.bouncycastle.crypto.signers.Ed25519Signer
  * nothing today; it is part of the authority's identity ([authorityId] is
  * taken over both), which is what the app's trust anchor pins.
  *
- * This is the one thing the app hardcodes (its trust anchor). It is not a
- * secret: knowing it lets one *check* a signature, never make one.
+ * The app hardcodes this as its trust anchor. It is not a secret: knowing it
+ * lets one *check* a signature, never make one. (Beside it the app holds the
+ * Ed25519 half of the private key, sealed: see [MemberCode].)
  */
 class AuthorityPublic internal constructor(
     internal val mldsa: MLDSAPublicKeyParameters,
@@ -63,14 +64,16 @@ class AuthorityPublic internal constructor(
 }
 
 /**
- * The authority's private side — only ever in the Windows tool, never in the
- * app. Three seeds: ML-DSA, Ed25519, and the **member seed** every member's
- * identity is derived from.
+ * The authority's private side — as a whole only ever in the Windows tool.
+ * Three seeds: ML-DSA, Ed25519, and the **member seed** every member's password,
+ * the organization's unlock secret and through them every member's identity are
+ * derived from ([MemberCode]). The member seed never leaves this class and is
+ * never in the app.
  *
  * Deriving members (rather than generating and storing each key) is what lets
  * the tool re-issue a member's key file at any time without keeping private
  * keys around: it only needs the authority file and the roster. A member
- * whose phone was lost gets a new `generation`, and so a new key.
+ * whose phone was lost gets a new `generation`, and so a new key and password.
  */
 class AuthorityKey private constructor(
     private val mldsaSeed: ByteArray,
@@ -81,7 +84,8 @@ class AuthorityKey private constructor(
         private const val FORMAT: Byte = 1
         private const val SEED_BYTES = 32
         const val SERIALIZED_BYTES = 1 + 3 * SEED_BYTES
-        private val MEMBER_SALT = Kdf.label("hamresan.authority.member.v1")
+        private val PASSWORD_SALT = Kdf.label("hamresan.authority.member-password.v1")
+        private val UNLOCK_SALT = Kdf.label("hamresan.authority.unlock.v1")
 
         fun generate(random: SecureRandom): AuthorityKey = AuthorityKey(
             ByteArray(SEED_BYTES).also(random::nextBytes),
@@ -117,11 +121,29 @@ class AuthorityKey private constructor(
         generateSignature()
     }
 
-    /** The identity of the member keyed by [phone] (canonical) at [generation]. */
-    fun memberIdentity(phone: String, generation: Int): IdentityKeyPair {
-        require(generation >= 0)
-        val number = Canon.phone(phone) ?: throw IllegalArgumentException("not a phone number: $phone")
-        val info = BinWriter().text(number).u32(generation.toLong()).toByteArray()
-        return IdentityKeyPair.fromSeed(Kdf.hkdf(memberSeed, MEMBER_SALT, info, IdentityKeyPair.SEED_BYTES))
+    /** The secret [MemberCode] seals the signer under; the same for the whole organization. */
+    private val unlock: ByteArray by lazy {
+        Kdf.hkdf(memberSeed, UNLOCK_SALT, ByteArray(0), MemberCode.UNLOCK_BYTES)
     }
+
+    /**
+     * The password of the member with mobile number [phone] (canonical) at
+     * [generation]. Derived, so issuing again gives the same one; a new
+     * generation or number gives a new one.
+     */
+    fun memberPassword(phone: String, generation: Int): String {
+        val info = BinWriter().text(phone).u32(generation.toLong()).toByteArray()
+        return MemberCode.password(Kdf.hkdf(memberSeed, PASSWORD_SALT, info, 8), phone, generation)
+    }
+
+    /** The 16-character code that, with [memberPassword], builds this member's key in the app. */
+    fun memberCode(phone: String, generation: Int): String =
+        MemberCode.code(unlock, memberPassword(phone, generation))
+
+    /** The identity of the member with mobile number [phone] at [generation]. */
+    fun memberIdentity(phone: String, generation: Int): IdentityKeyPair =
+        MemberCode.identity(unlock, memberPassword(phone, generation), phone, generation)
+
+    /** The Ed25519 seed sealed for the app (`trust_anchors.dart`). */
+    fun sealedSigner(): ByteArray = MemberCode.sealSigner(ed25519Seed, unlock, public.authorityId)
 }

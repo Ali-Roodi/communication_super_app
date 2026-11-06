@@ -206,9 +206,9 @@ class SmsSealed {
   final int? counter;
 }
 
-/// A verified key file (`KeyFile.kt`): the member's own secret and the
-/// certificate the authority signed for it — a key file holds nothing else,
-/// no colleague and no name.
+/// A verified key file (`KeyFile.kt`), or the same thing built from a code
+/// (`MemberCode.kt`): the member's own secret and the certificate the
+/// authority signed for it — nothing else, no colleague and no name.
 class OpenedKeyFile {
   const OpenedKeyFile({
     required this.authorityId,
@@ -635,12 +635,33 @@ class SmsCryptoService {
       'password': password,
       'anchors': anchors,
     });
-    return OpenedKeyFile(
-      authorityId: m['authorityId'] as Uint8List,
-      secret: m['secret'] as Uint8List,
-      cert: _cert(m['cert'] as Map),
-    );
+    return _ownKey(m);
   }
+
+  /// Builds what the member's key file holds from their 16-character code and
+  /// its password (`MemberCode.kt`). [signers] are the sealed signers, in the
+  /// order of [anchors]. [SmsCryptoFailure.wrongPassword] when either is wrong:
+  /// nothing has been built then.
+  Future<OpenedKeyFile> keyFromCode({
+    required String code,
+    required String password,
+    required List<Uint8List> anchors,
+    required List<Uint8List> signers,
+  }) async {
+    final m = await _call<Map>('keyFromCode', {
+      'code': code,
+      'password': password,
+      'anchors': anchors,
+      'signers': signers,
+    });
+    return _ownKey(m);
+  }
+
+  OpenedKeyFile _ownKey(Map m) => OpenedKeyFile(
+    authorityId: m['authorityId'] as Uint8List,
+    secret: m['secret'] as Uint8List,
+    cert: _cert(m['cert'] as Map),
+  );
 
   SmsIdentity _identity(Map m) => SmsIdentity(
     secret: m['secret'] as Uint8List,

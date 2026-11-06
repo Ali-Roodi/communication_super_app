@@ -8,6 +8,7 @@ import com.example.communication_super_app.smscrypto.keybank.AuthorityFile
 import com.example.communication_super_app.smscrypto.keybank.Canon
 import ir.hamrasan.keybank.Activation
 import ir.hamrasan.keybank.AuthorityFolder
+import ir.hamrasan.keybank.Issuance
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -37,7 +38,7 @@ class KeysState(
     /** What just happened to the member a [Delivery] is shown for. */
     enum class Event { ADDED, EDITED, NEW_KEY }
 
-    /** What the details dialog shows: one member's file, password and (when known) activation code. */
+    /** What the details dialog shows: one member's file, password, 16-character code and (when known) activation code. */
     class Delivery(
         val index: Int,
         val name: String,
@@ -45,6 +46,8 @@ class KeysState(
         val file: File,
         val password: String?,
         val activationCode: String?,
+        /** Stands in for [file], with the same password. Never on the printed sheet. */
+        val code: String? = null,
         /** Set right after an issue: what was just done for this member. */
         val event: Event? = null,
         /** Whether this member's key changed in that issue. */
@@ -210,6 +213,7 @@ class KeysState(
                 mine.file,
                 mine.password,
                 deviceCode?.let { Activation.activationCodeFor(it, form.target) },
+                code = withContext(Dispatchers.Default) { Issuance.code(u.contents, mine.entry) },
                 event = Event.ADDED,
                 keyChanged = true,
                 target = form.target,
@@ -226,7 +230,7 @@ class KeysState(
     }
 
     /** Where [issued] is in the roster now (by its first number). */
-    private fun indexOf(issued: ir.hamrasan.keybank.Issuance.IssuedFile): Int =
+    private fun indexOf(issued: Issuance.IssuedFile): Int =
         snapshot?.entries?.indexOfFirst { it.phones.first() == issued.phone }?.takeIf { it >= 0 } ?: 0
 
     fun showMember(index: Int) {
@@ -234,7 +238,10 @@ class KeysState(
         val s = snapshot ?: return
         val entry = s.entries.getOrNull(index) ?: return
         touch()
-        delivery = Delivery(index, entry.name, entry.phones, u.folder.keyFileOf(entry), s.passwordOf(entry), null)
+        delivery = Delivery(
+            index, entry.name, entry.phones, u.folder.keyFileOf(entry), s.passwordOf(entry), null,
+            code = Issuance.code(u.contents, entry),
+        )
     }
 
     /** Where member [index] stands; null when there is no such member. */
@@ -300,6 +307,7 @@ class KeysState(
         change("در حال ساخت فایل کلید…") { u ->
             val it = u.folder.editMember(u.contents, index, form.name, form.phones(), random)
             Delivery(index, it.entry.name, it.entry.phones, it.file, it.password, null,
+                code = Issuance.code(u.contents, it.entry),
                 event = Event.EDITED, keyChanged = keyChanged)
         }
     }
@@ -311,6 +319,7 @@ class KeysState(
         change("در حال ساخت کلید تازه…") { u ->
             val it = u.folder.newKey(u.contents, index, random)
             Delivery(index, it.entry.name, it.entry.phones, it.file, it.password, null,
+                code = Issuance.code(u.contents, it.entry),
                 event = Event.NEW_KEY, keyChanged = true)
         }
     }

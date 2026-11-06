@@ -1,13 +1,17 @@
 import 'package:flutter/foundation.dart';
 
-/// The authorities whose member certificates this build accepts — the one
-/// thing the key bank hardcodes (design decision, 1405/07/05: only the
-/// authority's **public** key; nothing secret is ever built into the app).
+/// The authorities whose member certificates this build accepts, and what
+/// «کد ۱۶ نویسه‌ای» needs to build a member's key in the app.
 ///
 /// An authority public key is ML-DSA-65 + Ed25519, 1985 bytes, printed as hex
 /// by `hamresan-keybank public <authority.hka>` (`tools/keybank/`). Knowing
 /// it lets the app *check* a signature, never make one, so it is safe in an
 /// APK anyone can unpack.
+///
+/// A sealed signer is the authority's Ed25519 seed under the organization's
+/// unlock secret, 48 bytes, printed by `hamresan-keybank signer <authority.hka>`.
+/// It opens only with a member's valid code and password (`MemberCode.kt`);
+/// that it is here at all is a design decision (1405/08/15). See `editions.md`.
 class TrustAnchors {
   TrustAnchors._();
 
@@ -83,6 +87,13 @@ class TrustAnchors {
         '47',
   ];
 
+  /// [_production]'s sealed signers, in the same order.
+  static const List<String> _productionSigners = [
+    // 7fda025a5a997b93
+    'dab8dd58541900b97394d022cfe776daa756b83cc93df32e36bdffdc75a3738f'
+        'c1368211f4ceba1ff5b460ac57b60407',
+  ];
+
   /// The development authority (its private file lives only in the
   /// gitignored `tools/keybank/dev/`). Compiled in **only** with
   /// `--dart-define=HAMRESAN_DEV_ANCHOR=true`; the release scripts never pass
@@ -92,74 +103,84 @@ class TrustAnchors {
   );
 
   static const String _development =
-      '01261554df90d515d1e144db9389b7bd3167875e6c4ff21115e88b3c1fecb8b1'
-      'e5692f84557e1af29c77ffa90501b5e1ecddef1714d28cfa3eb0fa306ab6fe5d'
-      'f0355c4ef55989ff6be00415de8c6428c321f7c7006c87074b1771dad3b66b9d'
-      '8ec7c4a09e989b9ee9943884fb8debdac1060c6b92164f83d382f84a33616e46'
-      'c4b3d1c7b8fc46f54f7d68ac518313e9794090076a7f3dc4d3ed6d0fbeec9054'
-      '7d99c11fe7ba5b3a6b4af7e49e658172b9f4cf226a9dc30dabf2f20299a13fd2'
-      '720bd05b7aff13ae0fcb4c96b4ca02ba01213af541007eba2bab72430809929d'
-      '12c7aa0b6c3e6da3a8922601669b89a6aba0df1794fb2976ae1698e6062386a5'
-      '8d24e80f6d3772d2dd11703a94fc2e01763b616574e35280457790caf84bb38b'
-      'c952060b879ebac4621fb51db39e611af752fdca8e582260f0ed1d468008c25d'
-      '29bf304dd8c8af2a74a0ba1c116ee10bf98fa2d48ba82ecbc7e9029c7b89a16e'
-      '21c200012fecc175ae3d7a60af1453e837140669f7523acc5c2ee50e55a4d784'
-      'd7daaab5c73c64ecde20534ccb092e86f97d6ac6d3f12389ec84ca43c4dfa36b'
-      'c870a75bfcb9fdcc08d624045770deb9f41d29ce4014836433efa32a3895a3fb'
-      '4886e3dc061a2b27840b3de4a559bbd0fe3cb8e6e67163919c2d35e6ddd5d018'
-      '188d2923d96e39919513b75ef2e9cf113cb78b18defe8f39021a383e89235c9d'
-      '05d5b32274cb7609e15226278f521112cb71652be0f9e826309442be01a0c05b'
-      '5d857166819a22604d6c7a4024b1f6234e01f237d9482dd36452461eefed4736'
-      '4037d170cc23d71543f01bac100a9c13e0ade98f594584cf161e11c010c058e4'
-      '19b63f255039446e87853ca481818619b75f65b5edd71cf227bf531d77bd313a'
-      'b60bfdac54144692130b88e6f4d3d4955ad025a17579727ea829fa8102347fdb'
-      'b79803f17757a45f29ad5f72e0302566b5bb5bb5b7c001bbc53296d5e5e29bfc'
-      '5aac0c30f653c02d26e05354aa599c78d7bfed134d99b81a654aea7ea2737daf'
-      'eae490cef4bf5111322398bbe25b1457f939ed0283278dfc12bce2dd5a8ecfd7'
-      '8ece0493b01a7b54c714b2bb9fe529ca06bb133a646359b8784a0c3f8cc76553'
-      '4bdcc56537bbde18e09baa78b70c17169b9be6d599b9518f3e7b1f3661ba088c'
-      '1ba838f6ae223d48a06e5709637518f7b2b5dd18d5d93dbb5198b6a2aae695c9'
-      'f6fe671f8de966218d7fd7d47d34d8a1efbba9dbca4d78e8a6a83a3e740ccc05'
-      '9a0dc32eb1e36195edb2b584f8bc861ff404456e4395931de5051916a546737e'
-      '96523ec3d34d7cca3dada7ed814a9e4aecfb16c8dcc7303bc175b20046817078'
-      '956bf6a2b8e2d4245af0cbde29b45340fe4736d189589032ece060bdb161f05a'
-      '237da5a9f7df5ed309826cbcb224970102ecd5198dda04fda01e89d215abedeb'
-      '5a492712d53f619e2469bac9de6103d45a40081f114ba3cbba83fcef63254074'
-      '3621cc55bef093a69b8b5effc4a4820a05e5238a80dc72af8005b28570d44d48'
-      'f3f9c5c5390de7cbbc4e41a4df6c860d090aba971f9c1d1c048e2938adaea34a'
-      'aa2b692779984788c8f605e1dee07907dee2ec080b4c1cb44a4679d2e1fe7d8d'
-      '4ce86af36174b3440aaffd2d8debd107d0c5eb781caea9d1326a17844c31fbe5'
-      '962339e7ab07765ff6bc43f9a1f341da7448fcdfd3a342ccfe6dda73b1e2a677'
-      'b78b2c1072c3bb102d188b89eb2b4f6e4089a5380bfecbea5b70934ee8ef9bb5'
-      '92623d4f81f61d6b12fca850ba42b2a58c33ec5ca8a650cb0e0981471c3e25c0'
-      '53169d6279a5d80cca0e5ed98aa6c565b593b4169ef13b66a1f38127d8520125'
-      '2ab23f6bd05bca69e27f2768d6ba68c391746ca4f8555d138e2f9f251ce5fbc5'
-      '7d46b65294c37e2b8394aa33593d69a2f21fecfc7e53851a9d3504a38064494d'
-      'a073172165e013b79f502768c5ceb13acea99d3e4881353e99c39339ae7464f6'
-      'b92986169414497251ce7356bcdf881d69e6f7f078ef149575ad5c463a8648fb'
-      'dd57f75192ddfd768b8891659e3c8a4c01761439dea1788a6e19d5e5c4191a08'
-      '71892cb5cf716a23d701ba80e6a1253c8f4b5a47e4268f40003688fe86d1226f'
-      'f40b39f83533dcde83afb2bf6198bba963d466fbb2f6712feb26a5ae3a4ce6b3'
-      '85ef800b70ddb962b4ac0e4ef01c69353490185da0ae73312457d810305da1ee'
-      '4437c3ff7e33377881e0f3cce78a1605194fdef16e26d13db7eac69456e1c018'
-      '71bfa01a4da8296a7e930a7e0e7b317729bdc9cb3066d29d346e469d3bf6b487'
-      '160d01e2f96fed5d6ebeb7fc5210715c7f6c200c1c15fc16cc4a7e510afa7436'
-      '1c7426c4316ecd2114337477fe2be94406d5d2921bca3060f74dc3464f134c54'
-      '1dd0726145295206d9631dcbd342088ecbdaa4922a1af4fae36d320a419ea11a'
-      '6f384cf92c8d9e79caea57fa7a123270260a22bee3cfd24e9c7ee4d1cbf54c1b'
-      'd233cd890a064ebba24fa6f3fb8ee9b0f1d5223b4ca8c00969b6e97a590c12dd'
-      'a0198a539da89dde778d511bcf6695124c415c737ac2fc583eb2ffb988f93585'
-      '236c49a4a86799a55cf1b87f51103fc4232fd6fc6d9277c7751284f0848e7c0b'
-      'bd192bef8c7ef9d5cb98462206423413cddb380421ec55cb7cdcb4d6a197541f'
-      'abb74ca2641a33828b904fa7c058f684d45d2078bbecf4ac5a15ee6db3b691c3'
-      '606e6615e4b724560a07ccca860e2a872acfbc1e5e0de9e6449afcaf912a56a1'
-      '92b7dbd6cdbb3c0372fa295787ffe13a6866613eef153bd2558826651fd851f5'
-      '5c';
+      '01be980e59c02307eeec126a63cf49dc4c777fbba9e02f1115a68091725b7d70'
+      '912acad9b03cdae27eb0416552dbd645a6f3b4b860d561a73c6d73ea99c22633'
+      'e8ee1bfb2361dd4bda5cd6dd27cb8420c2b45288c0d179ed5dd5e7897e41c8df'
+      '84c916dc7c6ebececd7d23a851c2e296f9ecd78eaf942029537098218508bf6a'
+      'a0cb413529fe8d1fa308b72fc22f4857a3282cb33ecab149967f8e79ac65406e'
+      '826b62233fadffaec928bcaeac5b7c3bfb65e66ac8c3d884776fbbc7b143b1aa'
+      'b0c3e76ed852b13ac86c3e6bde317b19e0f97178bc0637a0f7e3b39c28c66be8'
+      'e966873d376bd399d2fee7a28a6538b2b731e7fe73e7bf70acce6050a2a08e38'
+      '04df8093f08968d21fc5dd996d1d25c7580fa52a2a33bef9d817bd8504c8d188'
+      'bd0dc84ab63c58a301dd56840ab7b4e39afcfa336891944956baece9ca43c9c5'
+      '1cf900e2dc739255e66ef69b6c65168c007e0223bf0287395a7d79888a6f6c96'
+      'd7055017b50e4c0c7dd90c635a3b955dad8717103a88f20f93b52eb0b9db5fb7'
+      '6a42c90c4dab7c7d92ba47e86b06517d15a6ac186fe04e3bcd096744aaf94ada'
+      '39aa28f0ac5481f0a51e0e52df68c3e8b7d2ab3dbdbce1ff96b2bcac35f03adf'
+      'ac0b476db8d4642cb69af7d2b9d4a5952a511a05e07a924061076d4aabeab93a'
+      '47d7a0d5ed38f2542bebb8b814679df261658b8060cfabc7e94d52427362c10d'
+      '06451834ff66de701d994d64587c42c36b6a9ad58d20b37d1de1bc3af7d3694d'
+      '94626e8d7fb0332147b957afe90b8cb8bd85918f0e57dffc648294082967ad4c'
+      '7c614e38039297771c584a4240a7c23acfc34811ecc36a06c27a27edf9acf9b3'
+      '660ce42f40b492d1d00c26df6ad268750acbc4b4bde8e0bb71eeaf99fb62a9b2'
+      'e844cc5a7498869233b34ada24916caa4bec49b68c40dfe90622ce62f8df61d7'
+      '91b5f824ef87404b4318576d48f9d5f1c5fe3ed828f460a65b1cf23f9e97a269'
+      'e3eaa182d3b16a99f4947e01dca169329089f91a5582f273c0010f8185d7398c'
+      '48d5a92d2b1940f16dc373cb7faa1879f22dcfc60e031319d5d9ad48f76390e4'
+      '2012ea06b7956a1f906578b2467cd1b3b68092b5548daeaf4abd08361a97659f'
+      'ef0c4017a87bdcb087b4470c7567896df6bf4ae63f0c26cb421f79769e91c9c8'
+      '9a692e02d32659e1e0cbd26d94f187ee37f8c8f23803225c795fedf473cce798'
+      'b91b3b68015d30915ea29cb1b03cef0d303afb610a09916bc0f68e9ca77be5ac'
+      '9f67538b895e252c043abdfc8cbbbf5c49600ac5a73f382f2f36576115ec2851'
+      '26dd8976c361a85d8001f2890b8675af91ae67141588b40c0f9a723a7807ce6e'
+      '09e66affb38e21435dfd82d377ee5fe14d7d9dd6c22fd490d23756bec5fba975'
+      '5eae77e044cec120e67f2a79eaea064c54b78b69afe8c84195045d653b035a7b'
+      '89cd1b6616e4f0f74dc7a3b11376d8db2da59f8ed422794b2fd32c22c7d41c1f'
+      'aef128c9372d7563c5c9585b1cb4766c0156630a7556df29a201d85bdc3ffba8'
+      '9809625f763223145d803fb3a5b35d627665015a686df828138c068a0872c878'
+      '267d5a99f321a796e13e4526e6dae7e67c654564202d2b9d1536d266331c9c1a'
+      '0b5cf1a1ddc3fce50398c73f3300f1fdb5ae54f2b53e2a9961ffba3a7f857848'
+      '770497253ef4ee843d8bb67dd64eb0e3c9a710ddff75c0107bccac858da2aa01'
+      '78776638559500e89de1bf7baba08acfa4818321e73c2ad7f368aea1e59d5dfb'
+      'a56e68094b7d77ec86e54dce941cf6eb3da4d7823a503c9269ef1c090460bc6d'
+      '69e8186bc5139d4907bb5a03187ecb0d1d11bd619eceaa87a8e1a01553307d24'
+      '9c3b7e01a65d061459ed46c163e10651c7141c88e47aac3c7baaf1ed45797842'
+      'd529e757c934e270f5ce39d35d87f3a0cd8d5e361b4db2fa16e77f66cc21af12'
+      'ba8767829c80bf29f869bc97793b11b323a7d2acb81c841689db86adc57ddacc'
+      '728251f91bb810be8158f0124d1e598ae75e4bad5d3faffacf98e602feb92a05'
+      '79b5eedb70fe1fe5c96cc34f91642ee9f589985bc1c3298b66ff304200b55586'
+      'a86ada26af9fbe7ab6d007691c432bd590f4a2103d5923cdb381a19d9e3aa8f9'
+      'efa970b3c4df23dcc1f767b28e6b98fb175968c024dcc29db2703c0675634237'
+      '107e7fef74441e4e57353e3f75dd7541f82dded95df9d332164ed2c2a8320dcd'
+      '855ed725fd5b0a710f2f746247f8c48bd2fa58225246ef9ae66bf4f9b2f390d4'
+      'c42b9747c7ec364450368929fadec8af8abe60cce4e928a6410191c5b4d189c3'
+      '53e1465431520f09f85d8572178768a9b7d05b481e4fb4b55a01a92e031f6119'
+      '3d06cf3474df8a29353efff41e7aee2b5ff66f687dca81b939ce8017d7defd40'
+      '091704a227582099d65177c04fc304803af4a06556ce3d281162e1ab1044c0e5'
+      '57ad8d4269b8ebbf22e3a2982797b4d9c23ce2f0cb513b45f3d61db3f65a03de'
+      '62994a0c88a70a07b29ff36d98e14a02d2aa152799edaaaa490a066bc403e6f9'
+      '54bcf56331c2f2ffbc137c9e6750b40ff7a8b0f587fa5d54b83fc0d7792a7fa9'
+      '5f6be154a7f8e09200ada659d149a2037aca5b228456b00cb4ebbecf64bb4e84'
+      '64b4dd1e48679b19781d8d411059b0781762c7bfeeab603be4d98b0b94c7bd40'
+      'd16dd6548937ca2ecaa560aa6da0ac4a1ec7fb6e200e97fd6db44b0bc7eec162'
+      '818d9ee8bab50d74cf380a7855e70770ce59e379c7d43dedee9c62e294ad885d'
+      '040c42ef0ca490af125beffd11320344a2afbba6b97e2b26720713d9540f8bab'
+      '70';
+
+  static const String _developmentSigner =
+      'f4b70b6a23b9f16105010b7d8f329e90cb286fe874f1ec0c04c24b24ec47aaca'
+      '3cfb6718b38861dc227b259892189caf';
 
   /// Every trusted authority public key, as bytes.
   static List<Uint8List> get all => [
     for (final hex in _production) _bytes(hex),
     if (_allowDevelopment) _bytes(_development),
+  ];
+
+  /// The sealed signer of each of [all], in the same order.
+  static List<Uint8List> get signers => [
+    for (final hex in _productionSigners) _bytes(hex),
+    if (_allowDevelopment) _bytes(_developmentSigner),
   ];
 
   /// Whether this build trusts the development authority (shown in the key

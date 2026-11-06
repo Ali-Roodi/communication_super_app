@@ -204,6 +204,37 @@ void main() {
     expect(opened.cert.generation, 1);
   });
 
+  test('keyFromCode passes the signers and reads the same answer', () async {
+    final calls = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          calls.add(call);
+          return {
+            'authorityId': bytes(8, 2),
+            'secret': bytes(97, 6),
+            'keyId': bytes(8, 5),
+            'cert': {
+              'cert': bytes(103, 4),
+              'keyId': bytes(8, 5),
+              'phone': '09121111111',
+              'generation': 1,
+            },
+          };
+        });
+    final built = await service.keyFromCode(
+      code: 'CODE',
+      password: 'pw',
+      anchors: [bytes(1985, 7)],
+      signers: [bytes(48, 8)],
+    );
+    final args = calls.single.arguments as Map;
+    expect(calls.single.method, 'keyFromCode');
+    expect(args['code'], 'CODE');
+    expect(args['signers'], [bytes(48, 8)]);
+    expect(built.secret, bytes(97, 6));
+    expect(built.cert.phone, '09121111111');
+  });
+
   test('no native side at all is a failure, not a hang', () async {
     messenger.setMockMethodCallHandler(channel, null);
     await expectLater(

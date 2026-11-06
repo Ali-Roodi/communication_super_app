@@ -7,7 +7,9 @@ import java.time.format.DateTimeFormatter
 
 /**
  * The printable page handed to a member with their password (and activation
- * code) — the half of the delivery that must NOT travel with the key file.
+ * code) — the half of the delivery that must NOT travel with the key file. For
+ * the same reason the 16-character code is not on it: the code stands in for
+ * the file, and with this password it opens the organization's signer.
  */
 object DeliverySheet {
     fun write(dir: File, organization: String, d: KeysState.Delivery): File {
@@ -32,15 +34,17 @@ object DeliverySheet {
                 forOrganization ->
                     "<b>فعال‌سازی:</b> برنامه در اولین باز شدن کد دستگاه را نشان می‌دهد؛ آن را به مسئول بدهید و کد فعال‌سازی را بگیرید."
                 d.activationCode != null ->
-                    "<b>فعال‌سازی:</b> تنظیمات ← درباره برنامه ← نسخه بین‌سازمانی. کد فعال‌سازی بالا را وارد کنید."
+                    "<b>فعال‌سازی:</b> تنظیمات ← درباره برنامه ← پنج بار زدن روی «نسخه». کد فعال‌سازی بالا را وارد کنید."
                 d.target == null ->
                     "<b>فعال‌سازی:</b> کد فعال‌سازی را از مسئول بگیرید. نسخهٔ سازمانی آن را در اولین باز شدن می‌خواهد؛ " +
-                        "نسخهٔ بین‌سازمانی در تنظیمات ← درباره برنامه ← نسخه بین‌سازمانی."
+                        "نسخهٔ بین‌سازمانی در تنظیمات ← درباره برنامه ← پنج بار زدن روی «نسخه»."
                 else ->
-                    "<b>فعال‌سازی:</b> برنامه باید نسخهٔ بین‌سازمانی باشد (تنظیمات ← درباره برنامه ← نسخه بین‌سازمانی). کد فعال‌سازی را از مسئول بگیرید."
+                    "<b>فعال‌سازی:</b> برنامه باید نسخهٔ بین‌سازمانی باشد (تنظیمات ← درباره برنامه ← پنج بار زدن روی «نسخه»). کد فعال‌سازی را از مسئول بگیرید."
             },
             "<b>فایل کلید:</b> فایل <span class=\"ltr\">${esc(d.file.name)}</span> را جداگانه دریافت کنید و در برنامه از مسیر " +
                 "تنظیمات ← بانک کلید ← وارد کردن فایل کلید باز کنید. رمز بالا را وارد کنید (حروف بزرگ و کوچک و خط تیره مهم نیست).",
+            "<b>اگر فایل به دستتان نمی‌رسد:</b> مسئول به‌جای فایل یک کد ۱۶ نویسه‌ای را تلفنی برایتان می‌خواند. آن را با همین رمز در " +
+                "تنظیمات ← بانک کلید ← ساختن کلید با کد وارد کنید؛ همان کلید ساخته می‌شود.",
         ).mapIndexed { i, s -> "<li>${fa(i + 1)}. $s</li>" }.joinToString("\n  ")
 
         return """<!doctype html>
@@ -75,7 +79,7 @@ $activation
 <ol>
   $steps
 </ol>
-<div class="warn">این برگه و فایل کلید را از دو راه جدا تحویل بگیرید. بعد از وارد کردن فایل، این برگه را از بین ببرید و فایل را از پیام‌رسان‌ها و حافظه‌های مشترک پاک کنید.</div>
+<div class="warn">این برگه و فایل کلید (یا کد) را از دو راه جدا تحویل بگیرید و کد را کنار این برگه ننویسید. بعد از ساخته شدن کلید، این برگه را از بین ببرید و فایل را از پیام‌رسان‌ها و حافظه‌های مشترک پاک کنید.</div>
 <button onclick="window.print()">چاپ</button>
 </body></html>
 """

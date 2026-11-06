@@ -24,10 +24,12 @@ class KeyBankScreen extends StatelessWidget {
 
   static String noticeText(KeyBankNotice notice) => switch (notice) {
     KeyBankNotice.imported => 'فایل کلید وارد شد',
+    KeyBankNotice.built => 'کلید شما ساخته شد',
     KeyBankNotice.replaced => 'کلید تازه جای کلید قبلی شما نشست',
-    KeyBankNotice.alreadyImported => 'این فایل قبلاً وارد شده است',
+    KeyBankNotice.alreadyImported => 'این کلید قبلاً روی این گوشی هست',
     KeyBankNotice.older => 'این کلید قدیمی‌تر از کلید فعلی شماست و وارد نشد',
     KeyBankNotice.wrongPassword => 'رمز فایل کلید اشتباه است',
+    KeyBankNotice.wrongCode => 'کد یا رمز درست نیست؛ کلیدی ساخته نشد',
     KeyBankNotice.notAKeyFile => 'این فایل، فایل کلید هم‌رسان نیست',
     KeyBankNotice.untrusted =>
       'این فایل را مرجعی امضا کرده که این برنامه به آن اعتماد ندارد',
@@ -100,7 +102,7 @@ class _Bank extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
                 child: Text(
-                  'هنوز فایل کلیدی وارد نشده است. بدون آن پیام رمز فرستاده '
+                  'هنوز کلیدی وارد نشده است. بدون آن پیام رمز فرستاده '
                   'یا خوانده نمی‌شود.',
                   style: TextStyle(color: scheme.onSurfaceVariant),
                 ),
@@ -110,6 +112,14 @@ class _Bank extends StatelessWidget {
               title: 'وارد کردن فایل کلید',
               summary: 'فایل ‎.hkb‎ که مرجع سازمان برای شمارهٔ شما صادر کرده',
               onTap: state.busy ? null : () => _importFile(context),
+            ),
+            _ActionRow(
+              icon: Icons.dialpad_outlined,
+              title: 'ساختن کلید با کد',
+              summary:
+                  'اگر فایل به دستتان نمی‌رسد: کد ۱۶ نویسه‌ای که مسئول '
+                  'می‌خواند، با همان رمز فایل کلید',
+              onTap: state.busy ? null : () => _importCode(context),
             ),
           ],
         ),
@@ -156,6 +166,123 @@ class _Bank extends StatelessWidget {
       return;
     }
     bloc.add(KeyBankImportFile(file, password));
+  }
+
+  Future<void> _importCode(BuildContext context) async {
+    final bloc = context.read<KeyBankBloc>();
+    final typed = await showDialog<({String code, String password})>(
+      context: context,
+      builder: (_) => const _CodeDialog(),
+    );
+    if (typed != null) bloc.add(KeyBankImportCode(typed.code, typed.password));
+  }
+}
+
+/// The code and the password together: one is useless without the other, and
+/// the key is built only when both are right. The code stays visible, since it
+/// is being typed from someone's voice and is nothing without the password; the
+/// password is hidden as in [_askPassword].
+class _CodeDialog extends StatefulWidget {
+  const _CodeDialog();
+
+  /// What `MemberCode.CODE_CHARS` counts: dashes and spaces do not matter.
+  static int typedLength(String code) =>
+      RegExp(r'[A-Za-z0-9۰-۹٠-٩]').allMatches(code).length;
+
+  static const codeLength = 16;
+
+  @override
+  State<_CodeDialog> createState() => _CodeDialogState();
+}
+
+class _CodeDialogState extends State<_CodeDialog> {
+  final _code = TextEditingController();
+  final _password = TextEditingController();
+  var _hidden = true;
+
+  @override
+  void dispose() {
+    _code.dispose();
+    _password.dispose();
+    super.dispose();
+  }
+
+  bool get _ready =>
+      _CodeDialog.typedLength(_code.text) == _CodeDialog.codeLength &&
+      _password.text.trim().isNotEmpty;
+
+  void _submit() {
+    if (!_ready) return;
+    Navigator.of(context).pop((code: _code.text, password: _password.text));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final typed = _CodeDialog.typedLength(_code.text);
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: AlertDialog(
+        title: const Text('ساختن کلید با کد'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _code,
+              autofocus: true,
+              textDirection: TextDirection.ltr,
+              keyboardType: TextInputType.visiblePassword,
+              autocorrect: false,
+              enableSuggestions: false,
+              textCapitalization: TextCapitalization.characters,
+              textInputAction: TextInputAction.next,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: 'کد ۱۶ نویسه‌ای',
+                hintText: 'XXXX-XXXX-XXXX-XXXX',
+                counterText: PersianUtils.toPersianNumber(
+                  '$typed/${_CodeDialog.codeLength}',
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _password,
+              obscureText: _hidden,
+              textDirection: TextDirection.ltr,
+              keyboardType: TextInputType.visiblePassword,
+              autocorrect: false,
+              enableSuggestions: false,
+              textCapitalization: TextCapitalization.characters,
+              onChanged: (_) => setState(() {}),
+              onSubmitted: (_) => _submit(),
+              decoration: InputDecoration(
+                labelText: 'رمز فایل کلید',
+                hintText: 'XXXX-XXXX-XXXX-XXXX-XXXX',
+                suffixIcon: IconButton(
+                  tooltip: _hidden ? 'نمایش رمز' : 'پنهان کردن رمز',
+                  icon: Icon(
+                    _hidden
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
+                  ),
+                  onPressed: () => setState(() => _hidden = !_hidden),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('انصراف'),
+          ),
+          TextButton(
+            onPressed: _ready ? _submit : null,
+            child: const Text('ساختن کلید'),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -351,8 +478,8 @@ class _KeyRow extends StatelessWidget {
             context,
             title: 'حذف کلید؟',
             body:
-                'کلید شما از این گوشی پاک می‌شود و تا فایل کلید دوباره وارد '
-                'نشود، پیام رمز فرستاده یا خوانده نمی‌شود.',
+                'کلید شما از این گوشی پاک می‌شود و تا دوباره وارد نشود، '
+                'پیام رمز فرستاده یا خوانده نمی‌شود.',
           )) {
             bloc.add(KeyBankRemoveKey(k.keyId));
           }

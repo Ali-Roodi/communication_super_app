@@ -65,6 +65,7 @@ void main() {
     repository: KeyBankRepository(database: () => open ? db : null),
     crypto: crypto,
     anchors: () => [_b(1985, 1)],
+    signers: () => [_b(48, 2)],
   );
 
   Future<KeyBankState> settle(
@@ -166,6 +167,100 @@ void main() {
       expect(s.snapshot.keys, isEmpty);
     }
     await bloc.close();
+  });
+
+  group('the code route', () {
+    void answers(Future<OpenedKeyFile> Function(Invocation) answer) => when(
+      () => crypto.keyFromCode(
+        code: any(named: 'code'),
+        password: any(named: 'password'),
+        anchors: any(named: 'anchors'),
+        signers: any(named: 'signers'),
+      ),
+    ).thenAnswer(answer);
+
+    test('builds the key from the anchors and their signers', () async {
+      answers((_) async => _opened());
+      final bloc = build();
+      await settle(bloc, (s) => s.status == KeyBankStatus.ready);
+      bloc.add(const KeyBankImportCode('CODE', 'PW'));
+      final done = await settle(bloc, (s) => s.notice == KeyBankNotice.built);
+      expect(done.busy, isFalse);
+      expect(done.snapshot.keys.single.phone, '09121111111');
+      final call = verify(
+        () => crypto.keyFromCode(
+          code: 'CODE',
+          password: 'PW',
+          anchors: captureAny(named: 'anchors'),
+          signers: captureAny(named: 'signers'),
+        ),
+      )..called(1);
+      expect(call.captured, [
+        [_b(1985, 1)],
+        [_b(48, 2)],
+      ]);
+      await bloc.close();
+    });
+
+    test('a wrong code or password builds nothing', () async {
+      answers(
+        (_) async =>
+            throw const SmsCryptoException(SmsCryptoFailure.wrongPassword),
+      );
+      final bloc = build();
+      await settle(bloc, (s) => s.status == KeyBankStatus.ready);
+      bloc.add(const KeyBankImportCode('CODE', 'WRONG'));
+      final s = await settle(bloc, (s) => s.notice == KeyBankNotice.wrongCode);
+      expect(s.busy, isFalse);
+      expect(s.snapshot.keys, isEmpty);
+      expect(await KeyBankRepository(database: () => db).ownKeys(), isEmpty);
+      await bloc.close();
+    });
+
+    test(
+      'the key a file already brought is recognised as the same one',
+      () async {
+        when(
+          () => crypto.openKeyFile(
+            file: any(named: 'file'),
+            password: any(named: 'password'),
+            anchors: any(named: 'anchors'),
+          ),
+        ).thenAnswer((_) async => _opened());
+        answers((_) async => _opened());
+        final bloc = build();
+        await settle(bloc, (s) => s.status == KeyBankStatus.ready);
+        bloc.add(KeyBankImportFile(_b(10, 1), 'PW'));
+        await settle(bloc, (s) => s.notice == KeyBankNotice.imported);
+        bloc.add(const KeyBankImportCode('CODE', 'PW'));
+        final s = await settle(
+          bloc,
+          (s) => s.notice == KeyBankNotice.alreadyImported,
+        );
+        expect(s.snapshot.keys, hasLength(1));
+        await bloc.close();
+      },
+    );
+
+    test('a locked section builds nothing', () async {
+      whenListen(
+        session,
+        const Stream<SecureSessionState>.empty(),
+        initialState: const SecureSessionState(status: SecureStatus.locked),
+      );
+      final bloc = build();
+      bloc.add(const KeyBankImportCode('CODE', 'PW'));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      verifyNever(
+        () => crypto.keyFromCode(
+          code: any(named: 'code'),
+          password: any(named: 'password'),
+          anchors: any(named: 'anchors'),
+          signers: any(named: 'signers'),
+        ),
+      );
+      await bloc.close();
+    });
   });
 
   test('removing the key empties the bank', () async {

@@ -221,12 +221,181 @@ class KeyBankTest {
         }
     }
 
+    // ── The 16-character code ───────────────────────────────────────────────
+
+    private fun signers(vararg authorities: AuthorityKey) =
+        authorities.map { MemberCode.Signer(it.public, it.sealedSigner()) }
+
+    /** What a phone stores from either route. */
+    private fun stored(o: KeyFile.Opened) = listOf(
+        Hex.toHexString(o.authority.authorityId),
+        Hex.toHexString(o.identity.serialize()),
+        Hex.toHexString(o.cert.encoded),
+        Hex.toHexString(o.cert.keyId),
+    )
+
     @Test
-    fun `passwords are 20 unambiguous characters`() {
-        repeat(20) {
-            val p = Issuer.password(random)
-            assertTrue(p, Regex("^([2-9A-HJ-NP-Z]{4}-){4}[2-9A-HJ-NP-Z]{4}$").matches(p))
+    fun `the key file and the code give the same key and certificate, byte for byte`() {
+        val org = Org(random)
+        for (entry in org.roster.entries) {
+            val issued = Issuer.issue(org.authority, entry)
+            val password = Issuer.password(org.authority, entry)
+            val fromFile = KeyFile.open(
+                KeyFile.create(issued.identity, issued.cert, password, random, cheap),
+                password,
+                org.anchors,
+            )
+            val fromCode = MemberCode.open(Issuer.code(org.authority, entry), password, signers(org.authority))
+            assertEquals(stored(fromFile), stored(fromCode))
+            assertArrayEquals(issued.identity.serialize(), fromCode.identity.serialize())
+            assertArrayEquals(issued.cert.encoded, fromCode.cert.encoded)
         }
+    }
+
+    @Test
+    fun `a key built from a code talks to a key from a file`() {
+        val org = Org(random)
+        val entry = org.roster.entries[0]
+        val ali = MemberCode.open(Issuer.code(org.authority, entry), Issuer.password(org.authority, entry), signers(org.authority))
+        val maryam = KeyFile.open(keyFile(org, 1, "PW2"), "PW2", org.anchors)
+        val started = CertHandshake.initiate(ali.cert, random)
+        val responded = CertHandshake.respond(
+            maryam.identity, maryam.cert, Wire.parse(started.wire) as Packet.Init, org.anchors, random,
+        )
+        val done = CertHandshake.complete(
+            ali.identity, ali.cert, started.pending, Wire.parse(responded.wire) as Packet.Response, org.anchors,
+        )
+        assertEquals("سلام", responded.session.receive(done.session.send("سلام").wire).second)
+    }
+
+    @Test
+    fun `nothing is built without the right code and password`() {
+        val org = Org(random)
+        val ali = org.roster.entries[0]
+        val maryam = org.roster.entries[1]
+        val code = Issuer.code(org.authority, ali)
+        val password = Issuer.password(org.authority, ali)
+        val signers = signers(org.authority)
+        fun refused(c: String, p: String, s: List<MemberCode.Signer> = signers) =
+            expectError(SmsCryptoException.Code.WRONG_PASSWORD) { MemberCode.open(c, p, s) }
+
+        // Another member's password, or their code.
+        refused(code, Issuer.password(org.authority, maryam))
+        refused(Issuer.code(org.authority, maryam), password)
+        // One character off, in each.
+        val other = { c: Char -> if (c == 'A') 'B' else 'A' }
+        refused(other(code[0]) + code.drop(1), password)
+        refused(code, other(password[0]) + password.drop(1))
+        // Too short, too long, characters the alphabet does not have.
+        refused(code.dropLast(1), password)
+        refused(code + "A", password)
+        refused(code, password.dropLast(1))
+        refused("O" + code.drop(1), password)
+        // Another organization's code; an app that trusts nobody.
+        val stranger = Org(random)
+        refused(Issuer.code(stranger.authority, ali), Issuer.password(stranger.authority, ali))
+        refused(code, password, emptyList())
+    }
+
+    @Test
+    fun `the code and password are forgiving about how they are typed`() {
+        val org = Org(random)
+        val entry = org.roster.entries[1]
+        val code = Issuer.code(org.authority, entry)
+        val password = Issuer.password(org.authority, entry)
+        val neat = stored(MemberCode.open(code, password, signers(org.authority)))
+        val typed = MemberCode.open(
+            code.replace("-", " ").lowercase(),
+            password.replace("-", "").lowercase(),
+            signers(org.authority),
+        )
+        assertEquals(neat, stored(typed))
+    }
+
+    @Test
+    fun `the right signer is found among several`() {
+        val org = Org(random)
+        val entry = org.roster.entries[0]
+        val opened = MemberCode.open(
+            Issuer.code(org.authority, entry),
+            Issuer.password(org.authority, entry),
+            signers(AuthorityKey.generate(random), org.authority),
+        )
+        assertArrayEquals(org.authority.public.authorityId, opened.authority.authorityId)
+    }
+
+    @Test
+    fun `a seal that is not the anchor's builds nothing`() {
+        val org = Org(random)
+        val entry = org.roster.entries[0]
+        // The right secret, but under it the seed of another authority.
+        val otherSeed = AuthorityKey.generate(random).serialize().copyOfRange(33, 65)
+        val unlockFromCode = MemberCode.Signer(
+            org.authority.public,
+            sealWithTheOrganizationsSecret(org, otherSeed),
+        )
+        expectError(SmsCryptoException.Code.BAD_BUNDLE) {
+            MemberCode.open(Issuer.code(org.authority, entry), Issuer.password(org.authority, entry), listOf(unlockFromCode))
+        }
+    }
+
+    private fun sealWithTheOrganizationsSecret(org: Org, seed: ByteArray): ByteArray {
+        val memberSeed = org.authority.serialize().copyOfRange(65, 97)
+        val unlock = com.example.communication_super_app.smscrypto.Kdf.hkdf(
+            memberSeed,
+            "hamresan.authority.unlock.v1".toByteArray(Charsets.US_ASCII),
+            ByteArray(0),
+            MemberCode.UNLOCK_BYTES,
+        )
+        return MemberCode.sealSigner(seed, unlock, org.authority.public.authorityId)
+    }
+
+    @Test
+    fun `the seal holds the signer only, and every member's key is their own`() {
+        // Opening the seal gives the signer and the unlock secret. A member's key
+        // also needs that member's password, which takes the member seed to make,
+        // and the member seed is not in what the app is given.
+        val org = Org(random)
+        val sealed = org.authority.sealedSigner()
+        assertEquals(MemberCode.SEALED_SIGNER_BYTES, sealed.size)
+        val memberSeed = org.authority.serialize().copyOfRange(65, 97)
+        assertFalse(Hex.toHexString(sealed).contains(Hex.toHexString(memberSeed)))
+        val ali = Issuer.Entry("علی", listOf("09121111111"), 0)
+        val maryam = Issuer.Entry("مریم", listOf("09122222222"), 0)
+        assertFalse(Issuer.password(org.authority, ali) == Issuer.password(org.authority, maryam))
+        assertFalse(
+            Issuer.issue(org.authority, ali).identity.x25519Public
+                .contentEquals(Issuer.issue(org.authority, maryam).identity.x25519Public),
+        )
+    }
+
+    @Test
+    fun `passwords are 20 unambiguous characters and carry their number`() {
+        val org = Org(random)
+        for (n in 0 until 20) {
+            val phone = "09" + (100000000 + n * 44444444).toString().padStart(9, '0')
+            val p = org.authority.memberPassword(phone, n * 13)
+            assertTrue(p, Regex("^([2-9A-HJ-NP-Z]{4}-){4}[2-9A-HJ-NP-Z]{4}$").matches(p))
+            // The number is not readable from the characters themselves, but is from the password.
+            val named = MemberCode.named(p)!!
+            assertEquals(phone, named.phone)
+            assertEquals(n * 13, named.generation)
+        }
+        assertEquals("09000000000", MemberCode.named(org.authority.memberPassword("09000000000", 0))!!.phone)
+        assertEquals("09999999999", MemberCode.named(org.authority.memberPassword("09999999999", 255))!!.phone)
+    }
+
+    @Test
+    fun `a new generation or number means a new password and code`() {
+        val org = Org(random)
+        val a = org.authority
+        assertEquals(a.memberPassword("09121111111", 0), a.memberPassword("09121111111", 0))
+        assertEquals(a.memberCode("09121111111", 0), a.memberCode("09121111111", 0))
+        assertFalse(a.memberPassword("09121111111", 0) == a.memberPassword("09121111111", 1))
+        assertFalse(a.memberPassword("09121111111", 0) == a.memberPassword("09121111112", 0))
+        assertFalse(a.memberCode("09121111111", 0) == a.memberCode("09121111111", 1))
+        assertThrows(IllegalArgumentException::class.java) { a.memberPassword("02188776655", 0) }
+        assertThrows(IllegalArgumentException::class.java) { a.memberPassword("09121111111", 256) }
     }
 
     @Test
@@ -244,11 +413,15 @@ class KeyBankTest {
     fun `the key file format is frozen`() {
         val r = FixedRandom(1405)
         val authority = AuthorityKey.generate(r)
-        val issued = Issuer.issue(authority, Issuer.Entry("مریم", listOf("09122222222", "02188776655"), 1))
+        val entry = Issuer.Entry("مریم", listOf("09122222222", "02188776655"), 1)
+        val issued = Issuer.issue(authority, entry)
         val file = KeyFile.create(issued.identity, issued.cert, "PW", r, cheap)
         assertEquals(GOLDEN_AUTHORITY_ID, Hex.toHexString(authority.public.authorityId))
         assertEquals(GOLDEN_MEMBER_KID, Hex.toHexString(issued.cert.keyId))
         assertEquals(GOLDEN_KEY_FILE_SHA, sha(file))
+        assertEquals(GOLDEN_PASSWORD, Issuer.password(authority, entry))
+        assertEquals(GOLDEN_CODE, Issuer.code(authority, entry))
+        assertEquals(GOLDEN_SEALED_SIGNER, Hex.toHexString(authority.sealedSigner()))
     }
 
     private fun sha(b: ByteArray) =
@@ -256,7 +429,10 @@ class KeyBankTest {
 
     private companion object {
         const val GOLDEN_AUTHORITY_ID = "e09334807b8501e0"
-        const val GOLDEN_MEMBER_KID = "72cadfdd2e2336fe"
-        const val GOLDEN_KEY_FILE_SHA = "96532c6f0529db1415961d55a1ac129aeb830228ae04737c68a378c7ea9cef03"
+        const val GOLDEN_MEMBER_KID = "b23e9167b96fe5cc"
+        const val GOLDEN_KEY_FILE_SHA = "4b2eb0e2665c4c8fa7d07db77f485a15745e0a0246cae034cb31ff6dc1b6a6e7"
+        const val GOLDEN_PASSWORD = "HW6P-6QYP-5FGE-58TG-RGPQ"
+        const val GOLDEN_CODE = "EGB7-3SXD-3545-A2EH"
+        const val GOLDEN_SEALED_SIGNER = "770c8781e62808f300f7e917930a2c6efe98f8b29a96c401751b0b94f306ae4f1e6cfcf506f5589084ed37e3838f6f25"
     }
 }
