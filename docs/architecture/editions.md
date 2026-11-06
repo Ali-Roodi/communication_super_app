@@ -507,7 +507,7 @@ arguments is at the top of `SmsCryptoHandler.kt`.
 ### Dependency and tests
 
 `org.bouncycastle:bcprov-jdk18on:1.86` (Maven Central, SHA-1 checked against
-Central). JVM tests (142 in all, `src/test/.../smscrypto/` and the rest):
+Central). JVM tests (150 in all, `src/test/.../smscrypto/` and the rest):
 NIST ACVP ML-KEM-768 vectors (keygen ×25, encaps ×8, decaps ×10 incl.
 implicit rejection, key check ×10 — `src/test/resources/mlkem768_acvp.txt`),
 RFC 7748 X25519, RFC 5869 HKDF (`KnownAnswerTest`), `CertHandshakeTest` (15:
@@ -1324,12 +1324,14 @@ below.
 
 | Date | versionCode | versionName | Handed to |
 |---|---|---|---|
-| — | — | — | none yet (2000000165 built 1405/07/25, `e0e7994`; 2000000176 built 1405/08/05 with the activation gate; 2000000194 built 1405/08/13, `065d201`; 2000000200 built 1405/08/13, `07a42c2`, for the delivery folder; none handed out yet) |
+| — | — | — | none yet (2000000165 built 1405/07/25, `e0e7994`; 2000000176 built 1405/08/05 with the activation gate; 2000000194 built 1405/08/13, `065d201`; 2000000200 built 1405/08/13, `07a42c2`; 2000000203 built 1405/08/15, `2618e61`, for the delivery folder; none handed out yet) |
 
 ## Log
 
 | Date | Change |
 |---|---|
+| 1405/08/15 | **Delivery of the four mentor changes.** Build 203 (`2618e61`) tested on two real phones with the production authority: organization APK on the Samsung, commercial APK with inter-org activation on the Huawei; no bug found. Key by code and key by file gave the same key in both directions (a second route to the same key answers «این کلید قبلاً روی این گوشی هست»), and encrypted SMS went both ways with «دیده شد» in both mixes. A hidden number's missed call was checked on the emulator with a made-up number, since adding a number to the phonebook moves its history for good. MSI 1.6.0 installed and passed `--self-test`, including the code route. The test authority's member file was issued again with the new derivation (the old one is under `backups/before-member-code-*`). All mentor documents and the delivery folder updated; tests: 150 JVM, 27 tool, 13 panel, 928 Dart. |
+| 1405/08/15 | **Two stale panel texts fixed in MSI 1.6.0.** The edit dialog said a changed first mobile keeps the password; passwords are derived now, so it changes the key, the password and the code. The activation screen still named the removed «نسخه بین‌سازمانی» row. |
 | 1405/08/13 | **Build 200 for the delivery folder** (`07a42c2`). Installed on both test phones: the organization APK over a test build keeps its activation and data; the commercial APK over it is refused with `INSTALL_FAILED_VERSION_DOWNGRADE` and installs after an uninstall, then walks the permission and default-app gates to «اخیر» with no crash. The panel is unchanged: MSI 1.5.0 is still current. |
 | 1405/08/13 | **Documents brought up to date.** The panel code was already current (MSI 1.5.0: nothing it compiles changed after the MSI was built; 25 tool tests and 13 panel tests pass). `tools/keybank/README.md` rewritten, panel guide 1.5 with new screens, secure-editions report 5.0, technical document 2.0 in plain Persian. The user manual is left until after the two-phone tests. The delivery APKs were rebuilt from the same commit (versionCode 194 and 2000000194). |
 | 1405/08/13 | **Row 25 cancelled** (location and wipe on a special SMS), and out of the development list. It had been written and then taken out of the build; nothing of it is in the app. |
