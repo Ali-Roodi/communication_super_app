@@ -539,11 +539,13 @@ class Phone {
     this.db,
     this.air,
     Map<String, String> book,
-    int seed,
-  ) : identities = FakeIdentities(name, book),
-      queue = FakeQueue(),
-      crypto = FakeCrypto(seed),
-      hidden = FakeHidden() {
+    int seed, {
+    bool? coverAllowed,
+    FakeCrypto? crypto,
+  }) : identities = FakeIdentities(name, book),
+       queue = FakeQueue(),
+       crypto = crypto ?? FakeCrypto(seed),
+       hidden = FakeHidden() {
     store = SecureMessageStore(database: () => db);
     air.queues[number] = queue;
     groups = SecureGroupStore(database: () => db);
@@ -552,10 +554,11 @@ class Phone {
       groups: groups,
       queue: queue,
       identities: identities,
-      crypto: crypto,
+      crypto: this.crypto,
       sender: air.senderFor(number),
       hidden: hidden,
       clock: () => air.clock++,
+      coverAllowed: coverAllowed,
     );
   }
 
@@ -664,6 +667,186 @@ void main() {
       await ali.messenger.sendText(book['sara']!, 'سلام');
       expect(air.cards.first, 10);
     });
+
+    test('a conversation\'s own card beats the menu\'s, for everything it '
+        'sends', () async {
+      await ali.messenger.setSmsSim(13);
+      await ali.messenger.setThreadSim(book['sara']!, 10);
+      await ali.messenger.startConversation(ali.identities.peer('sara'));
+      await ali.messenger.sendText(book['sara']!, 'سلام');
+      // The handshake went first, on the conversation's card.
+      expect(air.cards, [10]);
+      await settle();
+      final sent = await ali.thread(book['sara']!);
+      expect(sent.single.sim, 10);
+      expect(sent.single.status, SecureMessageStatus.sent);
+      expect(await ali.messenger.threadSims(), {book['sara']!: 10});
+    });
+
+    test('the card a message left on is recorded on it', () async {
+      await ali.messenger.startConversation(ali.identities.peer('sara'));
+      await ali.messenger.sendText(book['sara']!, 'یک');
+      await settle();
+      expect((await ali.thread(book['sara']!)).single.sim, 13);
+
+      await ali.messenger.setThreadSim(book['sara']!, 10);
+      await ali.messenger.sendText(book['sara']!, 'دو');
+      await settle();
+      final rows = await ali.thread(book['sara']!);
+      expect({for (final m in rows) m.body: m.sim}, {'یک': 13, 'دو': 10});
+      // A received message carries no card of ours.
+      expect(
+        (await sara.thread(book['ali']!)).every((m) => m.sim == null),
+        isTrue,
+      );
+    });
+
+    test('a card no longer in the phone is passed over', () async {
+      await ali.messenger.setThreadSim(book['sara']!, 99);
+      await ali.messenger.setSmsSim(10);
+      await ali.messenger.startConversation(ali.identities.peer('sara'));
+      await ali.messenger.sendText(book['sara']!, 'سلام');
+      expect(air.cards.single, 10);
+    });
+
+    test('null hands the conversation back to the menu', () async {
+      await ali.messenger.setThreadSim(book['sara']!, 10);
+      await ali.messenger.setThreadSim(book['sara']!, null);
+      expect(await ali.messenger.threadSims(), isEmpty);
+      await ali.messenger.startConversation(ali.identities.peer('sara'));
+      await ali.messenger.sendText(book['sara']!, 'سلام');
+      expect(air.cards.single, 13);
+    });
+
+    test('a group\'s copies go on the general card', () async {
+      await ali.messenger.setThreadSim(book['sara']!, 10);
+      final id = await ali.messenger.createGroup(
+        name: 'تیم',
+        mode: SecureGroupMode.chat,
+        members: [ali.identities.peer('sara'), ali.identities.peer('reza')],
+      );
+      await settle();
+      air.cards.clear();
+      await ali.messenger.sendGroupText(id, 'سلام به همه');
+      expect(air.cards, [13, 13]);
+    });
+
+    test('deleting a conversation forgets its settings', () async {
+      await ali.messenger.startConversation(ali.identities.peer('sara'));
+      await ali.messenger.setThreadSim(book['sara']!, 10);
+      await ali.messenger.deleteConversation(book['sara']!);
+      expect(await ali.messenger.threadSims(), isEmpty);
+    });
+  });
+
+  group('a conversation\'s own cover text', () {
+    late Phone org;
+    setUp(() async {
+      await ali.db.close();
+      final db = await databaseFactoryFfi.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(singleInstance: false),
+      );
+      await SecureStore.createSchemaForTest(db);
+      org = ali = Phone(
+        'ali',
+        book['ali']!,
+        db,
+        air,
+        book,
+        100,
+        coverAllowed: true,
+        crypto: CoverCrypto(100),
+      );
+    });
+
+    /// The wire of a message sent once the session stands and [choose] has
+    /// set the cover. (The radio here does not uncover — Kotlin does, on
+    /// arrival — so the handshake is settled before anything is covered.)
+    Future<String> lastWire(Future<void> Function() choose) async {
+      await org.messenger.startConversation(org.identities.peer('sara'));
+      await org.messenger.sendText(book['sara']!, 'آماده');
+      await settle();
+      await choose();
+      air.inFlight.clear();
+      await org.messenger.sendText(book['sara']!, 'سلام');
+      return air.inFlight.last.wire;
+    }
+
+    test('the menu\'s choice when the conversation has none', () async {
+      expect(
+        await lastWire(() => org.messenger.setCoverMode('fa')),
+        startsWith('cover-fa:#E:'),
+      );
+    });
+
+    test('the conversation\'s own choice beats the menu\'s', () async {
+      final wire = await lastWire(() async {
+        await org.messenger.setCoverMode('fa');
+        await org.messenger.setThreadCover(book['sara']!, 'off');
+      });
+      expect(wire, startsWith('#E:'));
+      expect(await org.messenger.threadCovers(), {book['sara']!: 'off'});
+    });
+
+    test('english for one conversation while the menu is off', () async {
+      expect(
+        await lastWire(() => org.messenger.setThreadCover(book['sara']!, 'en')),
+        startsWith('cover-en:#E:'),
+      );
+    });
+
+    test(
+      'a build without cover text keeps no per-conversation choice',
+      () async {
+        await sara.messenger.setThreadCover(book['ali']!, 'fa');
+        expect(await sara.messenger.threadCovers(), isEmpty);
+      },
+    );
+  });
+
+  test('a v1 database (build 203) gains the card column, rows intact', () async {
+    final db = await databaseFactoryFfi.openDatabase(
+      inMemoryDatabasePath,
+      options: OpenDatabaseOptions(singleInstance: false),
+    );
+    await SecureStore.createSchemaForTest(db);
+    // Rebuild sm_messages as build 203 made it: everything but `sim`.
+    final cols = [
+      for (final c in await db.rawQuery('PRAGMA table_info(sm_messages)'))
+        c['name'] as String,
+    ]..remove('sim');
+    await db.execute(
+      'CREATE TABLE old_messages AS SELECT ${cols.join(',')} FROM sm_messages',
+    );
+    await db.execute('DROP TABLE sm_messages');
+    await db.execute('ALTER TABLE old_messages RENAME TO sm_messages');
+    final store = SecureMessageStore(database: () => db);
+    expect([
+      for (final c in await db.rawQuery('PRAGMA table_info(sm_messages)'))
+        c['name'],
+    ], isNot(contains('sim')));
+    await db.insert('sm_messages', {
+      'id': 'm1',
+      'phone': '09122222222',
+      'outgoing': 1,
+      'body': 'پیش از ارتقا',
+      'timestamp': 5,
+      'status': SecureMessageStatus.sent.name,
+      'delete_after_seen': 0,
+      'parts': 1,
+      'plain': 0,
+    });
+
+    await SecureStore.upgradeSchemaForTest(db, 1);
+    expect([
+      for (final c in await db.rawQuery('PRAGMA table_info(sm_messages)'))
+        c['name'],
+    ], contains('sim'));
+    final kept = (await store.messages('09122222222')).single;
+    expect(kept.body, 'پیش از ارتقا');
+    expect(kept.sim, isNull);
+    await db.close();
   });
 
   test('the first message waits for the handshake, then arrives', () async {
@@ -1880,4 +2063,14 @@ void main() {
       },
     );
   });
+}
+
+/// Cover text the test can recognise on the air: the real one is a
+/// thousand-word code page, which is not what these tests are about.
+class CoverCrypto extends FakeCrypto {
+  CoverCrypto(super.seed);
+
+  @override
+  Future<String> coverEncode(String wire, {required bool persian}) async =>
+      'cover-${persian ? 'fa' : 'en'}:$wire';
 }

@@ -10,6 +10,7 @@ import 'package:communication_super_app/features/authentication/repositories/pin
 import 'package:communication_super_app/features/edition/bloc/edition_bloc.dart';
 import 'package:communication_super_app/features/security/services/intruder_reporter.dart';
 import '../repositories/secure_store.dart';
+import '../services/secure_unread_badge.dart';
 import '../services/secure_vault_service.dart';
 
 // ── Events ──────────────────────────────────────────────────────────────────
@@ -677,6 +678,8 @@ class SecureSessionBloc extends Bloc<SecureSessionEvent, SecureSessionState> {
     _windowSecureLeftOn = false;
     // A new section starts with a clean budget.
     await _limiter.recordSuccess();
+    // …and nothing it held is unread any more.
+    await SecureUnreadBadge.forget();
     emit(
       SecureSessionState(
         status: await _currentStatus(keepBroken: false),

@@ -233,8 +233,14 @@ the foreground**.
   written to the main database: Kotlin opens that one while the app is dead,
   with no key available. `sqflite_sqlcipher` has its own `databaseFactory` and
   never replaces sqflite's global one. Only `lib/features/secure/` imports it.
-- **Its schema is version 1** (`SecureStore._onCreate`, one place for every
-  table), with no migrations — see «There are no migrations» in [`DEVELOPER_GUIDE.md`](../DEVELOPER_GUIDE.md).
+- **Its schema is version 2** (`SecureStore._onCreate`, one place for every
+  table). Version 1 went to the mentor in build 203, so this is the first
+  database with an upgrade: `SecureStore._onUpgrade` adds `sm_messages.sim`
+  (the card a sent message left on) and keeps every row. The next change
+  adds a step there and raises `_schemaVersion`; `upgradeSchemaForTest` pins
+  each step («a v1 database (build 203) gains the card column, rows intact»).
+  The main database is still at version 1 with no `onUpgrade` — see «Schema
+  changes need an upgrade now» in [`DEVELOPER_GUIDE.md`](../DEVELOPER_GUIDE.md).
 - **The key** — 32 random bytes, used as SQLCipher's raw key (`x'…'`, so
   SQLCipher does not stretch it again). Sealed twice (`secure/VaultCrypto.kt`):
   inner AES-256-GCM under PBKDF2-HMAC-SHA256(section PIN, salt, 210 000 rounds) — the
@@ -342,7 +348,30 @@ is changed. The section PIN is always 6 (`PinPolicy.secureLength`).
 
 **The lock icon** (`SecureLockButton`) sits in every tab header — Recents/
 Favorites (`HomeSearchHeader`), Contacts, Messages — and is absent in the
-commercial edition. It never says whether the section holds anything.
+commercial edition. It says nothing of what the section holds except one
+number (the mentor's request, 1405/08/20): **how many messages in it are
+unread**, as a badge (`SecureUnreadBadge`). It counts encrypted messages
+and SMS from hidden contacts, and it stays until they are shown in their
+conversation. Opening the app, opening the section and swiping «پیام رمز
+جدید» away do not clear it. It is made of two halves, because `secure.db`
+is shut while the section is locked:
+
+- what still waits in the native queues — `SecureSmsInbox.waitingMessages`
+  (MESSAGE packets in `secure_queue`, not receipts or the answer to our own
+  request, plus `SealedInbox.pendingSms`), over `…/deep_links`
+  `pendingSecureMessages`, read off the main thread;
+- what was drained into `secure.db` and is still unread, as
+  `SecureMessagesBloc._reload` last counted it (`totalUnread`), kept as a
+  bare integer in preferences (`secure_unread_count`) — never a number, a
+  name or a body.
+
+It is refreshed at start, on resume, on every `onSecureArrived` nudge and
+after every reload. A section reset forgets it. It shows only while the
+section exists (locked or open). The number is said through the tooltip
+(«باز کردن بخش امن، ۲ پیام رمز خوانده‌نشده»), and the badge's own text is
+kept out of the semantics tree: left in, it replaced the button's name, and
+TalkBack read a bare «۲». Pinned by `secure_unread_badge_test.dart`.
+The two-phone checks are in `FINAL_DEVICE_TESTS.md` §16.
 
 **Every «باز کردن بخش امن» goes through `openSecureSection`** (in
 `secure_lock_button.dart`) — the lock icon, the button a locked screen shows
@@ -583,6 +612,14 @@ identity seed   = HKDF(K ‖ U, number ‖ generation)
 sealed signer   = AES-GCM(Argon2id(U), Ed25519 seed), AAD = authority id
 ```
 
+- **Both fields are grouped by four as they are typed**, as on the panel's
+  sheet (`GroupedCodeFormatter`, mentor 1405/08/20): `ABCD-EFGH-…`, the dash
+  added once a group is full. Only A–Z and 0–9 are kept. Lowercase is raised,
+  and Persian or Arabic digits become Latin. Backspace over a dash takes the
+  character before it, and a paste of a code with or without dashes comes out
+  the same. The key-file password dialog (`_askPassword`) does the same. The
+  dashes are only display: `MemberCode` / `KeyFile` already ignore them
+  (`normalize`).
 - **Only two things are typed**: the password carries the number and generation.
   Nothing is checksummed; a typo in either, or another member's code or password,
   fails the seal's GCM tag (`WRONG_PASSWORD`, «کد یا رمز درست نیست؛ کلیدی ساخته
@@ -850,8 +887,37 @@ its SMS is sent.**
   is kept) and a «شمارهٔ همراه» field («شروع با این شماره»); no confirmation
   dialog. A request is only ever sent when the user sends in an encrypted
   conversation they opened (that screen, or a hidden contact's «پیام رمز»):
-  a plain SMS never turns into one. An incoming conversation is named by its
-  number unless the number is in the hidden phonebook.
+  a plain SMS never turns into one. **A contact with several numbers is
+  always asked which one** (`ContactSelectorScreen(alwaysAskNumber: true)` →
+  `pickContactNumber(alwaysAsk: true)`, here and in «افزودن از مخاطبین» of a
+  group). A default number answers «تماس» and «پیامک», but an encrypted
+  message goes to the member a number names, so the default is only listed
+  first (mentor, 1405/08/20).
+- **What a conversation is called** is decided when it is shown, not when it
+  was made (`SecureMessagesBloc._displayNames`, for the list, the header and
+  group senders): the hidden phonebook's name, else the **address book's,
+  current** (`ContactRepository.getContactByPhoneNumber`, the lookup the
+  ordinary inbox uses; the bloc reloads on `ContactRepository.revision`),
+  else the name it was stored under, else the number. A number typed into
+  «گفتگوی رمز» is named from the address book too (`_onLookup`). Before this,
+  a conversation started by typing, or one that arrived, stayed a number for
+  good (mentor, 1405/08/20). Nothing is written: the address book is only
+  read, and only while the section is open.
+- **The card an SMS leaves on** (`SecureMessenger._simFor`): the
+  conversation's own (`secure_meta` `thread_sim:<phone>`, ⋮ → «سیم‌کارت
+  ارسال» or the composer's chip), else the «پیام‌های رمز» menu's
+  (`sms_sim`), else the phone's default for SMS. A card that is no longer in
+  the phone is passed over. It covers everything the conversation sends:
+  its messages, handshake, upgrade and receipts. A group's copies use the
+  menu's card, and the group composer's chip sets that one. The composer
+  shows the card before sending (`SimChip`, «سیم ۱» / «سیم ۲», dual-SIM
+  only). Each sent row records the card it was handed to the radio on
+  (`sm_messages.sim`, set by `markSending` / `setMessageSim`), and its bubble
+  says so: «سیم ۱» beside the time, and «ارسال‌شده با سیم ۱» with the card's
+  name on long-press. An unknown card shows nothing, never «سیم ۱». Deleting
+  a conversation deletes its two keys. Tests: «the card a secure send leaves
+  on» and «a conversation's own cover text» in `secure_messenger_test.dart`,
+  and `secure_composer_test.dart`.
 - **The handshake is automatic**: the first message to someone sends the INIT
   and waits under the banner «در حال برقراری کانال امن…»; the queued messages go when the
   RESPONSE arrives, and the upgrade offer follows them. An unanswered INIT is
@@ -935,10 +1001,20 @@ its SMS is sent.**
   `SecureNewConversationScreen`; `SecureMessagesBloc` (lazy, after
   `KeyBankBloc`) empties itself when the section locks. `SecureLockedView` is
   shared with the key bank screen.
+- **The secure composer is not a password field** (mentor 1405/08/20: an
+  emoji came out garbled after Enter). It used `enableSuggestions: false`,
+  which Flutter turns into `TYPE_TEXT_VARIATION_VISIBLE_PASSWORD`. The
+  Samsung keyboard then gave a Latin-only layout with no emoji key, and a
+  keyboard that types into such a field with key events goes through the
+  engine's `InputConnectionAdaptor.handleKeyEvent`, which keeps one UTF-16
+  unit of a character (half an emoji). What must hold is kept:
+  `enableIMEPersonalizedLearning: false` (IME_FLAG_NO_PERSONALIZED_LEARNING,
+  so the text never becomes the keyboard's learned words) and
+  `autocorrect: false`. Pinned by `secure_composer_test.dart`.
 
 ### Tests and verification
 
-Dart: `secure_messenger_test.dart` (44 — real `secure.db` schemas, three
+Dart: `secure_messenger_test.dart` (64 — real `secure.db` schemas, three
 engines over a simulated radio: handshake, queueing, out of order,
 duplicates, a replayed request, crossed and lost INITs, dual SIM, seen,
 delete-for-both, delete-after-seen, retry, keys replaced by the authority,
@@ -946,8 +1022,14 @@ hidden contacts, timed messages, groups, and the `certificates` group: the
 upgrade after the first message, members issued apart, a request
 the authority did not sign, a lost phone's older certificate, a lost upgrade
 answer; and 1405/07/29: «a channel that does not come is never silent» (7,
-incl. the late old offer), plain threads «never mixed» / «rename both»),
-repository, service mapping. Full suite 908, JVM 142, tools 25, panel 13.
+incl. the late old offer), plain threads «never mixed» / «rename both»; and
+1405/08/20: the card a send leaves on — the conversation's own, the menu's,
+a card taken out, a group's copies — a conversation's own cover text, and a
+v1 `secure.db` upgraded with its rows intact), repository, service mapping.
+`secure_composer_test.dart` (the field is not a password field, the SIM
+chip), `secure_unread_badge_test.dart` (the lock icon's count), and
+`grouped_code_formatter_test.dart` (the key-file password and the code).
+Full suite 958, JVM 150.
 
 **Two phones, real radio (Samsung A33 ↔ Huawei, 1405/07/25, fresh installs, a
 directory listing only the sender — history, before the directory was removed):** request and answer 2 + 2 parts and the
@@ -1261,7 +1343,11 @@ below are the project's own and say so in the mentor report.
   English ones are capitalised. Every receiver, every edition, runs
   `CoverText.uncover` first, so the rest of the pipeline only ever sees `#E:`.
   Handshakes are never covered. Setting in the «پیام‌های رمز» menu
-  (`secure_meta` `cover_text`). Verified 1405/08/07: organization release
+  (`secure_meta` `cover_text`), and **per conversation** (1405/08/20, the
+  mentor's Telegram-secret-chat ask): ⋮ → «متن پوششی» in the conversation
+  sets `thread_cover:<phone>` to «خاموش» / «فارسی» / «انگلیسی». «طبق تنظیم
+  «پیام‌های رمز»» removes the key, and the conversation then follows the menu
+  again. A group's copies follow the menu (`_out(thread: null)`). Verified 1405/08/07: organization release
   2000000177 on the emulator, a Persian and an English cover injected as
   incoming SMS — kept out of `content://sms`, «پیام رمز جدید» for the
   message-shaped one. Not yet sent between two phones.
@@ -1324,12 +1410,14 @@ below.
 
 | Date | versionCode | versionName | Handed to |
 |---|---|---|---|
-| — | — | — | none yet (2000000165 built 1405/07/25, `e0e7994`; 2000000176 built 1405/08/05 with the activation gate; 2000000194 built 1405/08/13, `065d201`; 2000000200 built 1405/08/13, `07a42c2`; 2000000203 built 1405/08/15, `2618e61`, for the delivery folder; none handed out yet) |
+| — | — | — | none yet (2000000165 built 1405/07/25, `e0e7994`; 2000000176 built 1405/08/05 with the activation gate; 2000000194 built 1405/08/13, `065d201`; 2000000200 built 1405/08/13, `07a42c2`; 2000000203 built 1405/08/15, `2618e61`, for the delivery folder; 2000000207 built 1405/08/20 from the working tree on `b495723` with the mentor's eight secure-messaging changes, installed over 203 on the Samsung with its data kept; none handed out yet) |
 
 ## Log
 
 | Date | Change |
 |---|---|
+| 1405/08/20 | **The mentor's eight notes on encrypted messages.** Each was checked in the code and on a phone first; all eight were real. (1) An emoji typed into the secure composer broke after Enter: `enableSuggestions: false` made the field a visible-password field (a Latin keyboard with no emoji key, and a key-event path that keeps half a surrogate pair); removed, with personalized learning and autocorrect still off. (2) «محل ذخیره پیش‌فرض» offered Eitaa beside Google: a messenger that declares uploading is no longer a place (`contacts.md`); existing contacts were never moved by it. (3) The key-file password and the 16-character code are typed in groups of four with the dash put in (`GroupedCodeFormatter`). (4) A contact with several numbers is always asked which one, in «گفتگوی رمز» and in a group's members, even with a default number. (5) A count on the lock icon until the messages are shown (`SecureUnreadBadge`). (6) The card is shown before sending as a chip in the composer, chosen from it, and recorded on the message («ارسال‌شده با سیم ۱»); single-SIM phones show none. (7) A conversation is named from the address book at display time, old conversations included. (8) A SIM and a cover text per conversation, from its own ⋮, over the menu's settings. `secure.db` is version 2 (`sim` on `sm_messages`), the first real `onUpgrade`, because version 1 shipped in build 203. Verified on the SM-A336E with organization release 2000000207 installed over 203, data kept: the upgrade kept the conversations, the composer's input type is plain text with no-personalized-learning, the keyboard offers Farsi and emoji, and per-conversation SIM and cover survive a reopen and a reinstall. On the emulator with commercial release 207 (inter-org activated): the badge counted two SMS from a hidden contact, survived swiping the notification away, a restart and opening the section, and went once the conversation was opened. Two-phone checks are in `FINAL_DEVICE_TESTS.md` §16. Dart 958, JVM 150. |
+| 1405/08/20 | **The eight notes on two phones.** SM-A336E (organization 2000000207, SIM 2) and Huawei ART-L29 (commercial 207, inter-org activated, single SIM, key built from a 16-character code typed lower-case and undashed). Passed: Farsi text, Enter and three emoji arrived intact; the lock counted 2 then 3 on all four tabs, kept 3 after the card was swiped away and the app force-stopped, stayed through the bare list and went when the conversation opened (the sender got «دیده شد»); a conversation set to SIM 2 from the chip set the channel up and sent on SIM 2 with «ارسال‌شده با سیم ۲» under the bubble, and «طبق تنظیم» put the menu's SIM 1 back on the chip; English cover for one conversation went as 2 parts and as 1 back on the menu's «خاموش», both decoded by the commercial phone; the single-SIM phone shows no chip, no ⋮ and no SIM tag; a two-number contact got the number sheet in «گفتگوی رمز» and in a new group, and the ordinary composer still took the default; the first message from a saved number arrived under the contact's name, and a rename (through the phone's Contacts app and through ours) showed without a restart. Not covered: SIM 1 (no credit), Gboard (on neither phone; SwiftKey cannot be filmed under FLAG_SECURE), opening a key file with a dashed password. Seen on the way: One UI removed a heads-up «پیام رمز جدید» the moment an injected touch landed on it (SystemUI, not a cancel from the app; left alone it stayed), and an in-app rename re-aggregated a contact away from its messenger row (`KNOWN_ISSUES` K10). 74 of 130 two-phone checks done. |
 | 1405/08/15 | **Delivery of the four mentor changes.** Build 203 (`2618e61`) tested on two real phones with the production authority: organization APK on the Samsung, commercial APK with inter-org activation on the Huawei; no bug found. Key by code and key by file gave the same key in both directions (a second route to the same key answers «این کلید قبلاً روی این گوشی هست»), and encrypted SMS went both ways with «دیده شد» in both mixes. A hidden number's missed call was checked on the emulator with a made-up number, since adding a number to the phonebook moves its history for good. MSI 1.6.0 installed and passed `--self-test`, including the code route. The test authority's member file was issued again with the new derivation (the old one is under `backups/before-member-code-*`). All mentor documents and the delivery folder updated; tests: 150 JVM, 27 tool, 13 panel, 928 Dart. |
 | 1405/08/15 | **Two stale panel texts fixed in MSI 1.6.0.** The edit dialog said a changed first mobile keeps the password; passwords are derived now, so it changes the key, the password and the code. The activation screen still named the removed «نسخه بین‌سازمانی» row. |
 | 1405/08/13 | **Build 200 for the delivery folder** (`07a42c2`). Installed on both test phones: the organization APK over a test build keeps its activation and data; the commercial APK over it is refused with `INSTALL_FAILED_VERSION_DOWNGRADE` and installs after an uninstall, then walks the permission and default-app gates to «اخیر» with no crash. The panel is unchanged: MSI 1.5.0 is still current. |

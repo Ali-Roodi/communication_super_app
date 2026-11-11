@@ -58,6 +58,9 @@ class _SecureNewConversationScreenState
         builder: (_) => const ContactSelectorScreen(
           pickOnly: true,
           pickTitle: 'انتخاب مخاطب',
+          // Which of the contact's lines holds the key is the user's call,
+          // never the address book's default.
+          alwaysAskNumber: true,
         ),
       ),
     );

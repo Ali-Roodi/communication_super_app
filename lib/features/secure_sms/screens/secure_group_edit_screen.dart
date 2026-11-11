@@ -51,7 +51,10 @@ class _SecureGroupEditScreenState extends State<SecureGroupEditScreen> {
   Future<void> _addFromContacts() async {
     final picked = await Navigator.of(context).push<List<GroupMember>>(
       MaterialPageRoute(
-        builder: (_) => const ContactSelectorScreen(pickMembers: true),
+        builder: (_) => const ContactSelectorScreen(
+          pickMembers: true,
+          alwaysAskNumber: true,
+        ),
       ),
     );
     if (picked == null || picked.isEmpty) return;

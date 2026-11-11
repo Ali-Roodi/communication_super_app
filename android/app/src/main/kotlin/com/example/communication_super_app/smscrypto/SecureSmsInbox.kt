@@ -107,6 +107,17 @@ object SecureSmsInbox {
     }
 
     /**
+     * How many messages are waiting for the section to open: encrypted ones
+     * in the queue (not receipts, not the answer to our own request) and
+     * sealed SMS from hidden contacts — the count «N پیام رمز جدید» names, and
+     * the lock icon's badge outside the section (`SecureUnreadBadge`). A
+     * count only: nothing about who or what.
+     */
+    fun waitingMessages(context: Context): Int =
+        pending(context).count { it == Arrival.MESSAGE } +
+            com.example.communication_super_app.hidden.SealedInbox.pendingSms(context)
+
+    /**
      * Posts (or refreshes) the one encrypted-SMS card. Receipts are queued too
      * but say nothing, so the caller asks [announces] first.
      *

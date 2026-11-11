@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:communication_super_app/core/utils/date_formatter.dart';
+import 'package:communication_super_app/core/utils/grouped_code_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/google_list.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
@@ -178,6 +179,11 @@ class _Bank extends StatelessWidget {
   }
 }
 
+/// Letters and digits in a member's key-file password (`MemberCode`: 20
+/// characters, 100 bits). The fields lay both it and the 16-character code out
+/// in groups of four ([GroupedCodeFormatter]); the dashes mean nothing.
+const keyFilePasswordLength = 20;
+
 /// The code and the password together: one is useless without the other, and
 /// the key is built only when both are right. The code stays visible, since it
 /// is being typed from someone's voice and is nothing without the password; the
@@ -235,6 +241,9 @@ class _CodeDialogState extends State<_CodeDialog> {
               enableSuggestions: false,
               textCapitalization: TextCapitalization.characters,
               textInputAction: TextInputAction.next,
+              inputFormatters: const [
+                GroupedCodeFormatter(maxLength: _CodeDialog.codeLength),
+              ],
               onChanged: (_) => setState(() {}),
               decoration: InputDecoration(
                 labelText: 'کد ۱۶ نویسه‌ای',
@@ -253,6 +262,9 @@ class _CodeDialogState extends State<_CodeDialog> {
               autocorrect: false,
               enableSuggestions: false,
               textCapitalization: TextCapitalization.characters,
+              inputFormatters: const [
+                GroupedCodeFormatter(maxLength: keyFilePasswordLength),
+              ],
               onChanged: (_) => setState(() {}),
               onSubmitted: (_) => _submit(),
               decoration: InputDecoration(
@@ -312,6 +324,9 @@ Future<String?> _askPassword(
             autocorrect: false,
             enableSuggestions: false,
             textCapitalization: TextCapitalization.characters,
+            inputFormatters: const [
+              GroupedCodeFormatter(maxLength: keyFilePasswordLength),
+            ],
             decoration: InputDecoration(
               hintText: hint,
               suffixIcon: IconButton(

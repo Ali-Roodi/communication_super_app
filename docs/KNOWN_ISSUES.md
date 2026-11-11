@@ -80,6 +80,13 @@ everything contact-related and needs its own branch and device QA.
 fails in a full `flutter test` run and passes on its own (seen again 1405/08/13).
 The other 907 Dart tests pass.
 
+### K10 — A rename can move a contact to a new id
+Seen 1405/08/20 on a Huawei: a contact made of a phone raw contact and a nameless
+messenger one («بله») was renamed in the app; `flutter_contacts` re-writes the
+name row, the provider re-aggregated, and the phone raw contact moved to a new
+contact id. The contact page was still holding the old id and showed the old name
+until it was reopened. The data is right and every list shows the new name.
+
 ## Accepted by design
 
 - **Cover text reads as words, not sentences.** Real grammar would multiply the

@@ -173,6 +173,17 @@ class DeepLinkService {
     }
   }
 
+  /// How many messages wait in the native queues for the secure section
+  /// (encrypted, and sealed from hidden contacts); 0 when unknown.
+  Future<int> pendingSecureMessages() async {
+    try {
+      return await _channel.invokeMethod<int>('pendingSecureMessages') ?? 0;
+    } catch (e) {
+      debugPrint('pendingSecureMessages failed: $e');
+      return 0;
+    }
+  }
+
   /// Dismisses this thread's SMS notifications (the user just opened it).
   Future<void> clearThreadNotifications(String threadId) async {
     try {

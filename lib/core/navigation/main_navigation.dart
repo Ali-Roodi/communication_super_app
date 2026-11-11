@@ -34,6 +34,7 @@ import 'package:communication_super_app/features/call_history/services/unseen_mi
 import 'package:communication_super_app/core/widgets/app_lock_wrapper.dart';
 import 'package:communication_super_app/features/secure/bloc/secure_session_bloc.dart';
 import 'package:communication_super_app/features/secure/widgets/secure_lock_button.dart';
+import 'package:communication_super_app/features/secure/services/secure_unread_badge.dart';
 import 'widgets/message_nav_icon.dart';
 import 'widgets/nav_count_icon.dart';
 
@@ -93,6 +94,8 @@ class _MainNavigationState extends State<MainNavigation>
       ..onThreadChanged = _onThreadChangedExternally
       ..registerHandler();
     CallReminders.instance.start();
+    // The lock icon's count of unread encrypted messages.
+    SecureUnreadBadge.start();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final action = await DeepLinkService.instance.consumeInitialAction();
       if (action != null) {
@@ -282,6 +285,8 @@ class _MainNavigationState extends State<MainNavigation>
       // against the moment we were last on screen.
       _startAutoTabSelection(reopen: true);
       _refreshContactsOnResume();
+      // Encrypted SMS may have come in while we were away.
+      SecureUnreadBadge.refresh();
       // Same for calls: one may have ended (or been deleted) while
       // backgrounded — silent mirror-sync so «اخیر» is current on return.
       context.read<CallLogBloc>().add(const SyncCallLogs());

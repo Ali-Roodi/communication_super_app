@@ -82,6 +82,27 @@ class SecureConversation extends Equatable {
   final int? seenSid;
   final int? seenCounter;
 
+  /// The same conversation under the name the screens show (see
+  /// `SecureMessagesBloc._displayNames`); nothing is stored.
+  SecureConversation named(String display) => display == name
+      ? this
+      : SecureConversation(
+          phone: phone,
+          name: display,
+          peerKeyId: peerKeyId,
+          peerPublic: peerPublic,
+          ownKeyId: ownKeyId,
+          createdAt: createdAt,
+          lastAt: lastAt,
+          unread: unread,
+          lastBody: lastBody,
+          lastOutgoing: lastOutgoing,
+          seenSid: seenSid,
+          seenCounter: seenCounter,
+          peerGeneration: peerGeneration,
+          upgraded: upgraded,
+        );
+
   @override
   List<Object?> get props => [
     phone,
@@ -114,6 +135,7 @@ class SecureMessage extends Equatable {
     this.parts,
     this.plain = false,
     this.ttl,
+    this.sim,
   });
 
   final String id;
@@ -122,6 +144,10 @@ class SecureMessage extends Equatable {
   final String body;
   final int timestamp;
   final SecureMessageStatus status;
+
+  /// Outgoing: the subscription id it was handed to the radio on — what
+  /// «ارسال با سیم ۱» under the bubble names. Null until it went out.
+  final int? sim;
 
   /// The session and counter it travelled with; null while still queued.
   final int? sid;
@@ -163,6 +189,7 @@ class SecureMessage extends Equatable {
     parts: r['parts'] as int?,
     plain: r['plain'] == 1,
     ttl: r['ttl'] as int?,
+    sim: r['sim'] as int?,
   );
 
   @override
@@ -180,6 +207,7 @@ class SecureMessage extends Equatable {
     parts,
     plain,
     ttl,
+    sim,
   ];
 }
 
@@ -818,6 +846,7 @@ class SecureMessageStore {
         'parts': m.parts,
         'plain': m.plain ? 1 : 0,
         'ttl': m.ttl,
+        'sim': m.sim,
       }, conflictAlgorithm: cipher.ConflictAlgorithm.ignore);
 
   /// Whether this plain SMS is already stored — a carrier's second delivery,
@@ -848,6 +877,7 @@ class SecureMessageStore {
     required int sid,
     required int counter,
     required int parts,
+    int? sim,
   }) => txn.update(
     'sm_messages',
     {
@@ -855,10 +885,16 @@ class SecureMessageStore {
       'sid': sid,
       'counter': counter,
       'parts': parts,
+      'sim': sim,
     },
     where: 'id = ?',
     whereArgs: [id],
   );
+
+  /// The card an outgoing message is being handed to the radio on (a plain
+  /// one, or a retry): see [SecureMessage.sim].
+  Future<void> setMessageSim(String id, int? sim) =>
+      db.update('sm_messages', {'sim': sim}, where: 'id = ?', whereArgs: [id]);
 
   /// Moves an outgoing message forward; never back (a late «sent» report
   /// must not undo «seen»).
@@ -1047,6 +1083,24 @@ class SecureMessageStore {
     'key': key,
     'value': value,
   }, conflictAlgorithm: cipher.ConflictAlgorithm.replace);
+
+  Future<void> deleteMeta(String key) =>
+      db.delete('secure_meta', where: 'key = ?', whereArgs: [key]);
+
+  /// Every `secure_meta` entry whose key starts with [prefix], keyed by the
+  /// rest of the key — the per-conversation settings (`thread_sim:<phone>`).
+  /// Compared with `substr`, not LIKE: `_` in a prefix is a LIKE wildcard.
+  Future<Map<String, String>> metaWithPrefix(String prefix) async {
+    final rows = await db.query(
+      'secure_meta',
+      where: 'substr(key, 1, ?) = ?',
+      whereArgs: [prefix.length, prefix],
+    );
+    return {
+      for (final r in rows)
+        (r['key'] as String).substring(prefix.length): r['value'] as String,
+    };
+  }
 
   /// What «پیام‌های رمز» pins to its top (matrix row 23), in pin order:
   /// `c:<conversation phone>` and `g:<group id>`. Kept here and nowhere

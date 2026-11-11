@@ -33,11 +33,18 @@ class PickablePhone {
 /// the default, which is what makes the sheet answerable at a glance («کدام
 /// شماره؟» is not a question about digits, it is a question about *which
 /// phone*). [numbers] stays for the callers that only hold bare strings.
+///
+/// [alwaysAsk] shows the sheet even for a contact with a default number. An
+/// encrypted message is one of those: it goes to the member a *number* names,
+/// and a default picked for everyday calls says nothing about which line holds
+/// هم‌رسان and a key (the mentor's report — «پیام رمز» went straight to the
+/// default line without asking).
 Future<String?> pickContactNumber(
   BuildContext context, {
   List<String> numbers = const [],
   List<PickablePhone> entries = const [],
   required String title,
+  bool alwaysAsk = false,
 }) async {
   final rows = entries.isNotEmpty
       ? entries.where((e) => e.number.trim().isNotEmpty).toList()
@@ -64,7 +71,7 @@ Future<String?> pickContactNumber(
   // per contact, and a contact that somehow carries two has no default worth
   // acting on, so that falls back to asking.
   final defaults = rows.where((r) => r.isDefault);
-  if (defaults.length == 1) return defaults.first.number;
+  if (!alwaysAsk && defaults.length == 1) return defaults.first.number;
 
   // The default first: it is the answer the user gives most of the time, and
   // burying it under the order the address book happens to store makes the
@@ -138,11 +145,15 @@ Future<String?> pickContactNumber(
 /// One platform call, made at gesture time on a contact with more than one
 /// number — never during a build and never for the common single-number case.
 /// A refusal (no permission, an older provider) simply falls back to asking.
+///
+/// [alwaysAsk]: see [pickContactNumber]. The default is still read, so the
+/// sheet marks it and lists it first.
 Future<String?> pickContactNumberFor(
   BuildContext context, {
   required String? contactId,
   required List<String> numbers,
   required String title,
+  bool alwaysAsk = false,
 }) async {
   final rows = [
     for (final n in numbers)
@@ -164,6 +175,7 @@ Future<String?> pickContactNumberFor(
         PickablePhone(number: n, isDefault: _sameNumber(preferred, n)),
     ],
     title: title,
+    alwaysAsk: alwaysAsk,
   );
 }
 

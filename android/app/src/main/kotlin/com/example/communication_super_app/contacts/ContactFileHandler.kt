@@ -220,8 +220,15 @@ class ContactFileHandler(private val activity: Activity) {
 
     /**
      * Accounts whose contacts sync adapter uploads: a real cloud account. A
-     * messenger's download-only copy of the address book is not somewhere to
-     * save a contact, and the SIM and the phone are offered separately.
+     * messenger's copy of the address book is not somewhere to save a contact,
+     * and the SIM and the phone are offered separately.
+     *
+     * Uploading alone does not tell them apart: Eitaa and Shad declare it
+     * exactly like Google (SM A336E, 1405/08/20), and «محل ذخیره پیش‌فرض» offered
+     * the Eitaa account. A messenger is recognised the way the contact filters
+     * recognise it ([messengerAccountTypes]): by the rows of its own MIME type
+     * it puts on every contact. Its other account types are dropped with it
+     * (one package, one messenger).
      *
      * [ContentResolver.getSyncAdapterTypes] needs no permission. An account with
      * no contacts yet is only known to [AccountManager], which shows contact
@@ -240,9 +247,20 @@ class ContactFileHandler(private val activity: Activity) {
                     }
                     .map { it.accountType }
                     .toSet()
+                val authenticators = try {
+                    AccountManager.get(activity).authenticatorTypes
+                        .associate { it.type to it.packageName }
+                } catch (e: Exception) {
+                    emptyMap()
+                }
+                val messengers = messengerAccountTypes()
+                val messengerPackages = messengers.mapNotNull { authenticators[it] }.toSet()
+                fun offered(type: String) = type in uploading &&
+                    type !in messengers &&
+                    authenticators[type] !in messengerPackages
                 try {
                     for (account in AccountManager.get(activity).accounts) {
-                        if (account.type in uploading) out.add(account.type to account.name)
+                        if (offered(account.type)) out.add(account.type to account.name)
                     }
                 } catch (e: SecurityException) {
                     Log.w(TAG, "accounts unavailable")
@@ -260,7 +278,7 @@ class ContactFileHandler(private val activity: Activity) {
                     while (c.moveToNext()) {
                         val type = c.getString(0) ?: continue
                         val name = c.getString(1) ?: continue
-                        if (type in uploading) out.add(type to name)
+                        if (offered(type)) out.add(type to name)
                     }
                 }
             } catch (e: Exception) {
@@ -269,5 +287,28 @@ class ContactFileHandler(private val activity: Activity) {
             val rows = out.map { mapOf("type" to it.first, "name" to it.second) }
             main.post { result.success(rows) }
         }
+    }
+
+    /**
+     * Account types that put rows of their own MIME type on contacts
+     * (`vnd.android.cursor.item/vnd.…`, a messenger's «پیام» / «تماس»): what
+     * no address-book account — Google, Samsung, the phone, the SIM — writes.
+     */
+    private fun messengerAccountTypes(): Set<String> {
+        val types = HashSet<String>()
+        activity.contentResolver.query(
+            ContactsContract.Data.CONTENT_URI,
+            arrayOf(ContactsContract.Data.MIMETYPE, ContactsContract.RawContacts.ACCOUNT_TYPE),
+            "${ContactsContract.Data.MIMETYPE} LIKE ?",
+            arrayOf("vnd.android.cursor.item/vnd.%"),
+            null,
+        )?.use { c ->
+            while (c.moveToNext()) {
+                val mime = c.getString(0) ?: continue
+                if (mime in ContactExtrasHandler.KNOWN_MIME_TYPES) continue
+                c.getString(1)?.let(types::add)
+            }
+        }
+        return types
     }
 }

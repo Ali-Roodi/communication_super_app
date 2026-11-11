@@ -120,8 +120,25 @@ void main() {
 
       final added = verify(() => bloc.add(captureAny())).captured.single;
       expect(added, isA<KeyBankImportCode>());
-      expect((added as KeyBankImportCode).code, 'abcd efgh 2345 6789');
+      // Laid out by the field as the panel prints it; the dashes mean
+      // nothing to `MemberCode`.
+      expect((added as KeyBankImportCode).code, 'ABCD-EFGH-2345-6789');
       expect(added.password, 'PW');
+    });
+
+    testWidgets('both fields put the dashes in by themselves', (tester) async {
+      await open(tester);
+      await tester.enterText(find.byType(TextField).first, 'abcd2345wxyz');
+      await tester.enterText(
+        find.byType(TextField).last,
+        'pqrs2345wxyzabcd6789extra',
+      );
+      await tester.pump();
+      final fields = tester
+          .widgetList<TextField>(find.byType(TextField))
+          .toList();
+      expect(fields.first.controller!.text, 'ABCD-2345-WXYZ-');
+      expect(fields.last.controller!.text, 'PQRS-2345-WXYZ-ABCD-6789');
     });
 
     testWidgets('cancelling builds nothing', (tester) async {

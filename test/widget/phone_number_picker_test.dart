@@ -92,4 +92,42 @@ void main() {
     );
     expect(find.text('تماس'), findsOneWidget);
   });
+
+  testWidgets('an encrypted message asks even past a default', (tester) async {
+    // «پیام رمز» goes to the member a number names: the mentor's report was
+    // that it went straight to the default line.
+    String? chosen = 'unset';
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                chosen = await pickContactNumber(
+                  context,
+                  entries: const [
+                    PickablePhone(number: '09121112233'),
+                    PickablePhone(number: '09124445566', isDefault: true),
+                  ],
+                  title: 'تماس',
+                  alwaysAsk: true,
+                );
+              },
+              child: const Text('go'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('go'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('تماس'), findsOneWidget);
+    expect(find.byType(ListTile), findsNWidgets(2));
+    // The default is still marked, and listed first.
+    expect(find.text('پیش‌فرض'), findsOneWidget);
+    await tester.tap(find.byType(ListTile).last);
+    await tester.pumpAndSettle();
+    expect(chosen, '09121112233');
+  });
 }

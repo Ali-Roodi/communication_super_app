@@ -979,7 +979,11 @@ class SecureMessenger {
 
   Future<void> _sendPlain(SecureMessage m) async {
     try {
-      await _send(numberOf(m.phone), m.body, trackingId: m.id);
+      // Stamped before it goes: a send that fails still names the card it
+      // was tried on.
+      final sim = await _simFor(m.phone);
+      await _store.setMessageSim(m.id, sim);
+      await _sendOn(numberOf(m.phone), m.body, trackingId: m.id, sim: sim);
       await _store.advanceStatus(m.id, SecureMessageStatus.sent);
     } catch (e) {
       debugPrint('Sending a plain hidden SMS failed: ${e.runtimeType}');
@@ -1155,6 +1159,9 @@ class SecureMessenger {
         continue;
       }
       state = sealed.state;
+      // The card is chosen once and written with the message, so the bubble
+      // names the one the radio was actually handed.
+      final sim = await _simFor(phone);
       await _store.db.transaction((txn) async {
         await _store.updateSessionState(txn, phone, session.sid, sealed.state);
         await _store.markSending(
@@ -1163,11 +1170,17 @@ class SecureMessenger {
           sid: sealed.sid!,
           counter: sealed.counter!,
           parts: sealed.parts,
+          sim: sim,
         );
       });
       _changed(phone);
       try {
-        await _send(phone, await _out(sealed.wire), trackingId: m.id);
+        await _sendOn(
+          phone,
+          await _out(sealed.wire, thread: phone),
+          trackingId: m.id,
+          sim: sim,
+        );
         await _store.advanceStatus(m.id, SecureMessageStatus.sent);
       } catch (e) {
         debugPrint('Sending an encrypted SMS failed: ${e.runtimeType}');
@@ -1343,35 +1356,85 @@ class SecureMessenger {
   /// often have the number the key bank lists on the *other* SIM.
   static const simKey = 'sms_sim';
 
-  Future<void> _send(
+  /// `secure_meta` key prefixes of one conversation's own settings, followed
+  /// by its thread key (`thread_sim:09…`, `thread_cover:09…`). Absent = the
+  /// conversation follows the «پیام‌های رمز» menu ([simKey], [coverKey]) —
+  /// Telegram's secret chats, one setting per chat over a general one.
+  ///
+  /// They cover everything that conversation sends: its messages, its
+  /// handshake and upgrade, its receipts. A *group's* copies go on the
+  /// general setting, whoever they go to: a group is not one conversation,
+  /// and its composer names the general card.
+  static const threadSimPrefix = 'thread_sim:';
+  static const threadCoverPrefix = 'thread_cover:';
+
+  /// The card an SMS of [thread] (null: a group's) goes out on: the
+  /// conversation's own pick, else the «پیام‌های رمز» menu's, else the same
+  /// default the ordinary composer uses and the send button names (never the
+  /// phone's alone: its default SIM may have no credit). A pick whose card is
+  /// no longer in the phone is passed over, not handed to the radio.
+  Future<int?> _simFor(String? thread) async {
+    final own = thread == null
+        ? null
+        : int.tryParse(await _store.meta('$threadSimPrefix$thread') ?? '');
+    final general = int.tryParse(await _store.meta(simKey) ?? '');
+    return _present(own) ??
+        _present(general) ??
+        SimService.defaultFor(SimUse.sms)?.subscriptionId;
+  }
+
+  /// [id] when it names a card this phone has; an unread roster trusts it.
+  static int? _present(int? id) {
+    if (id == null || id < 0) return null;
+    if (SimService.cached.isEmpty) return id;
+    return SimService.byId(id) == null ? null : id;
+  }
+
+  /// Hands [wire] to the radio on [thread]'s card; answers the card used.
+  Future<int?> _send(
     String phone,
     String wire, {
     required String trackingId,
+    String? thread,
   }) async {
-    // The card picked in the «پیام‌های رمز» menu, else the same default the
-    // ordinary composer uses and the send button names (never the phone's
-    // alone: its default SIM may have no credit).
-    final sim = int.tryParse(await _store.meta(simKey) ?? '');
-    await _sender.send(
-      phone,
-      wire,
-      trackingId: trackingId,
-      subscriptionId: sim != null && sim >= 0
-          ? sim
-          : SimService.defaultFor(SimUse.sms)?.subscriptionId,
-    );
+    final sim = await _simFor(thread);
+    await _sendOn(phone, wire, trackingId: trackingId, sim: sim);
+    return sim;
   }
+
+  Future<void> _sendOn(
+    String phone,
+    String wire, {
+    required String trackingId,
+    required int? sim,
+  }) => _sender.send(phone, wire, trackingId: trackingId, subscriptionId: sim);
 
   Future<int?> smsSim() async => int.tryParse(await _store.meta(simKey) ?? '');
 
   Future<void> setSmsSim(int? subscriptionId) =>
       _store.setMeta(simKey, '${subscriptionId ?? -1}');
 
-  /// A message or receipt as cover text when the user chose it (row 31).
+  /// Every conversation's own card: thread → subscription id.
+  Future<Map<String, int>> threadSims() async => {
+    for (final e in (await _store.metaWithPrefix(threadSimPrefix)).entries)
+      if (int.tryParse(e.value) case final id? when id >= 0) e.key: id,
+  };
+
+  /// [thread]'s own card; null hands it back to the menu's.
+  Future<void> setThreadSim(String thread, int? subscriptionId) =>
+      subscriptionId == null || subscriptionId < 0
+      ? _store.deleteMeta('$threadSimPrefix$thread')
+      : _store.setMeta('$threadSimPrefix$thread', '$subscriptionId');
+
+  /// A message or receipt as cover text when the user chose it (row 31) —
+  /// for [thread] (null: a group's), its own choice over the menu's.
   /// Handshakes are never covered: a thousand words for one SMS's worth.
-  Future<String> _out(String wire) async {
+  Future<String> _out(String wire, {String? thread}) async {
     if (!_coverAllowed) return wire;
-    final mode = await _store.meta(coverKey);
+    final own = thread == null
+        ? null
+        : await _store.meta('$threadCoverPrefix$thread');
+    final mode = own ?? await _store.meta(coverKey);
     if (mode != 'fa' && mode != 'en') return wire;
     try {
       return await _crypto.coverEncode(wire, persian: mode == 'fa');
@@ -1387,16 +1450,44 @@ class SecureMessenger {
   Future<void> setCoverMode(String? mode) =>
       _store.setMeta(coverKey, mode == 'fa' || mode == 'en' ? mode! : 'off');
 
+  /// Every conversation's own «متن پوششی»: thread → `off`, `fa` or `en`.
+  /// Empty in a build that may not cover at all.
+  Future<Map<String, String>> threadCovers() async {
+    if (!_coverAllowed) return const {};
+    return {
+      for (final e in (await _store.metaWithPrefix(threadCoverPrefix)).entries)
+        if (const {'off', 'fa', 'en'}.contains(e.value)) e.key: e.value,
+    };
+  }
+
+  /// [thread]'s own «متن پوششی» (`off`, `fa`, `en`); null hands it back to
+  /// the menu's.
+  Future<void> setThreadCover(String thread, String? mode) {
+    if (!_coverAllowed) return Future.value();
+    return const {'off', 'fa', 'en'}.contains(mode)
+        ? _store.setMeta('$threadCoverPrefix$thread', mode!)
+        : _store.deleteMeta('$threadCoverPrefix$thread');
+  }
+
   /// Handshake packets and receipts: no bubble to update. A session request
   /// or upgrade offer that could not be handed to the radio is marked failed
   /// for the conversation screen, like one the radio reports failed.
+  ///
+  /// They belong to the conversation with [phone] and go on its card;
+  /// [group] receipts go on the general one (see [threadSimPrefix]).
   Future<void> _sendQuietly(
     String phone,
     String wire,
-    String trackingId,
-  ) async {
+    String trackingId, {
+    bool group = false,
+  }) async {
     try {
-      await _send(phone, wire, trackingId: trackingId);
+      await _send(
+        phone,
+        wire,
+        trackingId: trackingId,
+        thread: group ? null : phone,
+      );
     } catch (e) {
       debugPrint('Sending a control SMS failed: ${e.runtimeType}');
       final parts = trackingId.split(':');
@@ -1408,12 +1499,14 @@ class SecureMessenger {
   }
 
   /// Sends a receipt on the newest session; false when there is none yet.
+  /// [group]: it is about a group's message, and goes as the group's do.
   Future<bool> _sendControl(
     String phone,
     String control,
     int refSid,
-    int refCounter,
-  ) async {
+    int refCounter, {
+    bool group = false,
+  }) async {
     final session = (await _store.sessions(
       phone,
     )).where((s) => s.sendable).firstOrNull;
@@ -1427,7 +1520,12 @@ class SecureMessenger {
     await _store.db.transaction(
       (txn) => _store.updateSessionState(txn, phone, session.sid, sealed.state),
     );
-    await _sendQuietly(phone, await _out(sealed.wire), 'ctl-${_newId()}');
+    await _sendQuietly(
+      phone,
+      await _out(sealed.wire, thread: group ? null : phone),
+      'ctl-${_newId()}',
+      group: group,
+    );
     return true;
   }
 
@@ -1488,6 +1586,10 @@ class SecureMessenger {
 
   Future<void> deleteConversation(String phone) => _serial(() async {
     await _store.deleteConversation(phone);
+    // Its own settings go with it: a conversation started again with the
+    // same number begins on the menu's, as a new one does.
+    await _store.deleteMeta('$threadSimPrefix$phone');
+    await _store.deleteMeta('$threadCoverPrefix$phone');
     _changed(null);
   });
 
@@ -1664,7 +1766,13 @@ class SecureMessenger {
       if (c.seenSid == mark.sid && (c.seenCounter ?? -1) >= mark.upTo) {
         continue;
       }
-      if (await _sendControl(mark.sender, 'seen', mark.sid, mark.upTo)) {
+      if (await _sendControl(
+        mark.sender,
+        'seen',
+        mark.sid,
+        mark.upTo,
+        group: true,
+      )) {
         await _store.setSeenMark(mark.sender, mark.sid, mark.upTo);
       }
     }
@@ -1681,7 +1789,7 @@ class SecureMessenger {
     if (m == null || !m.outgoing) return;
     for (final d in m.deliveries) {
       if (d.sid != null && d.counter != null) {
-        await _sendControl(d.phone, 'delete', d.sid!, d.counter!);
+        await _sendControl(d.phone, 'delete', d.sid!, d.counter!, group: true);
       }
     }
     await _groups.deleteMessage(id);

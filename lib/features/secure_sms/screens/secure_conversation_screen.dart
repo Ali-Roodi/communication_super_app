@@ -5,7 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:communication_super_app/core/edition/app_edition.dart';
+import 'package:communication_super_app/core/sim/sim_card.dart';
 import 'package:communication_super_app/core/sim/sim_service.dart';
+import 'package:communication_super_app/core/sim/widgets/sim_picker.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
@@ -101,6 +104,156 @@ class _SecureConversationScreenState extends State<SecureConversationScreen> {
     setState(() => _expiry = SecureExpiry.none);
   }
 
+  /// The «پیام‌های رمز» menu's card, else the phone's default for SMS.
+  static SimCard? _generalSim(SecureMessagesState state) =>
+      SimService.byId(state.smsSim) ?? SimService.defaultFor(SimUse.sms);
+
+  /// The card this conversation's next SMS leaves on — the same choice
+  /// `SecureMessenger` makes: its own, else the menu's, else the default;
+  /// a card no longer in the phone is passed over.
+  SimCard? _sim() {
+    final state = _bloc.state;
+    return SimService.byId(state.threadSims[widget.phone]) ??
+        _generalSim(state);
+  }
+
+  /// «سیم‌کارت ارسال»: this conversation's own card (row 5 of the mentor's
+  /// list: as Telegram's secret chats, one setting per chat over the menu's).
+  Future<void> _pickSim() async {
+    final state = _bloc.state;
+    final own = SimService.byId(state.threadSims[widget.phone]);
+    final general = _generalSim(state);
+    final chosen = await showSimChoice(
+      context,
+      title: 'ارسال با کدام سیم‌کارت؟',
+      subtitle: 'فقط برای این گفتگو',
+      defaultLabel: 'طبق تنظیم «پیام‌های رمز»',
+      defaultSubtitle: general == null
+          ? null
+          : '${general.slotLabel} · ${general.name}',
+      selected: own,
+      defaultSelected: own == null,
+    );
+    if (chosen == null || !mounted) return;
+    _bloc.add(SecureSetThreadSim(widget.phone, chosen.sim?.subscriptionId));
+  }
+
+  static String _coverLabel(String? mode) => switch (mode) {
+    'fa' => 'فارسی',
+    'en' => 'انگلیسی',
+    _ => 'خاموش',
+  };
+
+  /// «متن پوششی» for this conversation only (organization edition).
+  Future<void> _pickCover() async {
+    final state = _bloc.state;
+    final own = state.threadCovers[widget.phone];
+    final scheme = Theme.of(context).colorScheme;
+    // '' = follow the menu; otherwise `off`, `fa` or `en`.
+    final chosen = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetCtx) {
+        Widget row(String value, String title, {String? subtitle}) => ListTile(
+          title: Text(title),
+          subtitle: subtitle == null ? null : Text(subtitle),
+          trailing: (own ?? '') == value
+              ? Icon(Icons.check, color: scheme.primary)
+              : null,
+          onTap: () => Navigator.of(sheetCtx).pop(value),
+        );
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 4),
+                  child: Text(
+                    'متن پوششی این گفتگو',
+                    style: Theme.of(sheetCtx).textTheme.titleMedium,
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+                  child: Text(
+                    'پیام رمز به‌صورت چند کلمهٔ معمولی فرستاده می‌شود و گوشی '
+                    'گیرنده آن را باز می‌کند؛ پیام بلندتر می‌شود و ممکن است پیامک '
+                    'بیشتری ببرد.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+                row(
+                  '',
+                  'طبق تنظیم «پیام‌های رمز»',
+                  subtitle: 'اکنون: ${_coverLabel(state.cover)}',
+                ),
+                const Divider(height: 1),
+                row('off', 'خاموش'),
+                row('fa', 'فارسی'),
+                row('en', 'انگلیسی'),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (chosen == null || !mounted) return;
+    _bloc.add(
+      SecureSetThreadCover(widget.phone, chosen.isEmpty ? null : chosen),
+    );
+  }
+
+  /// The conversation's own ⋮ — what it can set apart from the inbox menu.
+  Widget? _menu(SecureMessagesState state, {required bool encrypted}) {
+    final sims = SimService.isMultiSim;
+    final cover = kOrganizationBuild && encrypted;
+    if (state.status != SecureMessagesStatus.ready || (!sims && !cover)) {
+      return null;
+    }
+    final sim = _sim();
+    return PopupMenuButton<String>(
+      tooltip: 'گزینه‌های بیشتر',
+      onSelected: (v) => v == 'sim' ? _pickSim() : _pickCover(),
+      itemBuilder: (_) => [
+        if (sims)
+          PopupMenuItem(
+            value: 'sim',
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.sim_card_outlined),
+              title: const Text('سیم‌کارت ارسال'),
+              subtitle: sim == null
+                  ? null
+                  : Text(
+                      '${sim.slotLabel} · ${sim.name}'
+                      '${state.threadSims.containsKey(widget.phone) ? '' : ' (طبق تنظیم کلی)'}',
+                    ),
+            ),
+          ),
+        if (cover)
+          PopupMenuItem(
+            value: 'cover',
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.text_snippet_outlined),
+              title: const Text('متن پوششی'),
+              subtitle: Text(
+                '${_coverLabel(state.coverFor(widget.phone))}'
+                '${state.threadCovers.containsKey(widget.phone) ? '' : ' (طبق تنظیم کلی)'}',
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -127,8 +280,10 @@ class _SecureConversationScreenState extends State<SecureConversationScreen> {
           // the user must act on — a channel that did not come — is a
           // banner below.
           final channel = _channel(state);
+          final menu = _menu(state, encrypted: encrypted);
           return Scaffold(
             appBar: RtlAppBar(
+              actions: [?menu],
               titleWidget: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
@@ -243,6 +398,8 @@ class _SecureConversationScreenState extends State<SecureConversationScreen> {
                   expiry: encrypted ? _expiry : SecureExpiry.none,
                   onExpiry: (e) => setState(() => _expiry = e),
                   onSend: _send,
+                  sim: _sim,
+                  onPickSim: _pickSim,
                 ),
               ],
             ),
@@ -313,6 +470,13 @@ class _Bubble extends StatelessWidget {
 
   /// Label a plain message «رمزنشده» — only where it is the exception.
   final bool markPlain;
+
+  /// The card ours went out on — on a dual-SIM phone, and only when the row
+  /// recorded one that is still in the phone (as the ordinary bubble does:
+  /// unknown is never «سیم ۱»).
+  SimCard? get _sentOn => m.outgoing && m.sim != null && SimService.isMultiSim
+      ? SimService.byId(m.sim)
+      : null;
 
   @override
   Widget build(BuildContext context) {
@@ -399,6 +563,10 @@ class _Bubble extends StatelessWidget {
                       color: fg.withValues(alpha: 0.7),
                     ),
                   ),
+                  if (_sentOn case final sim?) ...[
+                    const SizedBox(width: 6),
+                    _SimTag(sim),
+                  ],
                   if (mine) ...[const SizedBox(width: 6), _StatusMark(m)],
                 ],
               ),
@@ -422,6 +590,13 @@ class _Bubble extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (_sentOn case final sim?)
+                ListTile(
+                  enabled: false,
+                  leading: const Icon(Icons.sim_card_outlined),
+                  title: Text('ارسال‌شده با ${sim.slotLabel}'),
+                  subtitle: Text(sim.name),
+                ),
               if (m.status == SecureMessageStatus.failed)
                 ListTile(
                   leading: const Icon(Icons.refresh),
@@ -454,6 +629,42 @@ class _Bubble extends StatelessWidget {
       case 'local':
         bloc.add(SecureDeleteLocally(m.id));
     }
+  }
+}
+
+/// «سیم ۱» under a sent bubble, in the card's colour — the mentor's
+/// «ارسال‌شده با سیم‌کارت ۱»; the long-press sheet says it in full.
+class _SimTag extends StatelessWidget {
+  const _SimTag(this.sim);
+  final SimCard sim;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final tint = Color.lerp(
+      sim.tint ?? (sim.slotIndex == 0 ? scheme.primary : scheme.tertiary),
+      scheme.onPrimaryContainer,
+      0.35,
+    )!;
+    return Semantics(
+      label: 'ارسال‌شده با ${sim.slotLabel}',
+      excludeSemantics: true,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.sim_card_outlined, size: 12, color: tint),
+          const SizedBox(width: 2),
+          Text(
+            sim.slotLabel,
+            style: TextStyle(
+              fontSize: 11,
+              color: tint,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -556,6 +767,8 @@ class SecureComposer extends StatelessWidget {
     required this.onSend,
     this.hint,
     this.note,
+    this.sim,
+    this.onPickSim,
   });
 
   final TextEditingController controller;
@@ -573,15 +786,14 @@ class SecureComposer extends StatelessWidget {
   /// A small line under the field (a group's SMS cost).
   final String? note;
 
-  /// The name of the card secure messages leave on, or null on a single-SIM
-  /// phone. Read from the one secure bloc both conversation screens share.
-  static String? _simName(BuildContext context) {
-    if (!SimService.isMultiSim) return null;
-    final chosen = context.select<SecureMessagesBloc, int?>(
-      (bloc) => bloc.state.smsSim,
-    );
-    return (SimService.byId(chosen) ?? SimService.defaultFor(SimUse.sms))?.name;
-  }
+  /// The card the next message leaves on (matrix row 5, and the mentor's
+  /// «قبل از ارسال، سیم‌کارت انتخاب‌شده نمایش داده شود»): asked when the
+  /// chip is drawn, so a roster read late still shows. Dual-SIM only —
+  /// [SimChip] draws nothing on a single-SIM phone.
+  final SimCard? Function()? sim;
+
+  /// The chip was tapped: choose the card, as the ordinary composer's does.
+  final VoidCallback? onPickSim;
 
   @override
   Widget build(BuildContext context) {
@@ -642,6 +854,16 @@ class SecureComposer extends StatelessWidget {
                         ),
                     ],
                   ),
+                if (sim != null)
+                  SimAware(
+                    builder: (context, _, _) => SizedBox(
+                      height: 48,
+                      child: Center(
+                        child: SimChip(sim: sim!(), onTap: onPickSim),
+                      ),
+                    ),
+                  ),
+                if (sim != null) const SizedBox(width: 4),
                 Expanded(
                   child: TextField(
                     controller: controller,
@@ -649,8 +871,20 @@ class SecureComposer extends StatelessWidget {
                     maxLines: 5,
                     textInputAction: TextInputAction.newline,
                     // The encrypted text must not end up in a keyboard's
-                    // learned words or clipboard suggestions.
-                    enableSuggestions: false,
+                    // learned words: Android's own incognito flag
+                    // (IME_FLAG_NO_PERSONALIZED_LEARNING), which Gboard and
+                    // the Samsung keyboard honour.
+                    //
+                    // NOT `enableSuggestions: false`. On Android Flutter turns
+                    // that into TYPE_TEXT_VARIATION_VISIBLE_PASSWORD, and a
+                    // keyboard treats the field as a password: the Samsung
+                    // keyboard drops to a Latin-only layout with no emoji key
+                    // (found on the phone), so Persian could not be typed at
+                    // all. A keyboard that types into a password field with
+                    // key events instead of text hits the engine's
+                    // `InputConnectionAdaptor.handleKeyEvent`, which keeps one
+                    // UTF-16 unit of each character — half an emoji, the
+                    // garbled text the mentor reported.
                     autocorrect: false,
                     enableIMEPersonalizedLearning: false,
                     decoration: InputDecoration(
@@ -662,34 +896,11 @@ class SecureComposer extends StatelessWidget {
                 const SizedBox(width: 6),
                 ValueListenableBuilder<TextEditingValue>(
                   valueListenable: controller,
-                  builder: (context, value, _) {
-                    final button = IconButton.filled(
-                      tooltip: 'ارسال',
-                      onPressed: value.text.trim().isEmpty ? null : onSend,
-                      icon: const Icon(Icons.send),
-                    );
-                    final name = _simName(context);
-                    if (name == null) return button;
-                    // Matrix row 5: the card the message leaves on — the
-                    // «ارسال با سیم …» of the «پیام‌های رمز» menu, else the
-                    // default — named under the button. Dual-SIM only.
-                    return ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 72),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          button,
-                          Text(
-                            name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.labelSmall
-                                ?.copyWith(color: scheme.onSurfaceVariant),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
+                  builder: (context, value, _) => IconButton.filled(
+                    tooltip: 'ارسال',
+                    onPressed: value.text.trim().isEmpty ? null : onSend,
+                    icon: const Icon(Icons.send),
+                  ),
                 ),
               ],
             ),

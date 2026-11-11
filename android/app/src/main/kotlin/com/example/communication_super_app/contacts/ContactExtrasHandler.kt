@@ -49,7 +49,7 @@ class ContactExtrasHandler(
          * contact was put there by another app and belongs under
          * «برنامه‌های متصل».
          */
-        private val KNOWN_MIME_TYPES = setOf(
+        internal val KNOWN_MIME_TYPES = setOf(
             ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE,
             ContactsContract.CommonDataKinds.Nickname.CONTENT_ITEM_TYPE,
             ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE,

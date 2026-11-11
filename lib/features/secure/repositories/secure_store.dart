@@ -42,10 +42,13 @@ class SecureStore {
 
   static const String fileName = 'secure.db';
 
-  /// The schema below is version 1: nothing earlier was ever installed
-  /// outside development, so there is nothing to migrate from. The next
-  /// change raises this and adds an `onUpgrade`, as `DatabaseHelper` does.
-  static const int _schemaVersion = 1;
+  /// Version 1 is the schema build 203 shipped with — the first build that
+  /// left development (the mentor's test phone). From here on a change raises
+  /// this and is carried by [_onUpgrade], never by a reinstall: a test phone's
+  /// secure section holds its key and its conversations.
+  ///
+  /// 2 — `sm_messages.sim`: the SIM an outgoing message left on.
+  static const int _schemaVersion = 2;
 
   /// The open database, or null while locked.
   cipher.Database? get database => _db;
@@ -130,6 +133,7 @@ class SecureStore {
       password: "x'$keyHex'",
       version: _schemaVersion,
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
   }
 
@@ -137,6 +141,22 @@ class SecureStore {
   @visibleForTesting
   static Future<void> createSchemaForTest(cipher.Database db) =>
       _onCreate(db, _schemaVersion);
+
+  /// Brings a database of [from] up to the current schema, for the tests.
+  @visibleForTesting
+  static Future<void> upgradeSchemaForTest(cipher.Database db, int from) =>
+      _onUpgrade(db, from, _schemaVersion);
+
+  /// One step per version, in order; each leaves every row it found in place.
+  static Future<void> _onUpgrade(
+    cipher.Database db,
+    int oldVersion,
+    int newVersion,
+  ) async {
+    if (oldVersion < 2) {
+      await db.execute('ALTER TABLE sm_messages ADD COLUMN sim INTEGER');
+    }
+  }
 
   static Future<void> _onCreate(cipher.Database db, int version) async {
     await db.execute('''
@@ -238,7 +258,10 @@ class SecureStore {
     // unencrypted SMS with a hidden contact. `ttl`: a timed message's
     // lifetime in seconds — an outgoing copy goes `ttl` after it was sent,
     // an incoming one `ttl` after it was first shown (`seen_at`); see
-    // `SecureMessageStore.purgeExpired`.
+    // `SecureMessageStore.purgeExpired`. `sim`: the subscription id an
+    // outgoing message was handed to the radio on, for «ارسال با سیم ۱»
+    // under its bubble; null before it went out and on incoming ones.
+    // (Added in version 2 — keep [_onUpgrade] in step.)
     await db.execute('''
       CREATE TABLE sm_messages (
         id TEXT PRIMARY KEY,
@@ -253,7 +276,8 @@ class SecureStore {
         seen_at INTEGER,
         parts INTEGER,
         plain INTEGER NOT NULL DEFAULT 0,
-        ttl INTEGER
+        ttl INTEGER,
+        sim INTEGER
       )
     ''');
     await db.execute(

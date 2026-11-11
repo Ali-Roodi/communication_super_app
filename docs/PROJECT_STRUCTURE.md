@@ -114,9 +114,9 @@ Opened only by `lib/features/secure/` with the vault key; holds encrypted
 conversations, the key bank, hidden contacts and intruder photos. See
 `architecture/editions.md`.
 
-There are **no migrations** yet: both schemas are version 1 and nothing has
-shipped. The first change after a release raises the version and adds an
-`onUpgrade`.
+Build 203 went to the mentor, so a schema change raises the version and adds
+an `onUpgrade` step that keeps every row. `secure.db` is at version 2 (the
+first upgrade, `sm_messages.sim`); the main database is still at version 1.
 
 ## Naming conventions
 

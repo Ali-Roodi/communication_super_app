@@ -128,7 +128,7 @@ Single SQLite database (`communication_app.db`, version 1) managed by `DatabaseH
 - `blocked_numbers.is_spam` / `reported_at` mark «مسدود کردن و گزارش هرزنامه» as opposed to a plain block. One table, not two lists: Google keeps both in the same page and only one of them is a report.
 - `messages.device_sms_id` is the row id of the message inside the device SMS provider (`content://sms`). It is the key of the mirror-sync diff and of global deletes. Null means "no known provider row" (e.g. sent while the app wasn't the default SMS app) — such rows are never deleted by the sync.
 
-**There are no migrations.** Nothing has been released and only the developer has builds, so `DatabaseHelper._createDB` (and `SecureStore._onCreate` for `secure.db`) is the whole schema, at version 1: change the table there and reinstall the test phones. No code may handle "a row / file / setting an earlier build wrote". The first change after a build has actually shipped to someone else raises `AppConstants.databaseVersion` and adds an `onUpgrade`.
+**Schema changes need an upgrade now.** Build 203 went to the mentor, so a phone may hold data an earlier build wrote and "reinstall the test phones" is no longer an answer. `DatabaseHelper._createDB` and `SecureStore._onCreate` stay the whole schema for a fresh install; a change to either also raises its version (`AppConstants.databaseVersion`, `SecureStore._schemaVersion`) and adds a step to its `onUpgrade` that keeps every row, pinned by a test that opens the older schema. `secure.db` is at version 2 (`sm_messages.sim`, see `editions.md`); the main database is still at version 1 and has no `onUpgrade` yet — its first change adds one.
 
 ### Contact search
 

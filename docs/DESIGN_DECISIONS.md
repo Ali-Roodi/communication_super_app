@@ -125,6 +125,9 @@ code handles data an earlier build wrote.
 phones; each was code to read, test and get wrong.
 **Trade-off:** none until the first release — from then on, every change raises
 the version and adds an `onUpgrade`.
+**Since 1405/08/20:** build 203 went to the mentor, so that point has come.
+`secure.db` is at version 2 with the first `onUpgrade` (`sm_messages.sim`); the
+main database is still at version 1, and its first change adds one.
 
 ---
 

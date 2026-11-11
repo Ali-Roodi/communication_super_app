@@ -3,6 +3,9 @@ import 'package:communication_super_app/core/widgets/infinite_scroll.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:communication_super_app/core/sim/sim_card.dart';
+import 'package:communication_super_app/core/sim/sim_service.dart';
+import 'package:communication_super_app/core/sim/widgets/sim_picker.dart';
 import 'package:communication_super_app/core/utils/date_formatter.dart';
 import 'package:communication_super_app/core/utils/persian_utils.dart';
 import 'package:communication_super_app/core/widgets/rtl_app_bar.dart';
@@ -61,6 +64,28 @@ class _SecureGroupScreenState extends State<SecureGroupScreen> {
     );
     _controller.clear();
     setState(() => _expiry = SecureExpiry.none);
+  }
+
+  /// A group's copies go on the «پیام‌های رمز» menu's card (a group is not
+  /// one conversation: its members' own conversations may each have
+  /// another), else the phone's default for SMS.
+  SimCard? _sim() =>
+      SimService.byId(_bloc.state.smsSim) ?? SimService.defaultFor(SimUse.sms);
+
+  /// The chip sets that general card — said so on the sheet.
+  Future<void> _pickSim() async {
+    final chosen = await showSimChoice(
+      context,
+      title: 'ارسال با کدام سیم‌کارت؟',
+      subtitle:
+          'برای گروه‌ها و گفتگوهایی که سیم‌کارت جداگانه ندارند (تنظیم کلی '
+          '«پیام‌های رمز»)',
+      defaultLabel: 'سیم‌کارت پیش‌فرض گوشی',
+      selected: SimService.byId(_bloc.state.smsSim),
+      defaultSelected: SimService.byId(_bloc.state.smsSim) == null,
+    );
+    if (chosen == null || !mounted) return;
+    _bloc.add(SecureSetSim(chosen.sim?.subscriptionId));
   }
 
   Future<void> _confirmDelete(SecureGroup g) async {
@@ -261,6 +286,8 @@ class _SecureGroupScreenState extends State<SecureGroupScreen> {
                     expiry: _expiry,
                     onExpiry: (e) => setState(() => _expiry = e),
                     onSend: _send,
+                    sim: _sim,
+                    onPickSim: _pickSim,
                     hint: 'پیام رمز گروه',
                     note: recipients <= 1
                         ? null

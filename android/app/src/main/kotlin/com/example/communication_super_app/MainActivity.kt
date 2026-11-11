@@ -345,6 +345,15 @@ class MainActivity : FlutterActivity() {
                         )
                         result.success(true)
                     }
+                    // The lock icon's badge: messages still waiting for the
+                    // secure section (a count; read off the main thread).
+                    "pendingSecureMessages" -> {
+                        val context = applicationContext
+                        Thread {
+                            val n = SecureSmsInbox.waitingMessages(context)
+                            runOnUiThread { result.success(n) }
+                        }.start()
+                    }
                     // The secure inbox drained the queue: «پیام رمز جدید» is told.
                     "clearSecureNotification" -> {
                         SecureSmsInbox.cancelNotification(applicationContext)

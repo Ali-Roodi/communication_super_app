@@ -84,10 +84,12 @@ adb logcat -s flutter | grep -E '\[caret\]|\[redial\]'      # `[redial]` prints 
   stripping for thread IDs / matching keys.
 
 ### Database changes
-1. Nothing has shipped, so there are **no migrations**: change the table in
-   `DatabaseHelper._createDB` (or `SecureStore._onCreate` for `secure.db`) and
-   reinstall the test phones. The first change after a release raises
-   `AppConstants.databaseVersion` and adds an `onUpgrade`.
+1. Build 203 went to the mentor, so a schema change needs an **upgrade**:
+   change the table in `DatabaseHelper._createDB` (or `SecureStore._onCreate`
+   for `secure.db`), raise the version (`AppConstants.databaseVersion` /
+   `SecureStore._schemaVersion`) and add an `onUpgrade` step that keeps every
+   row, with a test that opens the older schema. `secure.db` is at version 2;
+   the main database is still at version 1 with no `onUpgrade`.
 2. Nothing secret goes into the main database — Kotlin opens it with no key.
 3. All `messages` batch inserts use `ConflictAlgorithm.ignore`.
 

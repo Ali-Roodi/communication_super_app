@@ -80,6 +80,12 @@ class ContactSelectorScreen extends StatefulWidget {
   /// or an `sms:?body=…` intent that named no recipient.
   final String? initialText;
 
+  /// Asks which number of a contact with several even when one is the
+  /// contact's default — the encrypted pickers («گفتگوی رمز», «گروه رمز»),
+  /// where the number decides who the message reaches. See
+  /// `pickContactNumber`.
+  final bool alwaysAskNumber;
+
   const ContactSelectorScreen({
     super.key,
     this.pickOnly = false,
@@ -88,6 +94,7 @@ class ContactSelectorScreen extends StatefulWidget {
     this.excludeNormalized = const {},
     this.startInGroupMode = false,
     this.initialText,
+    this.alwaysAskNumber = false,
   });
 
   @override
@@ -1056,6 +1063,7 @@ class _ContactSelectorScreenState extends State<ContactSelectorScreen>
             contactId: contact.id,
             numbers: offer,
             title: 'پیام به ${contact.name}',
+            alwaysAsk: widget.alwaysAskNumber,
           );
     if (chosen == null || !mounted) return;
     if (_selecting) {

@@ -6,10 +6,12 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:communication_super_app/core/constants/app_constants.dart';
 import 'package:communication_super_app/core/services/deep_link_service.dart';
+import 'package:communication_super_app/features/contacts/repositories/contact_repository.dart';
 import 'package:communication_super_app/features/messages/services/native_sms_service.dart';
 import 'package:communication_super_app/features/secure/bloc/secure_session_bloc.dart';
 import 'package:communication_super_app/features/secure/repositories/key_bank_repository.dart';
 import 'package:communication_super_app/features/secure/repositories/secure_message_store.dart';
+import 'package:communication_super_app/features/secure/services/secure_unread_badge.dart';
 import 'package:communication_super_app/features/secure/services/sms_crypto_service.dart';
 
 import '../services/secure_identities.dart';
@@ -238,6 +240,21 @@ class SecureSetSim extends SecureMessagesEvent {
   final int? subscriptionId;
 }
 
+/// One conversation's own SIM; null hands it back to [SecureSetSim]'s.
+class SecureSetThreadSim extends SecureMessagesEvent {
+  const SecureSetThreadSim(this.phone, this.subscriptionId);
+  final String phone;
+  final int? subscriptionId;
+}
+
+/// One conversation's own «متن پوششی» (`off`, `fa`, `en`); null hands it
+/// back to [SecureSetCover]'s.
+class SecureSetThreadCover extends SecureMessagesEvent {
+  const SecureSetThreadCover(this.phone, this.mode);
+  final String phone;
+  final String? mode;
+}
+
 class SecureSetReceipts extends SecureMessagesEvent {
   const SecureSetReceipts(this.on);
   final bool on;
@@ -272,6 +289,8 @@ class SecureMessagesState extends Equatable {
     this.sendsReceipts = true,
     this.cover,
     this.smsSim,
+    this.threadSims = const {},
+    this.threadCovers = const {},
     this.groups = const [],
     this.names = const {},
     this.openGroupId,
@@ -322,9 +341,28 @@ class SecureMessagesState extends Equatable {
   /// The SIM encrypted SMS go out on; null = the phone's default.
   final int? smsSim;
 
+  /// Conversations with a SIM / «متن پوششی» of their own, over [smsSim] and
+  /// [cover] (see [SecureMessenger.threadSimPrefix]).
+  final Map<String, int> threadSims;
+  final Map<String, String> threadCovers;
+
+  /// The card [phone]'s next SMS goes out on, as the messenger picks it
+  /// (null [phone]: a group's); null = the phone's default SMS SIM.
+  int? simFor(String? phone) =>
+      (phone == null ? null : threadSims[phone]) ?? smsSim;
+
+  /// [phone]'s «متن پوششی»: `fa`, `en` or null (off).
+  String? coverFor(String phone) {
+    final own = threadCovers[phone];
+    if (own == null) return cover;
+    return own == 'fa' || own == 'en' ? own : null;
+  }
+
   final List<SecureGroup> groups;
 
-  /// Number → name of every conversation, for group senders and members.
+  /// Number → name of every conversation, as the screens show it: the
+  /// hidden phonebook's, else the address book's, else the one it was
+  /// started under, else the number ([SecureMessagesBloc._displayNames]).
   final Map<String, String> names;
 
   /// The group on screen, and its messages.
@@ -383,6 +421,8 @@ class SecureMessagesState extends Equatable {
     bool clearCover = false,
     int? smsSim,
     bool clearSmsSim = false,
+    Map<String, int>? threadSims,
+    Map<String, String>? threadCovers,
     List<SecureGroup>? groups,
     Map<String, String>? names,
     String? openGroupId,
@@ -410,6 +450,8 @@ class SecureMessagesState extends Equatable {
     sendsReceipts: sendsReceipts ?? this.sendsReceipts,
     cover: clearCover ? null : cover ?? this.cover,
     smsSim: clearSmsSim ? null : smsSim ?? this.smsSim,
+    threadSims: threadSims ?? this.threadSims,
+    threadCovers: threadCovers ?? this.threadCovers,
     groups: groups ?? this.groups,
     names: names ?? this.names,
     openGroupId: clearOpenGroup ? null : (openGroupId ?? this.openGroupId),
@@ -442,6 +484,8 @@ class SecureMessagesState extends Equatable {
     sendsReceipts,
     cover,
     smsSim,
+    threadSims,
+    threadCovers,
     groups,
     names,
     openGroupId,
@@ -471,10 +515,16 @@ class SecureMessagesBloc
     Stream<SmsStatusEvent>? statuses,
     Future<void> Function()? clearNotification,
     SmsCryptoService crypto = const SmsCryptoService(),
-  }) : _store = store ?? SecureMessageStore(),
+    Future<String?> Function(String number)? contactName,
+    Listenable? addressBook,
+    Future<void> Function(int unread)? onUnread,
+  }) : _onUnread = onUnread ?? SecureUnreadBadge.remember,
+       _store = store ?? SecureMessageStore(),
        _groups = groups ?? SecureGroupStore(),
        _hidden = hidden ?? HiddenContactsRepository(),
        _crypto = crypto,
+       _contactName = contactName ?? _addressBookName,
+       _addressBook = addressBook ?? ContactRepository.revision,
        _clearNotification =
            clearNotification ??
            DeepLinkService.instance.clearSecureNotification,
@@ -605,6 +655,18 @@ class SecureMessagesBloc
       await _guard(() => _messenger.setCoverMode(e.mode));
       emit(state.copyWith(cover: e.mode, clearCover: e.mode == null));
     });
+    on<SecureSetThreadSim>(
+      (e, emit) => _guard(() async {
+        await _messenger.setThreadSim(e.phone, e.subscriptionId);
+        emit(state.copyWith(threadSims: await _messenger.threadSims()));
+      }),
+    );
+    on<SecureSetThreadCover>(
+      (e, emit) => _guard(() async {
+        await _messenger.setThreadCover(e.phone, e.mode);
+        emit(state.copyWith(threadCovers: await _messenger.threadCovers()));
+      }),
+    );
     on<SecureSetReceipts>((e, emit) async {
       await _guard(() => _messenger.setSendsSeenReceipts(e.on));
       emit(state.copyWith(sendsReceipts: e.on));
@@ -641,7 +703,48 @@ class SecureMessagesBloc
       ),
       _messenger.changes.listen((p) => add(_Changed(p))),
     ];
+    _addressBook.addListener(_onAddressBook);
     if (session.state.isUnlocked) add(const _SectionChanged(true));
+  }
+
+  /// A contact renamed, added or deleted renames the rows that show it.
+  void _onAddressBook() {
+    if (_open && !isClosed) add(const _Changed(null));
+  }
+
+  /// [number]'s name in the address book, or null — the same lookup the
+  /// ordinary inbox and «اخیر» name their rows with. Read only, and only
+  /// while the section is open; nothing is written anywhere.
+  static Future<String?> _addressBookName(String number) async {
+    try {
+      final name = (await ContactRepository().getContactByPhoneNumber(
+        number,
+      ))?.name.trim();
+      return name == null || name.isEmpty ? null : name;
+    } catch (e) {
+      // No contacts permission, or the provider failed: the number will do.
+      debugPrint('Secure messaging: address book ${e.runtimeType}');
+      return null;
+    }
+  }
+
+  /// What every row and header shows for each conversation in [stored]
+  /// (thread → the name it was stored under): the hidden phonebook's name,
+  /// else the address book's — current, not as it was when the conversation
+  /// began — else the stored one, else the number. The mentor's report was a
+  /// conversation started by typing a number staying a number for ever,
+  /// though the ordinary inbox named it.
+  Future<Map<String, String>> _displayNames(Map<String, String> stored) async {
+    final hidden = await _hidden.names();
+    final shown = <String, String>{};
+    for (final MapEntry(key: thread, value: name) in stored.entries) {
+      final number = SecureMessenger.numberOf(thread);
+      shown[thread] =
+          hidden[number] ??
+          await _contactName(number) ??
+          (name.trim().isEmpty ? number : name);
+    }
+    return shown;
   }
 
   final SecureMessageStore _store;
@@ -649,6 +752,12 @@ class SecureMessagesBloc
   final HiddenContactsRepository _hidden;
   final SmsCryptoService _crypto;
   final Future<void> Function() _clearNotification;
+  final Future<String?> Function(String number) _contactName;
+  final Listenable _addressBook;
+
+  /// Told the unread count after every reload, for the lock icon's badge
+  /// while the section is shut ([SecureUnreadBadge]).
+  final Future<void> Function(int unread) _onUnread;
   late final SecureMessenger _messenger;
   late final SecureIdentities _identities;
   late final List<StreamSubscription<Object?>> _subs;
@@ -767,12 +876,17 @@ class SecureMessagesBloc
       final rows = phone == null
           ? null
           : await _store.messages(phone, limit: _openWindow + 1);
+      final names = await _displayNames(await _store.names());
       emit(
         state.copyWith(
           status: SecureMessagesStatus.ready,
-          conversations: conversations,
+          conversations: [
+            for (final c in conversations) c.named(names[c.phone] ?? c.name),
+          ],
           groups: groups,
-          names: await _store.names(),
+          names: names,
+          threadSims: await _messenger.threadSims(),
+          threadCovers: await _messenger.threadCovers(),
           pins: pins,
           openGroupMessages: groupRows == null
               ? null
@@ -793,6 +907,7 @@ class SecureMessagesBloc
         ),
       );
       await _armExpiry();
+      unawaited(_onUnread(state.totalUnread));
     } on KeyBankLockedException {
       emit(const SecureMessagesState());
     }
@@ -894,9 +1009,13 @@ class SecureMessagesBloc
     _identities.reset();
     try {
       final phone = await _crypto.canonicalPhone(e.number);
+      // A typed number is named from the address book, as a picked one is.
       final peer = phone == null
           ? null
-          : await _identities.forNumber(phone, name: e.name);
+          : await _identities.forNumber(
+              phone,
+              name: e.name ?? await _contactName(phone),
+            );
       emit(state.copyWith(lookup: [?peer]));
     } on KeyBankLockedException {
       emit(const SecureMessagesState());
@@ -946,7 +1065,7 @@ class SecureMessagesBloc
             await _identities.ownCert();
         if (own == null) continue;
         byPhone[c.phone] = SecurePeer(
-          name: c.name,
+          name: state.names[c.phone] ?? c.name,
           phone: c.phone,
           keyId: c.peerKeyId!,
           own: own,
@@ -1051,6 +1170,7 @@ class SecureMessagesBloc
 
   @override
   Future<void> close() async {
+    _addressBook.removeListener(_onAddressBook);
     _expiry?.cancel();
     for (final s in _subs) {
       await s.cancel();
